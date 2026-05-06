@@ -4,17 +4,21 @@ import bcrypt from 'bcryptjs'
 const prisma = new PrismaClient()
 
 async function main() {
-  const existing = await prisma.user.findUnique({ where: { email: 'admin@digitaldent.cl' } })
+  const adminEmail = process.env.SEED_ADMIN_EMAIL ?? 'admin@digitaldent.cl'
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD
+  if (!adminPassword) { console.error('ERROR: define SEED_ADMIN_PASSWORD en .env antes de correr el seed'); process.exit(1) }
+
+  const existing = await prisma.user.findUnique({ where: { email: adminEmail } })
   if (!existing) {
     await prisma.user.create({
       data: {
         name: 'Administrador',
-        email: 'admin@digitaldent.cl',
-        password: await bcrypt.hash('DigitalDent2024!', 10),
+        email: adminEmail,
+        password: await bcrypt.hash(adminPassword, 10),
         role: 'admin',
       },
     })
-    console.log('Usuario admin creado: admin@digitaldent.cl / DigitalDent2024!')
+    console.log(`Usuario admin creado: ${adminEmail}`)
   } else {
     console.log('Usuario admin ya existe')
   }
