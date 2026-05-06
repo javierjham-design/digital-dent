@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-primary: #0891b2;
+  --color-primary-dark: #0e7490;
+  --color-sidebar: #0f172a;
+  --color-sidebar-hover: #1e293b;
+  --color-background: #f8fafc;
+  --color-surface: #ffffff;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #f8fafc;
+  color: #0f172a;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+.fc .fc-toolbar-title { font-size: 1rem !important; font-weight: 600 !important; }
+.fc .fc-button { background-color: #0891b2 !important; border-color: #0891b2 !important; font-size: 0.78rem !important; }
+.fc .fc-button:hover { background-color: #0e7490 !important; border-color: #0e7490 !important; }
+.fc .fc-event { border-radius: 4px !important; font-size: 0.72rem !important; padding: 2px 4px !important; cursor: pointer; }
+.fc-theme-standard td, .fc-theme-standard th { border-color: #e2e8f0 !important; }
+.fc .fc-timegrid-slot { height: 2.5rem !important; }
+.fc .fc-col-header-cell { background: #f8fafc; }
+
+@media print {
+  @page { margin: 1.5cm; size: A4 portrait; }
+  body { background: white !important; font-size: 11pt; }
+  nav, aside, header, .print\:hidden, button:not(.print-show) { display: none !important; }
+  #print-area { max-width: 100% !important; padding: 0 !important; margin: 0 !important; }
+  table { border-collapse: collapse; width: 100%; }
+  thead { background-color: #0891b2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  tr:nth-child(even) td { background-color: #f8fafc !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .bg-cyan-600 { background-color: #0891b2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  a { text-decoration: none; color: inherit; }
+  .rounded-xl, .rounded-2xl, .rounded-lg { border-radius: 6px !important; }
+}

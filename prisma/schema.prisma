@@ -1,0 +1,166 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  password      String
+  role          String    @default("staff") // admin, doctor, staff
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  citas         Cita[]    @relation("DoctorCitas")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Paciente {
+  id              String    @id @default(cuid())
+  rut             String    @unique
+  nombre          String
+  apellido        String
+  fechaNacimiento DateTime?
+  genero          String?
+  telefono        String?
+  email           String?
+  direccion       String?
+  prevision       String?   // FONASA, ISAPRE, PARTICULAR
+  alergias        String?
+  antecedentes    String?
+  observaciones   String?
+  activo          Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  citas           Cita[]
+  fichaClinica    FichaClinica?
+  presupuestos    Presupuesto[]
+  cobros          Cobro[]
+}
+
+model Cita {
+  id           String    @id @default(cuid())
+  pacienteId   String
+  doctorId     String
+  fecha        DateTime
+  duracion     Int       @default(30) // minutos
+  estado       String    @default("PENDIENTE") // PENDIENTE, CONFIRMADA, ATENDIDA, CANCELADA, NO_ASISTIO
+  tipo         String?   // CONSULTA, CONTROL, TRATAMIENTO, URGENCIA
+  notas        String?
+  sala         String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  paciente     Paciente  @relation(fields: [pacienteId], references: [id])
+  doctor       User      @relation("DoctorCitas", fields: [doctorId], references: [id])
+}
+
+model FichaClinica {
+  id              String        @id @default(cuid())
+  pacienteId      String        @unique
+  grupoSanguineo  String?
+  fumador         Boolean       @default(false)
+  embarazada      Boolean       @default(false)
+  diabetico       Boolean       @default(false)
+  hipertenso      Boolean       @default(false)
+  cardiopatia     Boolean       @default(false)
+  medicamentos    String?
+  notasClinicas   String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  paciente        Paciente      @relation(fields: [pacienteId], references: [id])
+  tratamientos    Tratamiento[]
+  odontograma     Diente[]
+}
+
+model Diente {
+  id             String        @id @default(cuid())
+  fichaId        String
+  numero         Int           // 11-48 numeración FDI
+  cara           String?       // VESTIBULAR, LINGUAL, MESIAL, DISTAL, OCLUSAL
+  estado         String        @default("SANO") // SANO, CARIES, OBTURADO, AUSENTE, CORONA, ENDODONCIA, EXTRACCION
+  color          String?
+  notas          String?
+  ficha          FichaClinica  @relation(fields: [fichaId], references: [id])
+
+  @@unique([fichaId, numero, cara])
+}
+
+model Prestacion {
+  id           String        @id @default(cuid())
+  nombre       String
+  descripcion  String?
+  precio       Float
+  duracion     Int           @default(30)
+  categoria    String?
+  activo       Boolean       @default(true)
+  tratamientos Tratamiento[]
+  itemsPresupuesto ItemPresupuesto[]
+}
+
+model Tratamiento {
+  id           String       @id @default(cuid())
+  fichaId      String
+  prestacionId String
+  diente       Int?
+  cara         String?
+  estado       String       @default("PLANIFICADO") // PLANIFICADO, EN_PROGRESO, COMPLETADO
+  precio       Float
+  notas        String?
+  fecha        DateTime     @default(now())
+  ficha        FichaClinica @relation(fields: [fichaId], references: [id])
+  prestacion   Prestacion   @relation(fields: [prestacionId], references: [id])
+}
+
+model Presupuesto {
+  id           String            @id @default(cuid())
+  pacienteId   String
+  numero       Int               @unique
+  estado       String            @default("PENDIENTE") // PENDIENTE, APROBADO, RECHAZADO, COMPLETADO
+  total        Float             @default(0)
+  notas        String?
+  vigencia     DateTime?
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  paciente     Paciente          @relation(fields: [pacienteId], references: [id])
+  items        ItemPresupuesto[]
+}
+
+model ItemPresupuesto {
+  id            String      @id @default(cuid())
+  presupuestoId String
+  prestacionId  String
+  diente        Int?
+  cantidad      Int         @default(1)
+  precioUnitario Float
+  descuento     Float       @default(0)
+  subtotal      Float
+  presupuesto   Presupuesto @relation(fields: [presupuestoId], references: [id])
+  prestacion    Prestacion  @relation(fields: [prestacionId], references: [id])
+}
+
+model Cobro {
+  id           String    @id @default(cuid())
+  pacienteId   String
+  numero       Int       @unique
+  concepto     String
+  monto        Float
+  estado       String    @default("PENDIENTE") // PENDIENTE, PAGADO, ANULADO
+  metodoPago   String?   // EFECTIVO, TRANSFERENCIA, DEBITO, CREDITO
+  fechaPago    DateTime?
+  notas        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  paciente     Paciente  @relation(fields: [pacienteId], references: [id])
+}
