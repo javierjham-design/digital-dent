@@ -13,10 +13,17 @@ model User {
   email         String    @unique
   password      String
   role          String    @default("staff") // admin, doctor, staff
+  rut           String?   @unique
+  especialidad  String?
+  telefono      String?
+  activo        Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   sessions      Session[]
-  citas         Cita[]    @relation("DoctorCitas")
+  citas         Cita[]         @relation("DoctorCitas")
+  tratamientos  Tratamiento[]  @relation("DoctorTratamientos")
+  contratos     Contrato[]
+  liquidaciones Liquidacion[]
 }
 
 model Session {
@@ -37,7 +44,7 @@ model Paciente {
   telefono        String?
   email           String?
   direccion       String?
-  prevision       String?   // FONASA, ISAPRE, PARTICULAR
+  prevision       String?
   alergias        String?
   antecedentes    String?
   observaciones   String?
@@ -55,9 +62,9 @@ model Cita {
   pacienteId   String
   doctorId     String
   fecha        DateTime
-  duracion     Int       @default(30) // minutos
-  estado       String    @default("PENDIENTE") // PENDIENTE, CONFIRMADA, ATENDIDA, CANCELADA, NO_ASISTIO
-  tipo         String?   // CONSULTA, CONTROL, TRATAMIENTO, URGENCIA
+  duracion     Int       @default(30)
+  estado       String    @default("PENDIENTE")
+  tipo         String?
   notas        String?
   sala         String?
   createdAt    DateTime  @default(now())
@@ -87,9 +94,9 @@ model FichaClinica {
 model Diente {
   id             String        @id @default(cuid())
   fichaId        String
-  numero         Int           // 11-48 numeración FDI
-  cara           String?       // VESTIBULAR, LINGUAL, MESIAL, DISTAL, OCLUSAL
-  estado         String        @default("SANO") // SANO, CARIES, OBTURADO, AUSENTE, CORONA, ENDODONCIA, EXTRACCION
+  numero         Int
+  cara           String?
+  estado         String        @default("SANO")
   color          String?
   notas          String?
   ficha          FichaClinica  @relation(fields: [fichaId], references: [id])
@@ -98,14 +105,14 @@ model Diente {
 }
 
 model Prestacion {
-  id           String        @id @default(cuid())
-  nombre       String
-  descripcion  String?
-  precio       Float
-  duracion     Int           @default(30)
-  categoria    String?
-  activo       Boolean       @default(true)
-  tratamientos Tratamiento[]
+  id               String            @id @default(cuid())
+  nombre           String
+  descripcion      String?
+  precio           Float
+  duracion         Int               @default(30)
+  categoria        String?
+  activo           Boolean           @default(true)
+  tratamientos     Tratamiento[]
   itemsPresupuesto ItemPresupuesto[]
 }
 
@@ -113,21 +120,25 @@ model Tratamiento {
   id           String       @id @default(cuid())
   fichaId      String
   prestacionId String
+  doctorId     String?
   diente       Int?
   cara         String?
-  estado       String       @default("PLANIFICADO") // PLANIFICADO, EN_PROGRESO, COMPLETADO
+  estado       String       @default("PLANIFICADO")
   precio       Float
   notas        String?
   fecha        DateTime     @default(now())
-  ficha        FichaClinica @relation(fields: [fichaId], references: [id])
-  prestacion   Prestacion   @relation(fields: [prestacionId], references: [id])
+  fechaCompletado DateTime?
+  ficha        FichaClinica    @relation(fields: [fichaId], references: [id])
+  prestacion   Prestacion      @relation(fields: [prestacionId], references: [id])
+  doctor       User?           @relation("DoctorTratamientos", fields: [doctorId], references: [id])
+  liquidacionItems LiquidacionItem[]
 }
 
 model Presupuesto {
   id           String            @id @default(cuid())
   pacienteId   String
   numero       Int               @unique
-  estado       String            @default("PENDIENTE") // PENDIENTE, APROBADO, RECHAZADO, COMPLETADO
+  estado       String            @default("PENDIENTE")
   total        Float             @default(0)
   notas        String?
   vigencia     DateTime?
@@ -138,16 +149,16 @@ model Presupuesto {
 }
 
 model ItemPresupuesto {
-  id            String      @id @default(cuid())
-  presupuestoId String
-  prestacionId  String
-  diente        Int?
-  cantidad      Int         @default(1)
+  id             String      @id @default(cuid())
+  presupuestoId  String
+  prestacionId   String
+  diente         Int?
+  cantidad       Int         @default(1)
   precioUnitario Float
-  descuento     Float       @default(0)
-  subtotal      Float
-  presupuesto   Presupuesto @relation(fields: [presupuestoId], references: [id])
-  prestacion    Prestacion  @relation(fields: [prestacionId], references: [id])
+  descuento      Float       @default(0)
+  subtotal       Float
+  presupuesto    Presupuesto @relation(fields: [presupuestoId], references: [id])
+  prestacion     Prestacion  @relation(fields: [prestacionId], references: [id])
 }
 
 model Cobro {
@@ -156,11 +167,60 @@ model Cobro {
   numero       Int       @unique
   concepto     String
   monto        Float
-  estado       String    @default("PENDIENTE") // PENDIENTE, PAGADO, ANULADO
-  metodoPago   String?   // EFECTIVO, TRANSFERENCIA, DEBITO, CREDITO
+  estado       String    @default("PENDIENTE")
+  metodoPago   String?
   fechaPago    DateTime?
   notas        String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   paciente     Paciente  @relation(fields: [pacienteId], references: [id])
+}
+
+model Contrato {
+  id           String        @id @default(cuid())
+  doctorId     String
+  tipo         String        // PORCENTAJE | MONTO_FIJO
+  porcentaje   Float?        // ej: 40 = 40%
+  montoFijo    Float?        // monto fijo por tratamiento completado
+  descripcion  String?
+  fechaInicio  DateTime      @default(now())
+  fechaFin     DateTime?
+  activo       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  doctor       User          @relation(fields: [doctorId], references: [id])
+  liquidaciones Liquidacion[]
+}
+
+model Liquidacion {
+  id             String            @id @default(cuid())
+  doctorId       String
+  contratoId     String
+  periodo        String            // "2025-01" (YYYY-MM)
+  totalBruto     Float             @default(0)
+  totalLiquidado Float             @default(0)
+  estado         String            @default("BORRADOR") // BORRADOR | APROBADA | PAGADA
+  notas          String?
+  fechaPago      DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  doctor         User              @relation(fields: [doctorId], references: [id])
+  contrato       Contrato          @relation(fields: [contratoId], references: [id])
+  items          LiquidacionItem[]
+}
+
+model LiquidacionItem {
+  id                 String      @id @default(cuid())
+  liquidacionId      String
+  tratamientoId      String
+  prestacionNombre   String
+  pacienteNombre     String
+  diente             String?
+  fechaCompletado    DateTime
+  precioTratamiento  Float
+  porcentajeAplicado Float?
+  montoFijoAplicado  Float?
+  montoLiquidado     Float
+  liquidacion        Liquidacion  @relation(fields: [liquidacionId], references: [id])
+  tratamiento        Tratamiento  @relation(fields: [tratamientoId], references: [id])
 }
