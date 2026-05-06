@@ -44,7 +44,7 @@ interface Horario {
   horaInicio: string; horaFin: string; activo: boolean
 }
 
-interface ClinicConfig { clinica: string; direccion: string; ciudad: string }
+interface ClinicConfig { clinica: string; direccion: string; ciudad: string; mensajeWA: string }
 
 interface Props {
   citas: Cita[]
@@ -76,14 +76,16 @@ const DIAS_ES  = ['domingo','lunes','martes','mi√©rcoles','jueves','viernes','s√
 const MESES_ES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
 
 function buildWAMessage(cita: Cita, cfg: ClinicConfig): string {
-  const d    = new Date(cita.start)
-  const dia  = DIAS_ES[d.getDay()]
-  const num  = d.getDate()
-  const mes  = MESES_ES[d.getMonth()]
-  const hora = formatTime(cita.start)
+  const d      = new Date(cita.start)
+  const fecha  = `${DIAS_ES[d.getDay()]} ${d.getDate()} de ${MESES_ES[d.getMonth()]} a las ${formatTime(cita.start)} hrs`
   const nombre = cita.pacienteNombre.split(' ')[0]
   const lugar  = [cfg.direccion, cfg.ciudad].filter(Boolean).join(', ')
-  return `Hola ${nombre}, te escribimos de *${cfg.clinica}* para confirmar tu cita el ${dia} ${num} de ${mes} a las ${hora} hrs${lugar ? ` en ${lugar}` : ''}.`
+  const tmpl   = cfg.mensajeWA || 'Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.'
+  return tmpl
+    .replace(/{nombre}/g,    nombre)
+    .replace(/{clinica}/g,   cfg.clinica)
+    .replace(/{fecha}/g,     fecha)
+    .replace(/{direccion}/g, lugar)
 }
 
 function buildWAUrl(phone: string, message: string): string {

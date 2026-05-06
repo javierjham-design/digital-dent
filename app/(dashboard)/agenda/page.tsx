@@ -59,7 +59,7 @@ export default async function AgendaPage() {
       doctors={doctors}
       pacientes={pacientes}
       horarios={horarios}
-      config={{ clinica: config.clinica, direccion: config.direccion, ciudad: config.ciudad }}
+      config={{ clinica: config.clinica, direccion: config.direccion, ciudad: config.ciudad, mensajeWA: config.mensajeWA }}
     />
   )
 }

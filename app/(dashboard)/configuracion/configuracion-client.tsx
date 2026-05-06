@@ -9,6 +9,7 @@ interface Config {
   telefono: string
   email: string
   ciudad: string
+  mensajeWA: string
 }
 
 interface MedioPago {
@@ -18,8 +19,10 @@ interface MedioPago {
   activo: boolean
 }
 
-const WA_PREVIEW_NOMBRE = 'Juan Pérez'
+const WA_PREVIEW_NOMBRE = 'Juan'
 const WA_PREVIEW_FECHA  = 'martes 10 de junio a las 10:30 hrs'
+
+const DEFAULT_MENSAJE = 'Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.'
 
 export function ConfiguracionClient({
   config: init,
@@ -97,7 +100,12 @@ export function ConfiguracionClient({
     setMedios(p => p.map(x => x.id === updated.id ? updated : x))
   }
 
-  const previewMsg = `Hola ${WA_PREVIEW_NOMBRE}, te escribimos de *${form.clinica || 'Clínica'}* para confirmar tu cita el ${WA_PREVIEW_FECHA} en ${form.direccion || 'nuestra dirección'}${form.ciudad ? `, ${form.ciudad}` : ''}.`
+  const lugar      = [form.direccion, form.ciudad].filter(Boolean).join(', ') || 'nuestra dirección'
+  const previewMsg = (form.mensajeWA || DEFAULT_MENSAJE)
+    .replace(/{nombre}/g,    WA_PREVIEW_NOMBRE)
+    .replace(/{clinica}/g,   form.clinica || 'Clínica')
+    .replace(/{fecha}/g,     WA_PREVIEW_FECHA)
+    .replace(/{direccion}/g, lugar)
 
   return (
     <div className="p-8 max-w-3xl space-y-8">
@@ -162,10 +170,35 @@ export function ConfiguracionClient({
             </svg>
             Previsualización mensaje WhatsApp
           </h2>
-          <p className="text-xs text-slate-500">Así se verá el mensaje que se enviará al paciente al confirmar una cita:</p>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Mensaje de confirmación</label>
+            <textarea
+              rows={3}
+              value={form.mensajeWA}
+              onChange={e => setForm(f => ({ ...f, mensajeWA: e.target.value }))}
+              placeholder={DEFAULT_MENSAJE}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-none"
+            />
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              <span className="text-xs text-slate-400">Variables disponibles:</span>
+              {['{nombre}', '{clinica}', '{fecha}', '{direccion}'].map(v => (
+                <button key={v} type="button"
+                  onClick={() => setForm(f => ({ ...f, mensajeWA: (f.mensajeWA || DEFAULT_MENSAJE) + v }))}
+                  className="text-xs font-mono bg-slate-100 hover:bg-cyan-100 text-slate-600 hover:text-cyan-700 px-2 py-0.5 rounded border border-slate-200 transition-colors">
+                  {v}
+                </button>
+              ))}
+              <button type="button"
+                onClick={() => setForm(f => ({ ...f, mensajeWA: DEFAULT_MENSAJE }))}
+                className="text-xs text-slate-400 hover:text-slate-600 ml-2 underline">
+                Restaurar por defecto
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500 -mt-1">Vista previa con datos de ejemplo:</p>
           <div className="bg-slate-100 rounded-2xl p-4">
             <div className="flex justify-end">
-              <div className="bg-emerald-500 text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-xs shadow text-sm leading-relaxed">
+              <div className="bg-emerald-500 text-white rounded-2xl rounded-tr-sm px-4 py-3 max-w-xs shadow text-sm leading-relaxed whitespace-pre-wrap">
                 {previewMsg}
               </div>
             </div>

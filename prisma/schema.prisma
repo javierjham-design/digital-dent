@@ -95,6 +95,7 @@ model Configuracion {
   telefono  String @default("")
   email     String @default("")
   ciudad    String @default("Temuco")
+  mensajeWA String @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
 }
 
 model FichaClinica {
