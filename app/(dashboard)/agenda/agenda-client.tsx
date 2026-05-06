@@ -7,7 +7,7 @@ import dayGridPlugin from '@fullcalendar/daygrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import esLocale from '@fullcalendar/core/locales/es'
 import type { EventClickArg } from '@fullcalendar/core'
-import { formatRUT, formatDate, cn } from '@/lib/utils'
+import { formatRUT, cn } from '@/lib/utils'
 
 const ESTADO_CONFIG: Record<string, { label: string; color: string; bg: string; text: string }> = {
   PENDIENTE:  { label: 'Pendiente',  color: '#f59e0b', bg: '#fef3c7', text: '#92400e' },
@@ -23,9 +23,8 @@ const MOTIVOS = [
   'Implante', 'Blanqueamiento', 'Urgencia', 'Otro',
 ]
 
-const DURACIONES = [15, 30, 45, 60, 90]
-
-const PREVISIONES = ['Sin convenio', 'Fonasa A', 'Fonasa B', 'Fonasa C', 'Fonasa D', 'Isapre', 'Particular']
+const ALL_DURACIONES = [15, 30, 45, 60, 75, 90, 120, 180]
+const PREVISIONES    = ['Sin convenio', 'Fonasa A', 'Fonasa B', 'Fonasa C', 'Fonasa D', 'Isapre', 'Particular']
 
 interface Cita {
   id: string; pacienteNombre: string; pacienteRut: string
@@ -34,14 +33,25 @@ interface Cita {
   start: string; end: string; estado: string; tipo: string; notas: string
 }
 
+interface Horario {
+  id: string; doctorId: string; diaSemana: number
+  horaInicio: string; horaFin: string; activo: boolean
+}
+
 interface Props {
   citas: Cita[]
   doctors: { id: string; name: string | null; email: string }[]
   pacientes: { id: string; rut: string; nombre: string; apellido: string; telefono: string | null }[]
+  horarios: Horario[]
 }
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+function toMinutes(hhmm: string) {
+  const [h, m] = hhmm.split(':').map(Number)
+  return h * 60 + m
 }
 
 function EstadoBadge({ estado }: { estado: string }) {
@@ -52,18 +62,17 @@ function EstadoBadge({ estado }: { estado: string }) {
   )
 }
 
-export function AgendaClient({ citas, doctors, pacientes }: Props) {
+export function AgendaClient({ citas, doctors, pacientes, horarios }: Props) {
   const calRef = useRef<FullCalendar>(null)
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(Object.keys(ESTADO_CONFIG)))
   const [doctorFilter, setDoctorFilter] = useState('todos')
   const [selectedCita, setSelectedCita] = useState<Cita | null>(null)
   const [updating, setUpdating] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const [saving,   setSaving]   = useState(false)
 
-  // ── New cita state ──────────────────────────────────────────────────────
   const [darCita, setDarCita] = useState<{
     step: 1 | 2
-    slotISO: string           // clicked slot datetime ISO
+    slotISO: string
     tipo: string
     duracion: number
     doctorId: string
@@ -74,36 +83,74 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
     nuevo: { nombre: string; apellido: string; rut: string; extranjero: boolean; email: string; prevision: string; telefono: string }
   } | null>(null)
 
-  // ── Filtered events ─────────────────────────────────────────────────────
+  // ── Compute available durations for a clicked slot ───────────────────────
+  function getAvailableDuraciones(slotISO: string, doctorId: string): number[] {
+    const slot       = new Date(slotISO)
+    const dayOfWeek  = slot.getDay()
+    const slotMins   = slot.getHours() * 60 + slot.getMinutes()
+
+    // Working hours end for this doctor on this weekday
+    const horario = horarios.find(h => h.doctorId === doctorId && h.diaSemana === dayOfWeek && h.activo)
+    let endMins = 20 * 60 // fallback: 20:00
+    if (horario) endMins = toMinutes(horario.horaFin)
+
+    // Next appointment for this doctor same day after slot
+    const next = citas
+      .filter(c => c.doctorId === doctorId)
+      .filter(c => {
+        const d = new Date(c.start)
+        return d.toDateString() === slot.toDateString() && d > slot
+      })
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())[0]
+
+    if (next) {
+      const nextMins = new Date(next.start).getHours() * 60 + new Date(next.start).getMinutes()
+      endMins = Math.min(endMins, nextMins)
+    }
+
+    const available = endMins - slotMins
+    // Return all durations that fit, rounding available down to nearest 15
+    const maxDur = Math.floor(available / 15) * 15
+    return ALL_DURACIONES.filter(d => d <= maxDur && d <= available)
+  }
+
+  // ── Business hours for FullCalendar ──────────────────────────────────────
+  const businessHours = useMemo(() => {
+    const filtered = doctorFilter === 'todos'
+      ? horarios.filter(h => h.activo)
+      : horarios.filter(h => h.doctorId === doctorFilter && h.activo)
+    if (filtered.length === 0) return false
+    return filtered.map(h => ({
+      daysOfWeek: [h.diaSemana],
+      startTime: h.horaInicio,
+      endTime: h.horaFin,
+    }))
+  }, [horarios, doctorFilter])
+
+  // ── Filtered calendar events ─────────────────────────────────────────────
   const events = useMemo(() => citas
     .filter(c => statusFilter.has(c.estado) && (doctorFilter === 'todos' || c.doctorId === doctorFilter))
     .map(c => ({
-      id: c.id,
-      title: c.pacienteNombre,
-      start: c.start,
-      end: c.end,
+      id: c.id, title: c.pacienteNombre,
+      start: c.start, end: c.end,
       backgroundColor: ESTADO_CONFIG[c.estado]?.color ?? '#0891b2',
-      borderColor: 'transparent',
-      textColor: '#fff',
+      borderColor: 'transparent', textColor: '#fff',
       extendedProps: c,
     })),
   [citas, statusFilter, doctorFilter])
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleDateClick = useCallback((info: { date: Date }) => {
+    const selectedDoctorId = doctorFilter !== 'todos' ? doctorFilter : (doctors[0]?.id ?? '')
+    const available = getAvailableDuraciones(info.date.toISOString(), selectedDoctorId)
+    const defaultDur = available.includes(30) ? 30 : (available[0] ?? 30)
     setDarCita({
-      step: 1,
-      slotISO: info.date.toISOString(),
-      tipo: '',
-      duracion: 30,
-      doctorId: doctorFilter !== 'todos' ? doctorFilter : (doctors[0]?.id ?? ''),
-      mode: 'existente',
-      search: '',
-      pacienteId: '',
-      notas: '',
+      step: 1, slotISO: info.date.toISOString(),
+      tipo: '', duracion: defaultDur, doctorId: selectedDoctorId,
+      mode: 'existente', search: '', pacienteId: '', notas: '',
       nuevo: { nombre: '', apellido: '', rut: '', extranjero: false, email: '', prevision: 'Sin convenio', telefono: '' },
     })
-  }, [doctorFilter, doctors])
+  }, [doctorFilter, doctors, horarios, citas])
 
   const handleEventClick = useCallback((info: EventClickArg) => {
     setSelectedCita(info.event.extendedProps as Cita)
@@ -154,24 +201,26 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
     } finally { setSaving(false) }
   }
 
-  // ── Doctor name helper ────────────────────────────────────────────────────
   function doctorName(id: string) {
     const d = doctors.find(d => d.id === id)
     return d ? (d.name ?? d.email) : '—'
   }
 
-  // ── Patient search results ────────────────────────────────────────────────
   const searchResults = useMemo(() => {
     if (!darCita?.search || darCita.search.length < 2) return []
     const q = darCita.search.toLowerCase()
     return pacientes.filter(p =>
-      `${p.nombre} ${p.apellido}`.toLowerCase().includes(q) ||
-      p.rut.toLowerCase().includes(q)
+      `${p.nombre} ${p.apellido}`.toLowerCase().includes(q) || p.rut.toLowerCase().includes(q)
     ).slice(0, 6)
   }, [darCita?.search, pacientes])
 
-  const canStep2 = darCita && darCita.duracion > 0
-  const canSave  = darCita && (
+  // Available durations for current slot/doctor in step 1
+  const availableDuraciones = useMemo(() => {
+    if (!darCita) return ALL_DURACIONES
+    return getAvailableDuraciones(darCita.slotISO, darCita.doctorId)
+  }, [darCita?.slotISO, darCita?.doctorId, horarios, citas])
+
+  const canSave = darCita && (
     (darCita.mode === 'existente' && darCita.pacienteId !== '') ||
     (darCita.mode === 'nuevo' && darCita.nuevo.nombre !== '' && darCita.nuevo.apellido !== '' && darCita.nuevo.rut !== '')
   )
@@ -212,7 +261,7 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
         </div>
 
         <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Total hoy</p>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Citas hoy</p>
           <p className="text-2xl font-bold text-slate-800">
             {citas.filter(c => {
               const d = new Date(c.start); const t = new Date(); t.setHours(0,0,0,0)
@@ -220,7 +269,6 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
               return d >= t && d <= te
             }).length}
           </p>
-          <p className="text-xs text-slate-400 mt-0.5">citas programadas</p>
         </div>
       </div>
 
@@ -243,13 +291,9 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
             </button>
             <div className="flex gap-1 ml-2">
               <button onClick={() => calRef.current?.getApi().changeView('timeGridWeek')}
-                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-cyan-600 text-white transition-colors">
-                Semanal
-              </button>
+                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-cyan-600 text-white">Semanal</button>
               <button onClick={() => calRef.current?.getApi().changeView('timeGridDay')}
-                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">
-                Diaria
-              </button>
+                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Diaria</button>
             </div>
           </div>
           <button onClick={() => handleDateClick({ date: new Date() })}
@@ -259,8 +303,8 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
           </button>
         </div>
 
-        {/* Calendar area */}
-        <div className="flex-1 overflow-auto bg-white p-0">
+        {/* FullCalendar */}
+        <div className="flex-1 overflow-auto bg-white">
           <style>{`
             .fc { font-family: inherit; }
             .fc .fc-toolbar { display: none !important; }
@@ -268,7 +312,6 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
             .fc .fc-timegrid-slot-label { font-size: 11px; color: #94a3b8; }
             .fc .fc-col-header-cell { background: #f8fafc; border-color: #e2e8f0; }
             .fc .fc-col-header-cell-cushion { font-size: 12px; font-weight: 600; color: #475569; padding: 8px 4px; text-decoration: none; }
-            .fc .fc-timegrid-axis { font-size: 11px; }
             .fc-day-today .fc-col-header-cell-cushion { color: #0891b2 !important; }
             .fc-day-today { background: #f0fdfe !important; }
             .fc .fc-event { border-radius: 4px; font-size: 11px; font-weight: 500; cursor: pointer; }
@@ -276,6 +319,7 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
             .fc .fc-timegrid-now-indicator-line { border-color: #ef4444; }
             .fc .fc-timegrid-now-indicator-arrow { border-color: #ef4444; }
             .fc td, .fc th { border-color: #e2e8f0 !important; }
+            .fc .fc-non-business { background: rgba(241,245,249,0.7); }
           `}</style>
           <FullCalendar
             ref={calRef}
@@ -286,10 +330,10 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
             events={events}
             eventClick={handleEventClick}
             dateClick={handleDateClick}
-            selectable={false}
+            businessHours={businessHours}
             slotDuration="00:15:00"
-            slotMinTime="08:00:00"
-            slotMaxTime="20:00:00"
+            slotMinTime="07:00:00"
+            slotMaxTime="21:00:00"
             allDaySlot={false}
             height="100%"
             nowIndicator={true}
@@ -315,7 +359,13 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
               {/* Profesional */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Profesional</label>
-                <select value={darCita.doctorId} onChange={e => setDarCita(d => d ? { ...d, doctorId: e.target.value } : d)}
+                <select value={darCita.doctorId}
+                  onChange={e => {
+                    const newDocId = e.target.value
+                    const avail = getAvailableDuraciones(darCita.slotISO, newDocId)
+                    const defDur = avail.includes(30) ? 30 : (avail[0] ?? 30)
+                    setDarCita(d => d ? { ...d, doctorId: newDocId, duracion: defDur } : d)
+                  }}
                   className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
                   {doctors.map(d => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
                 </select>
@@ -332,30 +382,42 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
                 </select>
               </div>
 
-              {/* Duración */}
+              {/* Duración — dinámica según disponibilidad */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">Duración</label>
-                <div className="flex gap-2 flex-wrap">
-                  {DURACIONES.map(d => (
-                    <button key={d} type="button"
-                      onClick={() => setDarCita(s => s ? { ...s, duracion: d } : s)}
-                      className={cn('px-4 py-2 rounded-xl text-sm font-medium border-2 transition-all',
-                        darCita.duracion === d
-                          ? 'bg-cyan-600 border-cyan-600 text-white'
-                          : 'border-slate-200 text-slate-600 hover:border-cyan-300')}>
-                      {d} min
-                    </button>
-                  ))}
-                </div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">
+                  Duración
+                  {availableDuraciones.length > 0 && (
+                    <span className="ml-2 text-xs font-normal text-slate-400">
+                      (máx. {availableDuraciones[availableDuraciones.length - 1]} min disponibles)
+                    </span>
+                  )}
+                </label>
+                {availableDuraciones.length === 0 ? (
+                  <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+                    No hay tiempo disponible en este horario. Selecciona otro bloque.
+                  </p>
+                ) : (
+                  <div className="flex gap-2 flex-wrap">
+                    {availableDuraciones.map(d => (
+                      <button key={d} type="button"
+                        onClick={() => setDarCita(s => s ? { ...s, duracion: d } : s)}
+                        className={cn('px-3 py-2 rounded-xl text-sm font-medium border-2 transition-all',
+                          darCita.duracion === d
+                            ? 'bg-cyan-600 border-cyan-600 text-white'
+                            : 'border-slate-200 text-slate-600 hover:border-cyan-300')}>
+                        {d} min
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
-
             <div className="px-6 pb-5 flex justify-end gap-3">
               <button onClick={() => setDarCita(null)}
                 className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50">
                 Cancelar
               </button>
-              <button disabled={!canStep2}
+              <button disabled={availableDuraciones.length === 0}
                 onClick={() => setDarCita(d => d ? { ...d, step: 2 } : d)}
                 className="px-5 py-2 text-sm text-white bg-cyan-600 hover:bg-cyan-700 rounded-xl font-medium disabled:opacity-40 transition-colors">
                 Continuar →
@@ -372,26 +434,21 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
             {/* Left: radio tabs */}
             <div className="w-52 flex-shrink-0 bg-slate-50 border-r border-slate-200 p-5 flex flex-col gap-3">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Tipo de paciente</p>
-              <label className={cn('flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-all',
-                darCita.mode === 'existente' ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200 bg-white hover:border-slate-300')}>
-                <div className={cn('w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0',
-                  darCita.mode === 'existente' ? 'border-cyan-500' : 'border-slate-300')}>
-                  {darCita.mode === 'existente' && <div className="w-2 h-2 rounded-full bg-cyan-500" />}
-                </div>
-                <input type="radio" className="sr-only" checked={darCita.mode === 'existente'}
-                  onChange={() => setDarCita(d => d ? { ...d, mode: 'existente', pacienteId: '', search: '' } : d)} />
-                <span className="text-sm font-medium text-slate-700">Paciente existente</span>
-              </label>
-              <label className={cn('flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-all',
-                darCita.mode === 'nuevo' ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200 bg-white hover:border-slate-300')}>
-                <div className={cn('w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0',
-                  darCita.mode === 'nuevo' ? 'border-cyan-500' : 'border-slate-300')}>
-                  {darCita.mode === 'nuevo' && <div className="w-2 h-2 rounded-full bg-cyan-500" />}
-                </div>
-                <input type="radio" className="sr-only" checked={darCita.mode === 'nuevo'}
-                  onChange={() => setDarCita(d => d ? { ...d, mode: 'nuevo', pacienteId: '' } : d)} />
-                <span className="text-sm font-medium text-slate-700">Paciente nuevo</span>
-              </label>
+              {(['existente', 'nuevo'] as const).map(mode => (
+                <label key={mode}
+                  className={cn('flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-all',
+                    darCita.mode === mode ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200 bg-white hover:border-slate-300')}>
+                  <div className={cn('w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0',
+                    darCita.mode === mode ? 'border-cyan-500' : 'border-slate-300')}>
+                    {darCita.mode === mode && <div className="w-2 h-2 rounded-full bg-cyan-500" />}
+                  </div>
+                  <input type="radio" className="sr-only" checked={darCita.mode === mode}
+                    onChange={() => setDarCita(d => d ? { ...d, mode, pacienteId: '', search: '' } : d)} />
+                  <span className="text-sm font-medium text-slate-700">
+                    {mode === 'existente' ? 'Paciente existente' : 'Paciente nuevo'}
+                  </span>
+                </label>
+              ))}
             </div>
 
             {/* Right: form */}
@@ -409,29 +466,24 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 <p className="text-sm text-emerald-700">
-                  <span className="font-medium">Cita seleccionada — {doctorName(darCita.doctorId)}:</span>
-                  {' '}
+                  <span className="font-medium">Cita — {doctorName(darCita.doctorId)}:</span>{' '}
                   <span className="font-bold bg-emerald-200 text-emerald-800 px-2 py-0.5 rounded-lg">
                     {new Date(darCita.slotISO).toLocaleDateString('es-CL')} {formatTime(darCita.slotISO)}
-                  </span>
+                  </span>{' '}
+                  <span className="text-emerald-600">· {darCita.duracion} min</span>
                 </p>
               </div>
 
-              {/* Form area */}
+              {/* Form */}
               <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
                 {darCita.mode === 'existente' ? (
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                      Nombre, apellidos y/o RUT *
-                    </label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">Nombre, apellidos y/o RUT *</label>
                     <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="Buscar paciente..."
+                      <input type="text" placeholder="Buscar paciente..."
                         value={darCita.search}
                         onChange={e => setDarCita(d => d ? { ...d, search: e.target.value, pacienteId: '' } : d)}
-                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                      />
+                        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
                       {searchResults.length > 0 && darCita.pacienteId === '' && (
                         <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-10 overflow-hidden">
                           {searchResults.map(p => (
@@ -450,7 +502,8 @@ export function AgendaClient({ citas, doctors, pacientes }: Props) {
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                           </svg>
                           <span className="text-sm font-medium text-cyan-700">{darCita.search}</span>
-                          <button type="button" onClick={() => setDarCita(d => d ? { ...d, pacienteId: '', search: '' } : d)}
+                          <button type="button"
+                            onClick={() => setDarCita(d => d ? { ...d, pacienteId: '', search: '' } : d)}
                             className="ml-auto text-cyan-400 hover:text-cyan-600">
                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                           </button>

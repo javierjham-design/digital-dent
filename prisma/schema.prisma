@@ -24,6 +24,7 @@ model User {
   tratamientos  Tratamiento[]  @relation("DoctorTratamientos")
   contratos     Contrato[]
   liquidaciones Liquidacion[]
+  horarios      HorarioDoctor[]
 }
 
 model Session {
@@ -223,4 +224,16 @@ model LiquidacionItem {
   montoLiquidado     Float
   liquidacion        Liquidacion  @relation(fields: [liquidacionId], references: [id])
   tratamiento        Tratamiento  @relation(fields: [tratamientoId], references: [id])
+}
+
+model HorarioDoctor {
+  id         String  @id @default(cuid())
+  doctorId   String
+  diaSemana  Int     // 0=Dom 1=Lun 2=Mar 3=Mié 4=Jue 5=Vie 6=Sáb
+  horaInicio String  // "09:00"
+  horaFin    String  // "18:00"
+  activo     Boolean @default(true)
+  doctor     User    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, diaSemana])
 }
