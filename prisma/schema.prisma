@@ -73,6 +73,17 @@ model Cita {
   updatedAt     DateTime  @updatedAt
   paciente      Paciente  @relation(fields: [pacienteId], references: [id])
   doctor        User      @relation("DoctorCitas", fields: [doctorId], references: [id])
+  logs          CitaLog[]
+}
+
+model CitaLog {
+  id        String   @id @default(cuid())
+  citaId    String
+  tipo      String   // AGENDADA | ESTADO | WA_ENVIADO
+  detalle   String
+  userName  String   @default("Sistema")
+  createdAt DateTime @default(now())
+  cita      Cita     @relation(fields: [citaId], references: [id], onDelete: Cascade)
 }
 
 model Configuracion {

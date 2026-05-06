@@ -6,7 +6,11 @@ import { AgendaClient } from './agenda-client'
 export default async function AgendaPage() {
   const [citas, doctors, pacientes, horarios, config] = await Promise.all([
     prisma.cita.findMany({
-      include: { paciente: true, doctor: true },
+      include: {
+        paciente: true,
+        doctor: true,
+        logs: { orderBy: { createdAt: 'asc' } },
+      },
       orderBy: { fecha: 'asc' },
     }),
     prisma.user.findMany({
@@ -44,6 +48,13 @@ export default async function AgendaPage() {
         tipo:             c.tipo ?? 'CONSULTA',
         notas:            c.notas ?? '',
         confirmadoWA:     c.confirmadoWA,
+        logs:             c.logs.map(l => ({
+          id:        l.id,
+          tipo:      l.tipo,
+          detalle:   l.detalle,
+          userName:  l.userName,
+          createdAt: l.createdAt.toISOString(),
+        })),
       }))}
       doctors={doctors}
       pacientes={pacientes}
