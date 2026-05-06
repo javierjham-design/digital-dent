@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma'
 import { AgendaClient } from './agenda-client'
 
 export default async function AgendaPage() {
-  const [citas, doctors, pacientes, horarios] = await Promise.all([
+  const [citas, doctors, pacientes, horarios, config] = await Promise.all([
     prisma.cita.findMany({
       include: { paciente: true, doctor: true },
       orderBy: { fecha: 'asc' },
@@ -20,6 +20,11 @@ export default async function AgendaPage() {
     }),
     prisma.horarioDoctor.findMany({
       orderBy: [{ doctorId: 'asc' }, { diaSemana: 'asc' }],
+    }),
+    prisma.configuracion.upsert({
+      where: { id: 'singleton' },
+      update: {},
+      create: { id: 'singleton' },
     }),
   ])
 
@@ -38,10 +43,12 @@ export default async function AgendaPage() {
         estado:           c.estado,
         tipo:             c.tipo ?? 'CONSULTA',
         notas:            c.notas ?? '',
+        confirmadoWA:     c.confirmadoWA,
       }))}
       doctors={doctors}
       pacientes={pacientes}
       horarios={horarios}
+      config={{ clinica: config.clinica, direccion: config.direccion, ciudad: config.ciudad }}
     />
   )
 }
