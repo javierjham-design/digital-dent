@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { prisma } from '@/lib/prisma'
 import { formatRUT, formatDate, formatCLP, calcularEdad } from '@/lib/utils'
 import { PrintPlanButton } from './print-button'

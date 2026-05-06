@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic'
+
 import { prisma } from '@/lib/prisma'
 import { DashboardClient } from './dashboard-client'
 import { format, startOfMonth, endOfMonth, startOfDay, endOfDay } from 'date-fns'
