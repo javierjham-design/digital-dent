@@ -26,14 +26,18 @@ export async function POST(req: NextRequest) {
       telefono:  body.telefono  ?? undefined,
       email:     body.email     ?? undefined,
       ciudad:    body.ciudad    ?? undefined,
+      mensajeWA: body.mensajeWA ?? undefined,
+      logoUrl:   body.logoUrl   !== undefined ? (body.logoUrl || null) : undefined,
     },
     create: {
-      id: 'singleton',
+      id:        'singleton',
       clinica:   body.clinica   ?? 'Digital-Dent',
       direccion: body.direccion ?? '',
       telefono:  body.telefono  ?? '',
       email:     body.email     ?? '',
       ciudad:    body.ciudad    ?? 'Temuco',
+      mensajeWA: body.mensajeWA ?? '',
+      logoUrl:   body.logoUrl   || null,
     },
   })
   return NextResponse.json(config)

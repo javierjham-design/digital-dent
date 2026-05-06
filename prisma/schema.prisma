@@ -89,13 +89,14 @@ model CitaLog {
 }
 
 model Configuracion {
-  id        String @id @default("singleton")
-  clinica   String @default("Digital-Dent")
-  direccion String @default("")
-  telefono  String @default("")
-  email     String @default("")
-  ciudad    String @default("Temuco")
-  mensajeWA String @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
+  id        String  @id @default("singleton")
+  clinica   String  @default("Digital-Dent")
+  direccion String  @default("")
+  telefono  String  @default("")
+  email     String  @default("")
+  ciudad    String  @default("Temuco")
+  mensajeWA String  @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
+  logoUrl   String? // base64 data URL
 }
 
 model FichaClinica {

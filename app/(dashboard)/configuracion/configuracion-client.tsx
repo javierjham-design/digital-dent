@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 
 interface Config {
   id: string
@@ -10,6 +10,7 @@ interface Config {
   email: string
   ciudad: string
   mensajeWA: string
+  logoUrl: string | null
 }
 
 interface MedioPago {
@@ -40,6 +41,23 @@ export function ConfiguracionClient({
   const [editMP,      setEditMP]      = useState<MedioPago | null>(null)
   const [mpForm,      setMpForm]      = useState({ nombre: '', comision: '0' })
   const [savingMP,    setSavingMP]    = useState(false)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [logoError,  setLogoError]  = useState('')
+
+  function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setLogoError('')
+    if (file.size > 2 * 1024 * 1024) {
+      setLogoError('El archivo es muy grande. Usa una imagen menor a 2 MB.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = () => setForm(f => ({ ...f, logoUrl: reader.result as string }))
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
@@ -158,6 +176,56 @@ export function ConfiguracionClient({
                 onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
                 placeholder="contacto@digitaldent.cl"
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+            </div>
+          </div>
+        </div>
+
+        {/* Logo */}
+        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-4">
+          <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+            <svg className="w-4 h-4 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            Logo de la clínica
+          </h2>
+          <p className="text-xs text-slate-500">Se mostrará en la barra lateral. Recomendado: imagen cuadrada, PNG o SVG, máx. 2 MB.</p>
+
+          <div className="flex items-center gap-5">
+            {/* Preview */}
+            <div className="w-20 h-20 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center flex-shrink-0 overflow-hidden">
+              {form.logoUrl ? (
+                <img src={form.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+              ) : (
+                <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="space-y-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleLogoFile}
+              />
+              <button type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                {form.logoUrl ? 'Cambiar logo' : 'Subir logo'}
+              </button>
+              {form.logoUrl && (
+                <button type="button"
+                  onClick={() => setForm(f => ({ ...f, logoUrl: null }))}
+                  className="flex items-center gap-2 px-4 py-2 border border-red-100 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  Quitar logo
+                </button>
+              )}
+              {logoError && <p className="text-xs text-red-500">{logoError}</p>}
             </div>
           </div>
         </div>
