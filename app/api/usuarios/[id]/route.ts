@@ -13,7 +13,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const usuario = await prisma.user.update({
     where: { id },
     data: body,
-    select: { id: true, name: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true, createdAt: true },
+    select: { id: true, name: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true, puedeRecibirPagos: true, createdAt: true },
   })
   return NextResponse.json(usuario)
 }

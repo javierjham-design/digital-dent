@@ -19,12 +19,14 @@ model User {
   activo        Boolean   @default(true)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  puedeRecibirPagos Boolean   @default(false)
   sessions      Session[]
   citas         Cita[]         @relation("DoctorCitas")
   tratamientos  Tratamiento[]  @relation("DoctorTratamientos")
   contratos     Contrato[]
   liquidaciones Liquidacion[]
   horarios      HorarioDoctor[]
+  cobrosRecibidos Cobro[]      @relation("CobroUsuario")
 }
 
 model Session {
@@ -154,6 +156,7 @@ model Tratamiento {
   prestacion   Prestacion      @relation(fields: [prestacionId], references: [id])
   doctor       User?           @relation("DoctorTratamientos", fields: [doctorId], references: [id])
   liquidacionItems LiquidacionItem[]
+  cobroItems   CobroItem[]
 }
 
 model Presupuesto {
@@ -183,19 +186,44 @@ model ItemPresupuesto {
   prestacion     Prestacion  @relation(fields: [prestacionId], references: [id])
 }
 
+model MedioPago {
+  id        String   @id @default(cuid())
+  nombre    String
+  comision  Float    @default(0) // porcentaje ej: 1.5 = 1.5%
+  activo    Boolean  @default(true)
+  cobros    Cobro[]
+}
+
 model Cobro {
-  id           String    @id @default(cuid())
-  pacienteId   String
-  numero       Int       @unique
-  concepto     String
-  monto        Float
-  estado       String    @default("PENDIENTE")
-  metodoPago   String?
-  fechaPago    DateTime?
-  notas        String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  paciente     Paciente  @relation(fields: [pacienteId], references: [id])
+  id              String     @id @default(cuid())
+  pacienteId      String
+  numero          Int        @unique
+  concepto        String
+  monto           Float      // total bruto
+  montoNeto       Float?     // monto después de comisión
+  comisionMonto   Float?     // monto de la comisión
+  estado          String     @default("PENDIENTE")
+  medioPagoId     String?
+  metodoPago      String?    // campo legacy
+  reciboUsuarioId String?
+  fechaPago       DateTime?
+  notas           String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  paciente        Paciente   @relation(fields: [pacienteId], references: [id])
+  medioPago       MedioPago? @relation(fields: [medioPagoId], references: [id])
+  reciboUsuario   User?      @relation("CobroUsuario", fields: [reciboUsuarioId], references: [id])
+  items           CobroItem[]
+}
+
+model CobroItem {
+  id            String       @id @default(cuid())
+  cobroId       String
+  tratamientoId String?
+  descripcion   String
+  monto         Float
+  cobro         Cobro        @relation(fields: [cobroId], references: [id], onDelete: Cascade)
+  tratamiento   Tratamiento? @relation(fields: [tratamientoId], references: [id])
 }
 
 model Contrato {

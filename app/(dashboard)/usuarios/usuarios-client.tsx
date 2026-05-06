@@ -25,7 +25,7 @@ const DEFAULT_DIAS = [
 
 interface Horario { id?: string; doctorId: string; diaSemana: number; horaInicio: string; horaFin: string; activo: boolean }
 interface Contrato { id: string; doctorId: string; tipo: string; porcentaje: number | null; montoFijo: number | null; descripcion: string | null; fechaInicio: string; fechaFin: string | null; activo: boolean }
-interface Usuario { id: string; name: string | null; email: string; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; createdAt: string; contratos: Contrato[] }
+interface Usuario { id: string; name: string | null; email: string; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; createdAt: string; contratos: Contrato[] }
 
 const emptyUser     = { name: '', email: '', password: '', role: 'doctor', rut: '', especialidad: '', telefono: '' }
 const emptyContrato = { doctorId: '', tipo: 'PORCENTAJE', porcentaje: '', montoFijo: '', descripcion: '', fechaInicio: '', fechaFin: '' }
@@ -80,6 +80,12 @@ export function UsuariosClient({
 
   async function toggleActivo(u: Usuario) {
     const res = await fetch(`/api/usuarios/${u.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activo: !u.activo }) })
+    const updated = await res.json()
+    setUsuarios(p => p.map(x => x.id === updated.id ? { ...x, ...updated } : x))
+  }
+
+  async function togglePagos(u: Usuario) {
+    const res = await fetch(`/api/usuarios/${u.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ puedeRecibirPagos: !u.puedeRecibirPagos }) })
     const updated = await res.json()
     setUsuarios(p => p.map(x => x.id === updated.id ? { ...x, ...updated } : x))
   }
@@ -175,7 +181,7 @@ export function UsuariosClient({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Usuario', 'RUT', 'Especialidad', 'Teléfono', 'Rol', 'Contrato', 'Horario', 'Estado', ''].map(h => (
+                {['Usuario', 'RUT', 'Especialidad', 'Teléfono', 'Rol', 'Contrato', 'Horario', 'Pagos', 'Estado', ''].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">{h}</th>
                 ))}
               </tr>
@@ -218,6 +224,15 @@ export function UsuariosClient({
                       ) : (
                         <span className="text-xs text-slate-300">Sin horario</span>
                       )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => togglePagos(u)}
+                        title={u.puedeRecibirPagos ? 'Quitar permiso de caja' : 'Habilitar para recibir pagos'}
+                        className={cn('relative w-9 h-5 rounded-full transition-colors flex-shrink-0', u.puedeRecibirPagos ? 'bg-emerald-500' : 'bg-slate-300')}
+                      >
+                        <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all', u.puedeRecibirPagos ? 'left-4' : 'left-0.5')} />
+                      </button>
                     </td>
                     <td className="px-4 py-3">
                       <span className={cn('px-2 py-0.5 rounded-full text-xs font-medium', u.activo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500')}>
