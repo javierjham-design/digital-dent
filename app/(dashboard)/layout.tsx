@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic'
 
 import { prisma } from '@/lib/prisma'
-import { Sidebar } from '@/components/Sidebar'
+import { TopBar } from '@/components/TopBar'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const config = await prisma.configuracion.upsert({
@@ -11,13 +11,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
   })
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
-      <Sidebar
-        clinica={config.clinica}
-        ciudad={config.ciudad}
-        logoUrl={config.logoUrl ?? null}
-      />
-      <main className="flex-1 ml-64 min-h-screen">
+    <div className="min-h-screen bg-slate-50">
+      <TopBar clinica={config.clinica} logoUrl={config.logoUrl ?? null} />
+      <main className="pt-[60px]">
         {children}
       </main>
     </div>

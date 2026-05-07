@@ -99,6 +99,7 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
   const calRef = useRef<FullCalendar>(null)
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(Object.keys(ESTADO_CONFIG)))
   const [doctorFilter, setDoctorFilter] = useState('todos')
+  const [currentView,  setCurrentView]  = useState<'timeGridWeek' | 'timeGridDay'>('timeGridWeek')
   const [selectedCita,   setSelectedCita]   = useState<Cita | null>(null)
   const [showHistorial,  setShowHistorial]  = useState(false)
   const [updating, setUpdating] = useState(false)
@@ -282,10 +283,15 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
     (darCita.mode === 'nuevo' && darCita.nuevo.nombre !== '' && darCita.nuevo.apellido !== '' && darCita.nuevo.rut !== '')
   )
 
+  function changeView(view: 'timeGridWeek' | 'timeGridDay') {
+    calRef.current?.getApi().changeView(view)
+    setCurrentView(view)
+  }
+
   return (
-    <div className="flex h-screen overflow-hidden bg-slate-50">
+    <div className="flex h-[calc(100vh-60px)] overflow-hidden bg-slate-50">
       {/* ── LEFT PANEL ── */}
-      <div className="w-56 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col gap-5 p-4 overflow-y-auto">
+      <div className="w-52 flex-shrink-0 bg-white border-r border-slate-100 flex flex-col gap-5 p-4 overflow-y-auto shadow-sm">
         <div>
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2.5">Estado de la cita</p>
           <div className="space-y-2">
@@ -317,9 +323,9 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
           </select>
         </div>
 
-        <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Citas hoy</p>
-          <p className="text-2xl font-bold text-slate-800">
+        <div className="bg-gradient-to-br from-cyan-50 to-teal-50 rounded-xl p-3 border border-cyan-100">
+          <p className="text-xs font-semibold text-cyan-600 uppercase tracking-wider mb-1">Citas hoy</p>
+          <p className="text-3xl font-bold text-cyan-700">
             {citas.filter(c => {
               const d = new Date(c.start); const t = new Date(); t.setHours(0,0,0,0)
               const te = new Date(t); te.setHours(23,59,59,999)
@@ -332,31 +338,43 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
       {/* ── CALENDAR ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header */}
-        <div className="bg-white border-b border-slate-200 px-5 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="bg-white border-b border-slate-100 px-5 py-3 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">
+            {/* Prev / Today / Next */}
             <button onClick={() => calRef.current?.getApi().prev()}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500">
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500 transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
             <button onClick={() => calRef.current?.getApi().today()}
-              className="text-xs font-medium text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors">
+              className="text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors">
               Hoy
             </button>
             <button onClick={() => calRef.current?.getApi().next()}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500">
+              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500 transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
-            <div className="flex gap-1 ml-2">
-              <button onClick={() => calRef.current?.getApi().changeView('timeGridWeek')}
-                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-cyan-600 text-white">Semanal</button>
-              <button onClick={() => calRef.current?.getApi().changeView('timeGridDay')}
-                className="text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Diaria</button>
+
+            {/* View toggle */}
+            <div className="flex bg-slate-100 rounded-lg p-0.5 ml-2">
+              <button
+                onClick={() => changeView('timeGridWeek')}
+                className={cn('flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-all', currentView === 'timeGridWeek' ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
+                Semana
+              </button>
+              <button
+                onClick={() => changeView('timeGridDay')}
+                className={cn('flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-all', currentView === 'timeGridDay' ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                Día
+              </button>
             </div>
           </div>
+
           <button onClick={() => handleDateClick({ date: new Date() })}
-            className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm">
+            className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            Dar cita
+            Nueva cita
           </button>
         </div>
 
@@ -365,18 +383,35 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
           <style>{`
             .fc { font-family: inherit; }
             .fc .fc-toolbar { display: none !important; }
-            .fc .fc-timegrid-slot { height: 28px !important; }
-            .fc .fc-timegrid-slot-label { font-size: 11px; color: #94a3b8; }
+            .fc .fc-timegrid-slot { height: 26px !important; }
+            .fc .fc-timegrid-slot-label { font-size: 11px; color: #94a3b8; font-weight: 500; }
             .fc .fc-col-header-cell { background: #f8fafc; border-color: #e2e8f0; }
-            .fc .fc-col-header-cell-cushion { font-size: 12px; font-weight: 600; color: #475569; padding: 8px 4px; text-decoration: none; }
+            .fc .fc-col-header-cell-cushion { font-size: 12px; font-weight: 700; color: #475569; padding: 10px 4px; text-decoration: none; text-transform: uppercase; letter-spacing: 0.05em; }
             .fc-day-today .fc-col-header-cell-cushion { color: #0891b2 !important; }
-            .fc-day-today { background: #f0fdfe !important; }
-            .fc .fc-event { border-radius: 4px; font-size: 11px; font-weight: 500; cursor: pointer; }
-            .fc .fc-event:hover { opacity: 0.85; }
-            .fc .fc-timegrid-now-indicator-line { border-color: #ef4444; }
-            .fc .fc-timegrid-now-indicator-arrow { border-color: #ef4444; }
-            .fc td, .fc th { border-color: #e2e8f0 !important; }
-            .fc .fc-non-business { background: rgba(241,245,249,0.7); }
+            .fc-day-today { background: rgba(240,253,254,0.6) !important; }
+            .fc-day-today .fc-col-header-cell { background: rgba(207,250,254,0.5) !important; }
+            .fc .fc-event { border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; border-left-width: 3px !important; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+            .fc .fc-event:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.15); transition: all 0.15s; }
+            .fc .fc-timegrid-now-indicator-line { border-color: #f43f5e; border-width: 2px; }
+            .fc .fc-timegrid-now-indicator-arrow { border-color: #f43f5e; }
+            .fc td, .fc th { border-color: #f1f5f9 !important; }
+            .fc .fc-non-business { background: rgba(248,250,252,0.8); }
+            .fc-timegrid-slot-lane { position: relative; cursor: pointer; transition: background 0.1s; }
+            .fc-timegrid-slot-lane:hover { background-color: rgba(8,145,178,0.04) !important; }
+            .fc-timegrid-slot-lane:hover::after {
+              content: '+';
+              position: absolute;
+              right: 10px;
+              top: 50%;
+              transform: translateY(-50%);
+              font-size: 15px;
+              font-weight: 700;
+              color: rgba(8,145,178,0.35);
+              pointer-events: none;
+              line-height: 1;
+            }
+            .fc-scrollgrid { border: none !important; }
+            .fc-scrollgrid-section > td { border: none !important; }
           `}</style>
           <FullCalendar
             ref={calRef}
