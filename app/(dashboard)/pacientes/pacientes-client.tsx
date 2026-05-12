@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { formatRUT, formatDate } from '@/lib/utils'
 
 interface Paciente {
-  id: string; rut: string; nombre: string; apellido: string
+  id: string; rut: string | null; nombre: string; apellido: string
   telefono: string | null; email: string | null; prevision: string | null
   activo: boolean; totalCitas: number; createdAt: string
 }
@@ -20,6 +20,7 @@ type ImportResult = {
   total: number
   creados: number
   duplicados: number
+  sinRut?: number
   errores: { fila: number; motivo: string }[]
 }
 
@@ -92,7 +93,7 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
     return (
       p.nombre.toLowerCase().includes(q) ||
       p.apellido.toLowerCase().includes(q) ||
-      p.rut.includes(q) ||
+      (p.rut ?? '').toLowerCase().includes(q) ||
       (p.email ?? '').toLowerCase().includes(q) ||
       (p.telefono ?? '').includes(q)
     )
@@ -214,7 +215,7 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4 text-sm text-slate-600 font-mono">{formatRUT(p.rut)}</td>
+                <td className="px-6 py-4 text-sm text-slate-600 font-mono">{p.rut ? formatRUT(p.rut) : <span className="text-slate-300">—</span>}</td>
                 <td className="px-6 py-4 hidden md:table-cell">
                   <p className="text-sm text-slate-600">{p.telefono ?? '—'}</p>
                   <p className="text-xs text-slate-400">{p.email ?? ''}</p>
@@ -262,7 +263,7 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
                 <p className="text-sm text-red-600">{importError}</p>
               ) : importResult ? (
                 <>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <div className="bg-slate-50 rounded-xl p-3 text-center">
                       <p className="text-2xl font-bold text-slate-900">{importResult.total}</p>
                       <p className="text-xs text-slate-500 mt-1">Filas leídas</p>
@@ -273,7 +274,11 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
                     </div>
                     <div className="bg-amber-50 rounded-xl p-3 text-center">
                       <p className="text-2xl font-bold text-amber-700">{importResult.duplicados}</p>
-                      <p className="text-xs text-amber-600 mt-1">Duplicados</p>
+                      <p className="text-xs text-amber-600 mt-1">RUT ya existente</p>
+                    </div>
+                    <div className="bg-slate-50 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold text-slate-700">{importResult.sinRut ?? 0}</p>
+                      <p className="text-xs text-slate-500 mt-1">Importados sin RUT</p>
                     </div>
                   </div>
                   {importResult.errores.length > 0 && (
@@ -334,8 +339,8 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">RUT *</label>
-                <input required placeholder="12345678-9" value={form.rut} onChange={(e) => setForm({ ...form, rut: e.target.value })}
+                <label className="block text-sm font-medium text-slate-700 mb-1">RUT <span className="text-slate-400 font-normal">(opcional)</span></label>
+                <input placeholder="12345678-9" value={form.rut} onChange={(e) => setForm({ ...form, rut: e.target.value })}
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
               </div>
               <div className="grid grid-cols-2 gap-4">

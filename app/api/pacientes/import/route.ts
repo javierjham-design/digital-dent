@@ -32,9 +32,7 @@ function parseFecha(raw: unknown): Date | null {
 
   if (typeof raw === 'number' && Number.isFinite(raw)) {
     const parsed = XLSX.SSF.parse_date_code(raw)
-    if (parsed) {
-      return new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d))
-    }
+    if (parsed) return new Date(Date.UTC(parsed.y, parsed.m - 1, parsed.d))
   }
 
   if (raw instanceof Date && !isNaN(raw.getTime())) {
@@ -45,9 +43,7 @@ function parseFecha(raw: unknown): Date | null {
   if (!s) return null
 
   const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-  if (iso) {
-    return new Date(Date.UTC(+iso[1], +iso[2] - 1, +iso[3]))
-  }
+  if (iso) return new Date(Date.UTC(+iso[1], +iso[2] - 1, +iso[3]))
 
   const dmy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})/)
   if (dmy) {
@@ -84,12 +80,12 @@ export async function POST(req: NextRequest) {
 
   const errores: { fila: number; motivo: string }[] = []
   const validos: {
-    rut: string; nombre: string; apellido: string
+    rut: string | null; nombre: string; apellido: string
     telefono: string | null; email: string | null; direccion: string | null
     fechaNacimiento: Date | null
   }[] = []
 
-  const rutsVistos = new Set<string>()
+  const rutsEnArchivo = new Set<string>()
 
   rows.forEach((row, idx) => {
     const fila = idx + 2
@@ -102,17 +98,22 @@ export async function POST(req: NextRequest) {
     const email = pickString(row, ['Correo Electrónico', 'Correo Electronico', 'Email', 'Correo', 'email', 'correo'])
     const fechaRaw = row['Fecha de Nacimiento'] ?? row['Fecha Nacimiento'] ?? row['fecha de nacimiento'] ?? row['fechaNacimiento']
 
-    if (!nombre && !apellido && !rutRaw) return
+    if (!nombre && !apellido && !rutRaw && !telefono && !email) return
 
     if (!nombre) { errores.push({ fila, motivo: 'Falta Nombres' }); return }
     if (!apellido) { errores.push({ fila, motivo: 'Falta Apellidos' }); return }
-    if (!rutRaw) { errores.push({ fila, motivo: 'Falta RUT' }); return }
 
-    const rut = normalizeRut(rutRaw)
-    if (!rut) { errores.push({ fila, motivo: `RUT inválido: ${rutRaw}` }); return }
-
-    if (rutsVistos.has(rut)) { errores.push({ fila, motivo: `RUT duplicado en archivo: ${rut}` }); return }
-    rutsVistos.add(rut)
+    let rut: string | null = null
+    if (rutRaw) {
+      const norm = normalizeRut(rutRaw)
+      if (!norm) { errores.push({ fila, motivo: `RUT inválido: ${rutRaw}` }); return }
+      if (rutsEnArchivo.has(norm)) {
+        errores.push({ fila, motivo: `RUT duplicado en el archivo: ${norm}` })
+        return
+      }
+      rutsEnArchivo.add(norm)
+      rut = norm
+    }
 
     validos.push({
       rut,
@@ -124,6 +125,27 @@ export async function POST(req: NextRequest) {
       fechaNacimiento: parseFecha(fechaRaw),
     })
   })
+
+  let duplicadosEnDB = 0
+  const rutsConsulta = validos.map(v => v.rut).filter((r): r is string => r !== null)
+  if (rutsConsulta.length > 0) {
+    const existentes = await prisma.paciente.findMany({
+      where: { rut: { in: rutsConsulta } },
+      select: { rut: true },
+    })
+    const setExistentes = new Set(existentes.map(e => e.rut).filter((r): r is string => r !== null))
+    if (setExistentes.size > 0) {
+      const filtrados = validos.filter(v => {
+        if (v.rut && setExistentes.has(v.rut)) {
+          duplicadosEnDB++
+          return false
+        }
+        return true
+      })
+      validos.length = 0
+      validos.push(...filtrados)
+    }
+  }
 
   let creados = 0
   if (validos.length > 0) {
@@ -137,7 +159,8 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     total: rows.length,
     creados,
-    duplicados: validos.length - creados,
+    duplicados: duplicadosEnDB,
+    sinRut: validos.filter(v => v.rut === null).length,
     errores,
   })
 }

@@ -39,7 +39,10 @@ model Session {
 
 model Paciente {
   id              String    @id @default(cuid())
-  rut             String    @unique
+  // Postgres permite múltiples NULLs en una columna UNIQUE.
+  // Pacientes sin RUT (menores, extranjeros sin registro) son válidos;
+  // si hay RUT, sigue siendo único.
+  rut             String?   @unique
   nombre          String
   apellido        String
   fechaNacimiento DateTime?

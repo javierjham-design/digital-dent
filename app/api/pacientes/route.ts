@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const paciente = await prisma.paciente.create({
     data: {
-      rut: body.rut,
+      rut: body.rut?.trim() ? body.rut.trim() : null,
       nombre: body.nombre,
       apellido: body.apellido,
       telefono: body.telefono || null,

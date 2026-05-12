@@ -98,7 +98,7 @@ export function FichaClinicaClient({ paciente, doctors, prestaciones }: any) {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h1 className="text-xl font-bold text-slate-900">{paciente.nombre} {paciente.apellido}</h1>
-                <p className="text-slate-500 text-sm mt-0.5">RUT {formatRUT(paciente.rut)}</p>
+                <p className="text-slate-500 text-sm mt-0.5">{paciente.rut ? `RUT ${formatRUT(paciente.rut)}` : 'Sin RUT registrado'}</p>
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setShowCitaModal(true)}
@@ -144,7 +144,7 @@ export function FichaClinicaClient({ paciente, doctors, prestaciones }: any) {
             <dl className="space-y-3">
               {[
                 { label: 'Nombre completo', value: `${paciente.nombre} ${paciente.apellido}` },
-                { label: 'RUT', value: formatRUT(paciente.rut) },
+                { label: 'RUT', value: paciente.rut ? formatRUT(paciente.rut) : '—' },
                 { label: 'Fecha nacimiento', value: paciente.fechaNacimiento ? formatDate(paciente.fechaNacimiento) : '—' },
                 { label: 'Género', value: paciente.genero === 'M' ? 'Masculino' : paciente.genero === 'F' ? 'Femenino' : paciente.genero ?? '—' },
                 { label: 'Teléfono', value: paciente.telefono ?? '—' },

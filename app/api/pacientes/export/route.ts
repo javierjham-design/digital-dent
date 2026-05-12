@@ -6,7 +6,8 @@ import * as XLSX from 'xlsx'
 
 export const dynamic = 'force-dynamic'
 
-function formatRUT(rut: string): string {
+function formatRUT(rut: string | null): string {
+  if (!rut) return ''
   const clean = rut.replace(/[^0-9kK]/g, '').toUpperCase()
   if (clean.length < 2) return clean
   const body = clean.slice(0, -1)

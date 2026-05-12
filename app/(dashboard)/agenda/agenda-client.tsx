@@ -31,7 +31,7 @@ interface CitaLog {
 }
 
 interface Cita {
-  id: string; pacienteNombre: string; pacienteRut: string
+  id: string; pacienteNombre: string; pacienteRut: string | null
   pacienteTelefono: string | null; pacienteId: string
   doctorId: string; doctor: string
   start: string; end: string; estado: string; tipo: string; notas: string
@@ -49,7 +49,7 @@ interface ClinicConfig { clinica: string; direccion: string; ciudad: string; men
 interface Props {
   citas: Cita[]
   doctors: { id: string; name: string | null; email: string }[]
-  pacientes: { id: string; rut: string; nombre: string; apellido: string; telefono: string | null }[]
+  pacientes: { id: string; rut: string | null; nombre: string; apellido: string; telefono: string | null }[]
   horarios: Horario[]
   config: ClinicConfig
 }
@@ -268,7 +268,7 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
     if (!darCita?.search || darCita.search.length < 2) return []
     const q = darCita.search.toLowerCase()
     return pacientes.filter(p =>
-      `${p.nombre} ${p.apellido}`.toLowerCase().includes(q) || p.rut.toLowerCase().includes(q)
+      `${p.nombre} ${p.apellido}`.toLowerCase().includes(q) || (p.rut ?? '').toLowerCase().includes(q)
     ).slice(0, 6)
   }, [darCita?.search, pacientes])
 
@@ -280,7 +280,7 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
 
   const canSave = darCita && (
     (darCita.mode === 'existente' && darCita.pacienteId !== '') ||
-    (darCita.mode === 'nuevo' && darCita.nuevo.nombre !== '' && darCita.nuevo.apellido !== '' && darCita.nuevo.rut !== '')
+    (darCita.mode === 'nuevo' && darCita.nuevo.nombre !== '' && darCita.nuevo.apellido !== '')
   )
 
   function changeView(view: 'timeGridWeek' | 'timeGridDay') {
@@ -583,7 +583,7 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
                               onClick={() => setDarCita(d => d ? { ...d, pacienteId: p.id, search: `${p.nombre} ${p.apellido}` } : d)}
                               className="w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors border-b border-slate-100 last:border-0">
                               <p className="text-sm font-medium text-slate-800">{p.nombre} {p.apellido}</p>
-                              <p className="text-xs text-slate-500 font-mono mt-0.5">{formatRUT(p.rut)}{p.telefono ? ` · ${p.telefono}` : ''}</p>
+                              <p className="text-xs text-slate-500 font-mono mt-0.5">{p.rut ? formatRUT(p.rut) : 'Sin RUT'}{p.telefono ? ` · ${p.telefono}` : ''}</p>
                             </button>
                           ))}
                         </div>
@@ -626,7 +626,7 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
                       </div>
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">RUT *</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">RUT <span className="text-slate-400 font-normal">(opcional)</span></label>
                       <div className="flex items-center gap-3">
                         <input type="text" placeholder="12345678-9" value={darCita.nuevo.rut}
                           onChange={e => setDarCita(d => d ? { ...d, nuevo: { ...d.nuevo, rut: e.target.value } } : d)}

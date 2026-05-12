@@ -5,7 +5,8 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatRUT(rut: string): string {
+export function formatRUT(rut: string | null | undefined): string {
+  if (!rut) return ''
   const clean = rut.replace(/[^0-9kK]/g, '').toUpperCase()
   if (clean.length < 2) return clean
   const body = clean.slice(0, -1)

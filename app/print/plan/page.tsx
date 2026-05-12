@@ -67,7 +67,7 @@ export default async function PrintPlanPage({ searchParams }: { searchParams: Pr
           <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Datos del Paciente</h2>
           <div className="grid grid-cols-2 gap-x-8 gap-y-1.5 text-sm">
             <div className="flex justify-between"><span className="text-slate-500">Nombre:</span><span className="font-semibold">{paciente.nombre} {paciente.apellido}</span></div>
-            <div className="flex justify-between"><span className="text-slate-500">RUT:</span><span className="font-semibold font-mono">{formatRUT(paciente.rut)}</span></div>
+            {paciente.rut && <div className="flex justify-between"><span className="text-slate-500">RUT:</span><span className="font-semibold font-mono">{formatRUT(paciente.rut)}</span></div>}
             {paciente.fechaNacimiento && <div className="flex justify-between"><span className="text-slate-500">Edad:</span><span className="font-semibold">{calcularEdad(paciente.fechaNacimiento)} años</span></div>}
             {paciente.telefono && <div className="flex justify-between"><span className="text-slate-500">Teléfono:</span><span className="font-semibold">{paciente.telefono}</span></div>}
             {paciente.prevision && <div className="flex justify-between"><span className="text-slate-500">Previsión:</span><span className="font-semibold">{paciente.prevision}</span></div>}

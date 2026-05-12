@@ -50,7 +50,7 @@ export default async function PrintPresupuestoPage({ searchParams }: { searchPar
           <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Datos del Paciente</h2>
           <div className="grid grid-cols-2 gap-x-8 gap-y-1.5">
             <div className="flex justify-between text-sm"><span className="text-slate-500">Nombre:</span><span className="font-semibold">{presupuesto.paciente.nombre} {presupuesto.paciente.apellido}</span></div>
-            <div className="flex justify-between text-sm"><span className="text-slate-500">RUT:</span><span className="font-semibold font-mono">{formatRUT(presupuesto.paciente.rut)}</span></div>
+            {presupuesto.paciente.rut && <div className="flex justify-between text-sm"><span className="text-slate-500">RUT:</span><span className="font-semibold font-mono">{formatRUT(presupuesto.paciente.rut)}</span></div>}
             {presupuesto.paciente.fechaNacimiento && <div className="flex justify-between text-sm"><span className="text-slate-500">Edad:</span><span className="font-semibold">{calcularEdad(presupuesto.paciente.fechaNacimiento)} años</span></div>}
             {presupuesto.paciente.telefono && <div className="flex justify-between text-sm"><span className="text-slate-500">Teléfono:</span><span className="font-semibold">{presupuesto.paciente.telefono}</span></div>}
             {presupuesto.paciente.prevision && <div className="flex justify-between text-sm"><span className="text-slate-500">Previsión:</span><span className="font-semibold">{presupuesto.paciente.prevision}</span></div>}
