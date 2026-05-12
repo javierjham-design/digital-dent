@@ -7,9 +7,9 @@
 
 ## Resumen ejecutivo
 
-Plataforma **operativa en producción** (Vercel + Neon Postgres). Todos los módulos de UI están implementados y conectados a la base de datos. El último cambio relevante fue cargar **764 prestaciones** del arancel real al catálogo, integrado al pipeline de build de Vercel para que el seed corra en cada deploy de forma idempotente.
+Plataforma **operativa en producción** (Vercel + Neon Postgres). Todos los módulos de UI están implementados y conectados a la base de datos. Cambios recientes: catálogo completo del arancel (764 prestaciones) cargado automáticamente en cada deploy, y módulo de **import/export de pacientes en Excel** ya en producción (`/pacientes` con plantilla, importar y exportar).
 
-Hay una **tarea pendiente activa**: añadir importación / exportación de pacientes en el módulo `/pacientes`. Se solicitó pero **no se ha iniciado**.
+Sin pendientes urgentes. El proyecto está en estado estable.
 
 ---
 
@@ -19,6 +19,7 @@ Hay una **tarea pendiente activa**: añadir importación / exportación de pacie
 | ----------------- | :----: | ------------------------------------------------------------------------------------- |
 | Login / Auth      |   ✅   | NextAuth + Credentials + JWT. Middleware `proxy.ts` protege todo.                     |
 | Pacientes (CRUD)  |   ✅   | Listado, alta, edición, ficha clínica, odontograma, tratamientos asociados.           |
+| **Pacientes Import/Export** | ✅ | Plantilla `.xlsx`, importar Excel/CSV con validación, exportar base completa. |
 | Agenda            |   ✅   | FullCalendar, horarios por doctor, log de citas, flag confirmación WA manual.         |
 | Prestaciones      |   ✅   | CRUD + **764 ítems del arancel** seedeados automáticamente en cada deploy.            |
 | Presupuestos      |   ✅   | CRUD, numeración correlativa, vista imprimible (`/print/presupuesto`).                |
@@ -32,20 +33,22 @@ Hay una **tarea pendiente activa**: añadir importación / exportación de pacie
 
 ## Cambios recientes
 
-- **2026-05-12 (sesión actual):** Sistema de continuidad documental creado (`CLAUDE.md`, `docs/PROJECT_CONTEXT.md`, `docs/PROJECT_STATUS.md`, `docs/AI_CHANGELOG.md`, `docs/SESSION_HANDOFF.md`). Sin cambios funcionales.
-- **2026-05-12 (sesión previa, commit `6a2580c`):** Importadas 764 prestaciones (`prisma/seed-aranceles.ts`). Modificado `package.json` para incluir el seed en el build de Vercel.
+- **2026-05-12 (commit `7d6f490`):** Import/export Excel de pacientes (3 endpoints + UI) + sistema de continuidad documental (`CLAUDE.md` + `docs/`). Nueva dependencia: `xlsx` (SheetJS).
+- **2026-05-12 (commit `6a2580c`):** 764 prestaciones del arancel cargadas vía seed automático en build.
 
 ---
 
 ## Qué falta por construir
 
-### Pendiente inmediato (próxima tarea)
+### Pendiente inmediato
 
-- 🚧 **Gestión de base de pacientes en `/pacientes`**:
-  - [ ] Botón "Importar archivo" → upload Excel/CSV → endpoint `POST /api/pacientes/import`.
-  - [ ] Botón "Descargar plantilla" → archivo base con columnas: Nombres, Apellidos, Teléfono, Dirección, Correo Electrónico, RUT, Fecha de Nacimiento.
-  - [ ] Botón "Exportar Excel" → descarga la base actual de pacientes.
-  - [ ] Decidir formato (Excel real con `xlsx` vs CSV simple sin dependencia extra).
+- Sin pendientes urgentes. Esperar feedback del usuario tras probar import/export.
+
+### Mejoras opcionales sobre import/export de pacientes
+
+- [ ] Modo "actualizar existentes" (hoy solo crea nuevos vía `skipDuplicates`).
+- [ ] Validación de dígito verificador del RUT chileno antes de aceptar.
+- [ ] Permitir reimportar y mostrar diff antes de confirmar.
 
 ### Planificado (no urgente)
 
@@ -59,28 +62,27 @@ Hay una **tarea pendiente activa**: añadir importación / exportación de pacie
 
 ## Errores conocidos / áreas a revisar
 
-- ⚠️ **Seed corre en cada build.** Si el archivo `seed-aranceles.ts` se corrompe, todos los deploys fallan hasta arreglarlo. Mantener idempotente (`skipDuplicates: true`).
-- ⚠️ **`prisma db push --accept-data-loss` en build:** renombrar o eliminar campos en `schema.prisma` borra datos en prod. Hacer cambios en dos pasos.
-- ⚠️ **`Diente @@unique([fichaId, numero, cara])` con `cara = null`:** PostgreSQL trata NULLs como distintos, así que pueden crearse duplicados de cara nula. Revisar si es un problema en la práctica.
-- ⚠️ **`numero` correlativo en Presupuesto/Cobro:** se calcula con `max + 1` sin transacción explícita. Bajo concurrencia podría colisionar. Hoy no es problema (uso bajo).
-- ⚠️ **Local dev con SQLite no funciona** porque el schema declara `provider = "postgresql"`. Para correr local hay que apuntar a Postgres real (Neon dev o local).
+- ⚠️ **`xlsx` tiene 3 CVE conocidos** (1 moderado, 2 altos: prototype pollution + ReDoS). Aceptable en endpoint autenticado; si se vuelve crítico, migrar a `exceljs`.
+- ⚠️ **Seed corre en cada build.** Mantener idempotente.
+- ⚠️ **`prisma db push --accept-data-loss` en build:** renombrar/eliminar campos borra datos en prod. Hacer cambios en dos pasos.
+- ⚠️ **`Diente @@unique([fichaId, numero, cara])` con `cara = null`:** PostgreSQL trata NULLs como distintos.
+- ⚠️ **`numero` correlativo en Presupuesto/Cobro:** se calcula con `max + 1` sin transacción.
+- ⚠️ **Local dev con SQLite no funciona** porque el schema declara `provider = "postgresql"`.
+- ⚠️ **Cliente Prisma local desactualizado**: `prisma generate` puede fallar en Windows por `query_engine.dll` bloqueado. Cerrar dev server, eliminar `node_modules/.prisma`, reinstalar.
 
 ---
 
 ## Próximos pasos recomendados
 
-1. **Implementar importación/exportación de pacientes** (tarea explícita pendiente del usuario).
-2. Decidir librería para Excel: opciones rápidas:
-   - `xlsx` (SheetJS) — robusto, ~1MB, soporta `.xlsx` real.
-   - CSV manual — cero dependencias, pero no es Excel "de verdad".
-3. Tras eso, evaluar dashboard KPI con `recharts` (ya instalado).
-4. Plan a futuro: integración WhatsApp.
+1. Verificar deploy en Vercel del commit `7d6f490` y probar import/export con archivo real.
+2. Confirmar con el usuario si quiere modo "actualizar existentes" o se queda con `skipDuplicates`.
+3. Si todo OK → evaluar dashboard KPI con recharts (ya instalado).
 
 ---
 
 ## Estado de deploy
 
-- **Última build exitosa:** commit `6a2580c` (seed aranceles).
+- **Última build:** commit `7d6f490` (import/export pacientes + docs).
 - **Branch:** `master`.
-- **Próximo deploy disparará:** seed idempotente + build normal.
-- **Variables de entorno en Vercel:** `DATABASE_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` (todas configuradas).
+- **Dependencias nuevas:** `xlsx` (SheetJS).
+- **Variables de entorno en Vercel:** sin cambios.
