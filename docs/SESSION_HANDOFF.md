@@ -8,47 +8,43 @@
 ## Última actualización
 
 - **Fecha:** 2026-05-12
-- **Sesión:** continuación tras `/compact`. Se completaron dos cosas: el sistema de continuidad documental y la importación/exportación de pacientes en Excel.
-- **Quien actualizó:** Claude.
+- **Sesión:** continuación. Iteración sobre import de pacientes para permitir filas sin RUT y reforzar dedupe.
 
 ---
 
-## Qué se estaba trabajando
+## Qué se hizo en esta sesión
 
-1. **Sistema de continuidad documental** — establecer `CLAUDE.md` raíz y 4 docs en `docs/` para que ninguna sesión futura pierda contexto.
-2. **Import/export de pacientes en `/pacientes`** — botones para subir archivo, descargar plantilla y exportar la base actual a Excel.
+Tres tareas encadenadas, todas terminadas y desplegadas:
 
----
-
-## Qué quedó terminado en esta sesión
-
-### Sistema de continuidad ✅
-
-- `CLAUDE.md` raíz reescrito (guía corta operativa).
-- `docs/PROJECT_CONTEXT.md` creado (referencia completa).
-- `docs/PROJECT_STATUS.md` creado y actualizado.
-- `docs/AI_CHANGELOG.md` creado con 3 entradas.
-- `docs/SESSION_HANDOFF.md` creado (este archivo).
-
-### Import/Export pacientes ✅ (commit `7d6f490`, en Vercel)
-
-- Dependencia `xlsx` instalada.
-- `app/api/pacientes/template/route.ts` — GET → `plantilla-pacientes.xlsx` con cabeceras (Nombres, Apellidos, Telefono, Dirección, Correo Electrónico, RUT, Fecha de Nacimiento) + fila de ejemplo.
-- `app/api/pacientes/export/route.ts` — GET → `pacientes-YYYY-MM-DD.xlsx` con toda la base (campos solicitados + previsión, género, activo, creado).
-- `app/api/pacientes/import/route.ts` — POST multipart `file`. Lee xlsx/xls/csv, valida nombre/apellido/RUT, parsea fecha flexible (ISO, dd/mm/yyyy, serial Excel), normaliza RUT a `12345678-9`, usa `createMany skipDuplicates`. Retorna `{ total, creados, duplicados, errores[] }`.
-- `app/(dashboard)/pacientes/pacientes-client.tsx` — 3 botones añadidos (Plantilla / Importar / Exportar Excel) + modal de resultado con KPIs y errores por fila.
+1. **Sistema de continuidad documental** (commits `7d6f490` + `b723488`): `CLAUDE.md` raíz reescrito + `docs/PROJECT_CONTEXT.md`, `PROJECT_STATUS.md`, `AI_CHANGELOG.md`, `SESSION_HANDOFF.md`.
+2. **Import/export Excel de pacientes** (commit `7d6f490`): 3 endpoints (`template`, `export`, `import`) + 3 botones en UI + modal de resultado. Dependencia `xlsx`.
+3. **RUT de paciente opcional + dedupe vs DB** (commit `1694069`): el modelo `Paciente.rut` pasó a `String? @unique`. El importador acepta filas sin RUT; los RUTs ya existentes en DB se reportan como duplicados antes de insertar.
 
 ---
 
-## Qué quedó pendiente exactamente
+## Estado actual del módulo `/pacientes`
 
-**Nada urgente.** Hay que esperar a que el usuario pruebe el flujo en producción y dé feedback.
+- ✅ Botón **Plantilla** descarga `plantilla-pacientes.xlsx` con 7 columnas (Nombres, Apellidos, Telefono, Dirección, Correo Electrónico, RUT, Fecha de Nacimiento) + 1 fila de ejemplo.
+- ✅ Botón **Importar** acepta xlsx/xls/csv:
+  - Valida solo Nombres y Apellidos (RUT opcional).
+  - Si trae RUT: normaliza a `12345678-9`, dedupea dentro del archivo, dedupea contra DB.
+  - Si NO trae RUT: importa igualmente.
+  - Modal de resultado muestra: filas leídas, creados, RUT ya existente, importados sin RUT, errores por fila.
+- ✅ Botón **Exportar Excel** descarga toda la base como `pacientes-YYYY-MM-DD.xlsx`.
+- ✅ Lista, ficha individual, print de presupuesto/plan y agenda manejan correctamente pacientes sin RUT.
+
+---
+
+## Qué quedó pendiente
+
+**Sin tareas urgentes.** Esperar feedback del usuario sobre el último deploy.
 
 ### Mejoras opcionales identificadas
 
-1. [ ] **Modo "actualizar existentes"**: hoy `createMany({ skipDuplicates: true })` ignora RUTs que ya existen. Si se quiere "merge", iterar y hacer `upsert` por RUT. Más lento pero útil para actualizar datos.
-2. [ ] **Validación de DV chileno**: el RUT se normaliza pero el dígito verificador no se valida matemáticamente.
-3. [ ] **Vista previa antes de confirmar**: hoy el import es directo. Se podría mostrar diff antes de escribir en DB.
+1. [ ] Filtro/tag en lista de pacientes para identificar "Sin RUT" y completar después.
+2. [ ] Modo "actualizar existentes" (hoy `skipDuplicates` los ignora).
+3. [ ] Validación de dígito verificador del RUT chileno cuando sí se proporciona.
+4. [ ] Vista previa antes de confirmar import.
 
 ---
 
@@ -56,18 +52,20 @@
 
 | Archivo                                                | Acción      |
 | ------------------------------------------------------ | ----------- |
+| `prisma/schema.prisma`                                 | `rut` nullable |
 | `package.json` / `package-lock.json`                   | + xlsx      |
 | `app/api/pacientes/template/route.ts`                  | creado      |
-| `app/api/pacientes/export/route.ts`                    | creado      |
-| `app/api/pacientes/import/route.ts`                    | creado      |
-| `app/(dashboard)/pacientes/pacientes-client.tsx`       | + 3 botones + modal |
-| `CLAUDE.md`                                            | sobrescrito |
-| `docs/PROJECT_CONTEXT.md`                              | creado      |
-| `docs/PROJECT_STATUS.md`                               | creado + actualizado |
-| `docs/AI_CHANGELOG.md`                                 | creado + entrada nueva |
-| `docs/SESSION_HANDOFF.md`                              | creado + actualizado |
+| `app/api/pacientes/export/route.ts`                    | creado + nullable |
+| `app/api/pacientes/import/route.ts`                    | creado + RUT opcional + dedupe DB |
+| `app/api/pacientes/route.ts`                           | POST acepta rut vacío |
+| `lib/utils.ts`                                         | `formatRUT` acepta null/undefined |
+| `app/(dashboard)/pacientes/pacientes-client.tsx`       | botones + modal + form opcional |
+| `app/(dashboard)/pacientes/[id]/ficha-client.tsx`      | guards "Sin RUT" |
+| `app/(dashboard)/agenda/agenda-client.tsx`             | tipos + filtro + form sin required |
+| `app/print/presupuesto/page.tsx`, `app/print/plan/page.tsx` | RUT oculto si null |
+| `CLAUDE.md`, `docs/*.md`                               | sistema de continuidad |
 
-**Commits:** `7d6f490` (este push) sobre `6a2580c` (sesión anterior, seed aranceles).
+**Commits cronológicos:** `6a2580c` (seed aranceles, sesión previa) → `7d6f490` (import/export + docs) → `b723488` (docs update) → `1694069` (RUT opcional + dedupe DB).
 
 ---
 
@@ -77,25 +75,15 @@
 
 1. Leer `CLAUDE.md` (raíz).
 2. Leer este `docs/SESSION_HANDOFF.md`.
-3. Leer `docs/PROJECT_STATUS.md` para confirmar el estado actual.
-4. Si la tarea es arquitectural, consultar también `docs/PROJECT_CONTEXT.md`.
+3. Leer `docs/PROJECT_STATUS.md` para confirmar estado.
 
 ### Paso 2 — Esperar instrucción del usuario
 
-No hay tarea pendiente activa. Posibles direcciones que el usuario podría tomar:
-
-- Probar import/export con un Excel real → posible feedback de ajustes (formato de RUT, fechas, columnas extra).
-- Integración real de WhatsApp para confirmaciones de cita.
-- Dashboard KPI en `/` con `recharts`.
-- Reportes financieros.
+No hay tarea activa pendiente. El usuario probará el import con archivo real y dará feedback.
 
 ### Paso 3 — Antes de cerrar la sesión
 
-Siempre actualizar:
-1. `docs/AI_CHANGELOG.md` (nueva entrada arriba).
-2. `docs/PROJECT_STATUS.md` (mover completado a "Funcionando hoy").
-3. `docs/SESSION_HANDOFF.md` (sobrescribir con el estado real).
-4. Commit + push de los docs.
+Siempre actualizar `AI_CHANGELOG.md`, `PROJECT_STATUS.md` y `SESSION_HANDOFF.md`. Commit + push de los docs.
 
 ---
 
@@ -105,15 +93,16 @@ Siempre actualizar:
 - **Repo:** GitHub `javierjham-design/digital-dent`, rama `master`, auto-deploy Vercel.
 - **Git:** `C:\Program Files\Git\bin\git.exe` (no está en PATH).
 - **Node:** `C:\Program Files\nodejs\node.exe` (no está en PATH).
-- **Shell:** PowerShell 5.1 (sin `&&`, sin `2>&1` para nativos, sin esperar `npx`/`git` en PATH).
+- **Shell:** PowerShell 5.1.
 - **El usuario autorizó operación autónoma.** No pedir confirmación para tareas claras.
-- **Idioma de respuesta y código:** español Chile.
-- **Decisiones técnicas firmes:** Excel real con `xlsx`, no CSV. Auth con `getServerSession` en todas las API. Patrón page.tsx (server) → *-client.tsx (client).
+- **Idioma:** español Chile.
+- **Decisiones técnicas firmes:** Excel real con `xlsx`. Auth con `getServerSession` en todas las API. Patrón page.tsx (server) → *-client.tsx (client). `Paciente.rut` opcional pero único cuando se provee.
 
 ---
 
-## Notas técnicas del último deploy
+## Notas técnicas
 
-- Build de Vercel ejecuta: `prisma db push --accept-data-loss && prisma generate && ts-node --transpile-only prisma/seed-aranceles.ts && next build`.
-- `xlsx` añadió 9 paquetes; tiene 3 CVE conocidos (aceptables en endpoint autenticado).
-- Cliente Prisma local quedó desactualizado: si necesitas correr `tsc --noEmit` limpio, cerrar dev server y reejecutar `npx prisma generate` (a veces falla en Windows por `.dll` bloqueado, basta reintentar tras cerrar VS Code y dev server).
+- Vercel build: `prisma db push --accept-data-loss && prisma generate && ts-node --transpile-only prisma/seed-aranceles.ts && next build`.
+- El cliente Prisma local quedó desactualizado; `npx prisma generate` falla en Windows por `query_engine.dll` bloqueado. Vercel lo regenera limpio.
+- Para commits multilínea desde PowerShell con comillas dobles: usar archivo temporal `git commit -F`, no here-string.
+- `xlsx` tiene 3 CVE conocidos; aceptables en endpoint autenticado.

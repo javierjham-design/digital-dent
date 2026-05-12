@@ -19,7 +19,7 @@ Sin pendientes urgentes. El proyecto está en estado estable.
 | ----------------- | :----: | ------------------------------------------------------------------------------------- |
 | Login / Auth      |   ✅   | NextAuth + Credentials + JWT. Middleware `proxy.ts` protege todo.                     |
 | Pacientes (CRUD)  |   ✅   | Listado, alta, edición, ficha clínica, odontograma, tratamientos asociados.           |
-| **Pacientes Import/Export** | ✅ | Plantilla `.xlsx`, importar Excel/CSV con validación, exportar base completa. |
+| **Pacientes Import/Export** | ✅ | Plantilla `.xlsx`, importar Excel/CSV (RUT opcional, dedupe vs DB), exportar base completa. |
 | Agenda            |   ✅   | FullCalendar, horarios por doctor, log de citas, flag confirmación WA manual.         |
 | Prestaciones      |   ✅   | CRUD + **764 ítems del arancel** seedeados automáticamente en cada deploy.            |
 | Presupuestos      |   ✅   | CRUD, numeración correlativa, vista imprimible (`/print/presupuesto`).                |
@@ -33,7 +33,8 @@ Sin pendientes urgentes. El proyecto está en estado estable.
 
 ## Cambios recientes
 
-- **2026-05-12 (commit `7d6f490`):** Import/export Excel de pacientes (3 endpoints + UI) + sistema de continuidad documental (`CLAUDE.md` + `docs/`). Nueva dependencia: `xlsx` (SheetJS).
+- **2026-05-12 (commit `1694069`):** `Paciente.rut` ahora es `String? @unique`. Import acepta filas sin RUT; pre-consulta DB para reportar duplicados; UI/print muestran "Sin RUT" cuando aplica.
+- **2026-05-12 (commit `7d6f490`):** Import/export Excel de pacientes (3 endpoints + UI) + sistema de continuidad documental. Nueva dependencia: `xlsx`.
 - **2026-05-12 (commit `6a2580c`):** 764 prestaciones del arancel cargadas vía seed automático en build.
 
 ---
