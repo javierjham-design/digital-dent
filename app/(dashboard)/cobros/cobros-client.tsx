@@ -6,7 +6,7 @@ import { formatCLP, formatDate } from '@/lib/utils'
 interface CobroItem { id: string; descripcion: string; monto: number; tratamientoId?: string | null }
 interface MedioPago  { id: string; nombre: string; comision: number }
 interface Cajero     { id: string; nombre: string }
-interface Paciente   { id: string; nombre: string; apellido: string; rut: string }
+interface Paciente   { id: string; nombre: string; apellido: string; rut: string | null }
 interface Tratamiento {
   id: string; descripcion: string; monto: number
   pacienteId: string; paciente: string
