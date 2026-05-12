@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { formatRUT, formatDate } from '@/lib/utils'
 
@@ -16,11 +16,76 @@ const PREVISION_COLORS: Record<string, string> = {
   PARTICULAR: 'bg-slate-100 text-slate-700',
 }
 
+type ImportResult = {
+  total: number
+  creados: number
+  duplicados: number
+  errores: { fila: number; motivo: string }[]
+}
+
 export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState({ rut: '', nombre: '', apellido: '', telefono: '', email: '', prevision: 'PARTICULAR', fechaNacimiento: '', genero: '' })
   const [saving, setSaving] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [importResult, setImportResult] = useState<ImportResult | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+
+  async function handleExport() {
+    try {
+      setExporting(true)
+      const res = await fetch('/api/pacientes/export')
+      if (!res.ok) throw new Error(`Error ${res.status}`)
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `pacientes-${new Date().toISOString().slice(0, 10)}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (e: any) {
+      alert(`No se pudo exportar: ${e.message ?? e}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImportError(null)
+    setImportResult(null)
+    setImporting(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/pacientes/import', { method: 'POST', body: fd })
+      const data = await res.json()
+      if (!res.ok) {
+        setImportError(data.error ?? `Error ${res.status}`)
+      } else {
+        setImportResult(data as ImportResult)
+      }
+    } catch (err: any) {
+      setImportError(err.message ?? 'Error desconocido')
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  function closeImportResult() {
+    setImportResult(null)
+    setImportError(null)
+    if (importResult && importResult.creados > 0) {
+      window.location.reload()
+    }
+  }
 
   const filtered = pacientes.filter((p) => {
     const q = search.toLowerCase()
@@ -53,15 +118,53 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
           <h1 className="text-2xl font-bold text-slate-900">Pacientes</h1>
           <p className="text-slate-500 text-sm mt-1">{pacientes.length} paciente{pacientes.length !== 1 ? 's' : ''} registrado{pacientes.length !== 1 ? 's' : ''}</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Nuevo paciente
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <a
+            href="/api/pacientes/template"
+            className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            Plantilla
+          </a>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-60 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+            </svg>
+            {importing ? 'Importando...' : 'Importar'}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv"
+            className="hidden"
+            onChange={handleImportFile}
+          />
+          <button
+            onClick={handleExport}
+            disabled={exporting || pacientes.length === 0}
+            className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-60 text-slate-700 px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            {exporting ? 'Exportando...' : 'Exportar Excel'}
+          </button>
+          <button
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Nuevo paciente
+          </button>
+        </div>
       </div>
 
       {/* Búsqueda */}
@@ -139,6 +242,71 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
           </tbody>
         </table>
       </div>
+
+      {/* Modal resultado importación */}
+      {(importResult || importError) && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] overflow-y-auto">
+            <div className="px-6 py-5 border-b border-slate-100 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-900">
+                {importError ? 'Error al importar' : 'Importación completada'}
+              </h2>
+              <button onClick={closeImportResult} className="text-slate-400 hover:text-slate-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {importError ? (
+                <p className="text-sm text-red-600">{importError}</p>
+              ) : importResult ? (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-slate-50 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold text-slate-900">{importResult.total}</p>
+                      <p className="text-xs text-slate-500 mt-1">Filas leídas</p>
+                    </div>
+                    <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold text-emerald-700">{importResult.creados}</p>
+                      <p className="text-xs text-emerald-600 mt-1">Creados</p>
+                    </div>
+                    <div className="bg-amber-50 rounded-xl p-3 text-center">
+                      <p className="text-2xl font-bold text-amber-700">{importResult.duplicados}</p>
+                      <p className="text-xs text-amber-600 mt-1">Duplicados</p>
+                    </div>
+                  </div>
+                  {importResult.errores.length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium text-slate-700 mb-2">
+                        Errores ({importResult.errores.length}):
+                      </p>
+                      <div className="bg-red-50 border border-red-100 rounded-xl p-3 max-h-48 overflow-y-auto">
+                        <ul className="text-xs text-red-700 space-y-1">
+                          {importResult.errores.slice(0, 50).map((err, i) => (
+                            <li key={i}>
+                              <span className="font-mono">Fila {err.fila}:</span> {err.motivo}
+                            </li>
+                          ))}
+                          {importResult.errores.length > 50 && (
+                            <li className="italic">...y {importResult.errores.length - 50} más</li>
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : null}
+              <button
+                onClick={closeImportResult}
+                className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-medium transition-colors"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal nuevo paciente */}
       {showModal && (
