@@ -28,6 +28,51 @@
 
 ---
 
+## 2026-05-13 — Módulo Pacientes rediseñado (Fase 2A)
+
+**Solicitud:** Mejorar listado de pacientes con fila expandible mostrando indicadores (RUT, email, teléfono, convenio, tratamientos activos/finalizados/expirados, recaudación). Rediseñar ficha del paciente con tabs principales (Datos personales / Ficha clínica / Planes / Facturación / Recibir pago), subtabs (Datos / Citas / Comentarios administrativos / Mensajes — omitir "Tareas de gestión"), indicadores médicos en el header (Alertas / Enfermedades / Medicamentos), y historial unificado de mensajes (emails con planes, documentos, recetas + confirmaciones WhatsApp).
+
+**Archivos modificados:**
+- `prisma/schema.prisma`:
+  - `Paciente`: +18 campos (numero correlativo, nombreSocial, sexo, nacionalidad, migrante, puebloOriginario, telefonoFijo, ciudad, comuna, actividad, empleador, apoderado, rutApoderado, referencia, tipoPaciente, numeroInterno, otroDocId). `@@unique([clinicaId, numero])`.
+  - `FichaClinica`: +`alertasMedicas`, +`enfermedadesNotas` (texto libre).
+  - Nuevo `ComentarioAdministrativo` (autor + texto + timestamp por paciente).
+  - Nuevo `MensajePaciente` (tipo EMAIL/WHATSAPP/SMS × categoría CONFIRMACION_CITA/PLAN_TRATAMIENTO/DOCUMENTO/RECETA/OTRO).
+- `prisma/seed-multi-tenant.ts` — asigna `numero` correlativo a pacientes existentes por clínica, ordenados por `createdAt`.
+- `app/api/pacientes/route.ts` — POST asigna `numero` automáticamente. Acepta todos los nuevos campos.
+- `app/api/pacientes/[id]/route.ts` — PATCH con todos los campos nuevos.
+- `app/api/pacientes/[id]/comentarios/route.ts` — creado. GET/POST con autor de la sesión.
+- `app/api/pacientes/[id]/mensajes/route.ts` — creado. GET/POST.
+- `app/(dashboard)/pacientes/page.tsx` — incluye tratamientos, cobros y presupuestos para calcular KPIs por paciente.
+- `app/(dashboard)/pacientes/pacientes-client.tsx` — listado completo rediseñado: filtros (búsqueda, número, tratamientos con/sin), tabla con columnas #/Nombre/Apellidos/Tratamientos/Deudas, fila expandible al click con avatar + contacto + KPIs tratamientos + recaudación + links rápidos.
+- `app/(dashboard)/pacientes/[id]/page.tsx` — incluye comentarios admin y mensajes en el query.
+- `app/(dashboard)/pacientes/[id]/ficha-client.tsx` — reescrito completo:
+  - Header azul con ID, avatar, nombre, RUT, edad, previsión.
+  - 3 indicadores médicos (Alertas / Enfermedades / Medicamentos) que cambian color si tienen contenido.
+  - 5 tabs principales: Datos personales | Ficha clínica | Planes de tratamiento | Facturación y pagos | Recibir pago.
+  - Acciones Agendar (→ /agenda?pacienteId) y Historia clínica (→ print plan).
+  - Subtabs de Datos personales: Datos | Citas (N) | Comentarios | Mensajes (N).
+  - Formulario completo con todos los campos nuevos (datos requeridos + opcionales).
+  - Comentarios: textarea + listado con autor y fecha.
+  - Mensajes: timeline con badge tipo (EMAIL/WHATSAPP/SMS) + categoría + estado.
+
+**Resumen de cambios:**
+Módulo pacientes pasa de un listado simple + ficha plana a una experiencia rica como SaaS comercial. El listado da overview rápido con todo lo importante al expandir una fila. La ficha tiene la profundidad necesaria para que un doctor opere todo desde un solo lugar. Comentarios administrativos y historial de mensajes son trazables para auditoría.
+
+**Riesgos / consideraciones:**
+- `numero` correlativo se asigna en el seed (existentes) y en el POST (nuevos). Si dos POST llegan al mismo milisegundo a la misma clínica, podrían colisionar por `@@unique([clinicaId, numero])`. Aceptable por la baja concurrencia esperada en una clínica.
+- El historial de mensajes está listo para recibir entradas pero **nadie las crea automáticamente todavía**. Cuando enviemos confirmaciones WhatsApp en el módulo agenda, hay que insertar en `MensajePaciente`. Pendiente para integración real.
+- "Tareas de gestión" omitido por pedido explícito del usuario.
+- La edición de la ficha clínica completa (alergias, enfermedades, medicamentos) aún es solo lectura — el formulario completo de ficha clínica es Fase 2B.
+
+**Pendientes derivados:**
+- Editor completo de ficha clínica (alertas, enfermedades, medicamentos editable).
+- Auto-registrar mensajes WhatsApp al confirmar cita.
+- Auto-registrar email cuando se envía presupuesto/plan.
+- Pre-seleccionar paciente en `/agenda?pacienteId=X` (hoy el query string llega pero no se usa en agenda).
+
+---
+
 ## 2026-05-13 — Panel super-admin: crear clínicas + detalle enriquecido
 
 **Solicitud:** Tras feedback de uso del panel: quitar KPIs operativos del dashboard global (no le interesan citas/usuarios/pacientes globales), agregar opción para crear clínicas desde el panel, y en el detalle de cada clínica mostrar: detalle de plan + cobros mensuales, resumen de pacientes con/sin agenda, y almacenamiento usado.
