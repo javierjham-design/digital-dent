@@ -19,6 +19,7 @@ Próximo paso: **Fase 1B — Panel super-admin (`/admin`)** para que el dueño d
 | ----------------- | :----: | ------------------------------------------------------------------------------------- |
 | **Multi-tenant**  |   ✅   | Modelo `Clinica`, scope por `clinicaId` en todo. JWT incluye clínica. Trial 30 días. |
 | **Onboarding**    |   ✅   | `/registro` público. Crea clínica + admin + copia catálogo + auto-login.             |
+| **Super-admin**   |   ✅   | Panel `/digital-dent-super-admin` para gestionar todas las clínicas.                 |
 | Login / Auth      |   ✅   | NextAuth + Credentials + JWT con `clinicaId`. Middleware permite `/registro` público. |
 | Pacientes (CRUD)  |   ✅   | Scope por clínica. RUT único POR clínica. Import/export Excel.                       |
 | Agenda            |   ✅   | FullCalendar, horarios por doctor, log de citas — todo scoped.                       |
@@ -34,7 +35,8 @@ Próximo paso: **Fase 1B — Panel super-admin (`/admin`)** para que el dueño d
 
 ## Cambios recientes
 
-- **2026-05-13 (commits `e6d6de6` + `f919fcc`):** Multi-tenancy completa (50 archivos modificados). Modelo `Clinica`, `clinicaId` en todos los modelos, JWT con scope, `/registro` público, refactor de 15+ APIs y 10+ páginas.
+- **2026-05-13 (commit `e242eb9`):** Panel super-admin `/digital-dent-super-admin` (Fase 1B). Seed que crea user con `isPlatformAdmin` desde env vars. Dashboard global, listado de clínicas con filtros, detalle con editor y botón suspender. Rename a "Plataforma Dental" en login/registro.
+- **2026-05-13 (commits `e6d6de6` + `f919fcc`):** Multi-tenancy completa.
 - **2026-05-12 (commit `1694069`):** RUT de paciente opcional + dedupe contra DB.
 - **2026-05-12 (commit `7d6f490`):** Import/export Excel de pacientes.
 - **2026-05-12 (commit `6a2580c`):** 764 prestaciones cargadas vía seed.

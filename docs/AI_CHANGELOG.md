@@ -28,6 +28,50 @@
 
 ---
 
+## 2026-05-13 — Panel super-admin /digital-dent-super-admin (Fase 1B)
+
+**Solicitud:** Crear panel para gestionar todas las clínicas (control plane), dejarlo en URL `/digital-dent-super-admin`, renombrar "Digital-Dent" en login/registro a algo genérico (el usuario decidirá nombre comercial después), y crear usuario super-admin con credenciales para entrar.
+
+**Archivos modificados:**
+- `prisma/seed-super-admin.ts` — creado. Idempotente. Lee `SUPER_ADMIN_EMAIL` y `SUPER_ADMIN_PASSWORD` del env. Si user existe, solo asegura `isPlatformAdmin=true`. Si no existe, lo crea.
+- `package.json` — build incluye `seed-super-admin` después de `seed-multi-tenant`.
+- `lib/auth.ts` — `isPlatformAdmin` en JWT y session. Helper `requireSuperAdmin()`.
+- `app/digital-dent-super-admin/layout.tsx` — guard que redirige a `/login` o `/` si no es super-admin.
+- `app/digital-dent-super-admin/topbar.tsx` — nav oscura con Dashboard / Clínicas / Salir.
+- `app/digital-dent-super-admin/page.tsx` — dashboard con 8 KPIs globales (clínicas activas / en trial / suspendidas, usuarios, pacientes, citas totales y del mes, volumen cobrado) + tabla últimas 5 clínicas.
+- `app/digital-dent-super-admin/clinicas/page.tsx` + `clinicas-list-client.tsx` — listado con buscador y filtros por plan / estado.
+- `app/digital-dent-super-admin/clinicas/[id]/page.tsx` + `clinica-detail-client.tsx` — detalle con métricas, editor inline de datos y botón suspender/reactivar.
+- `app/api/admin/clinicas/[id]/route.ts` — GET/PATCH protegidos por `requireSuperAdmin`.
+- `app/api/auth/whoami/route.ts` — endpoint para que el login decida destino.
+- `app/(auth)/login/page.tsx` — post-login consulta whoami y redirige a `/digital-dent-super-admin` o `/`. Renombrado "Digital-Dent" → "Plataforma Dental".
+- `app/(auth)/registro/page.tsx` — renombrado a "Plataforma Dental".
+- `app/(dashboard)/layout.tsx` — si usuario es platform admin, redirige al panel.
+- `.gitignore` — añadido `*.tmp` para evitar commits accidentales del archivo de mensaje.
+
+**Resumen de cambios:**
+URL del panel: `/digital-dent-super-admin`. Visualmente oscuro (slate-900 + acento púrpura) para distinguir del dashboard de clínica. Acceso restringido por `isPlatformAdmin === true`. Dashboard muestra KPIs globales y listado/detalle de cada clínica permite editar datos, cambiar plan y suspender. El super-admin **no pertenece a ninguna clínica** (`clinicaId = null`), por lo que el dashboard normal lo redirige automáticamente al panel.
+
+**Cómo crear el super-admin (instrucciones al usuario):**
+Añadir en Vercel → Settings → Environment Variables (producción):
+- `SUPER_ADMIN_EMAIL=superadmin@digital-dent.cl` (o el email que prefiera)
+- `SUPER_ADMIN_PASSWORD=<password segura>`
+
+Tras redeploy, el seed crea el user. Login en `/login` con esas credenciales redirige al panel.
+
+**Riesgos / consideraciones:**
+- `isPlatformAdmin` no tiene UI para auto-elevación — solo via seed/SQL directo.
+- Si las env vars faltan, el seed termina sin error (no bloquea build, pero tampoco crea super-admin).
+- El password en env vars de Vercel está cifrado en reposo, pero si alguien tiene acceso al proyecto Vercel lo puede leer. Aceptable para el caso.
+- Modo "impersonar como admin de clínica" no implementado — pendiente para Fase 1B+.
+
+**Pendientes derivados:**
+- Modo impersonar (super-admin entra como admin de cualquier clínica sin saber su password).
+- Storage por clínica (cuando exista módulo de archivos en Fase 2).
+- Métrica "último login del admin de la clínica".
+- Botón "extender trial" en detalle de clínica.
+
+---
+
 ## 2026-05-13 — Multi-tenancy (Fase 1)
 
 **Solicitud:** Convertir la plataforma de single-tenant a SaaS multi-tenant para vender a múltiples clínicas, manteniendo aislamiento de datos por clínica.
