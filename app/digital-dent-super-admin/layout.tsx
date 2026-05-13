@@ -1,6 +1,5 @@
 export const dynamic = 'force-dynamic'
 
-import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import { SuperAdminTopBar } from './topbar'
