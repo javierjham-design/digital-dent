@@ -3,41 +3,69 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 
-export default async function SuperAdminDashboard() {
-  const [clinicas, totalUsuarios, totalPacientes, totalCitas, citasMes, totalCobros] = await Promise.all([
-    prisma.clinica.findMany({
-      orderBy: { createdAt: 'desc' },
-      take: 5,
-      include: {
-        _count: { select: { users: true, pacientes: true } },
-      },
-    }),
-    prisma.user.count({ where: { isPlatformAdmin: false } }),
-    prisma.paciente.count(),
-    prisma.cita.count(),
-    prisma.cita.count({
-      where: { fecha: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } },
-    }),
-    prisma.cobro.aggregate({ _sum: { monto: true } }),
-  ])
+async function loadStats() {
+  try {
+    const [clinicas, totalUsuarios, totalPacientes, totalCitas, citasMes, totalCobros, activas, enTrial, suspendidas] = await Promise.all([
+      prisma.clinica.findMany({
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        include: {
+          _count: { select: { users: true, pacientes: true } },
+        },
+      }),
+      prisma.user.count({ where: { isPlatformAdmin: false } }),
+      prisma.paciente.count(),
+      prisma.cita.count(),
+      prisma.cita.count({
+        where: { fecha: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } },
+      }),
+      prisma.cobro.aggregate({ _sum: { monto: true } }),
+      prisma.clinica.count({ where: { activo: true, plan: { not: 'TRIAL' } } }),
+      prisma.clinica.count({ where: { activo: true, plan: 'TRIAL' } }),
+      prisma.clinica.count({ where: { activo: false } }),
+    ])
+    return {
+      ok: true as const,
+      clinicas, totalUsuarios, totalPacientes, totalCitas, citasMes,
+      volumen: totalCobros._sum.monto ?? 0,
+      activas, enTrial, suspendidas,
+    }
+  } catch (e: any) {
+    console.error('[super-admin/dashboard] Error cargando stats:', e)
+    return { ok: false as const, error: e?.message ?? String(e) }
+  }
+}
 
-  const [activas, enTrial, suspendidas] = await Promise.all([
-    prisma.clinica.count({ where: { activo: true, plan: { not: 'TRIAL' } } }),
-    prisma.clinica.count({ where: { activo: true, plan: 'TRIAL' } }),
-    prisma.clinica.count({ where: { activo: false } }),
-  ])
+export default async function SuperAdminDashboard() {
+  const stats = await loadStats()
+
+  if (!stats.ok) {
+    return (
+      <div className="p-8 max-w-3xl mx-auto">
+        <div className="bg-red-950 border border-red-800 rounded-2xl p-6">
+          <h1 className="text-xl font-bold text-red-300 mb-2">Error al cargar el panel</h1>
+          <p className="text-red-200 text-sm mb-4">El servidor devolvió un error al consultar la base de datos:</p>
+          <pre className="bg-black/40 rounded-lg p-4 text-xs text-red-300 overflow-x-auto">{stats.error}</pre>
+          <p className="text-red-300 text-xs mt-4">
+            Probables causas: cliente Prisma desactualizado, columna nueva sin migrar, o credenciales de DB.
+            Verifica los Runtime Logs de Vercel.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 
   const kpis = [
-    { label: 'Clínicas activas',  value: activas,      tono: 'emerald' },
-    { label: 'En trial',          value: enTrial,      tono: 'amber' },
-    { label: 'Suspendidas',       value: suspendidas,  tono: 'red' },
-    { label: 'Usuarios totales',  value: totalUsuarios, tono: 'sky' },
-    { label: 'Pacientes totales', value: totalPacientes, tono: 'fuchsia' },
-    { label: 'Citas totales',     value: totalCitas, tono: 'indigo' },
-    { label: 'Citas este mes',    value: citasMes, tono: 'purple' },
-    { label: 'Volumen cobrado',   value: fmtCLP(totalCobros._sum.monto ?? 0), tono: 'teal', span: 2 },
+    { label: 'Clínicas activas',  value: stats.activas,      tono: 'emerald' },
+    { label: 'En trial',          value: stats.enTrial,      tono: 'amber' },
+    { label: 'Suspendidas',       value: stats.suspendidas,  tono: 'red' },
+    { label: 'Usuarios totales',  value: stats.totalUsuarios, tono: 'sky' },
+    { label: 'Pacientes totales', value: stats.totalPacientes, tono: 'fuchsia' },
+    { label: 'Citas totales',     value: stats.totalCitas, tono: 'indigo' },
+    { label: 'Citas este mes',    value: stats.citasMes, tono: 'purple' },
+    { label: 'Volumen cobrado',   value: fmtCLP(stats.volumen), tono: 'teal', span: 2 },
   ]
 
   const tonoBg: Record<string, string> = {
@@ -74,7 +102,7 @@ export default async function SuperAdminDashboard() {
             Ver todas →
           </Link>
         </div>
-        {clinicas.length === 0 ? (
+        {stats.clinicas.length === 0 ? (
           <p className="px-6 py-10 text-center text-slate-500 text-sm">Sin clínicas registradas</p>
         ) : (
           <table className="w-full text-sm">
@@ -89,7 +117,7 @@ export default async function SuperAdminDashboard() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {clinicas.map((c) => (
+              {stats.clinicas.map((c) => (
                 <tr key={c.id} className="hover:bg-slate-800/50 transition-colors">
                   <td className="px-6 py-3">
                     <Link href={`/digital-dent-super-admin/clinicas/${c.id}`} className="text-white font-medium hover:text-purple-300">
