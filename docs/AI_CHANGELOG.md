@@ -28,6 +28,45 @@
 
 ---
 
+## 2026-05-13 — Panel super-admin: crear clínicas + detalle enriquecido
+
+**Solicitud:** Tras feedback de uso del panel: quitar KPIs operativos del dashboard global (no le interesan citas/usuarios/pacientes globales), agregar opción para crear clínicas desde el panel, y en el detalle de cada clínica mostrar: detalle de plan + cobros mensuales, resumen de pacientes con/sin agenda, y almacenamiento usado.
+
+**Archivos modificados:**
+- `lib/plans.ts` — creado. `PLAN_PRICES` (TRIAL 0, BASICO 19900, PRO 39900 CLP), `PLAN_LABELS`, `PLAN_DESCRIPCIONES`.
+- `app/digital-dent-super-admin/page.tsx` — simplificado: 4 KPIs (activas/trial/suspendidas/total) + tarjeta destacada de MRR estimado.
+- `app/api/admin/clinicas/route.ts` — creado. POST protegido por `requireSuperAdmin` para crear clínica desde panel con plan y días de trial configurables.
+- `app/digital-dent-super-admin/clinicas/nueva/page.tsx` — creado. Formulario completo: datos clínica + admin inicial + selector visual de plan + días trial.
+- `app/digital-dent-super-admin/clinicas/clinicas-list-client.tsx` — botón "Nueva clínica" en el header del listado.
+- `app/digital-dent-super-admin/clinicas/[id]/page.tsx` — añadidas queries: `pacientesConAgenda`, `pacientesSinAgenda`, `cobrosUltimos90Dias`, storage placeholder con cuota según plan.
+- `app/digital-dent-super-admin/clinicas/[id]/clinica-detail-client.tsx` — 4 secciones nuevas:
+  - **Suscripción**: plan, cobro mensual, trial vence / próximo cobro.
+  - **Pacientes**: total, con citas, sin citas, + nota de usuarios y citas totales.
+  - **Cobros a pacientes**: histórico, últimos 90 días, # cobros.
+  - **Almacenamiento**: barra de progreso con cuota por plan (TRIAL 1GB, BASICO 10GB, PRO 50GB), placeholder a 0 B.
+
+**Resumen de cambios:**
+El panel super-admin ahora es un control plane real:
+- Dashboard global con foco en negocio (clínicas + MRR).
+- Crear clínica desde adentro sin pasar por `/registro` público.
+- Detalle de cada clínica muestra: cuánto paga (estimado), cómo usan la plataforma (pacientes con/sin agenda), cuánto cobran a sus pacientes, y cuánto storage consumen.
+
+Las cuotas de storage están hardcodeadas en código (no en DB); cuando exista módulo de archivos en Fase 2, calcular `bytesUsados` real sumando los archivos por clínica.
+
+**Riesgos / consideraciones:**
+- `PLAN_PRICES` es hardcoded. Sería mejor en DB cuando llegue la pasarela (Fase 4) para que el super-admin pueda editar precios.
+- Storage es siempre 0 hasta Fase 2.
+- Las cuotas (1/10/50 GB) son arbitrarias — ajustar cuando definamos packaging real.
+- `pacientesSinAgenda` se calcula como `total - conAgenda`, lo cual es correcto pero asume que ambas queries son consistentes (no hay concurrencia entre ellas).
+
+**Pendientes derivados:**
+- Editar `PLAN_PRICES` desde el panel (modelo `Plan` en DB).
+- Tracking de cobros mensuales reales (cuando exista pasarela).
+- Storage real cuando exista módulo de archivos.
+- Modo "impersonar" para soporte.
+
+---
+
 ## 2026-05-13 — Panel super-admin /digital-dent-super-admin (Fase 1B)
 
 **Solicitud:** Crear panel para gestionar todas las clínicas (control plane), dejarlo en URL `/digital-dent-super-admin`, renombrar "Digital-Dent" en login/registro a algo genérico (el usuario decidirá nombre comercial después), y crear usuario super-admin con credenciales para entrar.
