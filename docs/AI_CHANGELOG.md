@@ -28,6 +28,52 @@
 
 ---
 
+## 2026-05-13 — Multi-tenancy (Fase 1)
+
+**Solicitud:** Convertir la plataforma de single-tenant a SaaS multi-tenant para vender a múltiples clínicas, manteniendo aislamiento de datos por clínica.
+
+**Archivos modificados:** 50 archivos. Resumen:
+- `prisma/schema.prisma` — Nuevo modelo `Clinica`. `clinicaId` nullable en cada modelo de datos. `@@unique([clinicaId, rut])` en Paciente, `@@unique([clinicaId, numero])` en Presupuesto y Cobro. `isPlatformAdmin` añadido a User para Fase 1B.
+- `prisma/seed-multi-tenant.ts` — creado. Crea clínica "Clínica Digital-Dent" copiando datos del singleton `Configuracion`, y asigna todos los registros huérfanos a esa clínica.
+- `lib/auth.ts` — JWT y session incluyen `clinicaId`. Helpers `getSessionUser()` y `requireClinicaId()`.
+- `app/api/clinicas/route.ts` — creado. POST público para registro de clínica nueva + admin + copia del catálogo de la plantilla.
+- `app/api/clinica/route.ts` — creado. GET/PATCH datos de la clínica actual.
+- `app/api/configuracion/route.ts` — convertido en pasarela legacy al modelo `Clinica`.
+- **15+ endpoints API** — todos filtran por `clinicaId` en GET/PATCH/DELETE y lo asignan en POST.
+- **10+ páginas server-component** — agenda, pacientes, presupuestos, cobros, prestaciones, liquidaciones, usuarios, configuración: queries scope por clínica.
+- **3 páginas print** — header dinámico con datos de la clínica del usuario.
+- `app/(auth)/registro/page.tsx` — creado. Onboarding en 2 pasos (datos clínica → admin).
+- `app/(auth)/login/page.tsx` — añadido link a /registro.
+- `proxy.ts` — `/registro` y `/api/clinicas` son ahora públicos.
+- `app/(dashboard)/layout.tsx` — carga la clínica del usuario; redirige si suspendida/sin clínica.
+- `package.json` — build script reemplaza `seed-aranceles` por `seed-multi-tenant`.
+
+**Resumen de cambios:**
+La plataforma deja de ser single-tenant. Cada clínica es un tenant aislado con sus propios usuarios, pacientes, citas, aranceles, presupuestos, etc. El JWT lleva `clinicaId` y cada query filtra automáticamente por ese scope. Una clínica nueva se registra públicamente en `/registro`, recibe 30 días de trial, hereda el catálogo de aranceles de la plantilla, y se loguea automáticamente al terminar el flujo. Los datos existentes (3.980 pacientes, 764 prestaciones, etc.) quedan asignados a la "Clínica Digital-Dent" inicial creada por el seed.
+
+**Decisiones técnicas confirmadas (6 puntos):**
+1. RUT de paciente único por clínica (no global).
+2. Aranceles propios por clínica (copia inicial desde plantilla).
+3. Email de usuario único global.
+4. Trial de 30 días al registrarse.
+5. Login simple: cada usuario pertenece a una sola clínica.
+6. Migración: nueva clínica "Clínica Digital-Dent" recibe todos los datos legacy.
+
+**Riesgos / consideraciones:**
+- `clinicaId` queda **nullable** en DB por la migración suave. A nivel de código siempre se valida que esté presente. Endurecer a NOT NULL en un segundo commit una vez verificada la migración en producción.
+- El cliente Prisma local no se pudo regenerar (`.dll` bloqueado en Windows). Vercel lo regenera limpio en cada build, así que typecheck local muestra errores irreales pero el build de Vercel funcionará.
+- `seed-aranceles.ts` ya no corre en cada build. Las 764 prestaciones quedaron asignadas a la clínica inicial. Clínicas nuevas reciben copia.
+- Los `numero` correlativos de Presupuesto/Cobro siguen sin transacción explícita. Bajo concurrencia alta de dos usuarios creando al mismo tiempo en la misma clínica podría colisionar. Aceptable para clínicas pequeñas.
+- El modelo `Configuracion` legacy se mantiene; eliminarlo en una segunda fase.
+
+**Pendientes derivados:**
+- **Fase 1B: Panel super-admin `/admin`** — pendiente. UI para gestionar todas las clínicas: listado, métricas, suspender, almacenamiento usado. Campo `isPlatformAdmin` ya añadido al schema.
+- Fase 2: Módulo de archivos (radiografías, documentos).
+- Fase 3: Migración a Hetzner.
+- Fase 4: Pasarela de pagos.
+
+---
+
 ## 2026-05-12 — RUT de paciente opcional + dedupe contra DB en import
 
 **Solicitud:** Permitir importar (y crear) pacientes sin RUT, manteniendo la unicidad: si traen RUT y ya existe en la base, no importar esa fila.

@@ -1,15 +1,15 @@
 # Dental Platform — Estado actual
 
-> **Última actualización:** 2026-05-12
+> **Última actualización:** 2026-05-13
 > **Mantén este archivo corto.** Es para diagnóstico rápido al inicio de cada sesión. Histórico detallado va en `AI_CHANGELOG.md`.
 
 ---
 
 ## Resumen ejecutivo
 
-Plataforma **operativa en producción** (Vercel + Neon Postgres). Todos los módulos de UI están implementados y conectados a la base de datos. Cambios recientes: catálogo completo del arancel (764 prestaciones) cargado automáticamente en cada deploy, y módulo de **import/export de pacientes en Excel** ya en producción (`/pacientes` con plantilla, importar y exportar).
+Plataforma **operativa en producción como SaaS multi-tenant** (Vercel + Neon Postgres). La Fase 1 (multi-tenancy) está completa: cada clínica es un tenant aislado, el onboarding `/registro` permite crear clínicas nuevas con 30 días de trial, y los datos existentes están preservados en la "Clínica Digital-Dent" inicial.
 
-Sin pendientes urgentes. El proyecto está en estado estable.
+Próximo paso: **Fase 1B — Panel super-admin (`/admin`)** para que el dueño de la plataforma pueda gestionar todas las clínicas (listado, métricas, suspender, ver almacenamiento usado).
 
 ---
 
@@ -17,73 +17,64 @@ Sin pendientes urgentes. El proyecto está en estado estable.
 
 | Módulo            | Estado | Notas                                                                                 |
 | ----------------- | :----: | ------------------------------------------------------------------------------------- |
-| Login / Auth      |   ✅   | NextAuth + Credentials + JWT. Middleware `proxy.ts` protege todo.                     |
-| Pacientes (CRUD)  |   ✅   | Listado, alta, edición, ficha clínica, odontograma, tratamientos asociados.           |
-| **Pacientes Import/Export** | ✅ | Plantilla `.xlsx`, importar Excel/CSV (RUT opcional, dedupe vs DB), exportar base completa. |
-| Agenda            |   ✅   | FullCalendar, horarios por doctor, log de citas, flag confirmación WA manual.         |
-| Prestaciones      |   ✅   | CRUD + **764 ítems del arancel** seedeados automáticamente en cada deploy.            |
-| Presupuestos      |   ✅   | CRUD, numeración correlativa, vista imprimible (`/print/presupuesto`).                |
-| Cobros            |   ✅   | CRUD con medios de pago, comisiones, recibo.                                          |
-| Liquidaciones     |   ✅   | Por doctor × período. Contratos % / monto fijo. Vista imprimible.                     |
-| Equipo (Usuarios) |   ✅   | Roles admin / doctor / staff, flag `puedeRecibirPagos`.                               |
-| Configuración     |   ✅   | Singleton con datos clínica, logo (base64) y plantilla WA.                            |
-| Deploy Vercel     |   ✅   | Auto-deploy desde GitHub `master`, build incluye seed de aranceles.                   |
+| **Multi-tenant**  |   ✅   | Modelo `Clinica`, scope por `clinicaId` en todo. JWT incluye clínica. Trial 30 días. |
+| **Onboarding**    |   ✅   | `/registro` público. Crea clínica + admin + copia catálogo + auto-login.             |
+| Login / Auth      |   ✅   | NextAuth + Credentials + JWT con `clinicaId`. Middleware permite `/registro` público. |
+| Pacientes (CRUD)  |   ✅   | Scope por clínica. RUT único POR clínica. Import/export Excel.                       |
+| Agenda            |   ✅   | FullCalendar, horarios por doctor, log de citas — todo scoped.                       |
+| Prestaciones      |   ✅   | Catálogo propio por clínica. Plantilla con 764 ítems para nuevas clínicas.           |
+| Presupuestos      |   ✅   | Numeración correlativa **por clínica**. Vista imprimible con header dinámico.        |
+| Cobros            |   ✅   | Medios de pago propios. Numeración correlativa por clínica.                          |
+| Liquidaciones     |   ✅   | Por doctor × período × clínica.                                                       |
+| Equipo (Usuarios) |   ✅   | Cada usuario pertenece a una clínica. Email único global.                            |
+| Configuración     |   ✅   | Edita los datos de la clínica del usuario.                                            |
+| Deploy Vercel     |   ✅   | Auto-deploy desde `master`. Build incluye `seed-multi-tenant` idempotente.           |
 
 ---
 
 ## Cambios recientes
 
-- **2026-05-12 (commit `1694069`):** `Paciente.rut` ahora es `String? @unique`. Import acepta filas sin RUT; pre-consulta DB para reportar duplicados; UI/print muestran "Sin RUT" cuando aplica.
-- **2026-05-12 (commit `7d6f490`):** Import/export Excel de pacientes (3 endpoints + UI) + sistema de continuidad documental. Nueva dependencia: `xlsx`.
-- **2026-05-12 (commit `6a2580c`):** 764 prestaciones del arancel cargadas vía seed automático en build.
+- **2026-05-13 (commits `e6d6de6` + `f919fcc`):** Multi-tenancy completa (50 archivos modificados). Modelo `Clinica`, `clinicaId` en todos los modelos, JWT con scope, `/registro` público, refactor de 15+ APIs y 10+ páginas.
+- **2026-05-12 (commit `1694069`):** RUT de paciente opcional + dedupe contra DB.
+- **2026-05-12 (commit `7d6f490`):** Import/export Excel de pacientes.
+- **2026-05-12 (commit `6a2580c`):** 764 prestaciones cargadas vía seed.
 
 ---
 
-## Qué falta por construir
+## Próximos pasos (Fase 1B)
 
-### Pendiente inmediato
+### Panel super-admin `/admin`
 
-- Sin pendientes urgentes. Esperar feedback del usuario tras probar import/export.
+- [ ] Layout exclusivo para `User.isPlatformAdmin === true`.
+- [ ] Dashboard: total clínicas, activas, en trial, ingresos, almacenamiento agregado.
+- [ ] Listado de clínicas con: nombre, slug, plan, trial, # pacientes, # citas, último login.
+- [ ] Detalle de clínica: editar datos, suspender, ver storage, ver actividad.
+- [ ] Suspensión: setear `Clinica.activo = false` — el middleware ya bloquea login.
+- [ ] Buscador y filtros (por plan, estado, fecha de registro).
+- [ ] Modo "impersonar" para soporte: entrar como admin de la clínica sin saber su password.
 
-### Mejoras opcionales sobre import/export de pacientes
+### Después de Fase 1B
 
-- [ ] Modo "actualizar existentes" (hoy solo crea nuevos vía `skipDuplicates`).
-- [ ] Validación de dígito verificador del RUT chileno antes de aceptar.
-- [ ] Permitir reimportar y mostrar diff antes de confirmar.
-
-### Planificado (no urgente)
-
-- [ ] Integración WhatsApp real (hoy `confirmadoWA` es toggle manual).
-- [ ] Dashboard KPI en `/` (hoy solo redirige a `/agenda`).
-- [ ] Reportes financieros con recharts.
-- [ ] Recordatorios automáticos de cita.
-- [ ] Backup automático fuera de Neon.
+- **Fase 2:** Módulo de archivos (radiografías, documentos clínicos).
+- **Fase 3:** Migración a Hetzner VPS todo-en-uno (~$14/mes).
+- **Fase 4:** Pasarela de pagos (Stripe / Khipu / MercadoPago) para cobrar suscripciones.
 
 ---
 
 ## Errores conocidos / áreas a revisar
 
-- ⚠️ **`xlsx` tiene 3 CVE conocidos** (1 moderado, 2 altos: prototype pollution + ReDoS). Aceptable en endpoint autenticado; si se vuelve crítico, migrar a `exceljs`.
-- ⚠️ **Seed corre en cada build.** Mantener idempotente.
-- ⚠️ **`prisma db push --accept-data-loss` en build:** renombrar/eliminar campos borra datos en prod. Hacer cambios en dos pasos.
-- ⚠️ **`Diente @@unique([fichaId, numero, cara])` con `cara = null`:** PostgreSQL trata NULLs como distintos.
-- ⚠️ **`numero` correlativo en Presupuesto/Cobro:** se calcula con `max + 1` sin transacción.
-- ⚠️ **Local dev con SQLite no funciona** porque el schema declara `provider = "postgresql"`.
-- ⚠️ **Cliente Prisma local desactualizado**: `prisma generate` puede fallar en Windows por `query_engine.dll` bloqueado. Cerrar dev server, eliminar `node_modules/.prisma`, reinstalar.
-
----
-
-## Próximos pasos recomendados
-
-1. Verificar deploy en Vercel del commit `7d6f490` y probar import/export con archivo real.
-2. Confirmar con el usuario si quiere modo "actualizar existentes" o se queda con `skipDuplicates`.
-3. Si todo OK → evaluar dashboard KPI con recharts (ya instalado).
+- ⚠️ **`clinicaId` es nullable en DB.** A nivel de código se valida siempre que esté presente. Endurecer a NOT NULL en un segundo paso una vez verificada la migración.
+- ⚠️ **Cliente Prisma local no se puede regenerar** en Windows (`.dll` bloqueado). Vercel lo regenera limpio en cada build.
+- ⚠️ **Modelo `Configuracion` legacy** se mantiene temporalmente. Eliminar en Fase 1.5.
+- ⚠️ **`numero` correlativo** en Presupuesto/Cobro sin transacción explícita. Aceptable para uso bajo.
+- ⚠️ **`prisma db push --accept-data-loss`** corre en cada build — cuidado al renombrar/eliminar columnas.
+- ⚠️ **`xlsx` tiene 3 CVE conocidos** (aceptables en endpoint autenticado).
 
 ---
 
 ## Estado de deploy
 
-- **Última build:** commit `7d6f490` (import/export pacientes + docs).
+- **Última build:** commit `f919fcc` (multi-tenancy + chore).
 - **Branch:** `master`.
-- **Dependencias nuevas:** `xlsx` (SheetJS).
-- **Variables de entorno en Vercel:** sin cambios.
+- **Variables de entorno en Vercel:** sin cambios respecto al deploy anterior.
+- **Migración automática:** `seed-multi-tenant.ts` crea la clínica inicial y migra todos los registros existentes al primer deploy.
