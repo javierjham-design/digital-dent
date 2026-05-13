@@ -1,8 +1,8 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { formatRUT, formatDate, formatCLP } from '@/lib/utils'
+import { formatRUT, formatCLP } from '@/lib/utils'
 
 interface Paciente {
   id: string
@@ -14,15 +14,13 @@ interface Paciente {
   email: string | null
   prevision: string | null
   activo: boolean
-  totalCitas: number
   createdAt: string
+}
+
+type Resumen = {
   tratamientosCount: number
-  activos: number
-  finalizados: number
-  expirados: number
-  realizado: number
-  abonado: number
-  saldo: number
+  activos: number; finalizados: number; expirados: number
+  realizado: number; abonado: number; saldo: number
 }
 
 type ImportResult = {
@@ -39,11 +37,15 @@ const PREVISION_COLORS: Record<string, string> = {
   PARTICULAR: 'bg-slate-100 text-slate-700',
 }
 
+const PAGE_SIZE = 50
+
 export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
   const [search, setSearch] = useState('')
   const [numero, setNumero] = useState('')
-  const [filterTratamiento, setFilterTratamiento] = useState<'TODOS' | 'CON' | 'SIN'>('TODOS')
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [resumenes, setResumenes] = useState<Record<string, Resumen>>({})
+  const [loadingResumen, setLoadingResumen] = useState<string | null>(null)
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE)
 
   const [showModal, setShowModal] = useState(false)
   const [form, setForm] = useState({ rut: '', nombre: '', apellido: '', telefono: '', email: '', prevision: 'PARTICULAR', fechaNacimiento: '', genero: '' })
@@ -61,23 +63,43 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
     return pacientes.filter((p) => {
       if (q && !`${p.nombre} ${p.apellido} ${p.email ?? ''} ${p.rut ?? ''}`.toLowerCase().includes(q)) return false
       if (n && !String(p.numero).includes(n)) return false
-      if (filterTratamiento === 'CON' && p.tratamientosCount === 0) return false
-      if (filterTratamiento === 'SIN' && p.tratamientosCount > 0) return false
       return true
     })
-  }, [pacientes, search, numero, filterTratamiento])
+  }, [pacientes, search, numero])
+
+  const visible = filtered.slice(0, visibleCount)
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE)
+  }, [search, numero])
+
+  async function toggleExpand(id: string) {
+    if (expandedId === id) {
+      setExpandedId(null)
+      return
+    }
+    setExpandedId(id)
+    if (resumenes[id]) return
+    setLoadingResumen(id)
+    try {
+      const res = await fetch(`/api/pacientes/${id}/resumen`)
+      if (res.ok) {
+        const data = await res.json()
+        setResumenes((prev) => ({ ...prev, [id]: data }))
+      }
+    } finally {
+      setLoadingResumen(null)
+    }
+  }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
     setSaving(true)
     await fetch('/api/pacientes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(form),
     })
-    setSaving(false)
-    setShowModal(false)
-    window.location.reload()
+    setSaving(false); setShowModal(false); window.location.reload()
   }
 
   async function handleExport() {
@@ -87,23 +109,15 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
       if (!res.ok) throw new Error(`Error ${res.status}`)
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
+      const a = document.createElement('a'); a.href = url
       a.download = `pacientes-${new Date().toISOString().slice(0, 10)}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
-    } catch (e: any) {
-      alert(`No se pudo exportar: ${e.message ?? e}`)
-    } finally {
-      setExporting(false)
-    }
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+    } catch (e: any) { alert(`No se pudo exportar: ${e.message ?? e}`) }
+    finally { setExporting(false) }
   }
 
   async function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const file = e.target.files?.[0]; if (!file) return
     setImportError(null); setImportResult(null); setImporting(true)
     try {
       const fd = new FormData(); fd.append('file', file)
@@ -111,12 +125,8 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
       const data = await res.json()
       if (!res.ok) setImportError(data.error ?? `Error ${res.status}`)
       else setImportResult(data as ImportResult)
-    } catch (err: any) {
-      setImportError(err.message ?? 'Error desconocido')
-    } finally {
-      setImporting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
+    } catch (err: any) { setImportError(err.message ?? 'Error desconocido') }
+    finally { setImporting(false); if (fileInputRef.current) fileInputRef.current.value = '' }
   }
 
   function closeImportResult() {
@@ -130,7 +140,10 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
       <div className="flex items-center justify-between mb-6 flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Pacientes</h1>
-          <p className="text-slate-500 text-sm mt-1">{pacientes.length} paciente{pacientes.length !== 1 ? 's' : ''} registrado{pacientes.length !== 1 ? 's' : ''}</p>
+          <p className="text-slate-500 text-sm mt-1">
+            {pacientes.length} paciente{pacientes.length !== 1 ? 's' : ''} registrado{pacientes.length !== 1 ? 's' : ''}
+            {filtered.length !== pacientes.length && ` · ${filtered.length} en filtro`}
+          </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <a href="/api/pacientes/template" className="flex items-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl text-sm font-medium transition-colors">
@@ -161,27 +174,18 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
           <input type="text" placeholder="Buscar por nombre, apellido, RUT o email..."
             value={search} onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent" />
+            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <input type="text" placeholder="N° paciente" value={numero} onChange={(e) => setNumero(e.target.value)}
-            className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-          <select value={filterTratamiento} onChange={(e) => setFilterTratamiento(e.target.value as any)}
-            className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
-            <option value="TODOS">Tratamientos: todos</option>
-            <option value="CON">Con tratamientos</option>
-            <option value="SIN">Sin tratamientos</option>
-          </select>
-        </div>
+        <input type="text" placeholder="N° paciente" value={numero} onChange={(e) => setNumero(e.target.value)}
+          className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
         <div className="grid grid-cols-12 px-4 py-3 bg-cyan-700 text-white text-xs font-semibold uppercase tracking-wider">
           <div className="col-span-1">#</div>
-          <div className="col-span-3">Nombre</div>
-          <div className="col-span-3">Apellidos</div>
-          <div className="col-span-2 text-center">Tratamientos</div>
-          <div className="col-span-2">Deudas</div>
+          <div className="col-span-4">Nombre</div>
+          <div className="col-span-4">Apellidos</div>
+          <div className="col-span-2">Previsión</div>
           <div className="col-span-1 text-right">Acciones</div>
         </div>
 
@@ -191,27 +195,28 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
           </p>
         ) : (
           <div className="divide-y divide-slate-100">
-            {filtered.map((p) => {
+            {visible.map((p) => {
               const isOpen = expandedId === p.id
+              const r = resumenes[p.id]
+              const cargando = loadingResumen === p.id
               return (
                 <div key={p.id}>
                   <button
-                    onClick={() => setExpandedId(isOpen ? null : p.id)}
+                    onClick={() => toggleExpand(p.id)}
                     className={`w-full grid grid-cols-12 px-4 py-3.5 text-left hover:bg-slate-50 transition-colors text-sm ${isOpen ? 'bg-cyan-50/40 border-l-4 border-cyan-500' : ''}`}
                   >
                     <div className="col-span-1 text-slate-500 font-mono">{p.numero || '—'}</div>
-                    <div className="col-span-3 font-medium text-slate-800">{p.nombre}</div>
-                    <div className="col-span-3 text-slate-700">{p.apellido}</div>
-                    <div className="col-span-2 text-center text-slate-700">{p.tratamientosCount}</div>
-                    <div className="col-span-2 text-slate-700">
-                      {p.saldo > 0
-                        ? <span className="text-red-600 font-medium">{formatCLP(p.saldo)}</span>
-                        : <span className="text-slate-400">No tiene</span>}
+                    <div className="col-span-4 font-medium text-slate-800 truncate">{p.nombre}</div>
+                    <div className="col-span-4 text-slate-700 truncate">{p.apellido}</div>
+                    <div className="col-span-2">
+                      {p.prevision
+                        ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${PREVISION_COLORS[p.prevision] ?? 'bg-slate-100 text-slate-700'}`}>{p.prevision}</span>
+                        : <span className="text-slate-400 text-xs">—</span>}
                     </div>
                     <div className="col-span-1 flex justify-end items-center">
                       <Link href={`/pacientes/${p.id}`} onClick={(e) => e.stopPropagation()}
                         className="p-1.5 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" /></svg>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                       </Link>
                     </div>
                   </button>
@@ -241,9 +246,15 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
 
                         {/* Tratamientos */}
                         <div className="text-sm">
-                          <div className="flex justify-between mb-1.5"><span className="text-slate-500">Activos</span><span className="font-semibold text-slate-800">{p.activos}</span></div>
-                          <div className="flex justify-between mb-1.5"><span className="text-slate-500">Finalizados</span><span className="font-semibold text-slate-800">{p.finalizados}</span></div>
-                          <div className="flex justify-between"><span className="text-slate-500">Expirados</span><span className="font-semibold text-slate-800">{p.expirados}</span></div>
+                          {cargando ? (
+                            <p className="text-slate-400 text-xs">Cargando...</p>
+                          ) : r ? (
+                            <>
+                              <div className="flex justify-between mb-1.5"><span className="text-slate-500">Activos</span><span className="font-semibold text-slate-800">{r.activos}</span></div>
+                              <div className="flex justify-between mb-1.5"><span className="text-slate-500">Finalizados</span><span className="font-semibold text-slate-800">{r.finalizados}</span></div>
+                              <div className="flex justify-between"><span className="text-slate-500">Expirados</span><span className="font-semibold text-slate-800">{r.expirados}</span></div>
+                            </>
+                          ) : <p className="text-slate-400 text-xs">—</p>}
                           <Link href={`/pacientes/${p.id}?tab=tratamientos`} onClick={(e) => e.stopPropagation()}
                             className="block mt-3 text-cyan-600 hover:text-cyan-700 text-xs font-medium">
                             Ir a tratamientos →
@@ -252,11 +263,17 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
 
                         {/* Recaudación */}
                         <div className="text-sm">
-                          <div className="flex justify-between mb-1.5"><span className="text-slate-500">Realizado</span><span className="font-semibold text-slate-800">{formatCLP(p.realizado)}</span></div>
-                          <div className="flex justify-between mb-1.5"><span className="text-slate-500">Abonado</span><span className="font-semibold text-slate-800">{formatCLP(p.abonado)}</span></div>
-                          <div className="flex justify-between"><span className="text-slate-500">Saldo</span>
-                            <span className={`font-semibold ${p.saldo > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{formatCLP(p.saldo)}</span>
-                          </div>
+                          {cargando ? (
+                            <p className="text-slate-400 text-xs">Cargando...</p>
+                          ) : r ? (
+                            <>
+                              <div className="flex justify-between mb-1.5"><span className="text-slate-500">Realizado</span><span className="font-semibold text-slate-800">{formatCLP(r.realizado)}</span></div>
+                              <div className="flex justify-between mb-1.5"><span className="text-slate-500">Abonado</span><span className="font-semibold text-slate-800">{formatCLP(r.abonado)}</span></div>
+                              <div className="flex justify-between"><span className="text-slate-500">Saldo</span>
+                                <span className={`font-semibold ${r.saldo > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{formatCLP(r.saldo)}</span>
+                              </div>
+                            </>
+                          ) : <p className="text-slate-400 text-xs">—</p>}
                           <Link href={`/pacientes/${p.id}?tab=cobros`} onClick={(e) => e.stopPropagation()}
                             className="block mt-3 text-cyan-600 hover:text-cyan-700 text-xs font-medium">
                             Ir a recaudación →
@@ -274,6 +291,18 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {filtered.length > visibleCount && (
+          <div className="px-6 py-4 border-t border-slate-100 flex items-center justify-between text-sm">
+            <span className="text-slate-500">
+              Mostrando {visibleCount} de {filtered.length}
+            </span>
+            <button onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+              className="px-4 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 font-medium">
+              Cargar más
+            </button>
           </div>
         )}
       </div>
@@ -312,7 +341,7 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
                   )}
                 </>
               ) : null}
-              <button onClick={closeImportResult} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-medium transition-colors">Cerrar</button>
+              <button onClick={closeImportResult} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-medium">Cerrar</button>
             </div>
           </div>
         </div>
@@ -373,8 +402,8 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
                 </select>
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowModal(false)} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">Cancelar</button>
-                <button type="submit" disabled={saving} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-400 text-white rounded-xl text-sm font-medium transition-colors">{saving ? 'Guardando...' : 'Guardar paciente'}</button>
+                <button type="button" onClick={() => setShowModal(false)} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+                <button type="submit" disabled={saving} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-400 text-white rounded-xl text-sm font-medium">{saving ? 'Guardando...' : 'Guardar paciente'}</button>
               </div>
             </form>
           </div>
