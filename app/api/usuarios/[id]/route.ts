@@ -1,15 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getSessionUser } from '@/lib/auth'
 import bcrypt from 'bcryptjs'
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const u = await getSessionUser()
+  if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await params
+  const existing = await prisma.user.findFirst({ where: { id, clinicaId: u.clinicaId }, select: { id: true } })
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
   const body = await req.json()
   if (body.password) body.password = await bcrypt.hash(body.password, 10)
+
+  // Bloquear cambios sensibles si no es admin
+  if (u.role !== 'admin' && u.id !== id) {
+    return NextResponse.json({ error: 'Solo admin puede editar a otros usuarios' }, { status: 403 })
+  }
+
   const usuario = await prisma.user.update({
     where: { id },
     data: body,

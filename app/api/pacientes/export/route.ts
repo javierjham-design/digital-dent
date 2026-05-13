@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getSessionUser } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
 
@@ -21,10 +20,11 @@ function isoDate(d: Date | null): string {
 }
 
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const u = await getSessionUser()
+  if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const pacientes = await prisma.paciente.findMany({
+    where: { clinicaId: u.clinicaId },
     orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
   })
 

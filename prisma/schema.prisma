@@ -7,8 +7,60 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─────────────────────────────────────────────────────────────
+// MULTI-TENANCY: cada clínica es un tenant aislado.
+// Todos los modelos de datos llevan clinicaId.
+// El JWT contiene clinicaId; las queries deben filtrar por él.
+// ─────────────────────────────────────────────────────────────
+
+model Clinica {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  nombre      String
+  rut         String?  @unique
+  direccion   String   @default("")
+  ciudad      String   @default("Temuco")
+  telefono    String   @default("")
+  email       String   @default("")
+  logoUrl     String?
+  mensajeWA   String   @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
+  plan        String   @default("TRIAL")
+  activo      Boolean  @default(true)
+  trialHasta  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users         User[]
+  pacientes     Paciente[]
+  citas         Cita[]
+  prestaciones  Prestacion[]
+  tratamientos  Tratamiento[]
+  fichas        FichaClinica[]
+  presupuestos  Presupuesto[]
+  cobros        Cobro[]
+  mediosPago    MedioPago[]
+  contratos     Contrato[]
+  liquidaciones Liquidacion[]
+  horarios      HorarioDoctor[]
+}
+
+// LEGACY: se mantiene durante la migración a multi-tenant.
+// Sus datos se copian a Clinica en el seed; eliminar este modelo
+// en una segunda fase una vez verificada la migración en producción.
+model Configuracion {
+  id        String  @id @default("singleton")
+  clinica   String  @default("Digital-Dent")
+  direccion String  @default("")
+  telefono  String  @default("")
+  email     String  @default("")
+  ciudad    String  @default("Temuco")
+  mensajeWA String  @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
+  logoUrl   String?
+}
+
 model User {
   id            String    @id @default(cuid())
+  clinicaId     String?   // null para super-admins de la plataforma
   name          String?
   email         String    @unique
   password      String
@@ -17,9 +69,11 @@ model User {
   especialidad  String?
   telefono      String?
   activo        Boolean   @default(true)
+  isPlatformAdmin Boolean @default(false)   // super-admin que gestiona TODAS las clínicas
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   puedeRecibirPagos Boolean   @default(false)
+  clinica       Clinica?       @relation(fields: [clinicaId], references: [id])
   sessions      Session[]
   citas         Cita[]         @relation("DoctorCitas")
   tratamientos  Tratamiento[]  @relation("DoctorTratamientos")
@@ -39,10 +93,8 @@ model Session {
 
 model Paciente {
   id              String    @id @default(cuid())
-  // Postgres permite múltiples NULLs en una columna UNIQUE.
-  // Pacientes sin RUT (menores, extranjeros sin registro) son válidos;
-  // si hay RUT, sigue siendo único.
-  rut             String?   @unique
+  clinicaId       String?
+  rut             String?
   nombre          String
   apellido        String
   fechaNacimiento DateTime?
@@ -57,14 +109,18 @@ model Paciente {
   activo          Boolean   @default(true)
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+  clinica         Clinica?      @relation(fields: [clinicaId], references: [id])
   citas           Cita[]
   fichaClinica    FichaClinica?
   presupuestos    Presupuesto[]
   cobros          Cobro[]
+
+  @@unique([clinicaId, rut])
 }
 
 model Cita {
   id            String    @id @default(cuid())
+  clinicaId     String?
   pacienteId    String
   doctorId      String
   fecha         DateTime
@@ -76,6 +132,7 @@ model Cita {
   confirmadoWA  Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  clinica       Clinica?  @relation(fields: [clinicaId], references: [id])
   paciente      Paciente  @relation(fields: [pacienteId], references: [id])
   doctor        User      @relation("DoctorCitas", fields: [doctorId], references: [id])
   logs          CitaLog[]
@@ -91,19 +148,9 @@ model CitaLog {
   cita      Cita     @relation(fields: [citaId], references: [id], onDelete: Cascade)
 }
 
-model Configuracion {
-  id        String  @id @default("singleton")
-  clinica   String  @default("Digital-Dent")
-  direccion String  @default("")
-  telefono  String  @default("")
-  email     String  @default("")
-  ciudad    String  @default("Temuco")
-  mensajeWA String  @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
-  logoUrl   String? // base64 data URL
-}
-
 model FichaClinica {
   id              String        @id @default(cuid())
+  clinicaId       String?
   pacienteId      String        @unique
   grupoSanguineo  String?
   fumador         Boolean       @default(false)
@@ -115,6 +162,7 @@ model FichaClinica {
   notasClinicas   String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
+  clinica         Clinica?      @relation(fields: [clinicaId], references: [id])
   paciente        Paciente      @relation(fields: [pacienteId], references: [id])
   tratamientos    Tratamiento[]
   odontograma     Diente[]
@@ -135,18 +183,21 @@ model Diente {
 
 model Prestacion {
   id               String            @id @default(cuid())
+  clinicaId        String?
   nombre           String
   descripcion      String?
   precio           Float
   duracion         Int               @default(30)
   categoria        String?
   activo           Boolean           @default(true)
+  clinica          Clinica?          @relation(fields: [clinicaId], references: [id])
   tratamientos     Tratamiento[]
   itemsPresupuesto ItemPresupuesto[]
 }
 
 model Tratamiento {
   id           String       @id @default(cuid())
+  clinicaId    String?
   fichaId      String
   prestacionId String
   doctorId     String?
@@ -157,6 +208,7 @@ model Tratamiento {
   notas        String?
   fecha        DateTime     @default(now())
   fechaCompletado DateTime?
+  clinica      Clinica?        @relation(fields: [clinicaId], references: [id])
   ficha        FichaClinica    @relation(fields: [fichaId], references: [id])
   prestacion   Prestacion      @relation(fields: [prestacionId], references: [id])
   doctor       User?           @relation("DoctorTratamientos", fields: [doctorId], references: [id])
@@ -166,16 +218,20 @@ model Tratamiento {
 
 model Presupuesto {
   id           String            @id @default(cuid())
+  clinicaId    String?
   pacienteId   String
-  numero       Int               @unique
+  numero       Int
   estado       String            @default("PENDIENTE")
   total        Float             @default(0)
   notas        String?
   vigencia     DateTime?
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
+  clinica      Clinica?          @relation(fields: [clinicaId], references: [id])
   paciente     Paciente          @relation(fields: [pacienteId], references: [id])
   items        ItemPresupuesto[]
+
+  @@unique([clinicaId, numero])
 }
 
 model ItemPresupuesto {
@@ -193,32 +249,38 @@ model ItemPresupuesto {
 
 model MedioPago {
   id        String   @id @default(cuid())
+  clinicaId String?
   nombre    String
-  comision  Float    @default(0) // porcentaje ej: 1.5 = 1.5%
+  comision  Float    @default(0)
   activo    Boolean  @default(true)
+  clinica   Clinica? @relation(fields: [clinicaId], references: [id])
   cobros    Cobro[]
 }
 
 model Cobro {
   id              String     @id @default(cuid())
+  clinicaId       String?
   pacienteId      String
-  numero          Int        @unique
+  numero          Int
   concepto        String
-  monto           Float      // total bruto
-  montoNeto       Float?     // monto después de comisión
-  comisionMonto   Float?     // monto de la comisión
+  monto           Float
+  montoNeto       Float?
+  comisionMonto   Float?
   estado          String     @default("PENDIENTE")
   medioPagoId     String?
-  metodoPago      String?    // campo legacy
+  metodoPago      String?
   reciboUsuarioId String?
   fechaPago       DateTime?
   notas           String?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
+  clinica         Clinica?   @relation(fields: [clinicaId], references: [id])
   paciente        Paciente   @relation(fields: [pacienteId], references: [id])
   medioPago       MedioPago? @relation(fields: [medioPagoId], references: [id])
   reciboUsuario   User?      @relation("CobroUsuario", fields: [reciboUsuarioId], references: [id])
   items           CobroItem[]
+
+  @@unique([clinicaId, numero])
 }
 
 model CobroItem {
@@ -233,25 +295,28 @@ model CobroItem {
 
 model Contrato {
   id           String        @id @default(cuid())
+  clinicaId    String?
   doctorId     String
   tipo         String        // PORCENTAJE | MONTO_FIJO
-  porcentaje   Float?        // ej: 40 = 40%
-  montoFijo    Float?        // monto fijo por tratamiento completado
+  porcentaje   Float?
+  montoFijo    Float?
   descripcion  String?
   fechaInicio  DateTime      @default(now())
   fechaFin     DateTime?
   activo       Boolean       @default(true)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+  clinica      Clinica?      @relation(fields: [clinicaId], references: [id])
   doctor       User          @relation(fields: [doctorId], references: [id])
   liquidaciones Liquidacion[]
 }
 
 model Liquidacion {
   id             String            @id @default(cuid())
+  clinicaId      String?
   doctorId       String
   contratoId     String
-  periodo        String            // "2025-01" (YYYY-MM)
+  periodo        String            // YYYY-MM
   totalBruto     Float             @default(0)
   totalLiquidado Float             @default(0)
   estado         String            @default("BORRADOR") // BORRADOR | APROBADA | PAGADA
@@ -259,6 +324,7 @@ model Liquidacion {
   fechaPago      DateTime?
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
+  clinica        Clinica?          @relation(fields: [clinicaId], references: [id])
   doctor         User              @relation(fields: [doctorId], references: [id])
   contrato       Contrato          @relation(fields: [contratoId], references: [id])
   items          LiquidacionItem[]
@@ -282,11 +348,13 @@ model LiquidacionItem {
 
 model HorarioDoctor {
   id         String  @id @default(cuid())
+  clinicaId  String?
   doctorId   String
   diaSemana  Int     // 0=Dom 1=Lun 2=Mar 3=Mié 4=Jue 5=Vie 6=Sáb
-  horaInicio String  // "09:00"
-  horaFin    String  // "18:00"
+  horaInicio String
+  horaFin    String
   activo     Boolean @default(true)
+  clinica    Clinica? @relation(fields: [clinicaId], references: [id])
   doctor     User    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 
   @@unique([doctorId, diaSemana])

@@ -137,8 +137,14 @@ export default function LoginPage() {
             </form>
           </div>
 
-          <p className="text-center text-xs text-slate-400 mt-6">
-            Digital-Dent Temuco © {new Date().getFullYear()}
+          <p className="text-center text-sm text-slate-500 mt-6">
+            ¿Tu clínica todavía no está registrada?{' '}
+            <a href="/registro" className="text-cyan-600 hover:text-cyan-700 font-medium">
+              Crear cuenta
+            </a>
+          </p>
+          <p className="text-center text-xs text-slate-400 mt-2">
+            Digital-Dent © {new Date().getFullYear()}
           </p>
         </div>
       </div>

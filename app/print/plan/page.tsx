@@ -1,26 +1,34 @@
 export const dynamic = 'force-dynamic'
 
 import { prisma } from '@/lib/prisma'
+import { redirect } from 'next/navigation'
+import { getSessionUser } from '@/lib/auth'
 import { formatRUT, formatDate, formatCLP, calcularEdad } from '@/lib/utils'
 import { PrintPlanButton } from './print-button'
 
 export default async function PrintPlanPage({ searchParams }: { searchParams: Promise<{ pacienteId?: string }> }) {
+  const u = await getSessionUser()
+  if (!u?.clinicaId) redirect('/login')
+
   const { pacienteId } = await searchParams
   if (!pacienteId) return <div className="p-8 text-red-600">pacienteId requerido</div>
 
-  const paciente = await prisma.paciente.findUnique({
-    where: { id: pacienteId },
-    include: {
-      fichaClinica: {
-        include: {
-          tratamientos: {
-            include: { prestacion: true },
-            orderBy: { fecha: 'asc' },
+  const [paciente, clinica] = await Promise.all([
+    prisma.paciente.findFirst({
+      where: { id: pacienteId, clinicaId: u.clinicaId },
+      include: {
+        fichaClinica: {
+          include: {
+            tratamientos: {
+              include: { prestacion: true },
+              orderBy: { fecha: 'asc' },
+            },
           },
         },
       },
-    },
-  })
+    }),
+    prisma.clinica.findUnique({ where: { id: u.clinicaId } }),
+  ])
 
   if (!paciente) return <div className="p-8 text-red-600">Paciente no encontrado</div>
 
@@ -53,8 +61,10 @@ export default async function PrintPlanPage({ searchParams }: { searchParams: Pr
         {/* Encabezado clínica */}
         <div className="flex items-start justify-between border-b-2 border-cyan-600 pb-5 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-cyan-700">Digital-Dent</h1>
-            <p className="text-slate-500 text-xs mt-0.5">Clínica Dental · Temuco, Chile</p>
+            <h1 className="text-2xl font-bold text-cyan-700">{clinica?.nombre ?? 'Clínica'}</h1>
+            <p className="text-slate-500 text-xs mt-0.5">
+              {[clinica?.direccion, clinica?.ciudad].filter(Boolean).join(' · ') || 'Clínica Dental'}
+            </p>
           </div>
           <div className="text-right">
             <p className="text-xl font-bold text-slate-800">Plan de Tratamiento</p>

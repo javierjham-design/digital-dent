@@ -1,28 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getSessionUser } from '@/lib/auth'
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const u = await getSessionUser()
+  if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
   const { pacienteId, prestacionId, piezas, zona, precio, notas, cara } = body
 
-  // Obtener o crear ficha clínica
+  // Verificar que el paciente y la prestación pertenezcan a la clínica
+  const paciente = await prisma.paciente.findFirst({ where: { id: pacienteId, clinicaId: u.clinicaId }, select: { id: true } })
+  if (!paciente) return NextResponse.json({ error: 'Paciente no encontrado' }, { status: 404 })
+  const prestacion = await prisma.prestacion.findFirst({ where: { id: prestacionId, clinicaId: u.clinicaId }, select: { id: true } })
+  if (!prestacion) return NextResponse.json({ error: 'Prestación no encontrada' }, { status: 404 })
+
   let ficha = await prisma.fichaClinica.findUnique({ where: { pacienteId } })
   if (!ficha) {
-    ficha = await prisma.fichaClinica.create({ data: { pacienteId } })
+    ficha = await prisma.fichaClinica.create({ data: { pacienteId, clinicaId: u.clinicaId } })
   }
 
-  // Si hay piezas seleccionadas, crear un tratamiento por pieza
-  // Si es zona, crear uno solo con diente=null y cara=zona
   if (piezas && piezas.length > 0) {
     const tratamientos = await Promise.all(
       piezas.map((pieza: number) =>
         prisma.tratamiento.create({
           data: {
+            clinicaId: u.clinicaId!,
             fichaId: ficha!.id,
             prestacionId,
             diente: pieza,
@@ -39,6 +42,7 @@ export async function POST(req: NextRequest) {
   } else {
     const tratamiento = await prisma.tratamiento.create({
       data: {
+        clinicaId: u.clinicaId,
         fichaId: ficha.id,
         prestacionId,
         diente: null,

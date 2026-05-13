@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getSessionUser } from '@/lib/auth'
 import * as XLSX from 'xlsx'
 
 export const dynamic = 'force-dynamic'
@@ -28,8 +27,8 @@ const EJEMPLO = [
 ]
 
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const u = await getSessionUser()
+  if (!u) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const sheet = XLSX.utils.json_to_sheet(EJEMPLO, { header: COLUMNAS })
   sheet['!cols'] = [

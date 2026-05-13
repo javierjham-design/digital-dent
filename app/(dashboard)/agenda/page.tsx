@@ -1,11 +1,17 @@
 export const dynamic = 'force-dynamic'
 
+import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
+import { getSessionUser } from '@/lib/auth'
 import { AgendaClient } from './agenda-client'
 
 export default async function AgendaPage() {
-  const [citas, doctors, pacientes, horarios, config] = await Promise.all([
+  const u = await getSessionUser()
+  if (!u?.clinicaId) redirect('/login')
+
+  const [citas, doctors, pacientes, horarios, clinica] = await Promise.all([
     prisma.cita.findMany({
+      where: { clinicaId: u.clinicaId },
       include: {
         paciente: true,
         doctor: true,
@@ -14,23 +20,21 @@ export default async function AgendaPage() {
       orderBy: { fecha: 'asc' },
     }),
     prisma.user.findMany({
-      where: { role: { in: ['admin', 'doctor'] }, activo: true },
+      where: { clinicaId: u.clinicaId, role: { in: ['admin', 'doctor'] }, activo: true },
       select: { id: true, name: true, email: true },
     }),
     prisma.paciente.findMany({
-      where: { activo: true },
+      where: { clinicaId: u.clinicaId, activo: true },
       select: { id: true, rut: true, nombre: true, apellido: true, telefono: true },
       orderBy: { nombre: 'asc' },
     }),
     prisma.horarioDoctor.findMany({
+      where: { clinicaId: u.clinicaId },
       orderBy: [{ doctorId: 'asc' }, { diaSemana: 'asc' }],
     }),
-    prisma.configuracion.upsert({
-      where: { id: 'singleton' },
-      update: {},
-      create: { id: 'singleton' },
-    }),
+    prisma.clinica.findUnique({ where: { id: u.clinicaId } }),
   ])
+  const config = clinica!
 
   return (
     <AgendaClient
@@ -59,7 +63,7 @@ export default async function AgendaPage() {
       doctors={doctors}
       pacientes={pacientes}
       horarios={horarios}
-      config={{ clinica: config.clinica, direccion: config.direccion, ciudad: config.ciudad, mensajeWA: config.mensajeWA }}
+      config={{ clinica: config.nombre, direccion: config.direccion, ciudad: config.ciudad, mensajeWA: config.mensajeWA }}
     />
   )
 }

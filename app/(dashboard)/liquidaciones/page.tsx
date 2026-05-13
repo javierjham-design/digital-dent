@@ -1,11 +1,17 @@
 export const dynamic = 'force-dynamic'
 
+import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
+import { getSessionUser } from '@/lib/auth'
 import { LiquidacionesClient } from './liquidaciones-client'
 
 export default async function LiquidacionesPage() {
+  const u = await getSessionUser()
+  if (!u?.clinicaId) redirect('/login')
+
   const [liquidaciones, doctores] = await Promise.all([
     prisma.liquidacion.findMany({
+      where: { clinicaId: u.clinicaId },
       include: {
         doctor: { select: { id: true, name: true, email: true, especialidad: true } },
         contrato: true,
@@ -14,7 +20,7 @@ export default async function LiquidacionesPage() {
       orderBy: [{ periodo: 'desc' }, { createdAt: 'desc' }],
     }),
     prisma.user.findMany({
-      where: { role: 'doctor', activo: true, contratos: { some: { activo: true } } },
+      where: { clinicaId: u.clinicaId, role: 'doctor', activo: true, contratos: { some: { activo: true } } },
       select: { id: true, name: true, email: true, especialidad: true },
       orderBy: { name: 'asc' },
     }),

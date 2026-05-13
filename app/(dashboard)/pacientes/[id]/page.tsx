@@ -1,13 +1,17 @@
 export const dynamic = 'force-dynamic'
 
 import { prisma } from '@/lib/prisma'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
+import { getSessionUser } from '@/lib/auth'
 import { FichaClinicaClient } from './ficha-client'
 
 export default async function FichaPacientePage({ params }: { params: Promise<{ id: string }> }) {
+  const u = await getSessionUser()
+  if (!u?.clinicaId) redirect('/login')
+
   const { id } = await params
-  const paciente = await prisma.paciente.findUnique({
-    where: { id },
+  const paciente = await prisma.paciente.findFirst({
+    where: { id, clinicaId: u.clinicaId },
     include: {
       fichaClinica: { include: { tratamientos: { include: { prestacion: true } }, odontograma: true } },
       citas: { include: { doctor: true }, orderBy: { fecha: 'desc' }, take: 10 },
@@ -18,8 +22,8 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
 
   if (!paciente) notFound()
 
-  const doctors = await prisma.user.findMany({ where: { role: { in: ['admin', 'doctor'] } }, select: { id: true, name: true, email: true } })
-  const prestaciones = await prisma.prestacion.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' } })
+  const doctors = await prisma.user.findMany({ where: { clinicaId: u.clinicaId, role: { in: ['admin', 'doctor'] } }, select: { id: true, name: true, email: true } })
+  const prestaciones = await prisma.prestacion.findMany({ where: { clinicaId: u.clinicaId, activo: true }, orderBy: { nombre: 'asc' } })
 
   return (
     <FichaClinicaClient

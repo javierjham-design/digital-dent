@@ -1,23 +1,31 @@
 export const dynamic = 'force-dynamic'
 
 import { prisma } from '@/lib/prisma'
+import { redirect } from 'next/navigation'
+import { getSessionUser } from '@/lib/auth'
 import { formatCLP, formatDate, formatRUT } from '@/lib/utils'
 import { PrintPlanButton } from '../plan/print-button'
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
 export default async function PrintLiquidacionPage({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
+  const u = await getSessionUser()
+  if (!u?.clinicaId) redirect('/login')
+
   const { id } = await searchParams
   if (!id) return <div className="p-8 text-red-600">ID de liquidación requerido</div>
 
-  const liquidacion = await prisma.liquidacion.findUnique({
-    where: { id },
-    include: {
-      doctor: { select: { id: true, name: true, email: true, rut: true, especialidad: true, telefono: true } },
-      contrato: true,
-      items: { orderBy: { fechaCompletado: 'asc' } },
-    },
-  })
+  const [liquidacion, clinica] = await Promise.all([
+    prisma.liquidacion.findFirst({
+      where: { id, clinicaId: u.clinicaId },
+      include: {
+        doctor: { select: { id: true, name: true, email: true, rut: true, especialidad: true, telefono: true } },
+        contrato: true,
+        items: { orderBy: { fechaCompletado: 'asc' } },
+      },
+    }),
+    prisma.clinica.findUnique({ where: { id: u.clinicaId } }),
+  ])
 
   if (!liquidacion) return <div className="p-8 text-red-600">Liquidación no encontrada</div>
 
@@ -38,8 +46,10 @@ export default async function PrintLiquidacionPage({ searchParams }: { searchPar
         {/* Header */}
         <div className="flex items-start justify-between border-b-2 border-cyan-600 pb-5 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-cyan-700">Digital-Dent</h1>
-            <p className="text-slate-500 text-xs mt-0.5">Clínica Dental · Temuco, Chile</p>
+            <h1 className="text-2xl font-bold text-cyan-700">{clinica?.nombre ?? 'Clínica'}</h1>
+            <p className="text-slate-500 text-xs mt-0.5">
+              {[clinica?.direccion, clinica?.ciudad].filter(Boolean).join(' · ') || 'Clínica Dental'}
+            </p>
           </div>
           <div className="text-right">
             <p className="text-xl font-bold text-slate-800">Liquidación de Honorarios</p>

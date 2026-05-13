@@ -1,4 +1,4 @@
-import { type NextAuthOptions } from 'next-auth'
+import { type NextAuthOptions, getServerSession } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
@@ -21,7 +21,13 @@ export const authOptions: NextAuthOptions = {
         if (!user) return null
         const valid = await bcrypt.compare(credentials.password, user.password)
         if (!valid) return null
-        return { id: user.id, name: user.name ?? '', email: user.email, role: user.role }
+        return {
+          id: user.id,
+          name: user.name ?? '',
+          email: user.email,
+          role: user.role,
+          clinicaId: user.clinicaId ?? null,
+        } as any
       },
     }),
   ],
@@ -30,15 +36,43 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.role = (user as any).role
         token.id = user.id
+        token.clinicaId = (user as any).clinicaId ?? null
       }
       return token
     },
     async session({ session, token }) {
       if (session.user) {
         (session.user as any).role = token.role;
-        (session.user as any).id = token.id
+        (session.user as any).id = token.id;
+        (session.user as any).clinicaId = token.clinicaId ?? null
       }
       return session
     },
   },
+}
+
+export type SessionUser = {
+  id: string
+  email: string
+  name: string | null
+  role: string
+  clinicaId: string | null
+}
+
+export async function getSessionUser(): Promise<SessionUser | null> {
+  const session = await getServerSession(authOptions)
+  if (!session?.user) return null
+  const u = session.user as any
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name ?? null,
+    role: u.role,
+    clinicaId: u.clinicaId ?? null,
+  }
+}
+
+export async function requireClinicaId(): Promise<string | null> {
+  const u = await getSessionUser()
+  return u?.clinicaId ?? null
 }

@@ -1,0 +1,45 @@
+feat: multi-tenancy (Fase 1) - modelo Clinica y scope por clinicaId
+
+Schema:
+- Nuevo modelo Clinica (slug unico, plan TRIAL/BASICO/PRO, trialHasta)
+- clinicaId nullable en todos los modelos de datos
+- @@unique([clinicaId, rut]) en Paciente
+- @@unique([clinicaId, numero]) en Presupuesto y Cobro
+- isPlatformAdmin en User (preparado para Fase 1B super-admin)
+- Configuracion legacy se conserva temporalmente como fuente para migracion
+
+Migracion (prisma/seed-multi-tenant.ts):
+- Idempotente, corre en cada build
+- Crea Clinica inicial copiando datos del singleton Configuracion
+- Asigna a esa clinica todos los registros huerfanos (clinicaId IS NULL)
+
+Auth:
+- JWT incluye clinicaId
+- Helper getSessionUser() centraliza la lectura
+- requireClinicaId() para guards
+
+APIs refactorizadas (scope por clinicaId):
+- pacientes (+ import/export/template)
+- citas, prestaciones, tratamientos, odontograma
+- presupuestos, cobros, medios-pago
+- contratos, liquidaciones, usuarios, horarios
+- /api/configuracion ahora es pasarela a /api/clinica (compat)
+- /api/clinicas POST: registro publico de nueva clinica + admin + copia catalogo
+- /api/clinica GET/PATCH: datos de la clinica del usuario
+
+Paginas server-component:
+- layout dashboard: carga clinica del usuario y bloquea si inactiva
+- agenda, pacientes(list/[id]), presupuestos, cobros, prestaciones,
+  liquidaciones, usuarios: scope por clinicaId
+- print presupuesto/plan/liquidacion: header dinamico segun clinica
+
+UI:
+- /registro: onboarding publico en 2 pasos (datos clinica -> admin)
+- /login: link a /registro
+- proxy.ts: /registro y /api/clinicas son publicos
+- /configuracion sigue funcionando (legacy alias)
+
+Build:
+- package.json: seed-aranceles reemplazado por seed-multi-tenant
+- seed-aranceles cumplio su mision; las 764 prestaciones quedan en la clinica
+  inicial y se copian a nuevas clinicas al registrarlas

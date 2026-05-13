@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getSessionUser } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import * as XLSX from 'xlsx'
 
@@ -57,8 +56,8 @@ function parseFecha(raw: unknown): Date | null {
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const u = await getSessionUser()
+  if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const form = await req.formData()
   const file = form.get('file')
@@ -80,6 +79,7 @@ export async function POST(req: NextRequest) {
 
   const errores: { fila: number; motivo: string }[] = []
   const validos: {
+    clinicaId: string
     rut: string | null; nombre: string; apellido: string
     telefono: string | null; email: string | null; direccion: string | null
     fechaNacimiento: Date | null
@@ -116,6 +116,7 @@ export async function POST(req: NextRequest) {
     }
 
     validos.push({
+      clinicaId: u.clinicaId!,
       rut,
       nombre,
       apellido,
@@ -130,7 +131,7 @@ export async function POST(req: NextRequest) {
   const rutsConsulta = validos.map(v => v.rut).filter((r): r is string => r !== null)
   if (rutsConsulta.length > 0) {
     const existentes = await prisma.paciente.findMany({
-      where: { rut: { in: rutsConsulta } },
+      where: { clinicaId: u.clinicaId, rut: { in: rutsConsulta } },
       select: { rut: true },
     })
     const setExistentes = new Set(existentes.map(e => e.rut).filter((r): r is string => r !== null))

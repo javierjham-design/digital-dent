@@ -315,7 +315,39 @@ Usuario → /login → POST /api/auth/callback/credentials
 
 ## 11. Decisiones pendientes / abiertas
 
-- ¿Mantener `seed-aranceles.ts` en cada build o moverlo a un script manual una vez estabilizado? (Riesgo: rebuilds más lentos vs. consistencia).
-- ¿Migrar de Float a Int para dinero? (CLP no usa decimales, pero refactor implica tocar muchos campos).
+- ¿Mantener `seed-aranceles.ts` en cada build o moverlo a un script manual una vez estabilizado?
+- ¿Migrar de Float a Int para dinero?
 - Integración WhatsApp real: ¿Twilio, WhatsApp Business API, Z-API?
 - ¿Implementar dashboard KPI en `/` con recharts?
+
+---
+
+## 12. Roadmap a SaaS (decisiones firmes)
+
+El proyecto deja de ser una herramienta single-tenant para convertirse en un **SaaS multi-tenant** que se va a vender a múltiples clínicas. Plan firmado con el usuario el 2026-05-13:
+
+### Destino final del hosting
+
+**Hetzner VPS todo-en-uno** (~$14/mes total). Una sola factura, almacenamiento propio para radiografías y documentos.
+
+```
+Hetzner CCX13 (2 vCPU, 8 GB RAM, 80 GB SSD)
+├── Next.js (Node.js + PM2)
+├── PostgreSQL local
+├── Almacenamiento de archivos en disco
+├── Nginx + Let's Encrypt
+└── Backups automáticos a Backblaze B2 (~$0,6/mes)
+```
+
+**Bluehost** (que ya está contratado) se reutiliza para la **landing pública** en `digital-dent.cl` (WordPress, marketing, blog SEO). Subdominio `app.digital-dent.cl` apunta al VPS.
+
+### Fases de construcción
+
+1. **Multi-tenancy** — modelo `Clinica`, scope de datos, onboarding "Crear nueva clínica". (Fase actual)
+2. **Módulo de archivos** — radiografías, documentos clínicos.
+3. **Migración a Hetzner** — última fase, ya con todo estable en Vercel.
+4. **Pasarela de pagos** — Stripe / Khipu / MercadoPago para cobrar suscripciones.
+
+### Por qué este orden
+
+Multi-tenancy primero porque es el cambio más invasivo del schema. Hacerlo después de tener clientes reales mezclaría datos. Hetzner al final para no mezclar dos cambios grandes (refactor lógico + cambio de infraestructura) al mismo tiempo.

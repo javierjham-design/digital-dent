@@ -1,10 +1,16 @@
 export const dynamic = 'force-dynamic'
 
+import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
+import { getSessionUser } from '@/lib/auth'
 import { PacientesClient } from './pacientes-client'
 
 export default async function PacientesPage() {
+  const u = await getSessionUser()
+  if (!u?.clinicaId) redirect('/login')
+
   const pacientes = await prisma.paciente.findMany({
+    where: { clinicaId: u.clinicaId },
     orderBy: { createdAt: 'desc' },
     include: {
       _count: { select: { citas: true } },

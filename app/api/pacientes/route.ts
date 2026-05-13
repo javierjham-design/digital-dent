@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getSessionUser } from '@/lib/auth'
+
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const pacientes = await prisma.paciente.findMany({ orderBy: { apellido: 'asc' } })
+  const u = await getSessionUser()
+  if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const pacientes = await prisma.paciente.findMany({
+    where: { clinicaId: u.clinicaId },
+    orderBy: { apellido: 'asc' },
+  })
   return NextResponse.json(pacientes)
 }
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const u = await getSessionUser()
+  if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await req.json()
   const paciente = await prisma.paciente.create({
     data: {
+      clinicaId: u.clinicaId,
       rut: body.rut?.trim() ? body.rut.trim() : null,
       nombre: body.nombre,
       apellido: body.apellido,

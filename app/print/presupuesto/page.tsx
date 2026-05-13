@@ -1,20 +1,28 @@
 export const dynamic = 'force-dynamic'
 
 import { prisma } from '@/lib/prisma'
+import { redirect } from 'next/navigation'
+import { getSessionUser } from '@/lib/auth'
 import { formatRUT, formatDate, formatCLP, calcularEdad } from '@/lib/utils'
 import { PrintPlanButton } from '../plan/print-button'
 
 export default async function PrintPresupuestoPage({ searchParams }: { searchParams: Promise<{ id?: string }> }) {
+  const u = await getSessionUser()
+  if (!u?.clinicaId) redirect('/login')
+
   const { id } = await searchParams
   if (!id) return <div className="p-8 text-red-600">ID de presupuesto requerido</div>
 
-  const presupuesto = await prisma.presupuesto.findUnique({
-    where: { id },
-    include: {
-      paciente: true,
-      items: { include: { prestacion: true } },
-    },
-  })
+  const [presupuesto, clinica] = await Promise.all([
+    prisma.presupuesto.findFirst({
+      where: { id, clinicaId: u.clinicaId },
+      include: {
+        paciente: true,
+        items: { include: { prestacion: true } },
+      },
+    }),
+    prisma.clinica.findUnique({ where: { id: u.clinicaId } }),
+  ])
 
   if (!presupuesto) return <div className="p-8 text-red-600">Presupuesto no encontrado</div>
 
@@ -28,8 +36,10 @@ export default async function PrintPresupuestoPage({ searchParams }: { searchPar
         {/* Header */}
         <div className="flex items-start justify-between border-b-2 border-cyan-600 pb-5 mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-cyan-700">Digital-Dent</h1>
-            <p className="text-slate-500 text-xs mt-0.5">Clínica Dental · Temuco, Chile</p>
+            <h1 className="text-2xl font-bold text-cyan-700">{clinica?.nombre ?? 'Clínica'}</h1>
+            <p className="text-slate-500 text-xs mt-0.5">
+              {[clinica?.direccion, clinica?.ciudad].filter(Boolean).join(' · ') || 'Clínica Dental'}
+            </p>
           </div>
           <div className="text-right">
             <p className="text-xl font-bold text-slate-800">Presupuesto N° {presupuesto.numero}</p>

@@ -1,11 +1,17 @@
 export const dynamic = 'force-dynamic'
 
+import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
+import { getSessionUser } from '@/lib/auth'
 import { CobrosClient } from './cobros-client'
 
 export default async function CobrosPage() {
+  const u = await getSessionUser()
+  if (!u?.clinicaId) redirect('/login')
+
   const [cobros, pacientes, mediosPago, cajeros, tratamientos] = await Promise.all([
     prisma.cobro.findMany({
+      where: { clinicaId: u.clinicaId },
       include: {
         paciente: true,
         medioPago: true,
@@ -19,21 +25,22 @@ export default async function CobrosPage() {
       orderBy: { createdAt: 'desc' },
     }),
     prisma.paciente.findMany({
-      where: { activo: true },
+      where: { clinicaId: u.clinicaId, activo: true },
       select: { id: true, nombre: true, apellido: true, rut: true },
       orderBy: { apellido: 'asc' },
     }),
     prisma.medioPago.findMany({
-      where: { activo: true },
+      where: { clinicaId: u.clinicaId, activo: true },
       orderBy: { nombre: 'asc' },
     }),
     prisma.user.findMany({
-      where: { puedeRecibirPagos: true, activo: true },
+      where: { clinicaId: u.clinicaId, puedeRecibirPagos: true, activo: true },
       select: { id: true, name: true, email: true },
       orderBy: { name: 'asc' },
     }),
     prisma.tratamiento.findMany({
       where: {
+        clinicaId: u.clinicaId,
         estado: 'COMPLETADO',
         cobroItems: { none: {} },
       },
