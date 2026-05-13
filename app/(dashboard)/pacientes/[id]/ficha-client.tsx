@@ -1,11 +1,12 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
+import { useMemo, useState } from 'react'
 import { formatRUT, formatDate, formatDateTime, calcularEdad, formatCLP } from '@/lib/utils'
 import { PlanTratamiento } from '@/components/PlanTratamiento'
 
-const TABS = ['Información', 'Plan de Tratamiento', 'Citas', 'Cobros', 'Presupuestos']
+const TABS_PRINCIPALES = ['Datos personales', 'Ficha clínica', 'Planes de tratamiento', 'Facturación y pagos', 'Recibir pago'] as const
+const SUBTABS_DATOS = ['Datos', 'Citas', 'Comentarios', 'Mensajes'] as const
 
 const ESTADO_CITA_COLORS: Record<string, string> = {
   PENDIENTE: 'bg-amber-100 text-amber-700',
@@ -15,503 +16,529 @@ const ESTADO_CITA_COLORS: Record<string, string> = {
   NO_ASISTIO: 'bg-slate-100 text-slate-600',
 }
 
-export function FichaClinicaClient({ paciente, doctors, prestaciones }: any) {
-  const [tab, setTab] = useState(0)
-  const [showCitaModal, setShowCitaModal] = useState(false)
-  const [showCobroModal, setShowCobroModal] = useState(false)
-  const [citaForm, setCitaForm] = useState({ doctorId: '', fecha: '', hora: '', tipo: 'CONSULTA', notas: '', duracion: '30' })
-  const [cobroForm, setCobroForm] = useState({ concepto: '', monto: '', metodoPago: 'EFECTIVO' })
+const CATEGORIA_MSG: Record<string, string> = {
+  CONFIRMACION_CITA: 'Confirmación de cita',
+  PLAN_TRATAMIENTO:  'Plan de tratamiento',
+  DOCUMENTO:         'Documento clínico',
+  RECETA:            'Receta',
+  OTRO:              'Otro',
+}
+
+const TIPO_MSG_BADGE: Record<string, string> = {
+  EMAIL:    'bg-blue-100 text-blue-700',
+  WHATSAPP: 'bg-emerald-100 text-emerald-700',
+  SMS:      'bg-amber-100 text-amber-700',
+}
+
+export function FichaClinicaClient({ paciente: initial, doctors, prestaciones }: any) {
+  const [paciente, setPaciente] = useState(initial)
+  const [tab, setTab] = useState<typeof TABS_PRINCIPALES[number]>('Datos personales')
+  const [subtab, setSubtab] = useState<typeof SUBTABS_DATOS[number]>('Datos')
+
+  // KPIs derivados
+  const tratamientos = paciente.fichaClinica?.tratamientos ?? []
+  const kpis = useMemo(() => {
+    const activos = tratamientos.filter((t: any) => t.estado === 'PLANIFICADO' || t.estado === 'EN_PROGRESO').length
+    const finalizados = tratamientos.filter((t: any) => t.estado === 'COMPLETADO').length
+    const realizado = tratamientos.filter((t: any) => t.estado === 'COMPLETADO').reduce((s: number, t: any) => s + t.precio, 0)
+    const abonado = paciente.cobros.filter((c: any) => c.estado === 'PAGADO').reduce((s: number, c: any) => s + c.monto, 0)
+    return { activos, finalizados, realizado, abonado, saldo: Math.max(realizado - abonado, 0) }
+  }, [tratamientos, paciente.cobros])
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto">
+      <Link href="/pacientes" className="text-sm text-cyan-600 hover:text-cyan-700 inline-flex items-center gap-1 mb-4">
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+        Volver al listado
+      </Link>
+
+      {/* Header azul */}
+      <div className="rounded-2xl bg-gradient-to-r from-cyan-600 to-cyan-700 text-white p-6 shadow-sm mb-4">
+        <div className="flex items-start gap-5 flex-wrap">
+          <div className="w-20 h-20 rounded-full bg-white/20 border-2 border-white/40 flex items-center justify-center text-3xl font-bold flex-shrink-0">
+            {paciente.nombre[0]}{paciente.apellido[0]}
+          </div>
+          <div className="flex-1 min-w-[260px]">
+            <p className="text-cyan-100 text-xs font-semibold tracking-wider">ID {paciente.numero ?? '—'}</p>
+            <h1 className="text-2xl font-bold mt-0.5">{paciente.nombre} {paciente.apellido}</h1>
+            <div className="flex items-center gap-3 mt-2 text-sm text-cyan-100 flex-wrap">
+              {paciente.rut && <span>RUT {formatRUT(paciente.rut)}</span>}
+              <span className="opacity-50">·</span>
+              {paciente.fechaNacimiento && <span>{calcularEdad(paciente.fechaNacimiento)} años</span>}
+              {paciente.prevision && (<><span className="opacity-50">·</span><span className="px-2 py-0.5 bg-white/15 rounded-full text-xs">{paciente.prevision}</span></>)}
+            </div>
+          </div>
+
+          {/* Indicadores médicos */}
+          <div className="grid grid-cols-3 gap-2 w-full md:w-auto">
+            <IndicadorMedico
+              icon="⚠"
+              label="Alertas médicas"
+              valor={paciente.fichaClinica?.alertasMedicas}
+            />
+            <IndicadorMedico
+              icon="♥"
+              label="Enfermedades"
+              valor={
+                [
+                  paciente.fichaClinica?.diabetico && 'Diabetes',
+                  paciente.fichaClinica?.hipertenso && 'Hipertensión',
+                  paciente.fichaClinica?.cardiopatia && 'Cardiopatía',
+                  paciente.fichaClinica?.embarazada && 'Embarazo',
+                  paciente.fichaClinica?.enfermedadesNotas,
+                ].filter(Boolean).join(', ') || null
+              }
+            />
+            <IndicadorMedico
+              icon="℞"
+              label="Medicamentos"
+              valor={paciente.fichaClinica?.medicamentos}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs principales */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden mb-4">
+        <div className="flex border-b border-slate-100 overflow-x-auto">
+          {TABS_PRINCIPALES.map((t) => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-5 py-3 text-sm font-medium whitespace-nowrap transition-colors ${
+                tab === t ? 'text-cyan-700 border-b-2 border-cyan-600 bg-cyan-50/40' : 'text-slate-500 hover:text-slate-700'
+              }`}>
+              {t}
+            </button>
+          ))}
+          <div className="flex-1" />
+          <Link href={`/agenda?pacienteId=${paciente.id}`} className="px-4 py-3 text-sm font-medium text-cyan-600 hover:bg-cyan-50 flex items-center gap-1.5 whitespace-nowrap">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            Agendar
+          </Link>
+          <a href={`/print/plan?pacienteId=${paciente.id}`} target="_blank" rel="noopener noreferrer"
+            className="px-4 py-3 text-sm font-medium text-slate-600 hover:bg-slate-50 flex items-center gap-1.5 whitespace-nowrap border-l border-slate-100">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+            Historia clínica
+          </a>
+        </div>
+
+        {/* Subtabs (solo en Datos personales) */}
+        {tab === 'Datos personales' && (
+          <div className="flex border-b border-slate-100 bg-slate-50 overflow-x-auto">
+            {SUBTABS_DATOS.map((st) => {
+              const count = st === 'Citas' ? paciente.citas.length : st === 'Mensajes' ? paciente.mensajes.length : null
+              return (
+                <button key={st} onClick={() => setSubtab(st)}
+                  className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap transition-colors flex items-center gap-1.5 ${
+                    subtab === st ? 'text-emerald-700 border-b-2 border-emerald-600' : 'text-slate-500 hover:text-slate-700'
+                  }`}>
+                  {st}
+                  {count !== null && <span className="px-1.5 py-0.5 bg-slate-200 text-slate-700 rounded text-xs font-semibold">{count}</span>}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        <div className="p-6">
+          {tab === 'Datos personales' && subtab === 'Datos' && (
+            <DatosPersonales paciente={paciente} setPaciente={setPaciente} />
+          )}
+          {tab === 'Datos personales' && subtab === 'Citas' && (
+            <CitasList citas={paciente.citas} />
+          )}
+          {tab === 'Datos personales' && subtab === 'Comentarios' && (
+            <Comentarios pacienteId={paciente.id} comentarios={paciente.comentariosAdmin} onAdd={(nuevo) => setPaciente({ ...paciente, comentariosAdmin: [nuevo, ...paciente.comentariosAdmin] })} />
+          )}
+          {tab === 'Datos personales' && subtab === 'Mensajes' && (
+            <Mensajes mensajes={paciente.mensajes} />
+          )}
+
+          {tab === 'Ficha clínica' && (
+            <FichaClinicaTab paciente={paciente} setPaciente={setPaciente} />
+          )}
+
+          {tab === 'Planes de tratamiento' && (
+            <PlanTratamiento
+              pacienteId={paciente.id}
+              pacienteNombre={`${paciente.nombre} ${paciente.apellido}`}
+              fichaId={paciente.fichaClinica?.id}
+              tratamientos={(paciente.fichaClinica?.tratamientos ?? []) as any}
+              dientesExistentes={(paciente.fichaClinica?.odontograma ?? []).map((d: any) => ({ numero: d.numero, estadoActual: d.estado }))}
+              prestaciones={prestaciones}
+              onPresupuesto={() => window.location.reload()}
+            />
+          )}
+
+          {tab === 'Facturación y pagos' && (
+            <FacturacionPagos paciente={paciente} kpis={kpis} />
+          )}
+
+          {tab === 'Recibir pago' && (
+            <RecibirPago paciente={paciente} kpis={kpis} onCobro={() => window.location.reload()} />
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Componentes internos
+// ────────────────────────────────────────────────────────────────────
+
+function IndicadorMedico({ icon, label, valor }: { icon: string; label: string; valor: string | null | undefined }) {
+  const tiene = !!valor
+  return (
+    <div className={`rounded-xl px-3 py-2 text-xs ${tiene ? 'bg-red-500/20 border border-red-300/30' : 'bg-white/10 border border-white/20'}`}>
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <span className="text-base">{icon}</span>
+        <span className="font-medium text-white">{label}</span>
+      </div>
+      <p className={`${tiene ? 'text-white' : 'text-cyan-100/70'} truncate`}>{tiene ? valor : 'Sin información'}</p>
+    </div>
+  )
+}
+
+function DatosPersonales({ paciente, setPaciente }: any) {
+  const [form, setForm] = useState({ ...paciente, fechaNacimiento: paciente.fechaNacimiento ? paciente.fechaNacimiento.slice(0, 10) : '' })
   const [saving, setSaving] = useState(false)
-  const [showPresupuestoConfirm, setShowPresupuestoConfirm] = useState(false)
-  const [presupuestoItems, setPresupuestoItems] = useState<any[]>([])
-  const [generatingPresupuesto, setGeneratingPresupuesto] = useState(false)
+  const [okMsg, setOkMsg] = useState('')
 
-  async function generarPresupuestoDesde(tratamientos: any[]) {
-    setPresupuestoItems(tratamientos)
-    setShowPresupuestoConfirm(true)
+  function update(k: string, v: any) {
+    setForm({ ...form, [k]: v })
   }
 
-  async function confirmarPresupuesto() {
-    setGeneratingPresupuesto(true)
-    const items = presupuestoItems.map((t: any) => ({
-      prestacionId: t.prestacion.id,
-      cantidad: 1,
-      precioUnitario: t.precio,
-      descuento: 0,
-      subtotal: t.precio,
-    }))
-    const total = items.reduce((s: number, i: any) => s + i.subtotal, 0)
-    const res = await fetch('/api/presupuestos', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pacienteId: paciente.id, items, total }),
-    })
-    const pres = await res.json()
-    setGeneratingPresupuesto(false)
-    setShowPresupuestoConfirm(false)
-    window.open(`/print/presupuesto?id=${pres.id}`, '_blank')
-  }
-
-  async function saveCita(e: React.FormEvent) {
-    e.preventDefault()
-    setSaving(true)
-    const fechaCompleta = `${citaForm.fecha}T${citaForm.hora}`
-    await fetch('/api/citas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...citaForm, pacienteId: paciente.id, fecha: fechaCompleta }),
-    })
-    setSaving(false)
-    setShowCitaModal(false)
-    window.location.reload()
-  }
-
-  async function saveCobro(e: React.FormEvent) {
-    e.preventDefault()
-    setSaving(true)
-    await fetch('/api/cobros', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...cobroForm, pacienteId: paciente.id, monto: Number(cobroForm.monto) }),
-    })
-    setSaving(false)
-    setShowCobroModal(false)
-    window.location.reload()
+  async function guardar() {
+    setSaving(true); setOkMsg('')
+    try {
+      const res = await fetch(`/api/pacientes/${paciente.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        alert(`Error: ${j.error ?? res.status}`)
+        return
+      }
+      const updated = await res.json()
+      setPaciente({ ...paciente, ...updated })
+      setOkMsg('Datos guardados ✓')
+      setTimeout(() => setOkMsg(''), 3000)
+    } finally { setSaving(false) }
   }
 
   return (
-    <div className="p-8">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm text-slate-400 mb-6">
-        <Link href="/pacientes" className="hover:text-cyan-600">Pacientes</Link>
-        <span>/</span>
-        <span className="text-slate-700 font-medium">{paciente.nombre} {paciente.apellido}</span>
-      </div>
-
-      {/* Header paciente */}
-      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 mb-6">
-        <div className="flex items-start gap-5">
-          <div className="w-16 h-16 bg-gradient-to-br from-cyan-500 to-teal-600 rounded-2xl flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-2xl font-bold">{paciente.nombre[0]}{paciente.apellido[0]}</span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-xl font-bold text-slate-900">{paciente.nombre} {paciente.apellido}</h1>
-                <p className="text-slate-500 text-sm mt-0.5">{paciente.rut ? `RUT ${formatRUT(paciente.rut)}` : 'Sin RUT registrado'}</p>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => setShowCitaModal(true)}
-                  className="flex items-center gap-1.5 text-sm font-medium text-cyan-600 border border-cyan-200 bg-cyan-50 hover:bg-cyan-100 px-3 py-1.5 rounded-lg transition-colors">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                  Nueva cita
-                </button>
-                <button onClick={() => setShowCobroModal(true)}
-                  className="flex items-center gap-1.5 text-sm font-medium text-emerald-600 border border-emerald-200 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded-lg transition-colors">
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                  Nuevo cobro
-                </button>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-4 mt-3 text-sm">
-              {paciente.fechaNacimiento && <span className="text-slate-600">{calcularEdad(paciente.fechaNacimiento)} años</span>}
-              {paciente.telefono && <span className="text-slate-600">📞 {paciente.telefono}</span>}
-              {paciente.email && <span className="text-slate-600">✉ {paciente.email}</span>}
-              {paciente.prevision && <span className="bg-cyan-100 text-cyan-700 px-2 py-0.5 rounded-full text-xs font-medium">{paciente.prevision}</span>}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex border-b border-slate-200 mb-6 gap-1">
-        {TABS.map((t, i) => (
-          <button
-            key={t}
-            onClick={() => setTab(i)}
-            className={`px-4 py-2.5 text-sm font-medium rounded-t-lg transition-colors ${tab === i ? 'text-cyan-600 border-b-2 border-cyan-600' : 'text-slate-500 hover:text-slate-700'}`}
-          >
-            {t}
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-2xl font-light text-slate-700">Datos personales</h2>
+        <div className="flex items-center gap-3">
+          {okMsg && <span className="text-sm text-emerald-600">{okMsg}</span>}
+          <button onClick={guardar} disabled={saving}
+            className="px-5 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-60 text-white rounded-lg text-sm font-medium">
+            {saving ? 'Guardando...' : 'Guardar datos'}
           </button>
-        ))}
+        </div>
       </div>
 
-      {/* Tab: Información */}
-      {tab === 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-            <h3 className="font-semibold text-slate-900 mb-4">Datos personales</h3>
-            <dl className="space-y-3">
-              {[
-                { label: 'Nombre completo', value: `${paciente.nombre} ${paciente.apellido}` },
-                { label: 'RUT', value: paciente.rut ? formatRUT(paciente.rut) : '—' },
-                { label: 'Fecha nacimiento', value: paciente.fechaNacimiento ? formatDate(paciente.fechaNacimiento) : '—' },
-                { label: 'Género', value: paciente.genero === 'M' ? 'Masculino' : paciente.genero === 'F' ? 'Femenino' : paciente.genero ?? '—' },
-                { label: 'Teléfono', value: paciente.telefono ?? '—' },
-                { label: 'Email', value: paciente.email ?? '—' },
-                { label: 'Dirección', value: paciente.direccion ?? '—' },
-                { label: 'Previsión', value: paciente.prevision ?? '—' },
-              ].map((f) => (
-                <div key={f.label} className="flex justify-between text-sm">
-                  <dt className="text-slate-500">{f.label}</dt>
-                  <dd className="text-slate-900 font-medium text-right">{f.value}</dd>
-                </div>
-              ))}
-            </dl>
-          </div>
-          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-            <h3 className="font-semibold text-slate-900 mb-4">Antecedentes médicos</h3>
-            {paciente.fichaClinica ? (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { label: 'Diabético', val: paciente.fichaClinica.diabetico },
-                    { label: 'Hipertenso', val: paciente.fichaClinica.hipertenso },
-                    { label: 'Fumador', val: paciente.fichaClinica.fumador },
-                    { label: 'Cardiopatía', val: paciente.fichaClinica.cardiopatia },
-                  ].map((item) => (
-                    <div key={item.label} className={`px-3 py-2 rounded-lg text-sm flex items-center gap-2 ${item.val ? 'bg-red-50 text-red-700' : 'bg-slate-50 text-slate-500'}`}>
-                      <span className={`w-2 h-2 rounded-full ${item.val ? 'bg-red-500' : 'bg-slate-300'}`} />
-                      {item.label}
-                    </div>
-                  ))}
-                </div>
-                {paciente.fichaClinica.medicamentos && (
-                  <div className="text-sm"><span className="text-slate-500">Medicamentos: </span>{paciente.fichaClinica.medicamentos}</div>
-                )}
-                {paciente.alergias && (
-                  <div className="text-sm"><span className="text-slate-500">Alergias: </span>{paciente.alergias}</div>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400">Sin ficha clínica registrada. Ir a la pestaña &quot;Ficha Clínica&quot; para crear una.</p>
-            )}
-          </div>
+      <section className="border border-slate-200 rounded-xl p-5 mb-5">
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Datos requeridos</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Field label="Tipo" value={form.tipoPaciente ?? ''} onChange={(v) => update('tipoPaciente', v)} />
+          <Field label="Nombre legal" value={form.nombre ?? ''} onChange={(v) => update('nombre', v)} />
+          <Field label="Apellidos *" value={form.apellido ?? ''} onChange={(v) => update('apellido', v)} />
+          <Field label="Nacionalidad" value={form.nacionalidad ?? ''} onChange={(v) => update('nacionalidad', v)} />
+          <Field label="RUT" value={form.rut ?? ''} onChange={(v) => update('rut', v)} placeholder="12345678-9" />
+          <SelectField label="Migrante" value={form.migrante ?? ''} onChange={(v) => update('migrante', v)} options={[['', '—'], ['Si', 'Sí'], ['No', 'No']]} />
+          <Field label="Pueblos originarios" value={form.puebloOriginario ?? ''} onChange={(v) => update('puebloOriginario', v)} wide />
         </div>
-      )}
+      </section>
 
-      {/* Tab: Plan de Tratamiento */}
-      {tab === 1 && (
-        <PlanTratamiento
-          pacienteId={paciente.id}
-          pacienteNombre={`${paciente.nombre} ${paciente.apellido}`}
-          fichaId={paciente.fichaClinica?.id}
-          tratamientos={paciente.fichaClinica?.tratamientos ?? []}
-          dientesExistentes={(paciente.fichaClinica?.odontograma ?? []).map((d: any) => ({
-            numero: d.numero,
-            estadoActual: d.estado,
-          }))}
-          prestaciones={prestaciones}
-          onPresupuesto={generarPresupuestoDesde}
+      <section className="border border-slate-200 rounded-xl p-5">
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-4">Datos opcionales</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Field label="Nombre social" value={form.nombreSocial ?? ''} onChange={(v) => update('nombreSocial', v)} />
+          <Field label="Email" type="email" value={form.email ?? ''} onChange={(v) => update('email', v)} />
+          <SelectField label="Convenio" value={form.prevision ?? ''} onChange={(v) => update('prevision', v)}
+            options={[['', 'Sin convenio'], ['PARTICULAR', 'Particular'], ['FONASA', 'FONASA'], ['ISAPRE', 'ISAPRE']]} />
+          <Field label="Número interno" value={form.numeroInterno ?? ''} onChange={(v) => update('numeroInterno', v)} />
+          <SelectField label="Sexo" value={form.sexo ?? ''} onChange={(v) => update('sexo', v)}
+            options={[['', '—'], ['M', 'Masculino'], ['F', 'Femenino']]} />
+          <SelectField label="Género" value={form.genero ?? ''} onChange={(v) => update('genero', v)}
+            options={[['', '—'], ['M', 'Masculino'], ['F', 'Femenino'], ['O', 'Otro']]} />
+          <Field label="Fecha nacimiento" type="date" value={form.fechaNacimiento ?? ''} onChange={(v) => update('fechaNacimiento', v)} />
+          <Field label="Ciudad" value={form.ciudad ?? ''} onChange={(v) => update('ciudad', v)} />
+          <Field label="Comuna" value={form.comuna ?? ''} onChange={(v) => update('comuna', v)} />
+          <Field label="Dirección" value={form.direccion ?? ''} onChange={(v) => update('direccion', v)} />
+          <Field label="Teléfono fijo" value={form.telefonoFijo ?? ''} onChange={(v) => update('telefonoFijo', v)} />
+          <Field label="Teléfono móvil" value={form.telefono ?? ''} onChange={(v) => update('telefono', v)} placeholder="+56 9 ..." />
+          <Field label="Actividad o profesión" value={form.actividad ?? ''} onChange={(v) => update('actividad', v)} />
+          <Field label="Empleador" value={form.empleador ?? ''} onChange={(v) => update('empleador', v)} />
+          <Field label="Observaciones" value={form.observaciones ?? ''} onChange={(v) => update('observaciones', v)} />
+          <Field label="Apoderado" value={form.apoderado ?? ''} onChange={(v) => update('apoderado', v)} />
+          <Field label="RUT apoderado" value={form.rutApoderado ?? ''} onChange={(v) => update('rutApoderado', v)} />
+          <Field label="Referencia" value={form.referencia ?? ''} onChange={(v) => update('referencia', v)} />
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function CitasList({ citas }: { citas: any[] }) {
+  if (citas.length === 0) {
+    return <p className="text-slate-400 text-sm py-8 text-center">Este paciente no tiene citas registradas.</p>
+  }
+  return (
+    <div className="space-y-2">
+      {citas.map((c: any) => (
+        <div key={c.id} className="flex items-center justify-between border border-slate-200 rounded-xl px-4 py-3">
+          <div>
+            <p className="text-sm font-medium text-slate-800">{formatDateTime(c.fecha)}</p>
+            <p className="text-xs text-slate-500">{c.doctor?.name ?? c.doctor?.email} · {c.tipo ?? 'CONSULTA'}</p>
+          </div>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${ESTADO_CITA_COLORS[c.estado] ?? 'bg-slate-100 text-slate-600'}`}>{c.estado}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Comentarios({ pacienteId, comentarios, onAdd }: { pacienteId: string; comentarios: any[]; onAdd: (c: any) => void }) {
+  const [texto, setTexto] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function publicar() {
+    if (!texto.trim()) return
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/pacientes/${pacienteId}/comentarios`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texto }),
+      })
+      if (!res.ok) { alert('Error al guardar'); return }
+      const nuevo = await res.json()
+      onAdd({ ...nuevo, createdAt: nuevo.createdAt })
+      setTexto('')
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div>
+      <div className="border border-slate-200 rounded-xl p-4 mb-4">
+        <textarea
+          value={texto}
+          onChange={(e) => setTexto(e.target.value)}
+          rows={3}
+          placeholder="Escribe un comentario administrativo sobre este paciente..."
+          className="w-full text-sm focus:outline-none resize-none"
         />
-      )}
-
-      {/* Tab: Citas */}
-      {tab === 2 && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-            <h3 className="font-semibold text-slate-900">Historial de citas</h3>
-            <button onClick={() => setShowCitaModal(true)} className="text-sm font-medium text-cyan-600 hover:text-cyan-700">+ Nueva cita</button>
-          </div>
-          {paciente.citas.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-sm">Sin citas registradas</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Fecha</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Doctor</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Tipo</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {paciente.citas.map((c: any) => (
-                  <tr key={c.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-3">{formatDateTime(c.fecha)}</td>
-                    <td className="px-6 py-3 text-slate-600">{c.doctor.name ?? c.doctor.email}</td>
-                    <td className="px-6 py-3 text-slate-600">{c.tipo ?? 'Consulta'}</td>
-                    <td className="px-6 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_CITA_COLORS[c.estado] ?? 'bg-slate-100 text-slate-600'}`}>{c.estado}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+        <div className="flex justify-end mt-2">
+          <button onClick={publicar} disabled={saving || !texto.trim()}
+            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white rounded-lg text-sm font-medium">
+            {saving ? 'Guardando...' : 'Publicar comentario'}
+          </button>
         </div>
-      )}
+      </div>
 
-      {/* Tab: Cobros */}
-      {tab === 3 && (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
-            <h3 className="font-semibold text-slate-900">Cobros</h3>
-            <button onClick={() => setShowCobroModal(true)} className="text-sm font-medium text-cyan-600 hover:text-cyan-700">+ Nuevo cobro</button>
-          </div>
-          {paciente.cobros.length === 0 ? (
-            <div className="p-8 text-center text-slate-400 text-sm">Sin cobros registrados</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Concepto</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Fecha</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Método</th>
-                  <th className="text-right px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Monto</th>
-                  <th className="text-left px-6 py-3 text-xs font-semibold text-slate-500 uppercase">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {paciente.cobros.map((c: any) => (
-                  <tr key={c.id} className="hover:bg-slate-50">
-                    <td className="px-6 py-3 text-slate-900">{c.concepto}</td>
-                    <td className="px-6 py-3 text-slate-600">{c.fechaPago ? formatDate(c.fechaPago) : formatDate(c.createdAt)}</td>
-                    <td className="px-6 py-3 text-slate-600">{c.metodoPago ?? '—'}</td>
-                    <td className="px-6 py-3 text-right font-medium text-slate-900">{formatCLP(c.monto)}</td>
-                    <td className="px-6 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                        c.estado === 'PAGADO' ? 'bg-emerald-100 text-emerald-700' :
-                        c.estado === 'ANULADO' ? 'bg-red-100 text-red-700' :
-                        'bg-amber-100 text-amber-700'
-                      }`}>{c.estado}</span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      {/* Tab: Presupuestos */}
-      {tab === 4 && (
-        <div className="space-y-4">
-          {paciente.presupuestos.length === 0 ? (
-            <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8 text-center text-slate-400 text-sm">Sin presupuestos</div>
-          ) : paciente.presupuestos.map((p: any) => (
-            <div key={p.id} className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6">
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h4 className="font-semibold text-slate-900">Presupuesto #{p.numero}</h4>
-                  <p className="text-xs text-slate-400">{formatDate(p.createdAt)}</p>
-                </div>
-                <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                  p.estado === 'APROBADO' ? 'bg-emerald-100 text-emerald-700' :
-                  p.estado === 'RECHAZADO' ? 'bg-red-100 text-red-700' :
-                  p.estado === 'COMPLETADO' ? 'bg-blue-100 text-blue-700' :
-                  'bg-amber-100 text-amber-700'
-                }`}>{p.estado}</span>
+      {comentarios.length === 0 ? (
+        <p className="text-slate-400 text-sm py-8 text-center">No hay comentarios todavía.</p>
+      ) : (
+        <div className="space-y-3">
+          {comentarios.map((c: any) => (
+            <div key={c.id} className="border-l-4 border-cyan-400 bg-cyan-50/30 rounded-r-xl px-4 py-3">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-sm font-medium text-slate-800">{c.autorNombre}</p>
+                <p className="text-xs text-slate-500">{formatDateTime(c.createdAt)}</p>
               </div>
-              <table className="w-full text-sm mb-3">
-                <tbody className="divide-y divide-slate-50">
-                  {p.items.map((item: any) => (
-                    <tr key={item.id}>
-                      <td className="py-1.5 text-slate-700">{item.prestacion.nombre}</td>
-                      <td className="py-1.5 text-slate-500 text-center">x{item.cantidad}</td>
-                      <td className="py-1.5 text-right text-slate-900 font-medium">{formatCLP(item.subtotal)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="border-t border-slate-100 pt-3 flex justify-between items-center">
-                <button
-                  onClick={() => window.open(`/print/presupuesto?id=${p.id}`, '_blank')}
-                  className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-cyan-600 transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
-                  Imprimir presupuesto
-                </button>
-                <span className="text-sm font-bold text-slate-900">Total: {formatCLP(p.total)}</span>
+              <p className="text-sm text-slate-700 whitespace-pre-wrap">{c.texto}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Mensajes({ mensajes }: { mensajes: any[] }) {
+  if (mensajes.length === 0) {
+    return (
+      <div className="text-center py-10">
+        <p className="text-slate-400 text-sm">No hay mensajes registrados para este paciente.</p>
+        <p className="text-slate-400 text-xs mt-2">
+          Aquí aparecerán confirmaciones de citas por WhatsApp, planes de tratamiento enviados por email,
+          documentos clínicos y recetas que se envíen al paciente.
+        </p>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      {mensajes.map((m: any) => (
+        <div key={m.id} className="flex items-start justify-between border border-slate-200 rounded-xl px-4 py-3 hover:bg-slate-50/50">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
+              <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${TIPO_MSG_BADGE[m.tipo] ?? 'bg-slate-100 text-slate-600'}`}>{m.tipo}</span>
+              <span className="text-sm font-medium text-slate-800">{CATEGORIA_MSG[m.categoria] ?? m.categoria}</span>
+              <span className="text-xs text-slate-400">·</span>
+              <span className="text-xs text-slate-500">{formatDateTime(m.createdAt)}</span>
+            </div>
+            {m.asunto && <p className="text-sm text-slate-700 truncate">{m.asunto}</p>}
+            {m.enviadoA && <p className="text-xs text-slate-500 mt-0.5">A: {m.enviadoA}</p>}
+          </div>
+          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+            m.estado === 'LEIDO' ? 'bg-emerald-100 text-emerald-700' :
+            m.estado === 'FALLIDO' ? 'bg-red-100 text-red-700' :
+            'bg-slate-100 text-slate-600'
+          }`}>{m.estado}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function FichaClinicaTab({ paciente }: any) {
+  const f = paciente.fichaClinica
+  return (
+    <div>
+      <h2 className="text-2xl font-light text-slate-700 mb-5">Ficha clínica</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Info label="Alertas médicas" valor={f?.alertasMedicas} placeholder="Sin alertas registradas" />
+        <Info label="Enfermedades (notas)" valor={f?.enfermedadesNotas} placeholder="Sin enfermedades registradas" />
+        <Info label="Medicamentos" valor={f?.medicamentos} placeholder="Sin medicamentos" />
+        <Info label="Alergias" valor={paciente.alergias} placeholder="Sin alergias" />
+        <Info label="Antecedentes" valor={paciente.antecedentes} placeholder="Sin antecedentes" wide />
+        <Info label="Grupo sanguíneo" valor={f?.grupoSanguineo} placeholder="—" />
+        <div className="border border-slate-200 rounded-xl p-4">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Condiciones</p>
+          <ul className="text-sm text-slate-700 space-y-1">
+            <li>{f?.fumador ? '✓' : '—'} Fumador</li>
+            <li>{f?.diabetico ? '✓' : '—'} Diabético</li>
+            <li>{f?.hipertenso ? '✓' : '—'} Hipertenso</li>
+            <li>{f?.cardiopatia ? '✓' : '—'} Cardiopatía</li>
+            <li>{f?.embarazada ? '✓' : '—'} Embarazo</li>
+          </ul>
+        </div>
+      </div>
+      <p className="text-xs text-slate-400 mt-4">Edición de ficha clínica completa próximamente en módulo dedicado.</p>
+    </div>
+  )
+}
+
+function FacturacionPagos({ paciente, kpis }: any) {
+  return (
+    <div>
+      <h2 className="text-2xl font-light text-slate-700 mb-5">Facturación y pagos</h2>
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <KpiBox label="Realizado" value={formatCLP(kpis.realizado)} />
+        <KpiBox label="Abonado" value={formatCLP(kpis.abonado)} />
+        <KpiBox label="Saldo" value={formatCLP(kpis.saldo)} tono={kpis.saldo > 0 ? 'red' : 'emerald'} />
+      </div>
+
+      <h3 className="font-semibold text-slate-800 mb-3">Presupuestos</h3>
+      {paciente.presupuestos.length === 0 ? (
+        <p className="text-slate-400 text-sm py-6 text-center">Sin presupuestos.</p>
+      ) : (
+        <div className="space-y-2">
+          {paciente.presupuestos.map((p: any) => (
+            <div key={p.id} className="border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-800">Presupuesto N° {p.numero}</p>
+                <p className="text-xs text-slate-500">{formatDate(p.createdAt)} · {p.items.length} ítem{p.items.length !== 1 ? 's' : ''}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-semibold text-slate-800">{formatCLP(p.total)}</p>
+                <a href={`/print/presupuesto?id=${p.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-cyan-600 hover:underline">Ver / Imprimir</a>
               </div>
             </div>
           ))}
         </div>
       )}
+    </div>
+  )
+}
 
-      {/* Modal nueva cita */}
-      {showCitaModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-slate-900">Nueva cita</h2>
-              <button onClick={() => setShowCitaModal(false)} className="text-slate-400 hover:text-slate-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
+function RecibirPago({ paciente, kpis }: any) {
+  return (
+    <div>
+      <h2 className="text-2xl font-light text-slate-700 mb-5">Recibir pago</h2>
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <KpiBox label="Realizado" value={formatCLP(kpis.realizado)} />
+        <KpiBox label="Abonado" value={formatCLP(kpis.abonado)} />
+        <KpiBox label="Saldo pendiente" value={formatCLP(kpis.saldo)} tono={kpis.saldo > 0 ? 'red' : 'emerald'} />
+      </div>
+      <p className="text-sm text-slate-500 mb-4">
+        Los cobros se registran en el módulo de Cobros. Aquí ves el historial del paciente.
+      </p>
+      {paciente.cobros.length === 0 ? (
+        <p className="text-slate-400 text-sm py-6 text-center">Sin cobros registrados.</p>
+      ) : (
+        <div className="space-y-2">
+          {paciente.cobros.map((c: any) => (
+            <div key={c.id} className="border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-slate-800">Cobro N° {c.numero}</p>
+                <p className="text-xs text-slate-500">{c.concepto}</p>
+                <p className="text-xs text-slate-400">{c.fechaPago ? formatDateTime(c.fechaPago) : formatDateTime(c.createdAt)}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-semibold text-slate-800">{formatCLP(c.monto)}</p>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.estado === 'PAGADO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{c.estado}</span>
+              </div>
             </div>
-            <form onSubmit={saveCita} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Doctor *</label>
-                <select required value={citaForm.doctorId} onChange={(e) => setCitaForm({ ...citaForm, doctorId: e.target.value })}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                  <option value="">Seleccionar doctor</option>
-                  {doctors.map((d: any) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Fecha *</label>
-                  <input type="date" required value={citaForm.fecha} onChange={(e) => setCitaForm({ ...citaForm, fecha: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Hora *</label>
-                  <input type="time" required value={citaForm.hora} onChange={(e) => setCitaForm({ ...citaForm, hora: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
-                  <select value={citaForm.tipo} onChange={(e) => setCitaForm({ ...citaForm, tipo: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                    <option value="CONSULTA">Consulta</option>
-                    <option value="CONTROL">Control</option>
-                    <option value="TRATAMIENTO">Tratamiento</option>
-                    <option value="URGENCIA">Urgencia</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Duración (min)</label>
-                  <select value={citaForm.duracion} onChange={(e) => setCitaForm({ ...citaForm, duracion: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                    <option value="15">15 min</option>
-                    <option value="30">30 min</option>
-                    <option value="45">45 min</option>
-                    <option value="60">60 min</option>
-                    <option value="90">90 min</option>
-                  </select>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Notas</label>
-                <textarea value={citaForm.notas} onChange={(e) => setCitaForm({ ...citaForm, notas: e.target.value })} rows={2}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 resize-none" />
-              </div>
-              <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowCitaModal(false)}
-                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-                <button type="submit" disabled={saving}
-                  className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-400 text-white rounded-xl text-sm font-medium">
-                  {saving ? 'Guardando...' : 'Guardar cita'}
-                </button>
-              </div>
-            </form>
-          </div>
+          ))}
         </div>
       )}
+    </div>
+  )
+}
 
-      {/* Modal nuevo cobro */}
-      {showCobroModal && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-slate-900">Nuevo cobro</h2>
-              <button onClick={() => setShowCobroModal(false)} className="text-slate-400 hover:text-slate-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-            <form onSubmit={saveCobro} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Concepto *</label>
-                <input required value={cobroForm.concepto} onChange={(e) => setCobroForm({ ...cobroForm, concepto: e.target.value })}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Monto (CLP) *</label>
-                  <input type="number" required min="0" value={cobroForm.monto} onChange={(e) => setCobroForm({ ...cobroForm, monto: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Método de pago</label>
-                  <select value={cobroForm.metodoPago} onChange={(e) => setCobroForm({ ...cobroForm, metodoPago: e.target.value })}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                    <option value="EFECTIVO">Efectivo</option>
-                    <option value="TRANSFERENCIA">Transferencia</option>
-                    <option value="DEBITO">Débito</option>
-                    <option value="CREDITO">Crédito</option>
-                  </select>
-                </div>
-              </div>
-              <div className="flex gap-3 pt-1">
-                <button type="button" onClick={() => setShowCobroModal(false)}
-                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-                <button type="submit" disabled={saving}
-                  className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-xl text-sm font-medium">
-                  {saving ? 'Guardando...' : 'Registrar cobro'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+// ──────── Helpers ────────
 
-      {/* Modal: confirmar generación de presupuesto desde plan */}
-      {showPresupuestoConfirm && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg">
-            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-900">Generar presupuesto</h2>
-                <p className="text-sm text-slate-500 mt-0.5">Desde el plan de tratamiento activo</p>
-              </div>
-              <button onClick={() => setShowPresupuestoConfirm(false)} className="text-slate-400 hover:text-slate-600">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12"/></svg>
-              </button>
-            </div>
-            <div className="p-6">
-              <p className="text-sm text-slate-600 mb-4">
-                Se generará un presupuesto con las siguientes acciones clínicas ({presupuestoItems.length} items):
-              </p>
-              <div className="bg-slate-50 rounded-xl p-4 mb-4 max-h-64 overflow-y-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200">
-                      <th className="text-left py-1.5 text-xs font-semibold text-slate-500">Pieza/Zona</th>
-                      <th className="text-left py-1.5 text-xs font-semibold text-slate-500">Prestación</th>
-                      <th className="text-right py-1.5 text-xs font-semibold text-slate-500">Precio</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {presupuestoItems.map((t: any) => (
-                      <tr key={t.id}>
-                        <td className="py-1.5 text-cyan-700 font-medium text-xs">{t.diente ? `Pieza ${t.diente}` : t.cara ?? 'General'}</td>
-                        <td className="py-1.5 text-slate-700">{t.prestacion.nombre}</td>
-                        <td className="py-1.5 text-right font-semibold text-slate-900">{formatCLP(t.precio)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="border-t border-slate-200 pt-2 mt-2 flex justify-end">
-                  <span className="text-sm font-bold text-slate-900">
-                    Total: {formatCLP(presupuestoItems.reduce((s: number, t: any) => s + t.precio, 0))}
-                  </span>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowPresupuestoConfirm(false)}
-                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  onClick={confirmarPresupuesto}
-                  disabled={generatingPresupuesto}
-                  className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white rounded-xl text-sm font-medium flex items-center justify-center gap-2"
-                >
-                  {generatingPresupuesto ? (
-                    <><svg className="animate-spin w-4 h-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>Generando...</>
-                  ) : (
-                    <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>Generar e imprimir</>
-                  )}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+function Field({ label, value, onChange, type = 'text', placeholder, wide }: {
+  label: string; value: string; onChange: (v: string) => void
+  type?: string; placeholder?: string; wide?: boolean
+}) {
+  return (
+    <div className={wide ? 'md:col-span-3' : ''}>
+      <label className="block text-xs text-slate-500 mb-1 font-medium">{label}</label>
+      <input type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)}
+        className="w-full px-0 py-1.5 border-0 border-b border-slate-200 focus:border-cyan-500 focus:outline-none text-sm bg-transparent" />
+    </div>
+  )
+}
+
+function SelectField({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void; options: [string, string][]
+}) {
+  return (
+    <div>
+      <label className="block text-xs text-slate-500 mb-1 font-medium">{label}</label>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="w-full px-0 py-1.5 border-0 border-b border-slate-200 focus:border-cyan-500 focus:outline-none text-sm bg-transparent">
+        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+      </select>
+    </div>
+  )
+}
+
+function Info({ label, valor, placeholder, wide }: { label: string; valor: any; placeholder: string; wide?: boolean }) {
+  return (
+    <div className={`border border-slate-200 rounded-xl p-4 ${wide ? 'md:col-span-2' : ''}`}>
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">{label}</p>
+      <p className={`text-sm ${valor ? 'text-slate-700' : 'text-slate-400'}`}>{valor ?? placeholder}</p>
+    </div>
+  )
+}
+
+function KpiBox({ label, value, tono }: { label: string; value: string; tono?: 'red' | 'emerald' }) {
+  const tones = {
+    red:     'bg-red-50 border-red-100 text-red-700',
+    emerald: 'bg-emerald-50 border-emerald-100 text-emerald-700',
+  }
+  return (
+    <div className={`rounded-xl border p-4 ${tono ? tones[tono] : 'bg-slate-50 border-slate-100'}`}>
+      <p className="text-xs text-slate-500 uppercase tracking-wider">{label}</p>
+      <p className={`text-xl font-bold mt-1 ${tono ? '' : 'text-slate-800'}`}>{value}</p>
     </div>
   )
 }

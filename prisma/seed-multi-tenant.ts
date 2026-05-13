@@ -1,6 +1,7 @@
 // Idempotente: corre en cada build de Vercel.
 // Migra la base single-tenant a multi-tenant creando una clínica inicial
 // y asignando todos los registros existentes a ella.
+// También asigna numero correlativo a pacientes que no lo tengan.
 
 import { PrismaClient } from '@prisma/client'
 
@@ -46,6 +47,27 @@ async function main() {
       data: { clinicaId: clinica.id },
     })
     if (r.count > 0) console.log(`  ${t}: ${r.count} registros migrados`)
+  }
+
+  // 3. Asignar numero correlativo a pacientes sin numero (agrupados por clínica).
+  const clinicas = await prisma.clinica.findMany({ select: { id: true } })
+  for (const c of clinicas) {
+    const sinNumero = await prisma.paciente.findMany({
+      where: { clinicaId: c.id, numero: null },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    })
+    if (sinNumero.length === 0) continue
+
+    const max = await prisma.paciente.aggregate({
+      where: { clinicaId: c.id, numero: { not: null } },
+      _max: { numero: true },
+    })
+    let next = (max._max.numero ?? 0) + 1
+    for (const p of sinNumero) {
+      await prisma.paciente.update({ where: { id: p.id }, data: { numero: next++ } })
+    }
+    console.log(`  clinica ${c.id}: ${sinNumero.length} pacientes numerados desde ${(max._max.numero ?? 0) + 1}`)
   }
 
   console.log('Migración multi-tenant completada.')

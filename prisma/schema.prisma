@@ -42,6 +42,8 @@ model Clinica {
   contratos     Contrato[]
   liquidaciones Liquidacion[]
   horarios      HorarioDoctor[]
+  comentariosAdmin ComentarioAdministrativo[]
+  mensajes         MensajePaciente[]
 }
 
 // LEGACY: se mantiene durante la migración a multi-tenant.
@@ -94,15 +96,32 @@ model Session {
 model Paciente {
   id              String    @id @default(cuid())
   clinicaId       String?
+  numero          Int?      // correlativo por clínica (1, 2, 3...)
   rut             String?
+  otroDocId       String?   // pasaporte / DNI extranjero
   nombre          String
   apellido        String
+  nombreSocial    String?
   fechaNacimiento DateTime?
   genero          String?
-  telefono        String?
+  sexo            String?
+  nacionalidad    String?
+  migrante        String?   // "Sí" | "No" | null
+  puebloOriginario String?
+  telefono        String?   // móvil
+  telefonoFijo    String?
   email           String?
   direccion       String?
+  ciudad          String?
+  comuna          String?
   prevision       String?
+  actividad       String?   // profesión / actividad
+  empleador       String?
+  apoderado       String?
+  rutApoderado    String?
+  referencia      String?
+  tipoPaciente    String?   // categoría libre (ej: VIP, Habitual, etc.)
+  numeroInterno   String?   // # interno opcional de la clínica
   alergias        String?
   antecedentes    String?
   observaciones   String?
@@ -114,8 +133,40 @@ model Paciente {
   fichaClinica    FichaClinica?
   presupuestos    Presupuesto[]
   cobros          Cobro[]
+  comentariosAdmin ComentarioAdministrativo[]
+  mensajes         MensajePaciente[]
 
   @@unique([clinicaId, rut])
+  @@unique([clinicaId, numero])
+}
+
+model ComentarioAdministrativo {
+  id          String   @id @default(cuid())
+  clinicaId   String?
+  pacienteId  String
+  autorNombre String
+  autorId     String?
+  texto       String
+  createdAt   DateTime @default(now())
+  paciente    Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+  clinica     Clinica? @relation(fields: [clinicaId], references: [id])
+}
+
+model MensajePaciente {
+  id          String   @id @default(cuid())
+  clinicaId   String?
+  pacienteId  String
+  citaId      String?
+  tipo        String   // EMAIL | WHATSAPP | SMS
+  categoria   String   // CONFIRMACION_CITA | PLAN_TRATAMIENTO | DOCUMENTO | RECETA | OTRO
+  asunto      String?
+  cuerpo      String?
+  enviadoA    String?
+  estado      String   @default("ENVIADO") // ENVIADO | ENTREGADO | LEIDO | FALLIDO
+  createdAt   DateTime @default(now())
+  paciente    Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+  clinica     Clinica? @relation(fields: [clinicaId], references: [id])
+  cita        Cita?    @relation(fields: [citaId], references: [id])
 }
 
 model Cita {
@@ -136,6 +187,7 @@ model Cita {
   paciente      Paciente  @relation(fields: [pacienteId], references: [id])
   doctor        User      @relation("DoctorCitas", fields: [doctorId], references: [id])
   logs          CitaLog[]
+  mensajes      MensajePaciente[]
 }
 
 model CitaLog {
@@ -160,6 +212,8 @@ model FichaClinica {
   cardiopatia     Boolean       @default(false)
   medicamentos    String?
   notasClinicas   String?
+  alertasMedicas    String?
+  enfermedadesNotas String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   clinica         Clinica?      @relation(fields: [clinicaId], references: [id])
