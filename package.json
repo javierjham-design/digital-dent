@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma db push --accept-data-loss && prisma generate && ts-node --transpile-only prisma/seed-multi-tenant.ts && next build",
+    "build": "prisma db push --accept-data-loss && prisma generate && ts-node --transpile-only prisma/seed-multi-tenant.ts && ts-node --transpile-only prisma/seed-super-admin.ts && next build",
     "start": "next start",
     "lint": "eslint",
     "postinstall": "prisma generate",

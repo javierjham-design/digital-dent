@@ -19,6 +19,7 @@ export const authOptions: NextAuthOptions = {
           where: { email: credentials.email },
         })
         if (!user) return null
+        if (!user.activo) return null
         const valid = await bcrypt.compare(credentials.password, user.password)
         if (!valid) return null
         return {
@@ -27,6 +28,7 @@ export const authOptions: NextAuthOptions = {
           email: user.email,
           role: user.role,
           clinicaId: user.clinicaId ?? null,
+          isPlatformAdmin: user.isPlatformAdmin ?? false,
         } as any
       },
     }),
@@ -37,6 +39,7 @@ export const authOptions: NextAuthOptions = {
         token.role = (user as any).role
         token.id = user.id
         token.clinicaId = (user as any).clinicaId ?? null
+        token.isPlatformAdmin = (user as any).isPlatformAdmin ?? false
       }
       return token
     },
@@ -44,7 +47,8 @@ export const authOptions: NextAuthOptions = {
       if (session.user) {
         (session.user as any).role = token.role;
         (session.user as any).id = token.id;
-        (session.user as any).clinicaId = token.clinicaId ?? null
+        (session.user as any).clinicaId = token.clinicaId ?? null;
+        (session.user as any).isPlatformAdmin = token.isPlatformAdmin ?? false
       }
       return session
     },
@@ -57,6 +61,7 @@ export type SessionUser = {
   name: string | null
   role: string
   clinicaId: string | null
+  isPlatformAdmin: boolean
 }
 
 export async function getSessionUser(): Promise<SessionUser | null> {
@@ -69,10 +74,16 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     name: u.name ?? null,
     role: u.role,
     clinicaId: u.clinicaId ?? null,
+    isPlatformAdmin: u.isPlatformAdmin ?? false,
   }
 }
 
 export async function requireClinicaId(): Promise<string | null> {
   const u = await getSessionUser()
   return u?.clinicaId ?? null
+}
+
+export async function requireSuperAdmin(): Promise<SessionUser | null> {
+  const u = await getSessionUser()
+  return u?.isPlatformAdmin ? u : null
 }

@@ -20,10 +20,19 @@ export default function LoginPage() {
       password,
       redirect: false,
     })
-    setLoading(false)
     if (res?.error) {
       setError('Credenciales incorrectas. Verifica tu email y contraseña.')
-    } else {
+      setLoading(false)
+      return
+    }
+    // Determinar destino según rol
+    try {
+      const r = await fetch('/api/auth/whoami', { cache: 'no-store' })
+      const data = await r.json()
+      const dest = data.isPlatformAdmin ? '/digital-dent-super-admin' : '/'
+      router.push(dest)
+      router.refresh()
+    } catch {
       router.push('/')
       router.refresh()
     }
@@ -39,7 +48,7 @@ export default function LoginPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
             </svg>
           </div>
-          <span className="text-xl font-bold tracking-tight">Digital-Dent</span>
+          <span className="text-xl font-bold tracking-tight">Plataforma Dental</span>
         </div>
 
         <div>
@@ -74,7 +83,7 @@ export default function LoginPage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
             </div>
-            <span className="text-lg font-bold text-slate-900">Digital-Dent</span>
+            <span className="text-lg font-bold text-slate-900">Plataforma Dental</span>
           </div>
 
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
@@ -144,7 +153,7 @@ export default function LoginPage() {
             </a>
           </p>
           <p className="text-center text-xs text-slate-400 mt-2">
-            Digital-Dent © {new Date().getFullYear()}
+            Plataforma Dental © {new Date().getFullYear()}
           </p>
         </div>
       </div>

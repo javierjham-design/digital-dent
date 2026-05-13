@@ -8,6 +8,7 @@ import { getSessionUser } from '@/lib/auth'
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const user = await getSessionUser()
   if (!user) redirect('/login')
+  if (user.isPlatformAdmin) redirect('/digital-dent-super-admin')
   if (!user.clinicaId) redirect('/registro')
 
   const clinica = await prisma.clinica.findUnique({ where: { id: user.clinicaId } })
