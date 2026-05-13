@@ -2,10 +2,11 @@ export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
+import { PLAN_PRICES } from '@/lib/plans'
 
 async function loadStats() {
   try {
-    const [clinicas, totalUsuarios, totalPacientes, totalCitas, citasMes, totalCobros, activas, enTrial, suspendidas] = await Promise.all([
+    const [clinicas, activas, enTrial, suspendidas, total] = await Promise.all([
       prisma.clinica.findMany({
         orderBy: { createdAt: 'desc' },
         take: 5,
@@ -13,23 +14,20 @@ async function loadStats() {
           _count: { select: { users: true, pacientes: true } },
         },
       }),
-      prisma.user.count({ where: { isPlatformAdmin: false } }),
-      prisma.paciente.count(),
-      prisma.cita.count(),
-      prisma.cita.count({
-        where: { fecha: { gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1) } },
-      }),
-      prisma.cobro.aggregate({ _sum: { monto: true } }),
       prisma.clinica.count({ where: { activo: true, plan: { not: 'TRIAL' } } }),
       prisma.clinica.count({ where: { activo: true, plan: 'TRIAL' } }),
       prisma.clinica.count({ where: { activo: false } }),
+      prisma.clinica.count(),
     ])
-    return {
-      ok: true as const,
-      clinicas, totalUsuarios, totalPacientes, totalCitas, citasMes,
-      volumen: totalCobros._sum.monto ?? 0,
-      activas, enTrial, suspendidas,
-    }
+
+    // MRR estimado: suma de precios mensuales de clínicas activas no-trial
+    const clinicasPagantes = await prisma.clinica.findMany({
+      where: { activo: true, plan: { not: 'TRIAL' } },
+      select: { plan: true },
+    })
+    const mrrEstimado = clinicasPagantes.reduce((s, c) => s + (PLAN_PRICES[c.plan] ?? 0), 0)
+
+    return { ok: true as const, clinicas, activas, enTrial, suspendidas, total, mrrEstimado }
   } catch (e: any) {
     console.error('[super-admin/dashboard] Error cargando stats:', e)
     return { ok: false as const, error: e?.message ?? String(e) }
@@ -46,10 +44,6 @@ export default async function SuperAdminDashboard() {
           <h1 className="text-xl font-bold text-red-300 mb-2">Error al cargar el panel</h1>
           <p className="text-red-200 text-sm mb-4">El servidor devolvió un error al consultar la base de datos:</p>
           <pre className="bg-black/40 rounded-lg p-4 text-xs text-red-300 overflow-x-auto">{stats.error}</pre>
-          <p className="text-red-300 text-xs mt-4">
-            Probables causas: cliente Prisma desactualizado, columna nueva sin migrar, o credenciales de DB.
-            Verifica los Runtime Logs de Vercel.
-          </p>
         </div>
       </div>
     )
@@ -58,14 +52,10 @@ export default async function SuperAdminDashboard() {
   const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 
   const kpis = [
-    { label: 'Clínicas activas',  value: stats.activas,      tono: 'emerald' },
-    { label: 'En trial',          value: stats.enTrial,      tono: 'amber' },
-    { label: 'Suspendidas',       value: stats.suspendidas,  tono: 'red' },
-    { label: 'Usuarios totales',  value: stats.totalUsuarios, tono: 'sky' },
-    { label: 'Pacientes totales', value: stats.totalPacientes, tono: 'fuchsia' },
-    { label: 'Citas totales',     value: stats.totalCitas, tono: 'indigo' },
-    { label: 'Citas este mes',    value: stats.citasMes, tono: 'purple' },
-    { label: 'Volumen cobrado',   value: fmtCLP(stats.volumen), tono: 'teal', span: 2 },
+    { label: 'Clínicas activas', value: stats.activas,     tono: 'emerald' },
+    { label: 'En trial',         value: stats.enTrial,     tono: 'amber' },
+    { label: 'Suspendidas',      value: stats.suspendidas, tono: 'red' },
+    { label: 'Total clínicas',   value: stats.total,       tono: 'sky' },
   ]
 
   const tonoBg: Record<string, string> = {
@@ -73,10 +63,6 @@ export default async function SuperAdminDashboard() {
     amber:   'bg-amber-500/10 border-amber-500/30 text-amber-300',
     red:     'bg-red-500/10 border-red-500/30 text-red-300',
     sky:     'bg-sky-500/10 border-sky-500/30 text-sky-300',
-    fuchsia: 'bg-fuchsia-500/10 border-fuchsia-500/30 text-fuchsia-300',
-    indigo:  'bg-indigo-500/10 border-indigo-500/30 text-indigo-300',
-    purple:  'bg-purple-500/10 border-purple-500/30 text-purple-300',
-    teal:    'bg-teal-500/10 border-teal-500/30 text-teal-300',
   }
 
   return (
@@ -86,13 +72,21 @@ export default async function SuperAdminDashboard() {
         <p className="text-slate-400 mt-1 text-sm">Vista general de todas las clínicas registradas en la plataforma.</p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         {kpis.map((k) => (
-          <div key={k.label} className={`rounded-2xl border p-5 ${tonoBg[k.tono]} ${k.span === 2 ? 'col-span-2' : ''}`}>
+          <div key={k.label} className={`rounded-2xl border p-5 ${tonoBg[k.tono]}`}>
             <p className="text-xs uppercase tracking-wider opacity-70">{k.label}</p>
             <p className="text-3xl font-bold mt-1 text-white">{k.value}</p>
           </div>
         ))}
+      </div>
+
+      <div className="bg-gradient-to-br from-teal-500/10 to-emerald-500/10 border border-teal-500/30 rounded-2xl p-6 mb-10">
+        <p className="text-xs uppercase tracking-wider text-teal-300 opacity-80">Ingresos mensuales recurrentes (MRR)</p>
+        <p className="text-4xl font-bold mt-2 text-white">{fmtCLP(stats.mrrEstimado)}</p>
+        <p className="text-xs text-teal-300/70 mt-2">
+          Suma de planes mensuales de clínicas activas no-trial · Pasarela de pagos pendiente (Fase 4)
+        </p>
       </div>
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">

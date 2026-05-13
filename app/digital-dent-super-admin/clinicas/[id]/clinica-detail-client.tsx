@@ -10,14 +10,33 @@ type Clinica = {
   telefono: string; email: string
   plan: string; activo: boolean
   trialHasta: string | null; createdAt: string; updatedAt: string
-  counts: { users: number; pacientes: number; citas: number; presupuestos: number; cobros: number; prestaciones: number }
-  volumenCobrado: number
-  totalCobros: number
+  precioMensual: number
+  stats: {
+    usuarios: number; pacientes: number
+    pacientesConAgenda: number; pacientesSinAgenda: number
+    citas: number
+    volumenCobrado: number; totalCobros: number
+    volumen90d: number
+  }
+  storage: { bytesUsados: number; cuotaBytes: number }
   adminInicial: { name: string | null; email: string; role: string; createdAt: string } | null
 }
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
+
+function fmtBytes(n: number): string {
+  if (n === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(n) / Math.log(1024))
+  return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+function daysUntil(iso: string | null): number | null {
+  if (!iso) return null
+  const ms = new Date(iso).getTime() - Date.now()
+  return Math.ceil(ms / (1000 * 60 * 60 * 24))
+}
 
 export function ClinicaDetailClient({ clinica: initial }: { clinica: Clinica }) {
   const router = useRouter()
@@ -69,7 +88,8 @@ export function ClinicaDetailClient({ clinica: initial }: { clinica: Clinica }) 
     } finally { setSaving(false) }
   }
 
-  const tono = c.activo ? 'emerald' : 'red'
+  const trialDias = daysUntil(c.trialHasta)
+  const storagePct = c.storage.cuotaBytes > 0 ? (c.storage.bytesUsados / c.storage.cuotaBytes) * 100 : 0
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -108,28 +128,104 @@ export function ClinicaDetailClient({ clinica: initial }: { clinica: Clinica }) 
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-8">
-        {[
-          { l: 'Usuarios', v: c.counts.users },
-          { l: 'Pacientes', v: c.counts.pacientes },
-          { l: 'Citas', v: c.counts.citas },
-          { l: 'Presupuestos', v: c.counts.presupuestos },
-          { l: 'Cobros', v: c.counts.cobros },
-          { l: 'Prestaciones', v: c.counts.prestaciones },
-        ].map((k) => (
-          <div key={k.l} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <p className="text-xs uppercase tracking-wider text-slate-500">{k.l}</p>
-            <p className="text-2xl font-bold mt-1">{k.v}</p>
+      {/* SUSCRIPCIÓN / PLAN */}
+      <section className="bg-gradient-to-br from-purple-500/10 to-fuchsia-500/10 border border-purple-500/30 rounded-2xl p-6 mb-6">
+        <h2 className="font-semibold mb-4 flex items-center gap-2">
+          <svg className="w-5 h-5 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+          </svg>
+          Suscripción a la plataforma
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-purple-300/70">Plan actual</p>
+            <p className="text-2xl font-bold mt-1">{c.plan}</p>
           </div>
-        ))}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 col-span-2 md:col-span-3">
-          <p className="text-xs uppercase tracking-wider text-slate-500">Volumen cobrado histórico</p>
-          <p className="text-2xl font-bold mt-1 text-teal-300">{fmtCLP(c.volumenCobrado)}</p>
-          <p className="text-xs text-slate-500 mt-1">{c.totalCobros} cobros registrados</p>
+          <div>
+            <p className="text-xs uppercase tracking-wider text-purple-300/70">Cobro mensual</p>
+            <p className="text-2xl font-bold mt-1">{c.precioMensual > 0 ? fmtCLP(c.precioMensual) : 'Sin cobro'}</p>
+            {c.precioMensual > 0 && <p className="text-xs text-purple-300/60 mt-1">Estimado · Pasarela pendiente (Fase 4)</p>}
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-wider text-purple-300/70">
+              {c.plan === 'TRIAL' ? 'Trial vence' : 'Próximo cobro'}
+            </p>
+            {c.plan === 'TRIAL' ? (
+              c.trialHasta ? (
+                <>
+                  <p className="text-2xl font-bold mt-1">{fmtDate(c.trialHasta)}</p>
+                  {trialDias !== null && (
+                    <p className={`text-xs mt-1 ${trialDias <= 5 ? 'text-amber-300' : 'text-purple-300/70'}`}>
+                      {trialDias > 0 ? `${trialDias} días restantes` : `Vencido hace ${-trialDias} días`}
+                    </p>
+                  )}
+                </>
+              ) : <p className="text-2xl font-bold mt-1">—</p>
+            ) : (
+              <p className="text-sm text-purple-300/70 mt-2">Pasarela de pagos pendiente</p>
+            )}
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
+      {/* RESUMEN DE PACIENTES */}
+      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
+        <h2 className="font-semibold mb-4 flex items-center gap-2">
+          <svg className="w-5 h-5 text-fuchsia-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          Pacientes
+        </h2>
+        <div className="grid grid-cols-3 gap-3">
+          <Stat label="Total" value={c.stats.pacientes} tone="fuchsia" />
+          <Stat label="Con citas agendadas" value={c.stats.pacientesConAgenda} tone="emerald" />
+          <Stat label="Sin citas" value={c.stats.pacientesSinAgenda} tone="slate" />
+        </div>
+        <p className="text-xs text-slate-500 mt-4">
+          {c.stats.usuarios} usuario{c.stats.usuarios !== 1 ? 's' : ''} (doctor / staff / admin) · {c.stats.citas} cita{c.stats.citas !== 1 ? 's' : ''} totales agendadas
+        </p>
+      </section>
+
+      {/* COBROS DE LA CLÍNICA (lo que ellos cobran a sus pacientes) */}
+      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
+        <h2 className="font-semibold mb-4 flex items-center gap-2">
+          <svg className="w-5 h-5 text-teal-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Cobros a pacientes (actividad de la clínica)
+        </h2>
+        <div className="grid grid-cols-3 gap-3">
+          <Stat label="Total histórico" value={fmtCLP(c.stats.volumenCobrado)} tone="teal" />
+          <Stat label="Últimos 90 días" value={fmtCLP(c.stats.volumen90d)} tone="emerald" />
+          <Stat label="N° de cobros" value={c.stats.totalCobros} tone="slate" />
+        </div>
+      </section>
+
+      {/* STORAGE */}
+      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
+        <h2 className="font-semibold mb-4 flex items-center gap-2">
+          <svg className="w-5 h-5 text-indigo-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4" />
+          </svg>
+          Almacenamiento
+        </h2>
+        <div className="flex items-center justify-between mb-2">
+          <div>
+            <p className="text-2xl font-bold">{fmtBytes(c.storage.bytesUsados)}</p>
+            <p className="text-xs text-slate-500 mt-1">de {fmtBytes(c.storage.cuotaBytes)} disponibles según plan {c.plan}</p>
+          </div>
+          <p className="text-sm text-slate-400">{storagePct.toFixed(1)}% usado</p>
+        </div>
+        <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all" style={{ width: `${Math.min(storagePct, 100)}%` }} />
+        </div>
+        <p className="text-xs text-slate-500 mt-3">
+          📦 Módulo de archivos (radiografías y documentos) próximo en Fase 2. Hasta entonces 0 B usados.
+        </p>
+      </section>
+
+      {/* DATOS DE LA CLÍNICA */}
+      <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">
         <h2 className="font-semibold mb-4">Datos de la clínica</h2>
         {editing ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -166,14 +262,12 @@ export function ClinicaDetailClient({ clinica: initial }: { clinica: Clinica }) 
             <Row label="Email" value={c.email || '—'} />
             <Row label="RUT" value={c.rut || '—'} />
             <Row label="Creada el" value={fmtDate(c.createdAt)} />
-            <Row label="Última actualización" value={fmtDate(c.updatedAt)} />
-            <Row label="Trial vence" value={c.trialHasta ? fmtDate(c.trialHasta) : '—'} />
           </dl>
         )}
-      </div>
+      </section>
 
       {c.adminInicial && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
+        <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6">
           <h2 className="font-semibold mb-4">Administrador inicial</h2>
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-8 text-sm">
             <Row label="Nombre" value={c.adminInicial.name ?? '—'} />
@@ -181,8 +275,23 @@ export function ClinicaDetailClient({ clinica: initial }: { clinica: Clinica }) 
             <Row label="Rol" value={c.adminInicial.role} />
             <Row label="Registrado" value={fmtDate(c.adminInicial.createdAt)} />
           </dl>
-        </div>
+        </section>
       )}
+    </div>
+  )
+}
+
+function Stat({ label, value, tone }: { label: string; value: number | string; tone: string }) {
+  const tones: Record<string, string> = {
+    emerald: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300',
+    fuchsia: 'bg-fuchsia-500/10 border-fuchsia-500/30 text-fuchsia-300',
+    teal:    'bg-teal-500/10 border-teal-500/30 text-teal-300',
+    slate:   'bg-slate-800/50 border-slate-700 text-slate-300',
+  }
+  return (
+    <div className={`rounded-xl border p-4 ${tones[tone] ?? tones.slate}`}>
+      <p className="text-xs uppercase tracking-wider opacity-70">{label}</p>
+      <p className="text-2xl font-bold mt-1 text-white">{value}</p>
     </div>
   )
 }

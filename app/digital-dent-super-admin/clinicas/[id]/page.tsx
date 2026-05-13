@@ -1,35 +1,35 @@
 export const dynamic = 'force-dynamic'
 
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
+import { PLAN_PRICES } from '@/lib/plans'
 import { ClinicaDetailClient } from './clinica-detail-client'
 
 export default async function ClinicaDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const clinica = await prisma.clinica.findUnique({
-    where: { id },
-    include: {
-      _count: {
-        select: {
-          users: true,
-          pacientes: true,
-          citas: true,
-          presupuestos: true,
-          cobros: true,
-          prestaciones: true,
-        },
-      },
-    },
-  })
-
+  const clinica = await prisma.clinica.findUnique({ where: { id } })
   if (!clinica) notFound()
 
-  const [cobrosAgg, ultimoUsuario] = await Promise.all([
+  const [
+    totalUsuarios,
+    totalPacientes,
+    pacientesConAgenda,
+    totalCitas,
+    cobrosAgg,
+    cobrosUltimos90Dias,
+    adminInicial,
+  ] = await Promise.all([
+    prisma.user.count({ where: { clinicaId: id, activo: true } }),
+    prisma.paciente.count({ where: { clinicaId: id, activo: true } }),
+    prisma.paciente.count({ where: { clinicaId: id, activo: true, citas: { some: {} } } }),
+    prisma.cita.count({ where: { clinicaId: id } }),
+    prisma.cobro.aggregate({ where: { clinicaId: id }, _sum: { monto: true }, _count: true }),
     prisma.cobro.aggregate({
-      where: { clinicaId: id },
+      where: {
+        clinicaId: id,
+        fechaPago: { gte: new Date(Date.now() - 90 * 86400000) },
+      },
       _sum: { monto: true },
-      _count: true,
     }),
     prisma.user.findFirst({
       where: { clinicaId: id },
@@ -37,6 +37,16 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
       select: { name: true, email: true, role: true, createdAt: true },
     }),
   ])
+
+  const pacientesSinAgenda = totalPacientes - pacientesConAgenda
+
+  // Storage placeholder: hasta que exista módulo de archivos (Fase 2)
+  const storage = {
+    bytesUsados: 0,
+    cuotaBytes: clinica.plan === 'PRO' ? 50 * 1024 ** 3 : clinica.plan === 'BASICO' ? 10 * 1024 ** 3 : 1 * 1024 ** 3,
+  }
+
+  const precioMensual = PLAN_PRICES[clinica.plan] ?? 0
 
   return (
     <ClinicaDetailClient
@@ -54,14 +64,23 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
         trialHasta: clinica.trialHasta?.toISOString() ?? null,
         createdAt: clinica.createdAt.toISOString(),
         updatedAt: clinica.updatedAt.toISOString(),
-        counts: clinica._count,
-        volumenCobrado: cobrosAgg._sum.monto ?? 0,
-        totalCobros: cobrosAgg._count,
-        adminInicial: ultimoUsuario ? {
-          name: ultimoUsuario.name ?? null,
-          email: ultimoUsuario.email,
-          role: ultimoUsuario.role,
-          createdAt: ultimoUsuario.createdAt.toISOString(),
+        precioMensual,
+        stats: {
+          usuarios: totalUsuarios,
+          pacientes: totalPacientes,
+          pacientesConAgenda,
+          pacientesSinAgenda,
+          citas: totalCitas,
+          volumenCobrado: cobrosAgg._sum.monto ?? 0,
+          totalCobros: cobrosAgg._count,
+          volumen90d: cobrosUltimos90Dias._sum.monto ?? 0,
+        },
+        storage,
+        adminInicial: adminInicial ? {
+          name: adminInicial.name ?? null,
+          email: adminInicial.email,
+          role: adminInicial.role,
+          createdAt: adminInicial.createdAt.toISOString(),
         } : null,
       }}
     />
