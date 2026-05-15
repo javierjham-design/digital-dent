@@ -5,7 +5,7 @@ import { formatCLP, formatDate } from '@/lib/utils'
 
 interface CobroItem { id: string; descripcion: string; monto: number; tratamientoId?: string | null }
 interface MedioPago  { id: string; nombre: string; comision: number }
-interface Cajero     { id: string; nombre: string }
+interface Cajero     { id: string; nombre: string | null }
 interface Paciente   { id: string; nombre: string; apellido: string; rut: string | null }
 interface Tratamiento {
   id: string; descripcion: string; monto: number
@@ -16,7 +16,7 @@ interface Cobro {
   id: string; numero: number; concepto: string
   monto: number; montoNeto: number | null; comisionMonto: number | null
   estado: string; pacienteId: string; paciente: string
-  medioPago: MedioPago | null; reciboUsuario: { id: string; nombre: string } | null
+  medioPago: MedioPago | null; reciboUsuario: { id: string; nombre: string | null } | null
   fechaPago: string | null; createdAt: string; items: CobroItem[]
 }
 

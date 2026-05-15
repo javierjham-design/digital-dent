@@ -25,7 +25,7 @@ const DEFAULT_DIAS = [
 
 interface Horario { id?: string; doctorId: string; diaSemana: number; horaInicio: string; horaFin: string; activo: boolean }
 interface Contrato { id: string; doctorId: string; tipo: string; porcentaje: number | null; montoFijo: number | null; descripcion: string | null; fechaInicio: string; fechaFin: string | null; activo: boolean }
-interface Usuario { id: string; name: string | null; email: string; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; createdAt: string; contratos: Contrato[] }
+interface Usuario { id: string; name: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; createdAt: string; contratos: Contrato[] }
 
 const emptyUser     = { name: '', email: '', password: '', role: 'doctor', rut: '', especialidad: '', telefono: '' }
 const emptyContrato = { doctorId: '', tipo: 'PORCENTAJE', porcentaje: '', montoFijo: '', descripcion: '', fechaInicio: '', fechaFin: '' }
@@ -58,7 +58,7 @@ export function UsuariosClient({
   function openNewUser() { setEditingUser(null); setUserForm(emptyUser); setShowUserModal(true) }
   function openEditUser(u: Usuario) {
     setEditingUser(u)
-    setUserForm({ name: u.name ?? '', email: u.email, password: '', role: u.role, rut: u.rut ?? '', especialidad: u.especialidad ?? '', telefono: u.telefono ?? '' })
+    setUserForm({ name: u.name ?? '', email: u.email ?? '', password: '', role: u.role, rut: u.rut ?? '', especialidad: u.especialidad ?? '', telefono: u.telefono ?? '' })
     setShowUserModal(true)
   }
 
@@ -195,7 +195,7 @@ export function UsuariosClient({
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-                          <span className="text-white text-xs font-bold">{(u.name ?? u.email)[0].toUpperCase()}</span>
+                          <span className="text-white text-xs font-bold">{(u.name ?? u.email ?? '?')[0].toUpperCase()}</span>
                         </div>
                         <div>
                           <p className="font-medium text-slate-900">{u.name ?? '—'}</p>
@@ -279,10 +279,10 @@ export function UsuariosClient({
               <div key={u.id} className="px-6 py-4 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-                    <span className="text-white text-sm font-bold">{(u.name ?? u.email)[0].toUpperCase()}</span>
+                    <span className="text-white text-sm font-bold">{(u.name ?? u.email ?? '?')[0].toUpperCase()}</span>
                   </div>
                   <div>
-                    <p className="font-medium text-slate-900 text-sm">{u.name ?? u.email}</p>
+                    <p className="font-medium text-slate-900 text-sm">{u.name ?? u.email ?? '—'}</p>
                     <p className="text-xs text-slate-400">{u.especialidad ?? u.role}</p>
                   </div>
                 </div>

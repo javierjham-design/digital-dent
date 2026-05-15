@@ -33,7 +33,7 @@ interface CitaLog {
 interface Cita {
   id: string; pacienteNombre: string; pacienteRut: string | null
   pacienteTelefono: string | null; pacienteId: string
-  doctorId: string; doctor: string
+  doctorId: string; doctor: string | null
   start: string; end: string; estado: string; tipo: string; notas: string
   confirmadoWA: boolean
   logs: CitaLog[]
@@ -48,7 +48,7 @@ interface ClinicConfig { clinica: string; direccion: string; ciudad: string; men
 
 interface Props {
   citas: Cita[]
-  doctors: { id: string; name: string | null; email: string }[]
+  doctors: { id: string; name: string | null; email: string | null }[]
   pacientes: { id: string; rut: string | null; nombre: string; apellido: string; telefono: string | null }[]
   horarios: Horario[]
   config: ClinicConfig

@@ -7,8 +7,8 @@ import { cn } from '@/lib/utils'
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 const ESTADO_STYLES: Record<string, string> = { BORRADOR: 'bg-amber-100 text-amber-700', APROBADA: 'bg-blue-100 text-blue-700', PAGADA: 'bg-emerald-100 text-emerald-700' }
 
-interface Liquidacion { id: string; doctorId: string; periodo: string; totalBruto: number; totalLiquidado: number; estado: string; fechaPago: string | null; createdAt: string; doctor: { id: string; name: string | null; email: string; especialidad: string | null }; contrato: { tipo: string; porcentaje: number | null; montoFijo: number | null }; _count: { items: number } }
-interface Doctor { id: string; name: string | null; email: string; especialidad: string | null }
+interface Liquidacion { id: string; doctorId: string; periodo: string; totalBruto: number; totalLiquidado: number; estado: string; fechaPago: string | null; createdAt: string; doctor: { id: string; name: string | null; email: string | null; especialidad: string | null }; contrato: { tipo: string; porcentaje: number | null; montoFijo: number | null }; _count: { items: number } }
+interface Doctor { id: string; name: string | null; email: string | null; especialidad: string | null }
 
 export function LiquidacionesClient({ liquidaciones: init, doctores }: { liquidaciones: Liquidacion[]; doctores: Doctor[] }) {
   const [liquidaciones, setLiquidaciones] = useState<Liquidacion[]>(init)
@@ -102,10 +102,10 @@ export function LiquidacionesClient({ liquidaciones: init, doctores }: { liquida
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center flex-shrink-0">
-                        <span className="text-white text-xs font-bold">{(l.doctor.name ?? l.doctor.email)[0].toUpperCase()}</span>
+                        <span className="text-white text-xs font-bold">{(l.doctor.name ?? l.doctor.email ?? '?')[0].toUpperCase()}</span>
                       </div>
                       <div>
-                        <p className="font-medium text-slate-900">{l.doctor.name ?? l.doctor.email}</p>
+                        <p className="font-medium text-slate-900">{l.doctor.name ?? l.doctor.email ?? '—'}</p>
                         <p className="text-xs text-slate-400">{l.doctor.especialidad ?? ''}</p>
                       </div>
                     </div>

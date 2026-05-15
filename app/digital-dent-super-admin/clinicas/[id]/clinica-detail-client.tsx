@@ -19,7 +19,7 @@ type Clinica = {
     volumen90d: number
   }
   storage: { bytesUsados: number; cuotaBytes: number }
-  adminInicial: { name: string | null; email: string; role: string; createdAt: string } | null
+  adminInicial: { name: string | null; email: string | null; role: string; createdAt: string } | null
 }
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
@@ -271,7 +271,7 @@ export function ClinicaDetailClient({ clinica: initial }: { clinica: Clinica }) 
           <h2 className="font-semibold mb-4">Administrador inicial</h2>
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-y-3 gap-x-8 text-sm">
             <Row label="Nombre" value={c.adminInicial.name ?? '—'} />
-            <Row label="Email" value={c.adminInicial.email} />
+            <Row label="Email" value={c.adminInicial.email ?? '—'} />
             <Row label="Rol" value={c.adminInicial.role} />
             <Row label="Registrado" value={fmtDate(c.adminInicial.createdAt)} />
           </dl>
