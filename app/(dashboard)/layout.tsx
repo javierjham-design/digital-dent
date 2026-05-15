@@ -9,10 +9,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const user = await getSessionUser()
   if (!user) redirect('/login')
   if (user.isPlatformAdmin) redirect('/digital-dent-super-admin')
-  if (!user.clinicaId) redirect('/registro')
+  if (!user.clinicaId) redirect('/login')
+  if (user.requirePasswordChange) redirect('/cambiar-password')
 
   const clinica = await prisma.clinica.findUnique({ where: { id: user.clinicaId } })
-  if (!clinica) redirect('/registro')
+  if (!clinica) redirect('/login')
   if (!clinica.activo) redirect('/login')
 
   return (

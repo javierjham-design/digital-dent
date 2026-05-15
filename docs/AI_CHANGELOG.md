@@ -28,6 +28,44 @@
 
 ---
 
+## 2026-05-14 — Subdominios por clínica + login dual + cambio forzado de contraseña
+
+**Solicitud:** Cada clínica accede por su propia URL (`cumbres.tudominio.cl`, etc.). Al crear una clínica nueva, generar un usuario `Administrador` con contraseña `ADMIN22`, que la plataforma obliga a cambiar en el primer login. Mantener funcionando un modo fallback `/c/<slug>/login` mientras no haya dominio configurado.
+
+**Archivos modificados:**
+- `prisma/schema.prisma`:
+  - `User`: `email` ahora opcional, +`username String?`, +`passwordChangedAt DateTime?`, `@@unique([clinicaId, username])`.
+- `lib/auth.ts`:
+  - Login dual: `slug+username+password` (clínica) o `email+password` (super-admin / legacy).
+  - JWT/session: añade `clinicaId`, `isPlatformAdmin`, `requirePasswordChange` (true si `passwordChangedAt` es null).
+- `proxy.ts`:
+  - Detecta subdominio cuando `PLATFORM_DOMAIN` está set. Detecta path `/c/<slug>/...` siempre. Reescribe internamente e inyecta header `x-clinica-slug`. Redirige `/login` al contexto correcto (`/c/<slug>/login` si vino por path).
+- `lib/clinica-context.ts`: helper `getClinicaSlugFromContext()` para server components.
+- `app/(auth)/login/page.tsx` + `login-client.tsx`: formulario adaptativo según haya slug en el header.
+- `app/api/admin/clinicas/route.ts`: auto-crea usuario `Administrador` con hash de `ADMIN22` y `passwordChangedAt: null`. Devuelve `credenciales` con `url_subdominio`, `url_fallback`, `usuario`, `contrasena`.
+- `app/digital-dent-super-admin/clinicas/nueva/page.tsx`: formulario simplificado (sin campos de admin/email/password); muestra credenciales generadas con botones de copiar.
+- `app/(dashboard)/layout.tsx`: redirige a `/cambiar-password` si `requirePasswordChange`.
+- `app/cambiar-password/page.tsx` + `app/api/auth/cambiar-password/route.ts`: UI y endpoint para cambio forzado de contraseña; tras éxito hace `signOut` para refrescar el JWT.
+- `prisma/seed-admin-existing-clinics.ts`: script idempotente para crear `Administrador` en clínicas activas existentes.
+- `docs/DNS_SETUP.md`: guía completa de DNS, wildcard, `PLATFORM_DOMAIN`, modo path vs subdominio.
+- Eliminados: `app/(auth)/registro/`, `app/api/clinicas/` (registro público — sólo super-admin crea clínicas ahora).
+
+**Resumen de cambios:**
+La plataforma ahora es de verdad multi-tenant con login segmentado por clínica. Cada clínica recibe una URL única (`cumbres.tudominio.cl` cuando haya dominio, `/c/cumbres/login` mientras tanto) y un usuario `Administrador` con clave temporal `ADMIN22` que debe cambiarse al entrar. El header `x-clinica-slug` injectado por el middleware permite al formulario de login y a los server components conocer el tenant sin sesión previa. El modo subdominio se activa con la env `PLATFORM_DOMAIN`; ambos modos conviven.
+
+**Riesgos / consideraciones:**
+- Se aplicó `prisma db push --accept-data-loss` contra Railway: campos `username` y `passwordChangedAt` agregados a `User`, `email` ahora nullable. El `Administrador` para la clínica `digital-dent` existente se creó vía `seed-admin-existing-clinics.ts`.
+- Para activar subdominios falta: comprar dominio, apuntar wildcard `*.tudominio.cl` a Railway, configurar `PLATFORM_DOMAIN` en variables. Documentado en `docs/DNS_SETUP.md`.
+- `NEXTAUTH_URL` actualmente apunta a `digital-dent-production.up.railway.app`; al migrar a dominio propio debe actualizarse.
+- Las cookies de NextAuth son por dominio: cada subdominio tendrá su propia sesión (deseado).
+
+**Pendientes derivados:**
+- Apagar Vercel y rotar credenciales de Neon (la plataforma vive 100% en Railway ahora).
+- Cuando exista el dominio: añadir custom domain + wildcard en Railway, setear `PLATFORM_DOMAIN`, actualizar `NEXTAUTH_URL`.
+- Validación de slug en superadmin: avisar si el slug colisiona con un subdominio reservado (www, app, api, etc.).
+
+---
+
 ## 2026-05-13 — Módulo Pacientes rediseñado (Fase 2A)
 
 **Solicitud:** Mejorar listado de pacientes con fila expandible mostrando indicadores (RUT, email, teléfono, convenio, tratamientos activos/finalizados/expirados, recaudación). Rediseñar ficha del paciente con tabs principales (Datos personales / Ficha clínica / Planes / Facturación / Recibir pago), subtabs (Datos / Citas / Comentarios administrativos / Mensajes — omitir "Tareas de gestión"), indicadores médicos en el header (Alertas / Enfermedades / Medicamentos), y historial unificado de mensajes (emails con planes, documentos, recetas + confirmaciones WhatsApp).

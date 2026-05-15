@@ -64,14 +64,16 @@ model User {
   id            String    @id @default(cuid())
   clinicaId     String?   // null para super-admins de la plataforma
   name          String?
-  email         String    @unique
+  email         String?   @unique
+  username      String?   // login interno por clínica (sin email)
   password      String
   role          String    @default("staff") // admin, doctor, staff
   rut           String?   @unique
   especialidad  String?
   telefono      String?
   activo        Boolean   @default(true)
-  isPlatformAdmin Boolean @default(false)   // super-admin que gestiona TODAS las clínicas
+  isPlatformAdmin   Boolean   @default(false)   // super-admin que gestiona TODAS las clínicas
+  passwordChangedAt DateTime?                   // null = nunca cambió la default → forzar cambio en primer login
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   puedeRecibirPagos Boolean   @default(false)
@@ -83,6 +85,8 @@ model User {
   liquidaciones Liquidacion[]
   horarios      HorarioDoctor[]
   cobrosRecibidos Cobro[]      @relation("CobroUsuario")
+
+  @@unique([clinicaId, username])
 }
 
 model Session {

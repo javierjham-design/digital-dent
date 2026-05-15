@@ -5,6 +5,9 @@ import bcrypt from 'bcryptjs'
 
 export const dynamic = 'force-dynamic'
 
+const DEFAULT_ADMIN_USERNAME = 'Administrador'
+const DEFAULT_ADMIN_PASSWORD = 'ADMIN22'
+
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -14,7 +17,8 @@ function slugify(s: string): string {
     .slice(0, 60)
 }
 
-// POST: super-admin crea una clínica nueva (con admin inicial + catálogo copiado).
+// POST: super-admin crea una clínica. Auto-genera usuario "Administrador" / "ADMIN22".
+// El admin debe cambiar la contraseña en su primer login.
 export async function POST(req: NextRequest) {
   const admin = await requireSuperAdmin()
   if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -24,30 +28,21 @@ export async function POST(req: NextRequest) {
 
   const {
     clinicaNombre, clinicaEmail, clinicaTelefono, clinicaDireccion, clinicaCiudad,
-    adminNombre, adminEmail, adminPassword,
-    plan, trialDias,
+    plan, trialDias, slug: slugDeseado,
   } = body
 
-  if (!clinicaNombre || !adminEmail || !adminPassword || !adminNombre) {
-    return NextResponse.json({ error: 'Faltan campos obligatorios' }, { status: 400 })
-  }
-  if (String(adminPassword).length < 6) {
-    return NextResponse.json({ error: 'La contraseña debe tener al menos 6 caracteres' }, { status: 400 })
+  if (!clinicaNombre) {
+    return NextResponse.json({ error: 'Falta el nombre de la clínica' }, { status: 400 })
   }
 
-  const emailExiste = await prisma.user.findUnique({ where: { email: adminEmail } })
-  if (emailExiste) return NextResponse.json({ error: 'Ya existe un usuario con ese email' }, { status: 409 })
-
-  // Slug único
-  const base = slugify(clinicaNombre) || 'clinica'
+  // Slug: si el super-admin lo eligió manualmente úsalo; sino generamos uno.
+  const base = (slugDeseado ? slugify(slugDeseado) : slugify(clinicaNombre)) || 'clinica'
   let slug = base
   let i = 1
   while (await prisma.clinica.findUnique({ where: { slug } })) {
     i++
     slug = `${base}-${i}`
   }
-
-  const hash = await bcrypt.hash(adminPassword, 10)
 
   // Copia catálogo de plantilla (clínica "digital-dent")
   const plantilla = await prisma.clinica.findUnique({ where: { slug: 'digital-dent' } })
@@ -62,6 +57,8 @@ export async function POST(req: NextRequest) {
     trialHasta = new Date()
     trialHasta.setDate(trialHasta.getDate() + dias)
   }
+
+  const hash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10)
 
   const clinica = await prisma.$transaction(async (tx) => {
     const c = await tx.clinica.create({
@@ -81,11 +78,13 @@ export async function POST(req: NextRequest) {
     await tx.user.create({
       data: {
         clinicaId: c.id,
-        name: adminNombre,
-        email: adminEmail,
+        name: 'Administrador',
+        username: DEFAULT_ADMIN_USERNAME,
+        email: null,
         password: hash,
         role: 'admin',
         activo: true,
+        passwordChangedAt: null, // forzará cambio en primer login
       },
     })
 
@@ -109,6 +108,13 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     ok: true,
     clinica: { id: clinica.id, slug: clinica.slug, nombre: clinica.nombre },
+    credenciales: {
+      url_subdominio: `${clinica.slug}.{PLATFORM_DOMAIN}`,
+      url_fallback: `/c/${clinica.slug}/login`,
+      usuario: DEFAULT_ADMIN_USERNAME,
+      contrasena: DEFAULT_ADMIN_PASSWORD,
+      nota: 'La contraseña debe ser cambiada en el primer login.',
+    },
     prestacionesCopiadas: prestacionesBase.length,
   }, { status: 201 })
 }
