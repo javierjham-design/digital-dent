@@ -1,8 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo, useState } from 'react'
-import { CopiarUrlButton } from './copiar-url-btn'
+import { useEffect, useMemo, useState } from 'react'
 
 type Clinica = {
   id: string; slug: string; nombre: string
@@ -90,21 +89,21 @@ export function ClinicasListClient({ clinicas, platformDomain }: { clinicas: Cli
               <th className="text-right px-6 py-3">Pacientes</th>
               <th className="text-right px-6 py-3">Citas</th>
               <th className="text-right px-6 py-3">Creada</th>
-              <th className="text-right px-6 py-3">Acceso</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {filtered.length === 0 ? (
-              <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-500">Sin resultados</td></tr>
+              <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-500">Sin resultados</td></tr>
             ) : filtered.map((c) => {
               const dias = daysUntil(c.trialHasta)
               return (
                 <tr key={c.id} className="hover:bg-slate-800/50 transition-colors">
-                  <td className="px-6 py-3">
+                  <td className="px-6 py-3 min-w-[280px]">
                     <Link href={`/digital-dent-super-admin/clinicas/${c.id}`} className="text-white font-medium hover:text-purple-300">
                       {c.nombre}
                     </Link>
-                    <p className="text-xs text-slate-500 font-mono">{c.slug}</p>
+                    <p className="text-xs text-slate-500 font-mono mb-2">{c.slug}</p>
+                    <UrlAccesoCompacto slug={c.slug} platformDomain={platformDomain} />
                   </td>
                   <td className="px-6 py-3 text-slate-300 text-xs">
                     {c.ciudad && <div>{c.ciudad}</div>}
@@ -130,15 +129,66 @@ export function ClinicasListClient({ clinicas, platformDomain }: { clinicas: Cli
                   <td className="px-6 py-3 text-right text-slate-500 text-xs whitespace-nowrap">
                     {new Date(c.createdAt).toLocaleDateString('es-CL')}
                   </td>
-                  <td className="px-6 py-3 text-right whitespace-nowrap">
-                    <CopiarUrlButton slug={c.slug} platformDomain={platformDomain} />
-                  </td>
                 </tr>
               )
             })}
           </tbody>
         </table>
       </div>
+    </div>
+  )
+}
+
+function UrlAccesoCompacto({ slug, platformDomain }: { slug: string; platformDomain: string | null }) {
+  const [origin, setOrigin] = useState('')
+  const [copiado, setCopiado] = useState(false)
+
+  useEffect(() => { setOrigin(window.location.origin) }, [])
+
+  const urlSub = platformDomain ? `https://${slug}.${platformDomain}/login` : null
+  const urlPath = origin ? `${origin}/c/${slug}/login` : `/c/${slug}/login`
+  const urlPrincipal = urlSub ?? urlPath
+
+  async function copiar(e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    try {
+      await navigator.clipboard.writeText(urlPrincipal)
+      setCopiado(true)
+      setTimeout(() => setCopiado(false), 1800)
+    } catch { /* ignorar */ }
+  }
+
+  // Texto corto para mostrar (sin protocolo)
+  const mostrar = urlPrincipal.replace(/^https?:\/\//, '')
+
+  return (
+    <div className="flex items-center gap-1.5 max-w-full">
+      <a
+        href={urlPrincipal}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="flex-1 min-w-0 px-2 py-1 bg-slate-950 border border-slate-700 rounded text-xs text-cyan-300 font-mono hover:border-cyan-500 hover:bg-slate-900 transition-colors truncate"
+        title={urlPrincipal}
+      >
+        {mostrar}
+      </a>
+      <button
+        onClick={copiar}
+        className="flex-shrink-0 px-2 py-1 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition-colors"
+        title="Copiar URL"
+      >
+        {copiado ? (
+          <svg className="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+        ) : (
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3" />
+          </svg>
+        )}
+      </button>
     </div>
   )
 }
