@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 
-const PUBLIC_PATHS = ['/login']
+const PUBLIC_PATHS = ['/login', '/digital-dent-admin-login']
 const PUBLIC_API = ['/api/auth']
+const SUPER_ADMIN_LOGIN = '/digital-dent-admin-login'
+const SUPER_ADMIN_PREFIX = '/digital-dent-super-admin'
 
 // PLATFORM_DOMAIN debe contener tu dominio raíz cuando esté configurado,
 // por ejemplo "tudominio.cl". Hasta entonces, el modo "subdomain" no se activa
@@ -12,13 +14,11 @@ const PLATFORM_DOMAIN = process.env.PLATFORM_DOMAIN ?? ''
 
 function extractSubdomain(host: string | null): string | null {
   if (!host || !PLATFORM_DOMAIN) return null
-  // Quita puerto si existe
   const hostNoPort = host.split(':')[0].toLowerCase()
   const domain = PLATFORM_DOMAIN.toLowerCase()
   if (hostNoPort === domain || hostNoPort === `www.${domain}`) return null
   if (!hostNoPort.endsWith(`.${domain}`)) return null
   const sub = hostNoPort.slice(0, hostNoPort.length - domain.length - 1)
-  // Solo aceptamos un nivel de subdominio
   if (sub.includes('.')) return null
   return sub
 }
@@ -34,13 +34,10 @@ export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname
   const host = request.headers.get('host')
 
-  // Resolver clínica desde subdomain o path
   const subdomain = extractSubdomain(host)
   const pathInfo = extractPathSlug(path)
   const slug = subdomain ?? pathInfo.slug
 
-  // Si vino por path /c/<slug>/..., reescribir internamente para servir el contenido real
-  // pero conservando el slug en un header.
   let rewriteUrl: URL | null = null
   if (pathInfo.slug && pathInfo.rewriteTo) {
     rewriteUrl = request.nextUrl.clone()
@@ -55,14 +52,21 @@ export async function proxy(request: NextRequest) {
   }
 
   const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
-  const isPublicPage = PUBLIC_PATHS.includes(path) || (pathInfo.rewriteTo && PUBLIC_PATHS.includes(pathInfo.rewriteTo))
+  const effectivePath = pathInfo.rewriteTo ?? path
+  const isPublicPage = PUBLIC_PATHS.includes(path) || (pathInfo.rewriteTo != null && PUBLIC_PATHS.includes(pathInfo.rewriteTo))
+  const isSuperAdminArea = effectivePath === SUPER_ADMIN_PREFIX || effectivePath.startsWith(`${SUPER_ADMIN_PREFIX}/`)
 
   if (!token && !isPublicPage) {
-    // Redirigir a login del contexto correcto
     const loginUrl = request.nextUrl.clone()
-    if (slug && !subdomain) {
+    if (isSuperAdminArea) {
+      loginUrl.pathname = SUPER_ADMIN_LOGIN
+    } else if (slug && !subdomain) {
       loginUrl.pathname = `/c/${slug}/login`
+    } else if (slug && subdomain) {
+      loginUrl.pathname = '/login'
     } else {
+      // Sin contexto de clínica ni de super-admin: no hay a dónde redirigir con sentido.
+      // Mandamos a /login (que mostrará landing neutra sin form).
       loginUrl.pathname = '/login'
     }
     return NextResponse.redirect(loginUrl)
@@ -70,7 +74,13 @@ export async function proxy(request: NextRequest) {
 
   if (token && isPublicPage) {
     const home = request.nextUrl.clone()
-    home.pathname = slug && !subdomain ? `/c/${slug}/` : '/'
+    if (effectivePath === SUPER_ADMIN_LOGIN) {
+      home.pathname = SUPER_ADMIN_PREFIX
+    } else if (slug && !subdomain) {
+      home.pathname = `/c/${slug}/`
+    } else {
+      home.pathname = '/'
+    }
     return NextResponse.redirect(home)
   }
 

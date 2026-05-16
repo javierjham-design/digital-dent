@@ -167,7 +167,11 @@ export function TopBar({ clinica, logoUrl }: { clinica: string; logoUrl: string 
                 <p className="text-xs text-slate-500 truncate">{session?.user?.email}</p>
               </div>
               <button
-                onClick={() => signOut({ callbackUrl: '/login' })}
+                onClick={() => {
+                  const m = pathname.match(/^\/c\/([a-z0-9-]+)\b/i)
+                  const callbackUrl = m ? `/c/${m[1]}/login` : '/login'
+                  signOut({ callbackUrl })
+                }}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 hover:text-red-600 transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

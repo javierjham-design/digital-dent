@@ -9,7 +9,7 @@ export default async function SuperAdminLayout({ children }: { children: React.R
   const user = await getSessionUser()
 
   if (!user) {
-    redirect('/login')
+    redirect('/digital-dent-admin-login')
   }
 
   // No es super-admin: en vez de redirigir (riesgo de bucle), mostrar pantalla clara.
@@ -29,7 +29,7 @@ export default async function SuperAdminLayout({ children }: { children: React.R
             <Link href="/" className="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors">
               Ir al dashboard
             </Link>
-            <Link href="/api/auth/signout?callbackUrl=/login" className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition-colors">
+            <Link href="/api/auth/signout?callbackUrl=/digital-dent-admin-login" className="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-sm font-medium transition-colors">
               Cerrar sesión
             </Link>
           </div>

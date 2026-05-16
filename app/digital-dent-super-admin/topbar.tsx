@@ -56,7 +56,7 @@ export function SuperAdminTopBar({ email, name }: { email: string; name: string 
           <p className="text-xs text-slate-500 leading-tight">{email}</p>
         </div>
         <button
-          onClick={() => signOut({ callbackUrl: '/login' })}
+          onClick={() => signOut({ callbackUrl: '/digital-dent-admin-login' })}
           className="px-3 py-1.5 rounded-lg text-sm font-medium text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
         >
           Salir

@@ -1,6 +1,6 @@
 import { headers } from 'next/headers'
 import { prisma } from '@/lib/prisma'
-import { LoginClient } from './login-client'
+import { LoginClient, NoSlugLanding } from './login-client'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,16 +9,14 @@ export default async function LoginPage() {
   const h = await headers()
   const slug = h.get('x-clinica-slug')
 
-  let clinicaInfo: { slug: string; nombre: string; logoUrl: string | null } | null = null
-  if (slug) {
-    const c = await prisma.clinica.findUnique({
-      where: { slug },
-      select: { slug: true, nombre: true, logoUrl: true, activo: true },
-    })
-    if (c && c.activo) {
-      clinicaInfo = { slug: c.slug, nombre: c.nombre, logoUrl: c.logoUrl }
-    }
-  }
+  if (!slug) return <NoSlugLanding />
 
-  return <LoginClient clinica={clinicaInfo} />
+  const c = await prisma.clinica.findUnique({
+    where: { slug },
+    select: { slug: true, nombre: true, logoUrl: true, activo: true },
+  })
+
+  if (!c || !c.activo) return <NoSlugLanding />
+
+  return <LoginClient clinica={{ slug: c.slug, nombre: c.nombre, logoUrl: c.logoUrl }} />
 }
