@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
+import { CopiarUrlButton } from './copiar-url-btn'
 
 type Clinica = {
   id: string; slug: string; nombre: string
@@ -17,7 +18,7 @@ function daysUntil(iso: string | null): number | null {
   return Math.ceil(ms / (1000 * 60 * 60 * 24))
 }
 
-export function ClinicasListClient({ clinicas }: { clinicas: Clinica[] }) {
+export function ClinicasListClient({ clinicas, platformDomain }: { clinicas: Clinica[]; platformDomain: string | null }) {
   const [search, setSearch] = useState('')
   const [planFilter, setPlanFilter] = useState<string>('TODOS')
   const [estadoFilter, setEstadoFilter] = useState<string>('TODOS')
@@ -89,11 +90,12 @@ export function ClinicasListClient({ clinicas }: { clinicas: Clinica[] }) {
               <th className="text-right px-6 py-3">Pacientes</th>
               <th className="text-right px-6 py-3">Citas</th>
               <th className="text-right px-6 py-3">Creada</th>
+              <th className="text-right px-6 py-3">Acceso</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
             {filtered.length === 0 ? (
-              <tr><td colSpan={8} className="px-6 py-12 text-center text-slate-500">Sin resultados</td></tr>
+              <tr><td colSpan={9} className="px-6 py-12 text-center text-slate-500">Sin resultados</td></tr>
             ) : filtered.map((c) => {
               const dias = daysUntil(c.trialHasta)
               return (
@@ -127,6 +129,9 @@ export function ClinicasListClient({ clinicas }: { clinicas: Clinica[] }) {
                   <td className="px-6 py-3 text-right text-slate-300">{c.citas}</td>
                   <td className="px-6 py-3 text-right text-slate-500 text-xs whitespace-nowrap">
                     {new Date(c.createdAt).toLocaleDateString('es-CL')}
+                  </td>
+                  <td className="px-6 py-3 text-right whitespace-nowrap">
+                    <CopiarUrlButton slug={c.slug} platformDomain={platformDomain} />
                   </td>
                 </tr>
               )

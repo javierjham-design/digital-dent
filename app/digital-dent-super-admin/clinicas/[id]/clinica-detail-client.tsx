@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { AccesoClinicaCard } from '../acceso-clinica'
 
 type Clinica = {
   id: string; slug: string; nombre: string
@@ -38,7 +39,15 @@ function daysUntil(iso: string | null): number | null {
   return Math.ceil(ms / (1000 * 60 * 60 * 24))
 }
 
-export function ClinicaDetailClient({ clinica: initial }: { clinica: Clinica }) {
+export function ClinicaDetailClient({
+  clinica: initial,
+  platformDomain,
+  passwordPendiente,
+}: {
+  clinica: Clinica
+  platformDomain: string | null
+  passwordPendiente: boolean
+}) {
   const router = useRouter()
   const [c, setC] = useState(initial)
   const [editing, setEditing] = useState(false)
@@ -126,6 +135,15 @@ export function ClinicaDetailClient({ clinica: initial }: { clinica: Clinica }) 
             {c.activo ? 'Suspender' : 'Reactivar'}
           </button>
         </div>
+      </div>
+
+      {/* ACCESO DE LA CLÍNICA */}
+      <div className="mb-6">
+        <AccesoClinicaCard
+          slug={c.slug}
+          platformDomain={platformDomain}
+          passwordPendiente={passwordPendiente}
+        />
       </div>
 
       {/* SUSCRIPCIÓN / PLAN */}

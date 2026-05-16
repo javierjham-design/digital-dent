@@ -17,8 +17,11 @@ export default async function ClinicasListPage() {
     },
   })
 
+  const platformDomain = process.env.PLATFORM_DOMAIN ?? null
+
   return (
     <ClinicasListClient
+      platformDomain={platformDomain}
       clinicas={clinicas.map((c) => ({
         id: c.id,
         slug: c.slug,

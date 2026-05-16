@@ -34,7 +34,7 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
     prisma.user.findFirst({
       where: { clinicaId: id },
       orderBy: { createdAt: 'asc' },
-      select: { name: true, email: true, role: true, createdAt: true },
+      select: { name: true, email: true, role: true, createdAt: true, passwordChangedAt: true, username: true },
     }),
   ])
 
@@ -47,9 +47,13 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
   }
 
   const precioMensual = PLAN_PRICES[clinica.plan] ?? 0
+  const platformDomain = process.env.PLATFORM_DOMAIN ?? null
+  const passwordPendiente = adminInicial?.username === 'Administrador' && adminInicial?.passwordChangedAt == null
 
   return (
     <ClinicaDetailClient
+      platformDomain={platformDomain}
+      passwordPendiente={passwordPendiente}
       clinica={{
         id: clinica.id,
         slug: clinica.slug,
