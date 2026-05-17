@@ -5,9 +5,9 @@ import { LoginClient, NoSlugLanding } from './login-client'
 export const dynamic = 'force-dynamic'
 
 export default async function LoginPage() {
-  // El middleware inyecta x-clinica-slug si venimos de subdomain o /c/<slug>
   const h = await headers()
   const slug = h.get('x-clinica-slug')
+  const sesionActiva = h.get('x-session-active') as 'super-admin' | 'clinica' | null
 
   if (!slug) return <NoSlugLanding />
 
@@ -18,5 +18,10 @@ export default async function LoginPage() {
 
   if (!c || !c.activo) return <NoSlugLanding />
 
-  return <LoginClient clinica={{ slug: c.slug, nombre: c.nombre, logoUrl: c.logoUrl }} />
+  return (
+    <LoginClient
+      clinica={{ slug: c.slug, nombre: c.nombre, logoUrl: c.logoUrl }}
+      sesionActiva={sesionActiva}
+    />
+  )
 }

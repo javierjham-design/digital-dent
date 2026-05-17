@@ -73,6 +73,18 @@ export async function proxy(request: NextRequest) {
   }
 
   if (token && isPublicPage) {
+    const isClinicaLogin = (pathInfo.rewriteTo === '/login') || (subdomain != null && effectivePath === '/login')
+
+    // Si hay sesión activa y el destino es el login de una clínica, lo dejamos
+    // pasar para que el cliente muestre un aviso ("estás logueado como X, cerrar
+    // sesión para entrar") en vez de redirigir y aterrizar en otra clínica/panel.
+    if (isClinicaLogin && slug) {
+      const res = rewriteUrl ? NextResponse.rewrite(rewriteUrl) : NextResponse.next()
+      res.headers.set('x-clinica-slug', slug)
+      res.headers.set('x-session-active', (token as { isPlatformAdmin?: boolean }).isPlatformAdmin ? 'super-admin' : 'clinica')
+      return res
+    }
+
     const home = request.nextUrl.clone()
     if (effectivePath === SUPER_ADMIN_LOGIN) {
       home.pathname = SUPER_ADMIN_PREFIX
