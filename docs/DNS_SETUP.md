@@ -1,122 +1,171 @@
 # DNS y dominios — Plataforma multi-tenant
 
-Esta plataforma soporta dos modos de acceso por clínica:
+Esta plataforma soporta dos modos de acceso:
 
-1. **Por subdominio** (modo final, cuando exista un dominio propio).
-   `cumbres.tudominio.cl`, `everest.tudominio.cl`, etc.
-2. **Por path** (modo fallback, sin DNS configurado).
-   `https://digital-dent-production.up.railway.app/c/cumbres/login`
+1. **Por subdominio** (modo final, recomendado).
+2. **Por path** (modo fallback, sin DNS configurado — funciona hoy).
 
-Ambos modos conviven: el modo subdominio se activa **sólo si la variable de entorno `PLATFORM_DOMAIN` está definida** en Railway. Si no, todo funciona por path.
-
----
-
-## 1. Modo path (activo hoy)
-
-No requiere DNS. Cada clínica recibe una URL como:
-
-```
-https://<host-railway>/c/<slug>/login
-```
-
-El middleware (`proxy.ts`) detecta el segmento `/c/<slug>/`, hace rewrite interno a la ruta real (`/login`, `/`, etc.) e inyecta el header `x-clinica-slug` para que el login sepa contra qué clínica autenticar.
-
-**Ventaja:** funciona sin tocar DNS.
-**Desventaja:** la URL no es bonita ni "white-label".
-
-Usuario y contraseña por defecto de cada clínica nueva:
-
-- **Usuario:** `Administrador`
-- **Contraseña:** `ADMIN22` (debe cambiarse en el primer login)
+El modo subdominio se activa **sólo si la variable `PLATFORM_DOMAIN` está
+definida en Railway**. Si no, todo sigue funcionando por path.
 
 ---
 
-## 2. Modo subdominio (cuando tengas un dominio)
+## Arquitectura con dominio propio
 
-### Paso 1 — Comprar dominio
+Asumamos que tu dominio es `tudominio.cl`. La plataforma reconoce estos subdominios:
 
-Cualquier registrador (NIC.cl, Namecheap, Cloudflare, etc.). Recomendado: **Cloudflare** por DNS rápido y SSL gratuito wildcard.
+| URL                              | Qué muestra                                      |
+| -------------------------------- | ------------------------------------------------ |
+| `tudominio.cl` o `www.tudominio.cl` | Landing pública (marketing, precios, contacto)   |
+| `super-admin.tudominio.cl`       | Panel super-admin (solo tú)                      |
+| `super-admin.tudominio.cl/login` | Login del super-admin                            |
+| `digital-dent.tudominio.cl`      | Plataforma de la clínica "digital-dent"          |
+| `digital-dent.tudominio.cl/login`| Login de la clínica                              |
+| `montenegro.tudominio.cl`        | Plataforma de la clínica "montenegro"            |
+| ... cualquier `<slug>.tudominio.cl` | Plataforma de esa clínica                     |
 
-### Paso 2 — Apuntar el dominio a Railway
+**Subdominios reservados** (no se pueden usar como slug de clínica):
+`super-admin`, `www`, `admin`, `api`, `app`, `mail`, `login`, `auth`,
+`panel`, `dashboard`, `support`, `soporte`, `help`, `ayuda`, `blog`,
+`docs`, `status`, `cdn`, `assets`, `static`.
 
-En Railway → Project → tu servicio → **Settings → Networking → Custom Domain**.
+Cada subdominio tiene su **propia cookie de sesión**, por lo que puedes:
+- Estar logueado como super-admin en una pestaña.
+- Estar logueado como Administrador de Montenegro en otra pestaña.
+- Estar logueado como Doctor de Digital-Dent en otra pestaña.
+- Todas al mismo tiempo, en el mismo navegador, sin que se interfieran.
 
-Añade dos dominios:
+---
 
-| Dominio                  | Tipo  | Para qué sirve                                    |
-| ------------------------ | ----- | ------------------------------------------------- |
-| `tudominio.cl`           | A/CNAME | Página raíz (puede redirigir a página comercial) |
-| `*.tudominio.cl`         | CNAME wildcard | Todas las clínicas (cumbres, everest, ...)|
+## Modo path (activo hoy, sin DNS)
 
-Railway te dará el destino CNAME que apunta a su edge (algo como `xxx.up.railway.app`). Configura ambos registros en tu DNS:
+Sin configurar dominio, las URLs son:
 
 ```
-Tipo   Nombre        Valor                          TTL
-CNAME  @             <host>.up.railway.app         3600  (o A record si tu DNS no permite CNAME en root)
-CNAME  *             <host>.up.railway.app         3600
+https://digital-dent-production.up.railway.app/                      ← landing pública
+https://digital-dent-production.up.railway.app/digital-dent-admin-login ← super-admin
+https://digital-dent-production.up.railway.app/c/digital-dent/login  ← clínica
+https://digital-dent-production.up.railway.app/c/montenegro/login    ← clínica
 ```
 
-Railway emite **SSL automático** para el dominio raíz y para cada subdominio que reciba tráfico (vía Let's Encrypt + ALPN/HTTP-01). El wildcard no necesita certificado wildcard explícito: cada subdominio nuevo obtiene su propio cert al primer request.
+**Limitación del modo path**: como solo hay un dominio,
+**solo puedes tener una sesión activa por navegador**.
+Para tener varias clínicas abiertas en paralelo, usa ventanas incógnito
+o perfiles distintos de Chrome — o pasa al modo subdominio.
 
-### Paso 3 — Configurar `PLATFORM_DOMAIN`
+---
 
-En Railway → tu servicio → **Variables**:
+## Pasos para activar el modo subdominio
+
+### 1. Comprar dominio
+
+Cualquier registrador (NIC.cl, Namecheap, Cloudflare, Hover, etc.).
+**Recomendado: Cloudflare** por DNS rápido y SSL gratuito wildcard.
+
+### 2. Apuntar DNS a Railway
+
+En tu DNS provider, configura:
+
+| Tipo  | Nombre      | Valor                            | Propósito                        |
+| ----- | ----------- | -------------------------------- | -------------------------------- |
+| A     | `@`         | (IP de Railway)                  | Raíz: `tudominio.cl`            |
+| CNAME | `www`       | `<host>.up.railway.app`          | `www.tudominio.cl`               |
+| CNAME | `*`         | `<host>.up.railway.app`          | **Wildcard** (todos los subdominios) |
+
+> Cloudflare permite `CNAME @` con flattening — más cómodo que A.
+> El wildcard `*` es lo que permite que `cualquier-cosa.tudominio.cl` apunte a Railway.
+
+### 3. Añadir custom domains en Railway
+
+En Railway → tu servicio → **Settings → Networking → Custom Domain**.
+Añade los tres:
+- `tudominio.cl`
+- `www.tudominio.cl`
+- `*.tudominio.cl` (wildcard)
+
+Railway emite **SSL automático** para cada uno vía Let's Encrypt.
+El wildcard genera certificado on-demand al recibir el primer request en
+cada subdominio nuevo.
+
+### 4. Configurar variable de entorno
+
+En Railway → Variables:
 
 ```
 PLATFORM_DOMAIN=tudominio.cl
 ```
 
-(Sin `www.`, sin `https://`, sin path. Sólo el dominio raíz.)
+(Sin `www.`, sin `https://`, sin path. Solo el dominio raíz.)
 
 Reinicia el servicio.
 
-A partir de ese momento:
-- `cumbres.tudominio.cl` → middleware detecta `cumbres` y lo trata como tenant.
-- `tudominio.cl` → trata como raíz (puede mostrar landing).
-- El modo path `/c/<slug>/...` sigue funcionando como respaldo.
+### 5. Verificar
 
-### Paso 4 — `NEXTAUTH_URL`
+| URL                                  | Debe mostrar                          |
+| ------------------------------------ | ------------------------------------- |
+| `https://tudominio.cl`               | Landing pública                       |
+| `https://www.tudominio.cl`           | Landing pública (mismo contenido)     |
+| `https://super-admin.tudominio.cl`   | Login super-admin                     |
+| `https://digital-dent.tudominio.cl`  | Login de la clínica Digital-Dent      |
+| `https://montenegro.tudominio.cl`    | Login de la clínica Montenegro        |
+| `https://no-existe.tudominio.cl`     | Login con error "clínica no encontrada" |
 
-Si la app sigue accediéndose principalmente por `digital-dent-production.up.railway.app`, deja `NEXTAUTH_URL` apuntando ahí. Cuando migres todo el tráfico al dominio propio, actualízalo a `https://tudominio.cl` para que los callbacks de NextAuth funcionen correctamente.
+### 6. (Opcional) `NEXTAUTH_URL`
 
-> Importante: NextAuth con cookies de sesión funciona **por dominio**. Si un usuario inicia sesión en `cumbres.tudominio.cl`, su cookie queda en `cumbres.tudominio.cl` y NO se comparte con `everest.tudominio.cl`. Eso es lo deseado: cada clínica tiene su propia sesión.
+NextAuth con Credentials + JWT funciona automáticamente con subdominios
+porque las cookies son **host-only** (sin `Domain` attribute), por lo
+que cada subdominio tiene su sesión aislada.
+
+Si configuras `NEXTAUTH_URL`, ponlo en el dominio raíz:
+```
+NEXTAUTH_URL=https://tudominio.cl
+```
+(Sirve solo para la generación de URLs absolutas internas.
+No afecta las cookies por subdominio.)
 
 ---
 
-## 3. Crear una clínica nueva
+## Compatibilidad con el modo path
 
-Como super-admin (`/digital-dent-super-admin/clinicas/nueva`):
+**El modo path sigue funcionando aunque tengas dominio configurado**:
+- `digital-dent-production.up.railway.app/c/digital-dent/login` → sigue activo.
+- `tudominio.cl/c/digital-dent/login` → también funciona (alternativa).
 
-1. Llena el nombre y el slug (ej. `cumbres`).
-2. Al crear, la plataforma genera automáticamente:
+Esto te permite migrar progresivamente: comunicar la nueva URL a cada
+clínica, sin romper bookmarks viejos.
+
+---
+
+## Crear una clínica (super-admin)
+
+En `super-admin.tudominio.cl/clinicas/nueva`:
+
+1. Nombre y slug (ej: `cumbres`).
+2. La plataforma genera automáticamente:
    - Usuario `Administrador` con clave `ADMIN22`.
-   - Catálogo de prestaciones copiado desde la plantilla.
-3. Entrega al cliente la URL correspondiente:
-   - **Con dominio:** `https://cumbres.tudominio.cl/login`
-   - **Sin dominio:** `https://digital-dent-production.up.railway.app/c/cumbres/login`
-4. El Administrador entra con `Administrador` / `ADMIN22` y la plataforma lo **forzará a cambiar la contraseña** antes de continuar (página `/cambiar-password`).
+   - Catálogo de prestaciones copiado de la plantilla.
+3. Comparte con el cliente:
+   - **URL final** (cuando tengas dominio): `https://cumbres.tudominio.cl/login`
+   - **URL alternativa**: `https://digital-dent-production.up.railway.app/c/cumbres/login`
+4. El Administrador entra con `Administrador` / `ADMIN22` y la plataforma
+   lo fuerza a cambiar la contraseña en el primer login.
+
+Las URLs son **copiables desde el panel** (listado y detalle de cada clínica).
 
 ---
 
-## 4. Migración de path → subdominio
+## Checklist de DNS antes de migrar
 
-Cuando cambies de modo path a modo subdominio:
-
-- Las URLs antiguas `/c/<slug>/...` **siguen funcionando** (el middleware mantiene ambos modos).
-- Comunica a cada clínica la nueva URL bonita.
-- No se requiere migración de datos ni de sesiones — sólo cambiar el bookmark.
-
----
-
-## 5. Checklist de DNS antes de migrar
-
-- [ ] Dominio comprado y delegado a tu DNS provider.
-- [ ] Registro A o CNAME para `@` (raíz) apuntando a Railway.
-- [ ] Registro CNAME wildcard `*` apuntando a Railway.
-- [ ] Custom Domain agregado en Railway (raíz y wildcard).
-- [ ] SSL emitido (Railway lo muestra en verde "Active").
-- [ ] Variable `PLATFORM_DOMAIN` añadida y servicio reiniciado.
-- [ ] Probar `tudominio.cl` → carga.
-- [ ] Probar `digital-dent.tudominio.cl/login` → carga login de la clínica.
-- [ ] Login funciona, JWT se emite, sesión persiste.
-- [ ] Probar `cualquier-otra.tudominio.cl/login` → muestra "Clínica no encontrada" si no existe el slug.
+- [ ] Dominio comprado y delegado al DNS provider.
+- [ ] Registro `A` o `CNAME` para `@` apuntando a Railway.
+- [ ] Registro `CNAME` para `www` apuntando a Railway.
+- [ ] Registro `CNAME` wildcard `*` apuntando a Railway.
+- [ ] Custom Domain agregado en Railway: raíz, `www`, wildcard.
+- [ ] SSL emitido (Railway lo muestra "Active" en verde).
+- [ ] Variable `PLATFORM_DOMAIN` en Railway, sin protocolo ni path.
+- [ ] Servicio reiniciado.
+- [ ] Probar `tudominio.cl` → landing.
+- [ ] Probar `super-admin.tudominio.cl` → login super-admin.
+- [ ] Probar `digital-dent.tudominio.cl/login` → login de la clínica.
+- [ ] Probar entrar a 2 clínicas distintas en pestañas paralelas — deben
+      mantener sesiones aisladas.

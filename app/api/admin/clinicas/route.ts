@@ -8,6 +8,14 @@ export const dynamic = 'force-dynamic'
 const DEFAULT_ADMIN_USERNAME = 'Administrador'
 const DEFAULT_ADMIN_PASSWORD = 'ADMIN22'
 
+// Slugs que NO se pueden usar como nombre de clínica porque colisionan con
+// subdominios reservados de la plataforma (mantén sincronizado con proxy.ts).
+export const RESERVED_SLUGS = new Set([
+  'super-admin', 'www', 'admin', 'api', 'app', 'mail',
+  'login', 'auth', 'panel', 'dashboard', 'support', 'soporte',
+  'help', 'ayuda', 'blog', 'docs', 'status', 'cdn', 'assets', 'static',
+])
+
 function slugify(s: string): string {
   return s
     .toLowerCase()
@@ -37,6 +45,13 @@ export async function POST(req: NextRequest) {
 
   // Slug: si el super-admin lo eligió manualmente úsalo; sino generamos uno.
   const base = (slugDeseado ? slugify(slugDeseado) : slugify(clinicaNombre)) || 'clinica'
+
+  if (RESERVED_SLUGS.has(base)) {
+    return NextResponse.json({
+      error: `El código "${base}" está reservado por la plataforma. Elige otro (no puede ser: ${Array.from(RESERVED_SLUGS).join(', ')}).`,
+    }, { status: 400 })
+  }
+
   let slug = base
   let i = 1
   while (await prisma.clinica.findUnique({ where: { slug } })) {

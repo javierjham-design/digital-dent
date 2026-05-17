@@ -25,6 +25,12 @@ function slugify(s: string): string {
     .slice(0, 60)
 }
 
+const RESERVED_SLUGS = new Set([
+  'super-admin', 'www', 'admin', 'api', 'app', 'mail',
+  'login', 'auth', 'panel', 'dashboard', 'support', 'soporte',
+  'help', 'ayuda', 'blog', 'docs', 'status', 'cdn', 'assets', 'static',
+])
+
 export default function NuevaClinicaPage() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
@@ -55,6 +61,9 @@ export default function NuevaClinicaPage() {
     setError('')
     if (!form.clinicaNombre.trim()) return setError('Falta el nombre de la clínica')
     if (!form.slug.trim()) return setError('Falta el código (slug) de la clínica')
+    if (RESERVED_SLUGS.has(form.slug)) {
+      return setError(`El código "${form.slug}" está reservado por la plataforma. Elige otro.`)
+    }
 
     setLoading(true)
     try {
