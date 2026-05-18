@@ -50,6 +50,7 @@ type Plan = {
 type Permisos = {
   puedeModificarPrecio: boolean
   puedeAplicarDescuento: boolean
+  puedeRevertirCompletado: boolean
 }
 
 type Doctor = { id: string; name: string | null; email: string | null }
@@ -338,6 +339,7 @@ function PlanDetalle({
             tratamientos={plan.tratamientos ?? []}
             doctors={doctors}
             permisos={permisos}
+            pacienteId={pacienteId}
             onChanged={onChanged}
           />
         )}
@@ -348,6 +350,7 @@ function PlanDetalle({
             seccion={s}
             doctors={doctors}
             permisos={permisos}
+            pacienteId={pacienteId}
             onChanged={onChanged}
           />
         ))}
@@ -362,10 +365,11 @@ function PlanDetalle({
   )
 }
 
-function SeccionItem({ seccion, doctors, permisos, onChanged }: {
+function SeccionItem({ seccion, doctors, permisos, pacienteId, onChanged }: {
   seccion: Seccion
   doctors: Doctor[]
   permisos: Permisos
+  pacienteId: string
   onChanged: () => void
 }) {
   const [editando, setEditando] = useState(false)
@@ -406,6 +410,7 @@ function SeccionItem({ seccion, doctors, permisos, onChanged }: {
       tratamientos={seccion.tratamientos}
       doctors={doctors}
       permisos={permisos}
+      pacienteId={pacienteId}
       onChanged={onChanged}
       onEditarSeccion={() => setEditando((e) => !e)}
       onEliminarSeccion={eliminar}
@@ -437,13 +442,14 @@ function SeccionItem({ seccion, doctors, permisos, onChanged }: {
 }
 
 function SeccionCard({
-  titulo, subtitle, tratamientos, doctors, permisos, onChanged, onEditarSeccion, onEliminarSeccion, children,
+  titulo, subtitle, tratamientos, doctors, permisos, pacienteId, onChanged, onEditarSeccion, onEliminarSeccion, children,
 }: {
   titulo: string
   subtitle?: string
   tratamientos: Tratamiento[]
   doctors: Doctor[]
   permisos: Permisos
+  pacienteId: string
   onChanged: () => void
   onEditarSeccion?: () => void
   onEliminarSeccion?: () => void
@@ -495,6 +501,7 @@ function SeccionCard({
                 tratamiento={t}
                 doctors={doctors}
                 permisos={permisos}
+                pacienteId={pacienteId}
                 onChanged={onChanged}
               />
             ))}
@@ -510,11 +517,12 @@ function SeccionCard({
 }
 
 function FilaTratamiento({
-  tratamiento: t, doctors, permisos, onChanged,
+  tratamiento: t, doctors, permisos, pacienteId, onChanged,
 }: {
   tratamiento: Tratamiento
   doctors: Doctor[]
   permisos: Permisos
+  pacienteId: string
   onChanged: () => void
 }) {
   const [doctorId, setDoctorId] = useState(t.doctor?.id ?? '')
@@ -522,8 +530,9 @@ function FilaTratamiento({
   const [precio, setPrecio] = useState(t.precio.toString())
   const [descuento, setDescuento] = useState(t.descuento.toString())
   const [saving, setSaving] = useState(false)
+  const [promptEvolucion, setPromptEvolucion] = useState(false)
 
-  async function patch(data: Record<string, unknown>) {
+  async function patch(data: Record<string, unknown>): Promise<boolean> {
     setSaving(true)
     try {
       const r = await fetch(`/api/tratamientos/${t.id}`, {
@@ -534,19 +543,35 @@ function FilaTratamiento({
       if (!r.ok) {
         const err = await r.json().catch(() => ({}))
         alert(err.error ?? 'Error guardando')
+        return false
       }
       onChanged()
+      return true
     } finally {
       setSaving(false)
     }
   }
 
-  function cambiarEstado(nuevo: string) {
+  async function cambiarEstado(nuevo: string) {
+    // Si está saliendo de COMPLETADO, confirmación + permiso
+    if (t.estado === 'COMPLETADO' && nuevo !== 'COMPLETADO') {
+      if (!permisos.puedeRevertirCompletado) {
+        alert('No tienes permisos para revertir una acción ya completada.')
+        return
+      }
+      if (!confirm('¿Estás seguro de revertir esta acción? Ya estaba marcada como completada.')) {
+        return
+      }
+    }
     setEstado(nuevo)
     const data: Record<string, unknown> = { estado: nuevo }
     if (nuevo === 'COMPLETADO') data.fechaCompletado = new Date().toISOString()
     else data.fechaCompletado = null
-    patch(data)
+
+    const ok = await patch(data)
+    if (ok && nuevo === 'COMPLETADO' && t.estado !== 'COMPLETADO') {
+      setPromptEvolucion(true)
+    }
   }
 
   function cambiarDoctor(nuevo: string) {
@@ -577,6 +602,16 @@ function FilaTratamiento({
   const completado = estado === 'COMPLETADO'
 
   return (
+    <>
+    {promptEvolucion && (
+      <ModalEvolucion
+        pacienteId={pacienteId}
+        tratamientoId={t.id}
+        prestacionNombre={t.prestacion.nombre}
+        onClose={() => setPromptEvolucion(false)}
+        onSaved={() => { setPromptEvolucion(false); onChanged() }}
+      />
+    )}
     <div className={`px-5 py-2.5 grid grid-cols-1 md:grid-cols-12 gap-2 items-center ${completado ? 'bg-emerald-50/40' : 'hover:bg-slate-50/60'} ${saving ? 'opacity-60' : ''}`}>
       <div className="md:col-span-4 min-w-0">
         <p className="text-sm font-medium text-slate-900 truncate">{t.prestacion.nombre || <span className="italic text-slate-400">Sin nombre</span>}</p>
@@ -648,6 +683,90 @@ function FilaTratamiento({
         </button>
       </div>
     </div>
+    </>
+  )
+}
+
+function ModalEvolucion({
+  pacienteId, tratamientoId, prestacionNombre, onClose, onSaved,
+}: {
+  pacienteId: string
+  tratamientoId: string
+  prestacionNombre: string
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [texto, setTexto] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function guardar() {
+    if (!texto.trim()) {
+      onSaved() // anotar es opcional, salir sin guardar
+      return
+    }
+    setSaving(true)
+    const r = await fetch('/api/evoluciones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pacienteId, tratamientoId, texto: texto.trim() }),
+    })
+    setSaving(false)
+    if (r.ok) onSaved()
+    else {
+      const e = await r.json().catch(() => ({}))
+      alert(e.error ?? 'Error al guardar evolución')
+    }
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+        <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg pointer-events-auto">
+          <div className="p-5 border-b border-slate-100">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-7 h-7 bg-emerald-100 rounded-full flex items-center justify-center">
+                <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              </div>
+              <h3 className="font-semibold text-slate-900">Acción completada</h3>
+            </div>
+            <p className="text-xs text-slate-500">
+              <span className="font-medium text-slate-700">{prestacionNombre}</span> · Si quieres, anota la evolución de lo realizado.
+            </p>
+          </div>
+          <div className="p-5">
+            <label className="block text-xs uppercase tracking-wider text-slate-500 mb-1 font-medium">
+              Evolución (opcional)
+            </label>
+            <textarea
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+              rows={5}
+              placeholder="Ej: Se realizó endodoncia en pieza 16, sin complicaciones..."
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              autoFocus
+            />
+            <p className="text-xs text-slate-400 mt-2">
+              Quedará registrada con tu nombre y fecha en el historial del paciente.
+            </p>
+          </div>
+          <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
+            <button onClick={onSaved} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
+              Saltar
+            </button>
+            <button
+              onClick={guardar}
+              disabled={saving}
+              className="px-4 py-2 text-sm bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-400 text-white rounded-lg font-semibold"
+            >
+              {saving ? 'Guardando...' : 'Guardar evolución'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   )
 }
 

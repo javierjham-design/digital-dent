@@ -38,6 +38,7 @@ model Clinica {
   fichas        FichaClinica[]
   presupuestos  Presupuesto[]
   planes        PlanTratamiento[]
+  evoluciones   Evolucion[]
   cobros        Cobro[]
   mediosPago    MedioPago[]
   contratos     Contrato[]
@@ -80,6 +81,7 @@ model User {
   puedeRecibirPagos Boolean   @default(false)
   puedeModificarPrecio  Boolean @default(false)
   puedeAplicarDescuento Boolean @default(false)
+  puedeRevertirCompletado Boolean @default(false)
   clinica       Clinica?       @relation(fields: [clinicaId], references: [id])
   sessions      Session[]
   citas         Cita[]         @relation("DoctorCitas")
@@ -88,6 +90,7 @@ model User {
   liquidaciones Liquidacion[]
   horarios      HorarioDoctor[]
   cobrosRecibidos Cobro[]      @relation("CobroUsuario")
+  evolucionesCreadas Evolucion[] @relation("AutorEvolucion")
 
   @@unique([clinicaId, username])
 }
@@ -140,6 +143,7 @@ model Paciente {
   fichaClinica    FichaClinica?
   presupuestos    Presupuesto[]
   planes          PlanTratamiento[]
+  evoluciones     Evolucion[]
   cobros          Cobro[]
   comentariosAdmin ComentarioAdministrativo[]
   mensajes         MensajePaciente[]
@@ -281,6 +285,7 @@ model Tratamiento {
   doctor       User?           @relation("DoctorTratamientos", fields: [doctorId], references: [id])
   liquidacionItems LiquidacionItem[]
   cobroItems   CobroItem[]
+  evoluciones  Evolucion[]
 }
 
 model PlanTratamiento {
@@ -309,6 +314,20 @@ model SeccionPlan {
   notas           String?
   plan            PlanTratamiento  @relation(fields: [planId], references: [id], onDelete: Cascade)
   tratamientos    Tratamiento[]
+}
+
+model Evolucion {
+  id            String       @id @default(cuid())
+  clinicaId     String?
+  pacienteId    String
+  tratamientoId String?      // si la evolución corresponde a una acción específica
+  autorId       String?
+  texto         String
+  createdAt     DateTime     @default(now())
+  clinica       Clinica?     @relation(fields: [clinicaId], references: [id])
+  paciente      Paciente     @relation(fields: [pacienteId], references: [id])
+  tratamiento   Tratamiento? @relation(fields: [tratamientoId], references: [id], onDelete: SetNull)
+  autor         User?        @relation("AutorEvolucion", fields: [autorId], references: [id])
 }
 
 model Presupuesto {

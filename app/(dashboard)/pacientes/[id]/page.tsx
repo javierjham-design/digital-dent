@@ -71,9 +71,11 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
       }}
       doctors={doctors}
       prestaciones={prestaciones}
+      currentUserId={u.id}
       permisos={{
         puedeModificarPrecio: u.puedeModificarPrecio,
         puedeAplicarDescuento: u.puedeAplicarDescuento,
+        puedeRevertirCompletado: u.puedeRevertirCompletado,
       }}
     />
   )

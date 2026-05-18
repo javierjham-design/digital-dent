@@ -4,8 +4,9 @@ import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { formatRUT, formatDate, formatDateTime, calcularEdad, formatCLP } from '@/lib/utils'
 import { PlanesTratamiento } from '@/components/PlanesTratamiento'
+import { Evoluciones } from '@/components/Evoluciones'
 
-const TABS_PRINCIPALES = ['Datos personales', 'Ficha clínica', 'Planes de tratamiento', 'Facturación y pagos', 'Recibir pago'] as const
+const TABS_PRINCIPALES = ['Datos personales', 'Ficha clínica', 'Planes de tratamiento', 'Evoluciones', 'Facturación y pagos', 'Recibir pago'] as const
 const SUBTABS_DATOS = ['Datos', 'Citas', 'Comentarios', 'Mensajes'] as const
 
 const ESTADO_CITA_COLORS: Record<string, string> = {
@@ -30,7 +31,7 @@ const TIPO_MSG_BADGE: Record<string, string> = {
   SMS:      'bg-amber-100 text-amber-700',
 }
 
-export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, permisos }: any) {
+export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, permisos, currentUserId }: any) {
   const [paciente, setPaciente] = useState(initial)
   const [tab, setTab] = useState<typeof TABS_PRINCIPALES[number]>('Datos personales')
   const [subtab, setSubtab] = useState<typeof SUBTABS_DATOS[number]>('Datos')
@@ -163,8 +164,12 @@ export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, p
               prestaciones={prestaciones}
               doctors={doctors ?? []}
               dientesExistentes={(paciente.fichaClinica?.odontograma ?? []).map((d: any) => ({ numero: d.numero, estadoActual: d.estado }))}
-              permisos={permisos ?? { puedeModificarPrecio: false, puedeAplicarDescuento: false }}
+              permisos={permisos ?? { puedeModificarPrecio: false, puedeAplicarDescuento: false, puedeRevertirCompletado: false }}
             />
+          )}
+
+          {tab === 'Evoluciones' && (
+            <Evoluciones pacienteId={paciente.id} currentUserId={currentUserId ?? ''} />
           )}
 
           {tab === 'Facturación y pagos' && (

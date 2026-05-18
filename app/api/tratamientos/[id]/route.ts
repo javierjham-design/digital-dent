@@ -11,15 +11,35 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const existing = await prisma.tratamiento.findFirst({
     where: { id, clinicaId: u.clinicaId },
-    select: { id: true, precio: true, descuento: true },
+    select: { id: true, precio: true, descuento: true, estado: true },
   })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const body = await req.json()
   const data: Record<string, unknown> = {}
 
+  // Permisos: precio, descuento y revertir
+  const fullUser = await prisma.user.findUnique({
+    where: { id: u.id },
+    select: { puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true, role: true },
+  })
+  const isAdmin = fullUser?.role === 'admin'
+  const puedePrecio = isAdmin || fullUser?.puedeModificarPrecio
+  const puedeDescuento = isAdmin || fullUser?.puedeAplicarDescuento
+  const puedeRevertir = isAdmin || fullUser?.puedeRevertirCompletado
+
+  // Cambio de estado: si estaba COMPLETADO y se intenta pasar a otro, requiere permiso.
+  if (typeof body.estado === 'string') {
+    const saliendoDeCompletado = existing.estado === 'COMPLETADO' && body.estado !== 'COMPLETADO'
+    if (saliendoDeCompletado && !puedeRevertir) {
+      return NextResponse.json({
+        error: 'No tienes permisos para revertir el estado de una acción completada',
+      }, { status: 403 })
+    }
+    data.estado = body.estado
+  }
+
   // Campos libres
-  if (typeof body.estado === 'string') data.estado = body.estado
   if (typeof body.notas === 'string' || body.notas === null) data.notas = body.notas
   if (typeof body.diente === 'number' || body.diente === null) data.diente = body.diente
   if (typeof body.cara === 'string' || body.cara === null) data.cara = body.cara
@@ -28,14 +48,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (typeof body.seccionId === 'string' || body.seccionId === null) data.seccionId = body.seccionId
   if (body.fechaCompletado === null) data.fechaCompletado = null
   else if (typeof body.fechaCompletado === 'string') data.fechaCompletado = new Date(body.fechaCompletado)
-
-  // Permisos para precio y descuento
-  const fullUser = await prisma.user.findUnique({
-    where: { id: u.id },
-    select: { puedeModificarPrecio: true, puedeAplicarDescuento: true, role: true },
-  })
-  const puedePrecio = fullUser?.puedeModificarPrecio || fullUser?.role === 'admin'
-  const puedeDescuento = fullUser?.puedeAplicarDescuento || fullUser?.role === 'admin'
 
   if (typeof body.precio === 'number') {
     if (!puedePrecio) {

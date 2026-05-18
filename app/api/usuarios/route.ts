@@ -11,7 +11,7 @@ export async function GET() {
     orderBy: { name: 'asc' },
     select: {
       id: true, name: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true,
-      puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true,
+      puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
       createdAt: true,
     },
   })

@@ -117,6 +117,7 @@ export type SessionUser = {
   requirePasswordChange: boolean
   puedeModificarPrecio: boolean
   puedeAplicarDescuento: boolean
+  puedeRevertirCompletado: boolean
 }
 
 export async function getSessionUser(): Promise<SessionUser | null> {
@@ -129,15 +130,17 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   // role 'admin' implica los dos permisos para evitar configuración por separado.
   let puedeModificarPrecio = false
   let puedeAplicarDescuento = false
+  let puedeRevertirCompletado = false
   if (u.clinicaId) {
     const dbUser = await prisma.user.findUnique({
       where: { id: u.id },
-      select: { puedeModificarPrecio: true, puedeAplicarDescuento: true, role: true },
+      select: { puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true, role: true },
     })
     if (dbUser) {
       const isAdmin = dbUser.role === 'admin'
       puedeModificarPrecio = isAdmin || dbUser.puedeModificarPrecio
       puedeAplicarDescuento = isAdmin || dbUser.puedeAplicarDescuento
+      puedeRevertirCompletado = isAdmin || dbUser.puedeRevertirCompletado
     }
   }
 
@@ -151,6 +154,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     requirePasswordChange: u.requirePasswordChange ?? false,
     puedeModificarPrecio,
     puedeAplicarDescuento,
+    puedeRevertirCompletado,
   }
 }
 
