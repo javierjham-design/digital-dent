@@ -2,16 +2,57 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
 
+export const dynamic = 'force-dynamic'
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const u = await getSessionUser()
   if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await params
-  const existing = await prisma.tratamiento.findFirst({ where: { id, clinicaId: u.clinicaId }, select: { id: true } })
+
+  const existing = await prisma.tratamiento.findFirst({
+    where: { id, clinicaId: u.clinicaId },
+    select: { id: true, precio: true, descuento: true },
+  })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
   const body = await req.json()
+  const data: Record<string, unknown> = {}
+
+  // Campos libres
+  if (typeof body.estado === 'string') data.estado = body.estado
+  if (typeof body.notas === 'string' || body.notas === null) data.notas = body.notas
+  if (typeof body.diente === 'number' || body.diente === null) data.diente = body.diente
+  if (typeof body.cara === 'string' || body.cara === null) data.cara = body.cara
+  if (typeof body.doctorId === 'string' || body.doctorId === null) data.doctorId = body.doctorId
+  if (typeof body.planId === 'string' || body.planId === null) data.planId = body.planId
+  if (typeof body.seccionId === 'string' || body.seccionId === null) data.seccionId = body.seccionId
+  if (body.fechaCompletado === null) data.fechaCompletado = null
+  else if (typeof body.fechaCompletado === 'string') data.fechaCompletado = new Date(body.fechaCompletado)
+
+  // Permisos para precio y descuento
+  const fullUser = await prisma.user.findUnique({
+    where: { id: u.id },
+    select: { puedeModificarPrecio: true, puedeAplicarDescuento: true, role: true },
+  })
+  const puedePrecio = fullUser?.puedeModificarPrecio || fullUser?.role === 'admin'
+  const puedeDescuento = fullUser?.puedeAplicarDescuento || fullUser?.role === 'admin'
+
+  if (typeof body.precio === 'number') {
+    if (!puedePrecio) {
+      return NextResponse.json({ error: 'No tienes permisos para modificar el precio' }, { status: 403 })
+    }
+    data.precio = body.precio
+  }
+  if (typeof body.descuento === 'number') {
+    if (!puedeDescuento) {
+      return NextResponse.json({ error: 'No tienes permisos para aplicar descuentos' }, { status: 403 })
+    }
+    data.descuento = Math.max(0, Math.min(100, body.descuento))
+  }
+
   const tratamiento = await prisma.tratamiento.update({
     where: { id },
-    data: body,
+    data,
     include: { prestacion: true },
   })
   return NextResponse.json(tratamiento)

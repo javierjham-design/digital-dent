@@ -37,6 +37,7 @@ model Clinica {
   tratamientos  Tratamiento[]
   fichas        FichaClinica[]
   presupuestos  Presupuesto[]
+  planes        PlanTratamiento[]
   cobros        Cobro[]
   mediosPago    MedioPago[]
   contratos     Contrato[]
@@ -77,6 +78,8 @@ model User {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   puedeRecibirPagos Boolean   @default(false)
+  puedeModificarPrecio  Boolean @default(false)
+  puedeAplicarDescuento Boolean @default(false)
   clinica       Clinica?       @relation(fields: [clinicaId], references: [id])
   sessions      Session[]
   citas         Cita[]         @relation("DoctorCitas")
@@ -136,6 +139,7 @@ model Paciente {
   citas           Cita[]
   fichaClinica    FichaClinica?
   presupuestos    Presupuesto[]
+  planes          PlanTratamiento[]
   cobros          Cobro[]
   comentariosAdmin ComentarioAdministrativo[]
   mensajes         MensajePaciente[]
@@ -257,21 +261,54 @@ model Tratamiento {
   id           String       @id @default(cuid())
   clinicaId    String?
   fichaId      String
+  planId       String?
+  seccionId    String?
   prestacionId String
   doctorId     String?
   diente       Int?
   cara         String?
   estado       String       @default("PLANIFICADO")
   precio       Float
+  descuento    Float        @default(0) // porcentaje 0-100, se aplica sobre `precio`
   notas        String?
   fecha        DateTime     @default(now())
   fechaCompletado DateTime?
   clinica      Clinica?        @relation(fields: [clinicaId], references: [id])
   ficha        FichaClinica    @relation(fields: [fichaId], references: [id])
+  plan         PlanTratamiento? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  seccion      SeccionPlan?    @relation(fields: [seccionId], references: [id], onDelete: SetNull)
   prestacion   Prestacion      @relation(fields: [prestacionId], references: [id])
   doctor       User?           @relation("DoctorTratamientos", fields: [doctorId], references: [id])
   liquidacionItems LiquidacionItem[]
   cobroItems   CobroItem[]
+}
+
+model PlanTratamiento {
+  id            String         @id @default(cuid())
+  clinicaId     String?
+  pacienteId    String
+  nombre        String         @default("Plan de tratamiento")
+  estado        String         @default("ACTIVO")  // ACTIVO | ARCHIVADO | COMPLETADO
+  notas         String?
+  fechaInicio   DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  clinica       Clinica?       @relation(fields: [clinicaId], references: [id])
+  paciente      Paciente       @relation(fields: [pacienteId], references: [id])
+  secciones     SeccionPlan[]
+  tratamientos  Tratamiento[]
+}
+
+model SeccionPlan {
+  id              String           @id @default(cuid())
+  planId          String
+  titulo          String           @default("Sección")
+  orden           Int              @default(0)
+  fechaTentativa  DateTime?
+  diasDesdeAnterior Int?           // espera tentativa desde la sección previa (ej. 90 días)
+  notas           String?
+  plan            PlanTratamiento  @relation(fields: [planId], references: [id], onDelete: Cascade)
+  tratamientos    Tratamiento[]
 }
 
 model Presupuesto {

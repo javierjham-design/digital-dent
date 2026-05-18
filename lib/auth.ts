@@ -89,12 +89,32 @@ export type SessionUser = {
   clinicaId: string | null
   isPlatformAdmin: boolean
   requirePasswordChange: boolean
+  puedeModificarPrecio: boolean
+  puedeAplicarDescuento: boolean
 }
 
 export async function getSessionUser(): Promise<SessionUser | null> {
   const session = await getServerSession(authOptions)
   if (!session?.user) return null
   const u = session.user as any
+  if (!u.id) return null
+
+  // Permisos los leemos en cada request (el JWT es estable hasta nuevo login).
+  // role 'admin' implica los dos permisos para evitar configuración por separado.
+  let puedeModificarPrecio = false
+  let puedeAplicarDescuento = false
+  if (u.clinicaId) {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: u.id },
+      select: { puedeModificarPrecio: true, puedeAplicarDescuento: true, role: true },
+    })
+    if (dbUser) {
+      const isAdmin = dbUser.role === 'admin'
+      puedeModificarPrecio = isAdmin || dbUser.puedeModificarPrecio
+      puedeAplicarDescuento = isAdmin || dbUser.puedeAplicarDescuento
+    }
+  }
+
   return {
     id: u.id,
     email: u.email ?? '',
@@ -103,6 +123,8 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     clinicaId: u.clinicaId ?? null,
     isPlatformAdmin: u.isPlatformAdmin ?? false,
     requirePasswordChange: u.requirePasswordChange ?? false,
+    puedeModificarPrecio,
+    puedeAplicarDescuento,
   }
 }
 

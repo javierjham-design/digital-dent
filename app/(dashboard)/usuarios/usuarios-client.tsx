@@ -25,7 +25,7 @@ const DEFAULT_DIAS = [
 
 interface Horario { id?: string; doctorId: string; diaSemana: number; horaInicio: string; horaFin: string; activo: boolean }
 interface Contrato { id: string; doctorId: string; tipo: string; porcentaje: number | null; montoFijo: number | null; descripcion: string | null; fechaInicio: string; fechaFin: string | null; activo: boolean }
-interface Usuario { id: string; name: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; createdAt: string; contratos: Contrato[] }
+interface Usuario { id: string; name: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; createdAt: string; contratos: Contrato[] }
 
 const emptyUser     = { name: '', email: '', password: '', role: 'doctor', rut: '', especialidad: '', telefono: '' }
 const emptyContrato = { doctorId: '', tipo: 'PORCENTAJE', porcentaje: '', montoFijo: '', descripcion: '', fechaInicio: '', fechaFin: '' }
@@ -82,6 +82,18 @@ export function UsuariosClient({
     const res = await fetch(`/api/usuarios/${u.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ activo: !u.activo }) })
     const updated = await res.json()
     setUsuarios(p => p.map(x => x.id === updated.id ? { ...x, ...updated } : x))
+  }
+
+  async function togglePermiso(u: Usuario, campo: 'puedeRecibirPagos' | 'puedeModificarPrecio' | 'puedeAplicarDescuento') {
+    const res = await fetch(`/api/usuarios/${u.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ [campo]: !u[campo] }),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setUsuarios((prev) => prev.map((x) => x.id === u.id ? { ...x, ...updated } : x))
+    }
   }
 
   async function togglePagos(u: Usuario) {
@@ -181,7 +193,7 @@ export function UsuariosClient({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Usuario', 'RUT', 'Especialidad', 'Teléfono', 'Rol', 'Contrato', 'Horario', 'Pagos', 'Estado', ''].map(h => (
+                {['Usuario', 'RUT', 'Especialidad', 'Teléfono', 'Rol', 'Contrato', 'Horario', 'Pagos', 'Precio', 'Desc.', 'Estado', ''].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">{h}</th>
                 ))}
               </tr>
@@ -232,6 +244,24 @@ export function UsuariosClient({
                         className={cn('relative w-9 h-5 rounded-full transition-colors flex-shrink-0', u.puedeRecibirPagos ? 'bg-emerald-500' : 'bg-slate-300')}
                       >
                         <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all', u.puedeRecibirPagos ? 'left-4' : 'left-0.5')} />
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => togglePermiso(u, 'puedeModificarPrecio')}
+                        title={u.puedeModificarPrecio ? 'Quitar permiso de modificar precios' : 'Permitir modificar precios'}
+                        className={cn('relative w-9 h-5 rounded-full transition-colors flex-shrink-0', u.puedeModificarPrecio ? 'bg-cyan-500' : 'bg-slate-300')}
+                      >
+                        <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all', u.puedeModificarPrecio ? 'left-4' : 'left-0.5')} />
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => togglePermiso(u, 'puedeAplicarDescuento')}
+                        title={u.puedeAplicarDescuento ? 'Quitar permiso de descuentos' : 'Permitir aplicar descuentos'}
+                        className={cn('relative w-9 h-5 rounded-full transition-colors flex-shrink-0', u.puedeAplicarDescuento ? 'bg-amber-500' : 'bg-slate-300')}
+                      >
+                        <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all', u.puedeAplicarDescuento ? 'left-4' : 'left-0.5')} />
                       </button>
                     </td>
                     <td className="px-4 py-3">

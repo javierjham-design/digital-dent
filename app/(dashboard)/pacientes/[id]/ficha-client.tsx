@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { formatRUT, formatDate, formatDateTime, calcularEdad, formatCLP } from '@/lib/utils'
-import { PlanTratamiento } from '@/components/PlanTratamiento'
+import { PlanesTratamiento } from '@/components/PlanesTratamiento'
 
 const TABS_PRINCIPALES = ['Datos personales', 'Ficha clínica', 'Planes de tratamiento', 'Facturación y pagos', 'Recibir pago'] as const
 const SUBTABS_DATOS = ['Datos', 'Citas', 'Comentarios', 'Mensajes'] as const
@@ -30,7 +30,7 @@ const TIPO_MSG_BADGE: Record<string, string> = {
   SMS:      'bg-amber-100 text-amber-700',
 }
 
-export function FichaClinicaClient({ paciente: initial, doctors, prestaciones }: any) {
+export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, permisos }: any) {
   const [paciente, setPaciente] = useState(initial)
   const [tab, setTab] = useState<typeof TABS_PRINCIPALES[number]>('Datos personales')
   const [subtab, setSubtab] = useState<typeof SUBTABS_DATOS[number]>('Datos')
@@ -158,14 +158,11 @@ export function FichaClinicaClient({ paciente: initial, doctors, prestaciones }:
           )}
 
           {tab === 'Planes de tratamiento' && (
-            <PlanTratamiento
+            <PlanesTratamiento
               pacienteId={paciente.id}
-              pacienteNombre={`${paciente.nombre} ${paciente.apellido}`}
-              fichaId={paciente.fichaClinica?.id}
-              tratamientos={(paciente.fichaClinica?.tratamientos ?? []) as any}
-              dientesExistentes={(paciente.fichaClinica?.odontograma ?? []).map((d: any) => ({ numero: d.numero, estadoActual: d.estado }))}
               prestaciones={prestaciones}
-              onPresupuesto={() => window.location.reload()}
+              dientesExistentes={(paciente.fichaClinica?.odontograma ?? []).map((d: any) => ({ numero: d.numero, estadoActual: d.estado }))}
+              permisos={permisos ?? { puedeModificarPrecio: false, puedeAplicarDescuento: false }}
             />
           )}
 

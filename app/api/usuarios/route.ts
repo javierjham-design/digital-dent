@@ -9,7 +9,11 @@ export async function GET() {
   const usuarios = await prisma.user.findMany({
     where: { clinicaId: u.clinicaId },
     orderBy: { name: 'asc' },
-    select: { id: true, name: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true, puedeRecibirPagos: true, createdAt: true },
+    select: {
+      id: true, name: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true,
+      puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true,
+      createdAt: true,
+    },
   })
   return NextResponse.json(usuarios)
 }
