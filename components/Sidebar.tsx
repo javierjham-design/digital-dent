@@ -155,7 +155,10 @@ export function Sidebar({ clinica, ciudad, logoUrl }: { clinica: string; ciudad:
           </div>
         </div>
         <button
-          onClick={() => signOut({ callbackUrl: '/login' })}
+          onClick={() => {
+            const origin = typeof window !== 'undefined' ? window.location.origin : ''
+            signOut({ callbackUrl: `${origin}/login` })
+          }}
           className="w-full flex items-center gap-2 px-3 py-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg text-sm transition-all"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

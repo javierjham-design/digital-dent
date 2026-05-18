@@ -33,7 +33,10 @@ export function MiCuentaClient({ email, name }: { email: string; name: string })
       }
       setOk(true)
       // Forzar relogin para refrescar JWT
-      setTimeout(() => signOut({ callbackUrl: '/digital-dent-admin-login' }), 2000)
+      setTimeout(() => {
+        const origin = typeof window !== 'undefined' ? window.location.origin : ''
+        signOut({ callbackUrl: `${origin}/digital-dent-admin-login` })
+      }, 2000)
     } catch (e: any) {
       setError(e.message ?? 'Error desconocido')
     } finally {

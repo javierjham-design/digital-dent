@@ -30,9 +30,10 @@ export default function CambiarPasswordPage() {
       setOk(true)
       // Reloguear para refrescar JWT con passwordChangedAt actualizado.
       // Volvemos al login del contexto correcto si venimos de /c/<slug>/.
+      const origin = window.location.origin
       const m = window.location.pathname.match(/^\/c\/([a-z0-9-]+)\b/i)
-      const callbackUrl = m ? `/c/${m[1]}/login` : '/login'
-      setTimeout(() => signOut({ callbackUrl }), 2000)
+      const path = m ? `/c/${m[1]}/login` : '/login'
+      setTimeout(() => signOut({ callbackUrl: `${origin}${path}` }), 2000)
     } catch (e: any) {
       setError(e.message ?? 'Error desconocido')
     } finally {

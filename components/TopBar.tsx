@@ -168,9 +168,12 @@ export function TopBar({ clinica, logoUrl }: { clinica: string; logoUrl: string 
               </div>
               <button
                 onClick={() => {
+                  // Forzamos el origin actual para evitar que NEXTAUTH_URL redirija
+                  // a digital-dent-production.up.railway.app desde un subdomain.
+                  const origin = typeof window !== 'undefined' ? window.location.origin : ''
                   const m = pathname.match(/^\/c\/([a-z0-9-]+)\b/i)
-                  const callbackUrl = m ? `/c/${m[1]}/login` : '/login'
-                  signOut({ callbackUrl })
+                  const path = m ? `/c/${m[1]}/login` : '/login'
+                  signOut({ callbackUrl: `${origin}${path}` })
                 }}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-50 hover:text-red-600 transition-colors"
               >

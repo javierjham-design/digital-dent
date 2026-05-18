@@ -90,7 +90,10 @@ export function SuperAdminTopBar({ email, name }: { email: string; name: string 
                 Mi cuenta
               </Link>
               <button
-                onClick={() => signOut({ callbackUrl: '/digital-dent-admin-login' })}
+                onClick={() => {
+                  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+                  signOut({ callbackUrl: `${origin}/digital-dent-admin-login` })
+                }}
                 className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-red-300 transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
