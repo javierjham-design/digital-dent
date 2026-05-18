@@ -46,6 +46,32 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
+    // Validación de URLs de redirect: por default NextAuth rechaza redirects
+    // a hosts distintos de NEXTAUTH_URL. Como esto es multi-tenant con
+    // subdominios (super-admin.clariva.cl, <slug>.clariva.cl, etc.) tenemos
+    // que permitir explícitamente los subdominios de PLATFORM_DOMAIN.
+    async redirect({ url, baseUrl }) {
+      // URL relativa → prepend baseUrl
+      if (url.startsWith('/')) return `${baseUrl}${url}`
+
+      try {
+        const parsed = new URL(url)
+        const host = parsed.hostname.toLowerCase()
+        const platformDomain = (process.env.PLATFORM_DOMAIN ?? '').toLowerCase()
+        const baseHost = new URL(baseUrl).hostname.toLowerCase()
+
+        // Permitir si es el mismo host que NEXTAUTH_URL
+        if (host === baseHost) return url
+
+        // Permitir si es el PLATFORM_DOMAIN o cualquier subdominio
+        if (platformDomain) {
+          if (host === platformDomain || host.endsWith(`.${platformDomain}`)) return url
+        }
+      } catch {
+        // URL inválida
+      }
+      return baseUrl
+    },
     async jwt({ token, user }) {
       if (user) {
         token.role = (user as any).role
