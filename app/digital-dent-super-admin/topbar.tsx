@@ -21,8 +21,8 @@ export function SuperAdminTopBar({ email, name }: { email: string; name: string 
           </svg>
         </div>
         <div>
-          <p className="text-sm font-bold text-white leading-tight">Super-Admin</p>
-          <p className="text-xs text-slate-400 leading-tight">Control plane</p>
+          <p className="text-sm font-bold text-white leading-tight">Cláriva</p>
+          <p className="text-xs text-slate-400 leading-tight">Panel de administración</p>
         </div>
       </Link>
 

@@ -3,8 +3,8 @@ import './globals.css'
 import { Providers } from './providers'
 
 export const metadata: Metadata = {
-  title: 'Digital-Dent | Sistema de Gestión Dental',
-  description: 'Plataforma de gestión para clínica dental Digital-Dent Temuco',
+  title: 'Cláriva · Gestión dental multi-clínica',
+  description: 'Plataforma SaaS de gestión para clínicas dentales — agenda, fichas, presupuestos, cobros y liquidaciones.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

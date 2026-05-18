@@ -202,7 +202,7 @@ export function LoginClient({
           </div>
 
           <p className="text-center text-xs text-slate-400 mt-6">
-            Plataforma Dental © {new Date().getFullYear()}
+            Cláriva © {new Date().getFullYear()}
           </p>
         </div>
       </div>
@@ -227,7 +227,7 @@ export function NoSlugLanding() {
           Si no la conoces, contacta al administrador de tu clínica.
         </p>
         <p className="text-slate-400 text-xs mt-8">
-          Plataforma Dental © {new Date().getFullYear()}
+          Cláriva © {new Date().getFullYear()}
         </p>
       </div>
     </div>

@@ -48,12 +48,12 @@ export function AdminLoginClient() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
           </div>
-          <span className="text-lg font-bold tracking-tight">Super Admin</span>
+          <span className="text-lg font-bold tracking-tight">Cláriva · Admin</span>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-xl">
           <h1 className="text-2xl font-bold mb-1">Acceso administrativo</h1>
-          <p className="text-slate-400 text-sm mb-8">Panel de la plataforma multi-tenant</p>
+          <p className="text-slate-400 text-sm mb-8">Panel de administración de Cláriva</p>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div>
