@@ -188,8 +188,13 @@ async function handleClinicaRoute(
     return NextResponse.redirect(loginUrl)
   }
 
-  // Sesión OK: rewrite si vino por path, set header.
-  const res = opts.isPath ? rewrite(request, opts.rewriteTo) : NextResponse.next()
+  // Sesión OK. Si el path lógico es "/", llevarlo al home del dashboard (/agenda).
+  // Sin esto, "/" mostraría la landing pública en lugar del dashboard.
+  const homeRedirected = logicalPath === '/' || logicalPath === ''
+  const targetPath = homeRedirected ? '/agenda' : logicalPath
+
+  const needsRewrite = opts.isPath || homeRedirected
+  const res = needsRewrite ? rewrite(request, targetPath) : NextResponse.next()
   res.headers.set('x-clinica-slug', slug)
   return res
 }

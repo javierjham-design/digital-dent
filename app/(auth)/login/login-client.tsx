@@ -55,11 +55,11 @@ export function LoginClient({
         setLoading(false)
         return
       }
-      const dest = data.requirePasswordChange ? '/cambiar-password' : '/'
+      const dest = data.requirePasswordChange ? '/cambiar-password' : '/agenda'
       router.push(dest)
       router.refresh()
     } catch {
-      router.push('/')
+      router.push('/agenda')
       router.refresh()
     }
   }
