@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { AccesoClinicaCard } from '../acceso-clinica'
+import { ResetAdminPasswordCard } from '../reset-pass-card'
 
 type Clinica = {
   id: string; slug: string; nombre: string
@@ -138,12 +139,13 @@ export function ClinicaDetailClient({
       </div>
 
       {/* ACCESO DE LA CLÍNICA */}
-      <div className="mb-6">
+      <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
         <AccesoClinicaCard
           slug={c.slug}
           platformDomain={platformDomain}
           passwordPendiente={passwordPendiente}
         />
+        <ResetAdminPasswordCard clinicaId={c.id} />
       </div>
 
       {/* SUSCRIPCIÓN / PLAN */}
