@@ -52,9 +52,12 @@ type Permisos = {
   puedeAplicarDescuento: boolean
 }
 
+type Doctor = { id: string; name: string | null; email: string | null }
+
 type Props = {
   pacienteId: string
   prestaciones: Prestacion[]
+  doctors: Doctor[]
   dientesExistentes?: { numero: number; estadoActual?: string }[]
   permisos: Permisos
 }
@@ -63,7 +66,7 @@ function subtotal(t: Tratamiento): number {
   return t.precio * (1 - (t.descuento || 0) / 100)
 }
 
-export function PlanesTratamiento({ pacienteId, prestaciones, dientesExistentes = [], permisos }: Props) {
+export function PlanesTratamiento({ pacienteId, prestaciones, doctors, dientesExistentes = [], permisos }: Props) {
   const [planes, setPlanes] = useState<Plan[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activePlan, setActivePlan] = useState<Plan | null>(null)
@@ -118,6 +121,7 @@ export function PlanesTratamiento({ pacienteId, prestaciones, dientesExistentes 
       <PlanDetalle
         plan={activePlan}
         prestaciones={prestaciones}
+        doctors={doctors}
         dientesExistentes={dientesExistentes}
         permisos={permisos}
         pacienteId={pacienteId}
@@ -226,10 +230,11 @@ function ListaPlanes({ planes, onSelect, onCreate }: { planes: Plan[]; onSelect:
 }
 
 function PlanDetalle({
-  plan, prestaciones, dientesExistentes, permisos, pacienteId, onBack, onChanged, onDelete,
+  plan, prestaciones, doctors, dientesExistentes, permisos, pacienteId, onBack, onChanged, onDelete,
 }: {
   plan: Plan
   prestaciones: Prestacion[]
+  doctors: Doctor[]
   dientesExistentes: { numero: number; estadoActual?: string }[]
   permisos: Permisos
   pacienteId: string
@@ -237,7 +242,6 @@ function PlanDetalle({
   onChanged: () => void
   onDelete: () => void
 }) {
-  const [editandoTratamiento, setEditandoTratamiento] = useState<Tratamiento | null>(null)
   // Sección destino preferida para el próximo "agregar acción" (sticky entre adds).
   const [seccionDestino, setSeccionDestino] = useState<string>('')
 
@@ -332,7 +336,9 @@ function PlanDetalle({
           <SeccionCard
             titulo="Sin sección asignada"
             tratamientos={plan.tratamientos ?? []}
-            onEditar={setEditandoTratamiento}
+            doctors={doctors}
+            permisos={permisos}
+            onChanged={onChanged}
           />
         )}
 
@@ -340,8 +346,9 @@ function PlanDetalle({
           <SeccionItem
             key={s.id}
             seccion={s}
+            doctors={doctors}
+            permisos={permisos}
             onChanged={onChanged}
-            onEditar={setEditandoTratamiento}
           />
         ))}
 
@@ -351,26 +358,15 @@ function PlanDetalle({
           </p>
         )}
       </div>
-
-      {editandoTratamiento && (
-        <ModalEditarTratamiento
-          tratamiento={editandoTratamiento}
-          secciones={secciones}
-          dientesExistentes={dientesExistentes}
-          permisos={permisos}
-          onClose={() => setEditandoTratamiento(null)}
-          onSaved={() => { setEditandoTratamiento(null); onChanged() }}
-          onDeleted={() => { setEditandoTratamiento(null); onChanged() }}
-        />
-      )}
     </div>
   )
 }
 
-function SeccionItem({ seccion, onChanged, onEditar }: {
+function SeccionItem({ seccion, doctors, permisos, onChanged }: {
   seccion: Seccion
+  doctors: Doctor[]
+  permisos: Permisos
   onChanged: () => void
-  onEditar: (t: Tratamiento) => void
 }) {
   const [editando, setEditando] = useState(false)
   const [titulo, setTitulo] = useState(seccion.titulo)
@@ -408,7 +404,9 @@ function SeccionItem({ seccion, onChanged, onEditar }: {
           : undefined
       }
       tratamientos={seccion.tratamientos}
-      onEditar={onEditar}
+      doctors={doctors}
+      permisos={permisos}
+      onChanged={onChanged}
       onEditarSeccion={() => setEditando((e) => !e)}
       onEliminarSeccion={eliminar}
     >
@@ -439,12 +437,14 @@ function SeccionItem({ seccion, onChanged, onEditar }: {
 }
 
 function SeccionCard({
-  titulo, subtitle, tratamientos, onEditar, onEditarSeccion, onEliminarSeccion, children,
+  titulo, subtitle, tratamientos, doctors, permisos, onChanged, onEditarSeccion, onEliminarSeccion, children,
 }: {
   titulo: string
   subtitle?: string
   tratamientos: Tratamiento[]
-  onEditar: (t: Tratamiento) => void
+  doctors: Doctor[]
+  permisos: Permisos
+  onChanged: () => void
   onEditarSeccion?: () => void
   onEliminarSeccion?: () => void
   children?: React.ReactNode
@@ -478,41 +478,175 @@ function SeccionCard({
       </div>
 
       {tratamientos.length > 0 ? (
-        <div className="divide-y divide-slate-100">
-          {tratamientos.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => onEditar(t)}
-              className="w-full text-left px-5 py-3 hover:bg-slate-50 transition-colors flex items-center gap-3"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-900 truncate">{t.prestacion.nombre}</p>
-                <p className="text-xs text-slate-500">
-                  {t.diente ? `Pieza ${t.diente}` : t.cara ?? 'General'}
-                  {t.notas && ` · ${t.notas}`}
-                </p>
-              </div>
-              <div className="text-right">
-                {t.descuento > 0 ? (
-                  <>
-                    <p className="text-xs line-through text-slate-400">{formatCLP(t.precio)}</p>
-                    <p className="text-sm font-bold text-slate-900">{formatCLP(subtotal(t))} <span className="text-xs text-emerald-600">(-{t.descuento}%)</span></p>
-                  </>
-                ) : (
-                  <p className="text-sm font-bold text-slate-900">{formatCLP(t.precio)}</p>
-                )}
-              </div>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${ESTADO_STYLES[t.estado]?.cls ?? 'bg-slate-100 text-slate-600'}`}>
-                {ESTADO_STYLES[t.estado]?.label ?? t.estado}
-              </span>
-            </button>
-          ))}
-        </div>
+        <>
+          <div className="hidden md:grid px-5 py-2 grid-cols-12 gap-2 text-xs uppercase tracking-wider text-slate-500 font-medium border-b border-slate-100 bg-slate-50">
+            <div className="col-span-4">Prestación</div>
+            <div className="col-span-2">Doctor</div>
+            <div className="col-span-2">Estado</div>
+            <div className="col-span-1 text-right">Precio</div>
+            <div className="col-span-1 text-right">Desc%</div>
+            <div className="col-span-1 text-right">Total</div>
+            <div className="col-span-1"></div>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {tratamientos.map((t) => (
+              <FilaTratamiento
+                key={t.id}
+                tratamiento={t}
+                doctors={doctors}
+                permisos={permisos}
+                onChanged={onChanged}
+              />
+            ))}
+          </div>
+        </>
       ) : (
         <p className="text-sm text-slate-400 text-center py-6">Sin acciones aún.</p>
       )}
 
       {children}
+    </div>
+  )
+}
+
+function FilaTratamiento({
+  tratamiento: t, doctors, permisos, onChanged,
+}: {
+  tratamiento: Tratamiento
+  doctors: Doctor[]
+  permisos: Permisos
+  onChanged: () => void
+}) {
+  const [doctorId, setDoctorId] = useState(t.doctor?.id ?? '')
+  const [estado, setEstado] = useState(t.estado)
+  const [precio, setPrecio] = useState(t.precio.toString())
+  const [descuento, setDescuento] = useState(t.descuento.toString())
+  const [saving, setSaving] = useState(false)
+
+  async function patch(data: Record<string, unknown>) {
+    setSaving(true)
+    try {
+      const r = await fetch(`/api/tratamientos/${t.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      })
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}))
+        alert(err.error ?? 'Error guardando')
+      }
+      onChanged()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function cambiarEstado(nuevo: string) {
+    setEstado(nuevo)
+    const data: Record<string, unknown> = { estado: nuevo }
+    if (nuevo === 'COMPLETADO') data.fechaCompletado = new Date().toISOString()
+    else data.fechaCompletado = null
+    patch(data)
+  }
+
+  function cambiarDoctor(nuevo: string) {
+    setDoctorId(nuevo)
+    patch({ doctorId: nuevo || null })
+  }
+
+  function blurPrecio() {
+    const p = Number(precio)
+    if (Number.isFinite(p) && p !== t.precio) patch({ precio: p })
+    else setPrecio(t.precio.toString())
+  }
+
+  function blurDescuento() {
+    const d = Number(descuento) || 0
+    const clamped = Math.max(0, Math.min(100, d))
+    if (clamped !== t.descuento) patch({ descuento: clamped })
+    else setDescuento(t.descuento.toString())
+  }
+
+  async function eliminar() {
+    if (!confirm(`¿Eliminar "${t.prestacion.nombre}"?`)) return
+    setSaving(true)
+    await fetch(`/api/tratamientos/${t.id}`, { method: 'DELETE' })
+    onChanged()
+  }
+
+  const completado = estado === 'COMPLETADO'
+
+  return (
+    <div className={`px-5 py-2.5 grid grid-cols-1 md:grid-cols-12 gap-2 items-center ${completado ? 'bg-emerald-50/40' : 'hover:bg-slate-50/60'} ${saving ? 'opacity-60' : ''}`}>
+      <div className="md:col-span-4 min-w-0">
+        <p className="text-sm font-medium text-slate-900 truncate">{t.prestacion.nombre || <span className="italic text-slate-400">Sin nombre</span>}</p>
+        <p className="text-xs text-slate-500 truncate">
+          {t.diente ? `Pieza ${t.diente}` : t.cara ?? 'General'}
+          {t.notas && ` · ${t.notas}`}
+        </p>
+      </div>
+      <div className="md:col-span-2">
+        <select
+          value={doctorId}
+          onChange={(e) => cambiarDoctor(e.target.value)}
+          className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 bg-white"
+        >
+          <option value="">Sin doctor</option>
+          {doctors.map((d) => (
+            <option key={d.id} value={d.id}>{d.name || d.email || 'Sin nombre'}</option>
+          ))}
+        </select>
+      </div>
+      <div className="md:col-span-2">
+        <select
+          value={estado}
+          onChange={(e) => cambiarEstado(e.target.value)}
+          className={`w-full px-2 py-1 border rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 font-medium ${ESTADO_STYLES[estado]?.cls ?? 'bg-slate-100 text-slate-600'}`}
+        >
+          <option value="PLANIFICADO">Planificado</option>
+          <option value="EN_PROGRESO">En progreso</option>
+          <option value="COMPLETADO">Completado ✓</option>
+        </select>
+      </div>
+      <div className="md:col-span-1">
+        <input
+          type="number"
+          value={precio}
+          onChange={(e) => setPrecio(e.target.value)}
+          onBlur={blurPrecio}
+          disabled={!permisos.puedeModificarPrecio}
+          title={permisos.puedeModificarPrecio ? 'Editar precio' : 'Sin permiso para modificar precio'}
+          className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs text-right focus:outline-none focus:ring-1 focus:ring-cyan-500 disabled:bg-slate-50 disabled:text-slate-500"
+        />
+      </div>
+      <div className="md:col-span-1">
+        <input
+          type="number"
+          min={0}
+          max={100}
+          value={descuento}
+          onChange={(e) => setDescuento(e.target.value)}
+          onBlur={blurDescuento}
+          disabled={!permisos.puedeAplicarDescuento}
+          title={permisos.puedeAplicarDescuento ? 'Aplicar descuento (%)' : 'Sin permiso para aplicar descuento'}
+          className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs text-right focus:outline-none focus:ring-1 focus:ring-cyan-500 disabled:bg-slate-50 disabled:text-slate-500"
+        />
+      </div>
+      <div className="md:col-span-1 text-right">
+        <p className="text-sm font-bold text-slate-900">{formatCLP(subtotal(t))}</p>
+        {t.descuento > 0 && <p className="text-xs text-emerald-600 leading-tight">-{t.descuento}%</p>}
+      </div>
+      <div className="md:col-span-1 flex justify-end">
+        <button
+          onClick={eliminar}
+          title="Eliminar acción"
+          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+          </svg>
+        </button>
+      </div>
     </div>
   )
 }
@@ -724,171 +858,3 @@ function FormAgregarAccion({
   )
 }
 
-function ModalEditarTratamiento({
-  tratamiento, secciones, dientesExistentes, permisos, onClose, onSaved, onDeleted,
-}: {
-  tratamiento: Tratamiento
-  secciones: Seccion[]
-  dientesExistentes: { numero: number; estadoActual?: string }[]
-  permisos: Permisos
-  onClose: () => void
-  onSaved: () => void
-  onDeleted: () => void
-}) {
-  const [seleccion, setSeleccion] = useState<SeleccionDental>(
-    tratamiento.diente
-      ? { tipo: 'PIEZA', piezas: [tratamiento.diente] }
-      : { tipo: 'GENERAL', piezas: [], zona: tratamiento.cara ?? undefined }
-  )
-  const [precio, setPrecio] = useState(tratamiento.precio.toString())
-  const [descuento, setDescuento] = useState(tratamiento.descuento.toString())
-  const [notas, setNotas] = useState(tratamiento.notas ?? '')
-  const [estado, setEstado] = useState(tratamiento.estado)
-  const [seccionId, setSeccionId] = useState<string>(tratamiento.seccionId ?? '')
-  const [saving, setSaving] = useState(false)
-
-  async function guardar() {
-    setSaving(true)
-    const body: Record<string, unknown> = {
-      estado,
-      notas: notas || null,
-      diente: seleccion.piezas[0] ?? null,
-      cara: seleccion.zona ?? null,
-      seccionId: seccionId || null,
-    }
-    if (permisos.puedeModificarPrecio) body.precio = Number(precio)
-    if (permisos.puedeAplicarDescuento) body.descuento = Number(descuento) || 0
-
-    const res = await fetch(`/api/tratamientos/${tratamiento.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    setSaving(false)
-    if (res.ok) onSaved()
-    else alert((await res.json()).error ?? 'Error')
-  }
-
-  async function eliminar() {
-    if (!confirm('¿Eliminar esta acción?')) return
-    await fetch(`/api/tratamientos/${tratamiento.id}`, { method: 'DELETE' })
-    onDeleted()
-  }
-
-  return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none overflow-auto">
-        <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl pointer-events-auto max-h-[95vh] overflow-auto">
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
-            <div>
-              <h3 className="font-semibold text-slate-900">{tratamiento.prestacion.nombre}</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Editar acción del plan</p>
-            </div>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div>
-              <p className="text-sm font-medium text-slate-700 mb-3">Pieza o zona</p>
-              <OdontogramaSelector
-                dientes={dientesExistentes}
-                seleccion={seleccion}
-                onChange={setSeleccion}
-              />
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Estado</label>
-                <select
-                  value={estado}
-                  onChange={(e) => setEstado(e.target.value)}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
-                >
-                  <option value="PLANIFICADO">Planificado</option>
-                  <option value="EN_PROGRESO">En progreso</option>
-                  <option value="COMPLETADO">Completado</option>
-                </select>
-              </div>
-
-              {secciones.length > 0 && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Sección</label>
-                  <select
-                    value={seccionId}
-                    onChange={(e) => setSeccionId(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
-                  >
-                    <option value="">Sin sección</option>
-                    {secciones.map((s) => (
-                      <option key={s.id} value={s.id}>{s.titulo}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Precio {!permisos.puedeModificarPrecio && <span className="text-xs text-slate-400">(sin permiso para modificar)</span>}
-                </label>
-                <input
-                  type="number"
-                  value={precio}
-                  onChange={(e) => setPrecio(e.target.value)}
-                  disabled={!permisos.puedeModificarPrecio}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm disabled:bg-slate-50 disabled:text-slate-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Descuento (%) {!permisos.puedeAplicarDescuento && <span className="text-xs text-slate-400">(sin permiso)</span>}
-                </label>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={descuento}
-                  onChange={(e) => setDescuento(e.target.value)}
-                  disabled={!permisos.puedeAplicarDescuento}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm disabled:bg-slate-50 disabled:text-slate-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Notas</label>
-                <textarea
-                  value={notas}
-                  onChange={(e) => setNotas(e.target.value)}
-                  rows={2}
-                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="p-5 border-t border-slate-100 flex items-center justify-between gap-2 sticky bottom-0 bg-white">
-            <button onClick={eliminar} className="px-4 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg">
-              Eliminar
-            </button>
-            <div className="flex gap-2">
-              <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-              <button
-                onClick={guardar}
-                disabled={saving}
-                className="px-4 py-2 text-sm bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-400 text-white rounded-lg font-semibold"
-              >
-                {saving ? 'Guardando...' : 'Guardar cambios'}
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </>
-  )
-}

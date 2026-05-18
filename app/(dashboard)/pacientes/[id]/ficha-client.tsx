@@ -161,6 +161,7 @@ export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, p
             <PlanesTratamiento
               pacienteId={paciente.id}
               prestaciones={prestaciones}
+              doctors={doctors ?? []}
               dientesExistentes={(paciente.fichaClinica?.odontograma ?? []).map((d: any) => ({ numero: d.numero, estadoActual: d.estado }))}
               permisos={permisos ?? { puedeModificarPrecio: false, puedeAplicarDescuento: false }}
             />
