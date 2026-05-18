@@ -237,19 +237,40 @@ function PlanDetalle({
   onChanged: () => void
   onDelete: () => void
 }) {
-  const [agregandoEn, setAgregandoEn] = useState<string | null>(null) // seccionId | 'sin-seccion' | null
   const [editandoTratamiento, setEditandoTratamiento] = useState<Tratamiento | null>(null)
+  // Sección destino preferida para el próximo "agregar acción" (sticky entre adds).
+  const [seccionDestino, setSeccionDestino] = useState<string>('')
+
+  const secciones = plan.secciones ?? []
 
   const totalGeneral = useMemo(() => {
-    const ts = [...(plan.tratamientos ?? []), ...(plan.secciones ?? []).flatMap((s) => s.tratamientos)]
+    const ts = [...(plan.tratamientos ?? []), ...secciones.flatMap((s) => s.tratamientos)]
     return ts.reduce((s, t) => s + subtotal(t), 0)
-  }, [plan])
+  }, [plan, secciones])
 
   async function crearSeccion() {
-    await fetch(`/api/planes-tratamiento/${plan.id}/secciones`, {
+    const r = await fetch(`/api/planes-tratamiento/${plan.id}/secciones`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
+    })
+    if (r.ok) {
+      const nueva = await r.json()
+      setSeccionDestino(nueva.id) // auto-selecciona la sección recién creada
+    }
+    onChanged()
+  }
+
+  async function agregarAccion(payload: { prestacionId: string; piezas: number[]; zona?: string; precio: number; descuento?: number; notas?: string }) {
+    await fetch('/api/tratamientos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        pacienteId,
+        planId: plan.id,
+        seccionId: seccionDestino || null,
+      }),
     })
     onChanged()
   }
@@ -280,64 +301,61 @@ function PlanDetalle({
         </div>
       </div>
 
-      <button
-        onClick={crearSeccion}
-        className="w-full px-4 py-3 border-2 border-dashed border-slate-200 hover:border-cyan-500 text-slate-500 hover:text-cyan-700 rounded-2xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
-      >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-        </svg>
-        Agregar sección (ej: instalación, rehabilitación...)
-      </button>
+      {/* FORM AGREGAR ACCIÓN — siempre visible arriba */}
+      <FormAgregarAccion
+        prestaciones={prestaciones}
+        dientesExistentes={dientesExistentes}
+        permisos={permisos}
+        secciones={secciones}
+        seccionDestino={seccionDestino}
+        onSeccionDestinoChange={setSeccionDestino}
+        onCrearSeccion={crearSeccion}
+        onSubmit={agregarAccion}
+      />
 
-      {/* Sin sección */}
-      {(plan.tratamientos ?? []).length > 0 && (
-        <SeccionCard
-          titulo="Sin sección asignada"
-          tratamientos={plan.tratamientos ?? []}
-          onAgregar={() => setAgregandoEn('sin-seccion')}
-          onEditar={setEditandoTratamiento}
-        />
-      )}
+      {/* SECCIONES + SIN-SECCIÓN abajo */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h4 className="font-semibold text-slate-700 text-sm uppercase tracking-wider">Acciones del plan</h4>
+          <button
+            onClick={crearSeccion}
+            className="text-xs text-cyan-700 hover:underline font-medium flex items-center gap-1"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Nueva sección
+          </button>
+        </div>
 
-      {/* Secciones del plan */}
-      {(plan.secciones ?? []).map((s) => (
-        <SeccionItem
-          key={s.id}
-          seccion={s}
-          onChanged={onChanged}
-          onAgregar={() => setAgregandoEn(s.id)}
-          onEditar={setEditandoTratamiento}
-        />
-      ))}
+        {(plan.tratamientos ?? []).length > 0 && (
+          <SeccionCard
+            titulo="Sin sección asignada"
+            tratamientos={plan.tratamientos ?? []}
+            onEditar={setEditandoTratamiento}
+          />
+        )}
 
-      {agregandoEn && (
-        <ModalAgregarAccion
-          prestaciones={prestaciones}
-          dientesExistentes={dientesExistentes}
-          permisos={permisos}
-          onClose={() => setAgregandoEn(null)}
-          onSubmit={async (payload) => {
-            await fetch('/api/tratamientos', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                ...payload,
-                pacienteId,
-                planId: plan.id,
-                seccionId: agregandoEn === 'sin-seccion' ? null : agregandoEn,
-              }),
-            })
-            setAgregandoEn(null)
-            onChanged()
-          }}
-        />
-      )}
+        {secciones.map((s) => (
+          <SeccionItem
+            key={s.id}
+            seccion={s}
+            onChanged={onChanged}
+            onEditar={setEditandoTratamiento}
+          />
+        ))}
+
+        {secciones.length === 0 && (plan.tratamientos ?? []).length === 0 && (
+          <p className="text-sm text-slate-400 text-center py-12 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+            Aún no hay acciones. Agrega la primera con el formulario de arriba.
+          </p>
+        )}
+      </div>
 
       {editandoTratamiento && (
         <ModalEditarTratamiento
           tratamiento={editandoTratamiento}
-          secciones={plan.secciones ?? []}
+          secciones={secciones}
           dientesExistentes={dientesExistentes}
           permisos={permisos}
           onClose={() => setEditandoTratamiento(null)}
@@ -349,10 +367,9 @@ function PlanDetalle({
   )
 }
 
-function SeccionItem({ seccion, onChanged, onAgregar, onEditar }: {
+function SeccionItem({ seccion, onChanged, onEditar }: {
   seccion: Seccion
   onChanged: () => void
-  onAgregar: () => void
   onEditar: (t: Tratamiento) => void
 }) {
   const [editando, setEditando] = useState(false)
@@ -391,7 +408,6 @@ function SeccionItem({ seccion, onChanged, onAgregar, onEditar }: {
           : undefined
       }
       tratamientos={seccion.tratamientos}
-      onAgregar={onAgregar}
       onEditar={onEditar}
       onEditarSeccion={() => setEditando((e) => !e)}
       onEliminarSeccion={eliminar}
@@ -423,12 +439,11 @@ function SeccionItem({ seccion, onChanged, onAgregar, onEditar }: {
 }
 
 function SeccionCard({
-  titulo, subtitle, tratamientos, onAgregar, onEditar, onEditarSeccion, onEliminarSeccion, children,
+  titulo, subtitle, tratamientos, onEditar, onEditarSeccion, onEliminarSeccion, children,
 }: {
   titulo: string
   subtitle?: string
   tratamientos: Tratamiento[]
-  onAgregar: () => void
   onEditar: (t: Tratamiento) => void
   onEditarSeccion?: () => void
   onEliminarSeccion?: () => void
@@ -497,27 +512,21 @@ function SeccionCard({
         <p className="text-sm text-slate-400 text-center py-6">Sin acciones aún.</p>
       )}
 
-      <div className="px-5 py-3 border-t border-slate-100 bg-slate-50">
-        <button onClick={onAgregar} className="text-sm text-cyan-700 hover:text-cyan-800 font-medium flex items-center gap-1">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Agregar acción a esta sección
-        </button>
-      </div>
-
       {children}
     </div>
   )
 }
 
-function ModalAgregarAccion({
-  prestaciones, dientesExistentes, permisos, onClose, onSubmit,
+function FormAgregarAccion({
+  prestaciones, dientesExistentes, permisos, secciones, seccionDestino, onSeccionDestinoChange, onCrearSeccion, onSubmit,
 }: {
   prestaciones: Prestacion[]
   dientesExistentes: { numero: number; estadoActual?: string }[]
   permisos: Permisos
-  onClose: () => void
+  secciones: Seccion[]
+  seccionDestino: string
+  onSeccionDestinoChange: (id: string) => void
+  onCrearSeccion: () => void
   onSubmit: (payload: { prestacionId: string; piezas: number[]; zona?: string; precio: number; descuento?: number; notas?: string }) => Promise<void>
 }) {
   const [busqueda, setBusqueda] = useState('')
@@ -531,11 +540,11 @@ function ModalAgregarAccion({
   const prestacionSel = prestaciones.find((p) => p.id === prestacionId)
 
   const resultados = useMemo(() => {
-    if (!busqueda.trim()) return prestaciones.slice(0, 30)
+    if (!busqueda.trim()) return prestaciones.slice(0, 20)
     const q = busqueda.toLowerCase()
     return prestaciones
       .filter((p) => p.nombre.toLowerCase().includes(q) || (p.categoria ?? '').toLowerCase().includes(q))
-      .slice(0, 30)
+      .slice(0, 20)
   }, [busqueda, prestaciones])
 
   function elegir(p: Prestacion) {
@@ -545,9 +554,10 @@ function ModalAgregarAccion({
   }
 
   const seleccionValida = seleccion.piezas.length > 0 || !!seleccion.zona
+  const puedeEnviar = prestacionId && seleccionValida && !saving
 
   async function submit() {
-    if (!prestacionId || !seleccionValida) return
+    if (!puedeEnviar) return
     setSaving(true)
     try {
       await onSubmit({
@@ -558,129 +568,159 @@ function ModalAgregarAccion({
         descuento: Number(descuento) || 0,
         notas: notas || undefined,
       })
+      // Reset campos puntuales pero mantener sección destino y odontograma vacío
+      setPrestacionId('')
+      setBusqueda('')
+      setPrecio('')
+      setDescuento('0')
+      setNotas('')
+      setSeleccion({ tipo: 'PIEZA', piezas: [] })
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none overflow-auto">
-        <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl pointer-events-auto max-h-[95vh] overflow-auto">
-          <div className="p-5 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
-            <h3 className="font-semibold text-slate-900">Agregar acción clínica</h3>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+    <div className="bg-white rounded-2xl border border-cyan-200 shadow-sm overflow-hidden">
+      <div className="px-5 py-3 bg-gradient-to-r from-cyan-50 to-teal-50 border-b border-cyan-100 flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h4 className="font-semibold text-slate-900">Agregar acción clínica</h4>
+          <p className="text-xs text-slate-500 mt-0.5">Selecciona pieza/zona, busca la prestación y agrégala al plan</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-slate-500 font-medium">Sección destino:</label>
+          <select
+            value={seccionDestino}
+            onChange={(e) => onSeccionDestinoChange(e.target.value)}
+            className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+          >
+            <option value="">Sin sección</option>
+            {secciones.map((s) => (
+              <option key={s.id} value={s.id}>{s.titulo}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={onCrearSeccion}
+            className="px-3 py-1.5 text-xs font-medium text-cyan-700 hover:bg-cyan-100 rounded-lg flex items-center gap-1"
+            title="Crear nueva sección"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Nueva
+          </button>
+        </div>
+      </div>
 
-          <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div>
-              <p className="text-sm font-medium text-slate-700 mb-3">1. Pieza o zona a tratar</p>
-              <OdontogramaSelector
-                dientes={dientesExistentes}
-                seleccion={seleccion}
-                onChange={setSeleccion}
+      <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div>
+          <p className="text-sm font-medium text-slate-700 mb-3">1. Pieza o zona a tratar</p>
+          <OdontogramaSelector
+            dientes={dientesExistentes}
+            seleccion={seleccion}
+            onChange={setSeleccion}
+          />
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">2. Prestación</label>
+            <div className="relative">
+              <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                value={busqueda}
+                onChange={(e) => { setBusqueda(e.target.value); setPrestacionId('') }}
+                placeholder="Busca por nombre o categoría..."
+                className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
               />
             </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">2. Prestación</label>
-                <div className="relative">
-                  <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <input
-                    value={busqueda}
-                    onChange={(e) => { setBusqueda(e.target.value); setPrestacionId('') }}
-                    placeholder="Busca por nombre o categoría..."
-                    className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  />
-                </div>
-                {!prestacionId && (
-                  <div className="mt-2 max-h-56 overflow-y-auto border border-slate-100 rounded-xl">
-                    {resultados.length === 0 ? (
-                      <p className="text-xs text-slate-400 text-center py-4">Sin coincidencias.</p>
-                    ) : (
-                      resultados.map((p) => (
-                        <button
-                          key={p.id}
-                          onClick={() => elegir(p)}
-                          className="w-full text-left px-3 py-2 hover:bg-cyan-50 transition-colors flex items-center justify-between border-b border-slate-100 last:border-0"
-                        >
-                          <div>
-                            <p className="text-sm text-slate-900">{p.nombre}</p>
-                            {p.categoria && <p className="text-xs text-slate-400">{p.categoria}</p>}
-                          </div>
-                          <span className="text-xs text-slate-500">{formatCLP(p.precio)}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-                {prestacionSel && (
-                  <div className="mt-2 px-3 py-2 bg-cyan-50 border border-cyan-200 rounded-lg flex items-center justify-between">
-                    <span className="text-sm text-cyan-900 font-medium">{prestacionSel.nombre}</span>
-                    <button onClick={() => { setPrestacionId(''); setBusqueda('') }} className="text-xs text-cyan-700 hover:underline">Cambiar</button>
-                  </div>
+            {!prestacionId && busqueda.trim() && (
+              <div className="mt-2 max-h-48 overflow-y-auto border border-slate-100 rounded-xl">
+                {resultados.length === 0 ? (
+                  <p className="text-xs text-slate-400 text-center py-4">Sin coincidencias.</p>
+                ) : (
+                  resultados.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => elegir(p)}
+                      className="w-full text-left px-3 py-2 hover:bg-cyan-50 transition-colors flex items-center justify-between border-b border-slate-100 last:border-0"
+                    >
+                      <div>
+                        <p className="text-sm text-slate-900">{p.nombre || <span className="text-slate-400 italic">Sin nombre</span>}</p>
+                        {p.categoria && <p className="text-xs text-slate-400">{p.categoria}</p>}
+                      </div>
+                      <span className="text-xs text-slate-500">{formatCLP(p.precio)}</span>
+                    </button>
+                  ))
                 )}
               </div>
+            )}
+            {prestacionSel && (
+              <div className="mt-2 px-3 py-2 bg-cyan-50 border border-cyan-200 rounded-lg flex items-center justify-between">
+                <span className="text-sm text-cyan-900 font-medium">{prestacionSel.nombre || 'Prestación seleccionada'}</span>
+                <button onClick={() => { setPrestacionId(''); setBusqueda('') }} className="text-xs text-cyan-700 hover:underline">Cambiar</button>
+              </div>
+            )}
+          </div>
 
-              {permisos.puedeModificarPrecio && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Precio (puedes modificarlo)</label>
-                  <input
-                    type="number"
-                    value={precio}
-                    onChange={(e) => setPrecio(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  />
-                </div>
-              )}
-
-              {permisos.puedeAplicarDescuento && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Descuento (%)</label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={descuento}
-                    onChange={(e) => setDescuento(e.target.value)}
-                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-                  />
-                </div>
-              )}
-
+          <div className="grid grid-cols-2 gap-3">
+            {permisos.puedeModificarPrecio && (
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">Notas</label>
-                <textarea
-                  value={notas}
-                  onChange={(e) => setNotas(e.target.value)}
-                  rows={2}
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Precio</label>
+                <input
+                  type="number"
+                  value={precio}
+                  onChange={(e) => setPrecio(e.target.value)}
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
                 />
               </div>
-            </div>
+            )}
+
+            {permisos.puedeAplicarDescuento && (
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Descuento (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={descuento}
+                  onChange={(e) => setDescuento(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                />
+              </div>
+            )}
           </div>
 
-          <div className="p-5 border-t border-slate-100 flex items-center justify-end gap-2 sticky bottom-0 bg-white">
-            <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancelar</button>
-            <button
-              onClick={submit}
-              disabled={!prestacionId || !seleccionValida || saving}
-              className="px-4 py-2 text-sm bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-400 text-white rounded-lg font-semibold"
-            >
-              {saving ? 'Agregando...' : 'Agregar acción'}
-            </button>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Notas (opcional)</label>
+            <textarea
+              value={notas}
+              onChange={(e) => setNotas(e.target.value)}
+              rows={2}
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+            />
           </div>
+
+          <button
+            onClick={submit}
+            disabled={!puedeEnviar}
+            className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-400 text-white rounded-xl text-sm font-semibold flex items-center justify-center gap-2"
+          >
+            {saving ? 'Agregando...' : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Agregar acción al plan
+              </>
+            )}
+          </button>
         </div>
       </div>
-    </>
+    </div>
   )
 }
 
