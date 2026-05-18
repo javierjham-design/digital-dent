@@ -10,6 +10,18 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await params
 
+  const tratamientoInclude = {
+    prestacion: { select: { id: true, nombre: true, categoria: true, precio: true } },
+    doctor: { select: { id: true, name: true } },
+    cobroItems: {
+      select: {
+        id: true,
+        monto: true,
+        cobro: { select: { id: true, numero: true, estado: true, fechaPago: true } },
+      },
+    },
+  } as const
+
   const plan = await prisma.planTratamiento.findFirst({
     where: { id, clinicaId: u.clinicaId },
     include: {
@@ -18,20 +30,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
         include: {
           tratamientos: {
             orderBy: { fecha: 'asc' },
-            include: {
-              prestacion: { select: { id: true, nombre: true, categoria: true, precio: true } },
-              doctor: { select: { id: true, name: true } },
-            },
+            include: tratamientoInclude,
           },
         },
       },
       tratamientos: {
         where: { seccionId: null },
         orderBy: { fecha: 'asc' },
-        include: {
-          prestacion: { select: { id: true, nombre: true, categoria: true, precio: true } },
-          doctor: { select: { id: true, name: true } },
-        },
+        include: tratamientoInclude,
       },
     },
   })

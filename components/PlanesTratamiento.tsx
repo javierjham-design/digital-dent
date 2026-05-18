@@ -12,6 +12,12 @@ const ESTADO_STYLES: Record<string, { label: string; cls: string }> = {
 
 type Prestacion = { id: string; nombre: string; precio: number; categoria: string | null }
 
+type CobroItemMin = {
+  id: string
+  monto: number
+  cobro: { id: string; numero: number; estado: string; fechaPago: string | null }
+}
+
 type Tratamiento = {
   id: string
   diente: number | null
@@ -23,6 +29,20 @@ type Tratamiento = {
   prestacion: { id: string; nombre: string; categoria?: string | null; precio?: number }
   doctor?: { id: string; name: string | null } | null
   seccionId?: string | null
+  cobroItems?: CobroItemMin[]
+}
+
+type EstadoCobro = 'PAGADO' | 'FACTURADO' | 'SIN_FACTURAR'
+function estadoCobro(t: Tratamiento): EstadoCobro {
+  const items = t.cobroItems ?? []
+  if (items.length === 0) return 'SIN_FACTURAR'
+  if (items.some((i) => i.cobro.estado === 'PAGADO')) return 'PAGADO'
+  if (items.some((i) => i.cobro.estado === 'PENDIENTE')) return 'FACTURADO'
+  return 'SIN_FACTURAR'
+}
+
+function esDeuda(t: Tratamiento): boolean {
+  return t.estado === 'COMPLETADO' && estadoCobro(t) !== 'PAGADO'
 }
 
 type Seccion = {
@@ -142,6 +162,45 @@ export function PlanesTratamiento({ pacienteId, prestaciones, doctors, dientesEx
   )
 }
 
+function ResumenEconomico({ resumen }: { resumen: { total: number; realizado: number; pagado: number; facturado: number; deuda: number; porCobrar: number } }) {
+  const { total, realizado, pagado, facturado, deuda, porCobrar } = resumen
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm">
+      <div className="px-5 py-3 bg-gradient-to-r from-slate-50 to-white border-b border-slate-100">
+        <h4 className="font-semibold text-slate-900 text-sm">Resumen económico del plan</h4>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-5 divide-x divide-slate-100">
+        <Metric label="Total plan" value={total} cls="text-slate-900" />
+        <Metric label="Realizado" value={realizado} cls="text-slate-700" hint={`${total > 0 ? Math.round((realizado / total) * 100) : 0}%`} />
+        <Metric label="Pagado" value={pagado} cls="text-emerald-700" />
+        <Metric label="Facturado" value={facturado} cls="text-amber-700" hint="Cobro emitido, sin pago" />
+        <Metric
+          label="Deuda"
+          value={deuda}
+          cls={deuda > 0 ? 'text-red-600' : 'text-slate-400'}
+          hint={deuda > 0 ? 'Completado sin cobrar' : 'Sin deuda'}
+        />
+      </div>
+      {(porCobrar > 0 || deuda > 0) && (
+        <div className="px-5 py-2 bg-slate-50 border-t border-slate-100 text-xs text-slate-600 flex items-center justify-between">
+          <span>Total por cobrar (facturado + deuda):</span>
+          <span className="font-bold text-amber-700">{formatCLP(porCobrar)}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Metric({ label, value, cls, hint }: { label: string; value: number; cls: string; hint?: string }) {
+  return (
+    <div className="px-4 py-3 text-center">
+      <p className="text-xs uppercase tracking-wider text-slate-500 mb-0.5 font-medium">{label}</p>
+      <p className={`text-base md:text-lg font-bold leading-tight ${cls}`}>{formatCLP(value)}</p>
+      {hint && <p className="text-[10px] text-slate-400 mt-0.5 leading-tight">{hint}</p>}
+    </div>
+  )
+}
+
 function ListaPlanes({ planes, onSelect, onCreate }: { planes: Plan[]; onSelect: (id: string) => void; onCreate: (nombre: string) => void }) {
   const [creando, setCreando] = useState(false)
   const [nombre, setNombre] = useState('Plan de tratamiento')
@@ -248,10 +307,32 @@ function PlanDetalle({
 
   const secciones = plan.secciones ?? []
 
-  const totalGeneral = useMemo(() => {
-    const ts = [...(plan.tratamientos ?? []), ...secciones.flatMap((s) => s.tratamientos)]
-    return ts.reduce((s, t) => s + subtotal(t), 0)
-  }, [plan, secciones])
+  const todosTratamientos = useMemo(
+    () => [...(plan.tratamientos ?? []), ...secciones.flatMap((s) => s.tratamientos)],
+    [plan, secciones],
+  )
+
+  const resumen = useMemo(() => {
+    let total = 0
+    let realizado = 0
+    let pagado = 0
+    let facturado = 0
+    let deuda = 0
+    for (const t of todosTratamientos) {
+      const monto = subtotal(t)
+      total += monto
+      if (t.estado === 'COMPLETADO') {
+        realizado += monto
+        const ec = estadoCobro(t)
+        if (ec === 'PAGADO') pagado += monto
+        else if (ec === 'FACTURADO') facturado += monto
+        else deuda += monto
+      }
+    }
+    return { total, realizado, pagado, facturado, deuda, porCobrar: facturado + deuda }
+  }, [todosTratamientos])
+
+  const totalGeneral = resumen.total
 
   async function crearSeccion() {
     const r = await fetch(`/api/planes-tratamiento/${plan.id}/secciones`, {
@@ -305,6 +386,9 @@ function PlanDetalle({
           </button>
         </div>
       </div>
+
+      {/* RESUMEN ECONÓMICO */}
+      <ResumenEconomico resumen={resumen} />
 
       {/* FORM AGREGAR ACCIÓN — siempre visible arriba */}
       <FormAgregarAccion
@@ -600,6 +684,13 @@ function FilaTratamiento({
   }
 
   const completado = estado === 'COMPLETADO'
+  const ec = estadoCobro(t)
+  const deuda = completado && ec !== 'PAGADO'
+  const filaCls = deuda
+    ? 'bg-red-50 hover:bg-red-100/60 border-l-4 border-red-500'
+    : completado
+      ? 'bg-emerald-50/40 hover:bg-emerald-50/70'
+      : 'hover:bg-slate-50/60'
 
   return (
     <>
@@ -612,9 +703,26 @@ function FilaTratamiento({
         onSaved={() => { setPromptEvolucion(false); onChanged() }}
       />
     )}
-    <div className={`px-5 py-2.5 grid grid-cols-1 md:grid-cols-12 gap-2 items-center ${completado ? 'bg-emerald-50/40' : 'hover:bg-slate-50/60'} ${saving ? 'opacity-60' : ''}`}>
+    <div className={`px-5 py-2.5 grid grid-cols-1 md:grid-cols-12 gap-2 items-center ${filaCls} ${saving ? 'opacity-60' : ''}`}>
       <div className="md:col-span-4 min-w-0">
-        <p className="text-sm font-medium text-slate-900 truncate">{t.prestacion.nombre || <span className="italic text-slate-400">Sin nombre</span>}</p>
+        <div className="flex items-center gap-2 mb-0.5">
+          <p className="text-sm font-medium text-slate-900 truncate flex-1">{t.prestacion.nombre || <span className="italic text-slate-400">Sin nombre</span>}</p>
+          {deuda && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-600 text-white tracking-wider flex-shrink-0">
+              DEUDA
+            </span>
+          )}
+          {completado && ec === 'PAGADO' && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-600 text-white tracking-wider flex-shrink-0">
+              PAGADO
+            </span>
+          )}
+          {completado && ec === 'FACTURADO' && (
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white tracking-wider flex-shrink-0" title="Cobro emitido, esperando pago">
+              FACTURADO
+            </span>
+          )}
+        </div>
         <p className="text-xs text-slate-500 truncate">
           {t.diente ? `Pieza ${t.diente}` : t.cara ?? 'General'}
           {t.notas && ` · ${t.notas}`}
