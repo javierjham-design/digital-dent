@@ -79,6 +79,8 @@ type Doctor = { id: string; name: string | null; email: string | null }
 
 type Props = {
   pacienteId: string
+  pacienteEmail?: string | null
+  pacienteNombre?: string
   prestaciones: Prestacion[]
   doctors: Doctor[]
   dientesExistentes?: { numero: number; estadoActual?: string }[]
@@ -89,7 +91,7 @@ function subtotal(t: Tratamiento): number {
   return t.precio * (1 - (t.descuento || 0) / 100)
 }
 
-export function PlanesTratamiento({ pacienteId, prestaciones, doctors, dientesExistentes = [], permisos }: Props) {
+export function PlanesTratamiento({ pacienteId, pacienteEmail, pacienteNombre, prestaciones, doctors, dientesExistentes = [], permisos }: Props) {
   const [planes, setPlanes] = useState<Plan[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [activePlan, setActivePlan] = useState<Plan | null>(null)
@@ -148,6 +150,8 @@ export function PlanesTratamiento({ pacienteId, prestaciones, doctors, dientesEx
         dientesExistentes={dientesExistentes}
         permisos={permisos}
         pacienteId={pacienteId}
+        pacienteEmail={pacienteEmail ?? null}
+        pacienteNombre={pacienteNombre ?? ''}
         onBack={() => { setActiveId(null); cargarPlanes() }}
         onChanged={() => cargarPlan(activePlan.id)}
         onDelete={() => eliminarPlan(activePlan.id)}
@@ -161,6 +165,82 @@ export function PlanesTratamiento({ pacienteId, prestaciones, doctors, dientesEx
       onSelect={setActiveId}
       onCreate={crearPlan}
     />
+  )
+}
+
+function BotonImprimirEnviar({ planId, planNombre, pacienteEmail, pacienteNombre }: {
+  planId: string
+  planNombre: string
+  pacienteEmail: string | null
+  pacienteNombre: string
+}) {
+  const [open, setOpen] = useState(false)
+
+  function abrirImpresion() {
+    setOpen(false)
+    window.open(`/print/plan/${planId}`, '_blank')
+  }
+
+  function enviarPorCorreo() {
+    setOpen(false)
+    if (!pacienteEmail) {
+      alert('Este paciente no tiene email registrado. Agrégalo en sus datos personales antes de enviarle el presupuesto.')
+      return
+    }
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const link = `${origin}/print/plan/${planId}`
+    const nombre = pacienteNombre.trim().split(' ')[0] || 'paciente'
+    const subject = encodeURIComponent(`Presupuesto de tratamiento: ${planNombre}`)
+    const body = encodeURIComponent(
+      `Hola ${nombre},\n\n` +
+      `Adjuntamos el presupuesto del plan de tratamiento "${planNombre}".\n\n` +
+      `Puedes verlo aquí:\n${link}\n\n` +
+      `Cualquier duda no dudes en escribirnos.\n\n` +
+      `Saludos.`
+    )
+    window.location.href = `mailto:${pacienteEmail}?subject=${subject}&body=${body}`
+  }
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="px-3 py-1.5 text-sm bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg font-medium flex items-center gap-1.5"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+        Presupuesto
+        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full mt-1 w-56 bg-white border border-slate-200 rounded-xl shadow-lg z-20 py-1">
+            <button
+              onClick={abrirImpresion}
+              className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2.5"
+            >
+              <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              </svg>
+              Imprimir / Guardar PDF
+            </button>
+            <button
+              onClick={enviarPorCorreo}
+              className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2.5"
+            >
+              <svg className="w-4 h-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              Enviar al correo del paciente
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -327,7 +407,7 @@ function ListaPlanes({ planes, onSelect, onCreate }: { planes: Plan[]; onSelect:
 }
 
 function PlanDetalle({
-  plan, prestaciones, doctors, dientesExistentes, permisos, pacienteId, onBack, onChanged, onDelete,
+  plan, prestaciones, doctors, dientesExistentes, permisos, pacienteId, pacienteEmail, pacienteNombre, onBack, onChanged, onDelete,
 }: {
   plan: Plan
   prestaciones: Prestacion[]
@@ -335,6 +415,8 @@ function PlanDetalle({
   dientesExistentes: { numero: number; estadoActual?: string }[]
   permisos: Permisos
   pacienteId: string
+  pacienteEmail: string | null
+  pacienteNombre: string
   onBack: () => void
   onChanged: () => void
   onDelete: () => void
@@ -424,6 +506,12 @@ function PlanDetalle({
             <p className="text-xs text-slate-500">Total del plan</p>
             <p className="text-lg font-bold text-cyan-700">{formatCLP(totalGeneral)}</p>
           </div>
+          <BotonImprimirEnviar
+            planId={plan.id}
+            planNombre={plan.nombre}
+            pacienteEmail={pacienteEmail}
+            pacienteNombre={pacienteNombre}
+          />
           <button onClick={onDelete} className="px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 rounded-lg">
             Eliminar plan
           </button>

@@ -161,6 +161,8 @@ export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, p
           {tab === 'Planes de tratamiento' && (
             <PlanesTratamiento
               pacienteId={paciente.id}
+              pacienteEmail={paciente.email}
+              pacienteNombre={`${paciente.nombre} ${paciente.apellido}`}
               prestaciones={prestaciones}
               doctors={doctors ?? []}
               dientesExistentes={(paciente.fichaClinica?.odontograma ?? []).map((d: any) => ({ numero: d.numero, estadoActual: d.estado }))}

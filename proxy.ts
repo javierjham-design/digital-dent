@@ -73,6 +73,15 @@ export async function proxy(request: NextRequest) {
     return res
   }
 
+  // Rutas /print/*: públicas para que el paciente pueda abrir el link
+  // del presupuesto sin loguearse. La página valida el id internamente.
+  if (path.startsWith('/print/')) {
+    const res = NextResponse.next()
+    const slug = ctx.kind === 'clinica-subdomain' || ctx.kind === 'clinica-path' ? ctx.slug : null
+    if (slug) res.headers.set('x-clinica-slug', slug)
+    return res
+  }
+
   // ── SUPER-ADMIN (subdominio super-admin.dominio.cl) ─────────────────
   if (ctx.kind === 'super-admin') {
     const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET })
