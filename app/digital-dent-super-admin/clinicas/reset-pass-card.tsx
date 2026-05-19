@@ -9,7 +9,7 @@ export function ResetAdminPasswordCard({ clinicaId }: { clinicaId: string }) {
   const [forzarCambio, setForzarCambio] = useState(true)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [resultado, setResultado] = useState<{ password: string; forzar: boolean } | null>(null)
+  const [resultado, setResultado] = useState<{ password: string; forzar: boolean; creado: boolean } | null>(null)
 
   async function submit() {
     setError('')
@@ -18,7 +18,7 @@ export function ResetAdminPasswordCard({ clinicaId }: { clinicaId: string }) {
       if (nuevaPass !== confirmaPass) return setError('Las contraseñas no coinciden')
     }
 
-    if (!confirm('¿Resetear la contraseña del Administrador de esta clínica?')) return
+    if (!confirm('¿Resetear (o crear) la contraseña del Administrador de esta clínica?')) return
 
     setLoading(true)
     try {
@@ -39,7 +39,7 @@ export function ResetAdminPasswordCard({ clinicaId }: { clinicaId: string }) {
         setError(data.error ?? `Error ${res.status}`)
         return
       }
-      setResultado({ password: data.nuevaPassword, forzar: data.forzarCambio })
+      setResultado({ password: data.nuevaPassword, forzar: data.forzarCambio, creado: Boolean(data.creado) })
       setNuevaPass('')
       setConfirmaPass('')
     } catch (e: any) {
@@ -62,9 +62,15 @@ export function ResetAdminPasswordCard({ clinicaId }: { clinicaId: string }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <h2 className="font-semibold text-emerald-300">Contraseña actualizada</h2>
+          <h2 className="font-semibold text-emerald-300">
+            {resultado.creado ? 'Usuario Administrador creado' : 'Contraseña actualizada'}
+          </h2>
         </div>
-        <p className="text-sm text-slate-300 mb-3">Comparte esta contraseña con la clínica:</p>
+        <p className="text-sm text-slate-300 mb-3">
+          {resultado.creado
+            ? 'Se creó el usuario Administrador. Comparte esta contraseña con la clínica:'
+            : 'Comparte esta contraseña con la clínica:'}
+        </p>
         <div className="flex items-center gap-2 mb-3">
           <code className="flex-1 px-3 py-2.5 bg-slate-950 border border-slate-700 rounded-lg text-sm text-white font-mono break-all">
             {resultado.password}

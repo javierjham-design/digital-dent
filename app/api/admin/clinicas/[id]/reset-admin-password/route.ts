@@ -13,6 +13,8 @@ const DEFAULT_PASSWORD = 'ADMIN22'
 // - newPassword: si vacía, usa DEFAULT_PASSWORD ("ADMIN22").
 // - forceChange: si true, marca passwordChangedAt=null para forzar cambio en primer login.
 // - username: por default "Administrador".
+// Si el usuario "Administrador" no existe en la clínica (caso de clínicas
+// creadas antes de que el flujo lo generara), se crea en el momento.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const admin = await requireSuperAdmin()
   if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -30,24 +32,37 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const clinica = await prisma.clinica.findUnique({ where: { id } })
   if (!clinica) return NextResponse.json({ error: 'Clínica no existe' }, { status: 404 })
 
+  const hash = await bcrypt.hash(newPassword, 10)
+
   const user = await prisma.user.findFirst({
     where: { clinicaId: clinica.id, username },
   })
-  if (!user) {
-    return NextResponse.json({
-      error: `No existe usuario "${username}" en esta clínica`,
-    }, { status: 404 })
-  }
 
-  const hash = await bcrypt.hash(newPassword, 10)
-  await prisma.user.update({
-    where: { id: user.id },
-    data: {
-      password: hash,
-      activo: true,
-      passwordChangedAt: forceChange ? null : new Date(),
-    },
-  })
+  let created = false
+  if (user) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hash,
+        activo: true,
+        passwordChangedAt: forceChange ? null : new Date(),
+      },
+    })
+  } else {
+    await prisma.user.create({
+      data: {
+        clinicaId: clinica.id,
+        name: username,
+        username,
+        email: null,
+        password: hash,
+        role: 'admin',
+        activo: true,
+        passwordChangedAt: forceChange ? null : new Date(),
+      },
+    })
+    created = true
+  }
 
   return NextResponse.json({
     ok: true,
@@ -55,5 +70,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     username,
     nuevaPassword: newPassword,
     forzarCambio: forceChange,
+    creado: created,
   })
 }
