@@ -91,6 +91,7 @@ model User {
   horarios      HorarioDoctor[]
   cobrosRecibidos Cobro[]      @relation("CobroUsuario")
   evolucionesCreadas Evolucion[] @relation("AutorEvolucion")
+  planesTitulares PlanTratamiento[] @relation("DoctorTitularPlanes")
 
   @@unique([clinicaId, username])
 }
@@ -289,19 +290,21 @@ model Tratamiento {
 }
 
 model PlanTratamiento {
-  id            String         @id @default(cuid())
-  clinicaId     String?
-  pacienteId    String
-  nombre        String         @default("Plan de tratamiento")
-  estado        String         @default("ACTIVO")  // ACTIVO | ARCHIVADO | COMPLETADO
-  notas         String?
-  fechaInicio   DateTime?
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  clinica       Clinica?       @relation(fields: [clinicaId], references: [id])
-  paciente      Paciente       @relation(fields: [pacienteId], references: [id])
-  secciones     SeccionPlan[]
-  tratamientos  Tratamiento[]
+  id              String         @id @default(cuid())
+  clinicaId       String?
+  pacienteId      String
+  doctorTitularId String?        // doctor responsable del plan; default para nuevas acciones
+  nombre          String         @default("Plan de tratamiento")
+  estado          String         @default("ACTIVO")  // ACTIVO | ARCHIVADO | COMPLETADO
+  notas           String?
+  fechaInicio     DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  clinica         Clinica?       @relation(fields: [clinicaId], references: [id])
+  paciente        Paciente       @relation(fields: [pacienteId], references: [id])
+  doctorTitular   User?          @relation("DoctorTitularPlanes", fields: [doctorTitularId], references: [id])
+  secciones       SeccionPlan[]
+  tratamientos    Tratamiento[]
 }
 
 model SeccionPlan {

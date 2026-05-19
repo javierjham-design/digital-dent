@@ -25,6 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   const plan = await prisma.planTratamiento.findFirst({
     where: { id, clinicaId: u.clinicaId },
     include: {
+      doctorTitular: { select: { id: true, name: true, email: true } },
       secciones: {
         orderBy: { orden: 'asc' },
         include: {
@@ -61,6 +62,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (typeof body.nombre === 'string') data.nombre = body.nombre
   if (typeof body.notas === 'string' || body.notas === null) data.notas = body.notas
   if (typeof body.estado === 'string') data.estado = body.estado
+  if (typeof body.doctorTitularId === 'string' || body.doctorTitularId === null) {
+    data.doctorTitularId = body.doctorTitularId || null
+  }
   if (body.fechaInicio === null) data.fechaInicio = null
   else if (typeof body.fechaInicio === 'string') data.fechaInicio = new Date(body.fechaInicio)
 

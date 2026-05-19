@@ -27,7 +27,7 @@ type Tratamiento = {
   estado: string
   notas: string | null
   prestacion: { id: string; nombre: string; categoria?: string | null; precio?: number }
-  doctor?: { id: string; name: string | null } | null
+  doctor?: { id: string; name: string | null; email?: string | null } | null
   seccionId?: string | null
   cobroItems?: CobroItemMin[]
 }
@@ -62,8 +62,10 @@ type Plan = {
   notas: string | null
   fechaInicio: string | null
   createdAt: string
+  doctorTitularId?: string | null
+  doctorTitular?: { id: string; name: string | null; email: string | null } | null
   secciones?: Seccion[]
-  tratamientos?: Tratamiento[] // los sin sección
+  tratamientos?: Tratamiento[]
   _count?: { tratamientos: number; secciones: number }
 }
 
@@ -159,6 +161,41 @@ export function PlanesTratamiento({ pacienteId, prestaciones, doctors, dientesEx
       onSelect={setActiveId}
       onCreate={crearPlan}
     />
+  )
+}
+
+function DoctorTitularSelector({ planId, doctorTitularId, doctors, onChanged }: {
+  planId: string
+  doctorTitularId: string
+  doctors: Doctor[]
+  onChanged: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  async function cambiar(id: string) {
+    setSaving(true)
+    await fetch(`/api/planes-tratamiento/${planId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ doctorTitularId: id || null }),
+    })
+    setSaving(false)
+    onChanged()
+  }
+  return (
+    <div className="flex items-center gap-2">
+      <label className="text-xs text-slate-500 font-medium">Doctor titular:</label>
+      <select
+        value={doctorTitularId}
+        onChange={(e) => cambiar(e.target.value)}
+        disabled={saving}
+        className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500"
+      >
+        <option value="">Sin asignar</option>
+        {doctors.map((d) => (
+          <option key={d.id} value={d.id}>{d.name || d.email || 'Sin nombre'}</option>
+        ))}
+      </select>
+    </div>
   )
 }
 
@@ -376,7 +413,13 @@ function PlanDetalle({
           <h3 className="font-semibold text-slate-900 text-lg">{plan.nombre}</h3>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <DoctorTitularSelector
+            planId={plan.id}
+            doctorTitularId={plan.doctorTitularId ?? ''}
+            doctors={doctors}
+            onChanged={onChanged}
+          />
           <div className="text-right">
             <p className="text-xs text-slate-500">Total del plan</p>
             <p className="text-lg font-bold text-cyan-700">{formatCLP(totalGeneral)}</p>
@@ -424,6 +467,7 @@ function PlanDetalle({
             doctors={doctors}
             permisos={permisos}
             pacienteId={pacienteId}
+            doctorTitularId={plan.doctorTitularId ?? null}
             onChanged={onChanged}
           />
         )}
@@ -435,6 +479,7 @@ function PlanDetalle({
             doctors={doctors}
             permisos={permisos}
             pacienteId={pacienteId}
+            doctorTitularId={plan.doctorTitularId ?? null}
             onChanged={onChanged}
           />
         ))}
@@ -449,11 +494,12 @@ function PlanDetalle({
   )
 }
 
-function SeccionItem({ seccion, doctors, permisos, pacienteId, onChanged }: {
+function SeccionItem({ seccion, doctors, permisos, pacienteId, doctorTitularId, onChanged }: {
   seccion: Seccion
   doctors: Doctor[]
   permisos: Permisos
   pacienteId: string
+  doctorTitularId: string | null
   onChanged: () => void
 }) {
   const [editando, setEditando] = useState(false)
@@ -495,6 +541,7 @@ function SeccionItem({ seccion, doctors, permisos, pacienteId, onChanged }: {
       doctors={doctors}
       permisos={permisos}
       pacienteId={pacienteId}
+      doctorTitularId={doctorTitularId}
       onChanged={onChanged}
       onEditarSeccion={() => setEditando((e) => !e)}
       onEliminarSeccion={eliminar}
@@ -526,7 +573,7 @@ function SeccionItem({ seccion, doctors, permisos, pacienteId, onChanged }: {
 }
 
 function SeccionCard({
-  titulo, subtitle, tratamientos, doctors, permisos, pacienteId, onChanged, onEditarSeccion, onEliminarSeccion, children,
+  titulo, subtitle, tratamientos, doctors, permisos, pacienteId, doctorTitularId, onChanged, onEditarSeccion, onEliminarSeccion, children,
 }: {
   titulo: string
   subtitle?: string
@@ -534,6 +581,7 @@ function SeccionCard({
   doctors: Doctor[]
   permisos: Permisos
   pacienteId: string
+  doctorTitularId: string | null
   onChanged: () => void
   onEditarSeccion?: () => void
   onEliminarSeccion?: () => void
@@ -586,6 +634,7 @@ function SeccionCard({
                 doctors={doctors}
                 permisos={permisos}
                 pacienteId={pacienteId}
+                doctorTitularId={doctorTitularId}
                 onChanged={onChanged}
               />
             ))}
@@ -601,15 +650,15 @@ function SeccionCard({
 }
 
 function FilaTratamiento({
-  tratamiento: t, doctors, permisos, pacienteId, onChanged,
+  tratamiento: t, doctors, permisos, pacienteId, doctorTitularId, onChanged,
 }: {
   tratamiento: Tratamiento
   doctors: Doctor[]
   permisos: Permisos
   pacienteId: string
+  doctorTitularId: string | null
   onChanged: () => void
 }) {
-  const [doctorId, setDoctorId] = useState(t.doctor?.id ?? '')
   const [estado, setEstado] = useState(t.estado)
   const [precio, setPrecio] = useState(t.precio.toString())
   const [descuento, setDescuento] = useState(t.descuento.toString())
@@ -658,11 +707,6 @@ function FilaTratamiento({
     }
   }
 
-  function cambiarDoctor(nuevo: string) {
-    setDoctorId(nuevo)
-    patch({ doctorId: nuevo || null })
-  }
-
   function blurPrecio() {
     const p = Number(precio)
     if (Number.isFinite(p) && p !== t.precio) patch({ precio: p })
@@ -699,6 +743,8 @@ function FilaTratamiento({
         pacienteId={pacienteId}
         tratamientoId={t.id}
         prestacionNombre={t.prestacion.nombre}
+        doctors={doctors}
+        doctorActualId={t.doctor?.id ?? doctorTitularId ?? ''}
         onClose={() => setPromptEvolucion(false)}
         onSaved={() => { setPromptEvolucion(false); onChanged() }}
       />
@@ -728,17 +774,10 @@ function FilaTratamiento({
           {t.notas && ` · ${t.notas}`}
         </p>
       </div>
-      <div className="md:col-span-2">
-        <select
-          value={doctorId}
-          onChange={(e) => cambiarDoctor(e.target.value)}
-          className="w-full px-2 py-1 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-cyan-500 bg-white"
-        >
-          <option value="">Sin doctor</option>
-          {doctors.map((d) => (
-            <option key={d.id} value={d.id}>{d.name || d.email || 'Sin nombre'}</option>
-          ))}
-        </select>
+      <div className="md:col-span-2 min-w-0">
+        <p className="text-xs text-slate-700 truncate">
+          {t.doctor?.name || t.doctor?.email || <span className="text-slate-400">—</span>}
+        </p>
       </div>
       <div className="md:col-span-2">
         <select
@@ -796,33 +835,54 @@ function FilaTratamiento({
 }
 
 function ModalEvolucion({
-  pacienteId, tratamientoId, prestacionNombre, onClose, onSaved,
+  pacienteId, tratamientoId, prestacionNombre, doctors, doctorActualId, onClose, onSaved,
 }: {
   pacienteId: string
   tratamientoId: string
   prestacionNombre: string
+  doctors: Doctor[]
+  doctorActualId: string
   onClose: () => void
   onSaved: () => void
 }) {
   const [texto, setTexto] = useState('')
+  const [doctorId, setDoctorId] = useState(doctorActualId)
   const [saving, setSaving] = useState(false)
 
   async function guardar() {
-    if (!texto.trim()) {
-      onSaved() // anotar es opcional, salir sin guardar
-      return
-    }
     setSaving(true)
-    const r = await fetch('/api/evoluciones', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pacienteId, tratamientoId, texto: texto.trim() }),
-    })
-    setSaving(false)
-    if (r.ok) onSaved()
-    else {
-      const e = await r.json().catch(() => ({}))
-      alert(e.error ?? 'Error al guardar evolución')
+    try {
+      // Si el doctor cambió respecto al actual, actualizar el tratamiento.
+      if (doctorId !== doctorActualId) {
+        const r1 = await fetch(`/api/tratamientos/${tratamientoId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ doctorId: doctorId || null }),
+        })
+        if (!r1.ok) {
+          const e = await r1.json().catch(() => ({}))
+          alert(e.error ?? 'Error asignando doctor')
+          return
+        }
+      }
+
+      // Si hay texto, registrar la evolución.
+      if (texto.trim()) {
+        const r2 = await fetch('/api/evoluciones', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pacienteId, tratamientoId, texto: texto.trim() }),
+        })
+        if (!r2.ok) {
+          const e = await r2.json().catch(() => ({}))
+          alert(e.error ?? 'Error al guardar evolución')
+          return
+        }
+      }
+
+      onSaved()
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -844,32 +904,53 @@ function ModalEvolucion({
               <span className="font-medium text-slate-700">{prestacionNombre}</span> · Si quieres, anota la evolución de lo realizado.
             </p>
           </div>
-          <div className="p-5">
-            <label className="block text-xs uppercase tracking-wider text-slate-500 mb-1 font-medium">
-              Evolución (opcional)
-            </label>
-            <textarea
-              value={texto}
-              onChange={(e) => setTexto(e.target.value)}
-              rows={5}
-              placeholder="Ej: Se realizó endodoncia en pieza 16, sin complicaciones..."
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              autoFocus
-            />
-            <p className="text-xs text-slate-400 mt-2">
-              Quedará registrada con tu nombre y fecha en el historial del paciente.
-            </p>
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="block text-xs uppercase tracking-wider text-slate-500 mb-1 font-medium">
+                Doctor que realizó la acción
+              </label>
+              <select
+                value={doctorId}
+                onChange={(e) => setDoctorId(e.target.value)}
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+              >
+                <option value="">— Sin asignar —</option>
+                {doctors.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name || d.email || 'Sin nombre'}</option>
+                ))}
+              </select>
+              <p className="text-xs text-slate-400 mt-1">
+                Por defecto es el doctor titular del plan. Cámbialo solo si lo realizó otro profesional.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-xs uppercase tracking-wider text-slate-500 mb-1 font-medium">
+                Evolución (opcional)
+              </label>
+              <textarea
+                value={texto}
+                onChange={(e) => setTexto(e.target.value)}
+                rows={5}
+                placeholder="Ej: Se realizó endodoncia en pieza 16, sin complicaciones..."
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                autoFocus
+              />
+              <p className="text-xs text-slate-400 mt-2">
+                Quedará registrada con tu nombre y fecha en el historial del paciente.
+              </p>
+            </div>
           </div>
           <div className="p-5 border-t border-slate-100 flex justify-end gap-2">
-            <button onClick={onSaved} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
-              Saltar
+            <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
+              Cancelar
             </button>
             <button
               onClick={guardar}
               disabled={saving}
               className="px-4 py-2 text-sm bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-400 text-white rounded-lg font-semibold"
             >
-              {saving ? 'Guardando...' : 'Guardar evolución'}
+              {saving ? 'Guardando...' : (texto.trim() ? 'Guardar evolución' : 'Confirmar')}
             </button>
           </div>
         </div>

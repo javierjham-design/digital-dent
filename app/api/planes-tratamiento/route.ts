@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
     where: { clinicaId: u.clinicaId, pacienteId },
     orderBy: { createdAt: 'desc' },
     include: {
+      doctorTitular: { select: { id: true, name: true, email: true } },
       _count: { select: { tratamientos: true, secciones: true } },
     },
   })
@@ -42,6 +43,7 @@ export async function POST(req: NextRequest) {
     data: {
       clinicaId: u.clinicaId,
       pacienteId: body.pacienteId,
+      doctorTitularId: typeof body.doctorTitularId === 'string' && body.doctorTitularId ? body.doctorTitularId : null,
       nombre: body.nombre || 'Plan de tratamiento',
       notas: body.notas || null,
       fechaInicio: body.fechaInicio ? new Date(body.fechaInicio) : null,

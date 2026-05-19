@@ -35,10 +35,15 @@ export async function POST(req: NextRequest) {
   const precioFinal = puedePrecio ? Number(precio) : prestacion.precio
   const descuentoFinal = puedeDescuento && typeof descuento === 'number' ? Math.max(0, Math.min(100, descuento)) : 0
 
-  // Validar plan/sección si vienen
+  // Validar plan/sección si vienen. Si el plan tiene doctorTitular, lo usamos como doctorId default.
+  let doctorIdDefault: string | null = null
   if (planId) {
-    const plan = await prisma.planTratamiento.findFirst({ where: { id: planId, clinicaId: u.clinicaId } })
+    const plan = await prisma.planTratamiento.findFirst({
+      where: { id: planId, clinicaId: u.clinicaId },
+      select: { id: true, doctorTitularId: true },
+    })
     if (!plan) return NextResponse.json({ error: 'Plan no encontrado' }, { status: 404 })
+    doctorIdDefault = plan.doctorTitularId
   }
   if (seccionId) {
     const seccion = await prisma.seccionPlan.findFirst({
@@ -58,6 +63,7 @@ export async function POST(req: NextRequest) {
     prestacionId,
     planId: planId || null,
     seccionId: seccionId || null,
+    doctorId: doctorIdDefault, // hereda el doctor titular del plan, se ajusta al evolucionar
     precio: precioFinal,
     descuento: descuentoFinal,
     notas: notas || null,
