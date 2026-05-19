@@ -29,6 +29,11 @@ export function ResetAdminPasswordCard({ clinicaId }: { clinicaId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       })
+      const ct = res.headers.get('content-type') ?? ''
+      if (!ct.includes('application/json')) {
+        setError(`Error ${res.status}: respuesta no válida del servidor`)
+        return
+      }
       const data = await res.json()
       if (!res.ok) {
         setError(data.error ?? `Error ${res.status}`)

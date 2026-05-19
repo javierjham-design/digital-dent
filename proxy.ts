@@ -92,6 +92,9 @@ export async function proxy(request: NextRequest) {
       return rewrite(request, SUPER_ADMIN_LOGIN)
     }
 
+    // APIs no se reescriben — viven en /api/* y manejan su propia auth.
+    if (path.startsWith('/api/')) return NextResponse.next()
+
     // Auth OK: rewrite todo al prefijo del panel
     if (path === '/' || path === '') return rewrite(request, SUPER_ADMIN_PREFIX)
     if (path.startsWith(SUPER_ADMIN_PREFIX)) return NextResponse.next()
