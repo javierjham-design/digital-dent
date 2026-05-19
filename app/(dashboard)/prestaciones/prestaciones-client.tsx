@@ -175,6 +175,7 @@ export function PrestacionesClient({ initialPrestaciones }: { initialPrestacione
             No hay prestaciones. Crea la primera.
           </div>
         ) : (
+          <div className="table-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
@@ -241,6 +242,7 @@ export function PrestacionesClient({ initialPrestaciones }: { initialPrestacione
               )}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

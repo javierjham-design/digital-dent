@@ -312,6 +312,7 @@ export function ConfiguracionClient({
         {medios.length === 0 ? (
           <div className="p-8 text-center text-slate-400 text-sm">No hay medios de pago configurados</div>
         ) : (
+          <div className="table-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
@@ -357,6 +358,7 @@ export function ConfiguracionClient({
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

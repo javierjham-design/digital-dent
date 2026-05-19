@@ -24,6 +24,31 @@ select:not(:disabled) {
   cursor: pointer;
 }
 
+/* En pantallas pequeñas, cualquier <table> dentro de la app puede desbordar
+   el viewport. Permitimos scroll horizontal en su contenedor inmediato y
+   forzamos un ancho mínimo razonable para que las columnas no se aplasten. */
+@media (max-width: 768px) {
+  table {
+    min-width: 680px;
+  }
+  /* Si el padre directo de la tabla NO ya define overflow, lo hacemos scroll-x */
+  table:not([data-no-mobile-scroll]) {
+    display: table; /* mantener layout de tabla */
+  }
+  /* Card típico con border + rounded que contiene una table: scroll horizontal */
+  .table-wrap,
+  .bg-white > table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Pequeño helper general para wrappers de tabla */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 body {
   background-color: #f8fafc;
   color: #0f172a;

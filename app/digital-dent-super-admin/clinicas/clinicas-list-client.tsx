@@ -78,6 +78,7 @@ export function ClinicasListClient({ clinicas, platformDomain }: { clinicas: Cli
       </div>
 
       <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+        <div className="table-scroll">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500 bg-slate-900/50">
@@ -134,6 +135,7 @@ export function ClinicasListClient({ clinicas, platformDomain }: { clinicas: Cli
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )

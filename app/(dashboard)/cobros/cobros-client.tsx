@@ -154,6 +154,7 @@ export function CobrosClient({
 
       {/* Tabla */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="table-scroll">
         <table className="w-full">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50">
@@ -230,6 +231,7 @@ export function CobrosClient({
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {/* ── MODAL ── */}

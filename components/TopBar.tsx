@@ -95,13 +95,25 @@ export function TopBar({ clinica, logoUrl }: { clinica: string; logoUrl: string 
   const pathname = usePathname()
   const { data: session } = useSession()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
   return (
-    <header className="fixed top-0 left-0 right-0 h-[60px] bg-white border-b border-slate-100 shadow-sm z-50 flex items-center px-4 gap-4">
+    <header className="fixed top-0 left-0 right-0 h-[60px] bg-white border-b border-slate-100 shadow-sm z-50 flex items-center px-3 sm:px-4 gap-3 sm:gap-4">
+      {/* Mobile hamburger */}
+      <button
+        onClick={() => setMobileNavOpen(true)}
+        aria-label="Abrir menú"
+        className="md:hidden p-1.5 -ml-1 rounded-lg hover:bg-slate-100"
+      >
+        <svg className="w-6 h-6 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
+
       {/* Brand */}
-      <Link href="/agenda" className="flex items-center gap-2.5 flex-shrink-0 mr-2">
+      <Link href="/agenda" className="flex items-center gap-2.5 flex-shrink-0 md:mr-2 min-w-0">
         {logoUrl ? (
-          <img src={logoUrl} alt={clinica} className="w-8 h-8 rounded-lg object-contain" />
+          <img src={logoUrl} alt={clinica} className="w-8 h-8 rounded-lg object-contain flex-shrink-0" />
         ) : (
           <div className="w-8 h-8 bg-gradient-to-br from-cyan-500 to-teal-600 rounded-lg flex items-center justify-center flex-shrink-0 shadow-sm">
             <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -109,14 +121,14 @@ export function TopBar({ clinica, logoUrl }: { clinica: string; logoUrl: string 
             </svg>
           </div>
         )}
-        <span className="font-bold text-slate-900 text-sm whitespace-nowrap">{clinica}</span>
+        <span className="font-bold text-slate-900 text-sm whitespace-nowrap truncate">{clinica}</span>
       </Link>
 
-      {/* Divider */}
-      <div className="w-px h-6 bg-slate-200 flex-shrink-0" />
+      {/* Divider (desktop) */}
+      <div className="hidden md:block w-px h-6 bg-slate-200 flex-shrink-0" />
 
-      {/* Nav */}
-      <nav className="flex items-center gap-0.5 overflow-x-auto flex-1 scrollbar-hide">
+      {/* Nav desktop */}
+      <nav className="hidden md:flex items-center gap-0.5 overflow-x-auto flex-1 scrollbar-hide">
         {navItems.map((item) => {
           const active = item.href === '/agenda'
             ? pathname === '/' || pathname.startsWith('/agenda')
@@ -138,6 +150,50 @@ export function TopBar({ clinica, logoUrl }: { clinica: string; logoUrl: string 
           )
         })}
       </nav>
+
+      {/* Mobile nav drawer */}
+      {mobileNavOpen && (
+        <>
+          <div className="md:hidden fixed inset-0 bg-black/40 z-40" onClick={() => setMobileNavOpen(false)} />
+          <aside className="md:hidden fixed left-0 top-0 bottom-0 w-72 bg-white shadow-xl z-50 flex flex-col">
+            <div className="h-[60px] px-4 flex items-center justify-between border-b border-slate-100">
+              <span className="font-bold text-slate-900 truncate">{clinica}</span>
+              <button
+                onClick={() => setMobileNavOpen(false)}
+                aria-label="Cerrar menú"
+                className="p-1.5 -mr-1 rounded-lg hover:bg-slate-100"
+              >
+                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <nav className="flex-1 overflow-y-auto p-3 space-y-0.5">
+              {navItems.map((item) => {
+                const active = item.href === '/agenda'
+                  ? pathname === '/' || pathname.startsWith('/agenda')
+                  : pathname.startsWith(item.href)
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileNavOpen(false)}
+                    className={cn(
+                      'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
+                      active
+                        ? 'bg-cyan-50 text-cyan-700'
+                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                    )}
+                  >
+                    {item.icon}
+                    {item.label}
+                  </Link>
+                )
+              })}
+            </nav>
+          </aside>
+        </>
+      )}
 
       {/* User */}
       <div className="relative flex-shrink-0">

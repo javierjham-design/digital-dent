@@ -88,6 +88,7 @@ export function LiquidacionesClient({ liquidaciones: init, doctores }: { liquida
         {filtradas.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-sm">No hay liquidaciones{filtro !== 'TODAS' ? ' con este estado' : ''}.</div>
         ) : (
+          <div className="table-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
@@ -134,6 +135,7 @@ export function LiquidacionesClient({ liquidaciones: init, doctores }: { liquida
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

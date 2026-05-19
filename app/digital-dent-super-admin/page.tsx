@@ -99,6 +99,7 @@ export default async function SuperAdminDashboard() {
         {stats.clinicas.length === 0 ? (
           <p className="px-6 py-10 text-center text-slate-500 text-sm">Sin clínicas registradas</p>
         ) : (
+          <div className="table-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
@@ -136,6 +137,7 @@ export default async function SuperAdminDashboard() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>

@@ -190,6 +190,7 @@ export function UsuariosClient({
         {usuarios.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-sm">No hay usuarios registrados</div>
         ) : (
+          <div className="table-scroll">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
@@ -300,6 +301,7 @@ export function UsuariosClient({
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

@@ -105,7 +105,8 @@ export function PresupuestosClient({ presupuestos, pacientes, prestaciones }: { 
               </div>
               <p className="text-xl font-bold text-slate-900">{formatCLP(p.total)}</p>
             </div>
-            <table className="w-full text-sm mb-4">
+            <div className="table-scroll mb-4">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
                   <th className="text-left py-1.5 text-xs text-slate-500 font-semibold">Prestación</th>
@@ -123,6 +124,7 @@ export function PresupuestosClient({ presupuestos, pacientes, prestaciones }: { 
                 ))}
               </tbody>
             </table>
+            </div>
             {p.estado === 'PENDIENTE' && (
               <div className="flex gap-2 border-t border-slate-100 pt-4">
                 <button onClick={() => cambiarEstado(p.id, 'APROBADO')}
