@@ -3,7 +3,6 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { ESTADO_PAGO_LABEL, METODO_PAGO_OPCIONES, type EstadoPago } from '@/lib/billing'
-import { PLAN_PRICES } from '@/lib/plans'
 
 type Pago = {
   id: string
@@ -49,7 +48,15 @@ const ESTADO_COLOR: Record<EstadoPago, string> = {
   SUSPENDIDO: 'bg-slate-700 text-slate-300 border border-slate-600',
 }
 
-export function SuscripcionPanel({ data }: { data: SuscripcionData }) {
+export function SuscripcionPanel({
+  data,
+  planesDisponibles,
+}: {
+  data: SuscripcionData
+  planesDisponibles: { id: string; nombre: string; precioMensual: number }[]
+}) {
+  const planPriceMap: Record<string, number> = {}
+  for (const p of planesDisponibles) planPriceMap[p.id] = p.precioMensual
   const router = useRouter()
   const [modal, setModal] = useState<null | 'plan' | 'trial' | 'pago'>(null)
   const [saving, setSaving] = useState(false)
@@ -310,9 +317,11 @@ export function SuscripcionPanel({ data }: { data: SuscripcionData }) {
                 <span className="block text-xs uppercase tracking-wider text-slate-500 mb-1">Plan</span>
                 <select value={planForm.plan} onChange={(e) => setPlanForm({ ...planForm, plan: e.target.value })}
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500">
-                  <option value="TRIAL">TRIAL · {fmtCLP(PLAN_PRICES.TRIAL ?? 0)}/mes</option>
-                  <option value="BASICO">BÁSICO · {fmtCLP(PLAN_PRICES.BASICO ?? 0)}/mes</option>
-                  <option value="PRO">PRO · {fmtCLP(PLAN_PRICES.PRO ?? 0)}/mes</option>
+                  {planesDisponibles.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.id} · {p.nombre} · {fmtCLP(p.precioMensual)}/mes
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="block">
@@ -331,7 +340,7 @@ export function SuscripcionPanel({ data }: { data: SuscripcionData }) {
                   Precio acordado <span className="text-slate-600">(opcional, en CLP/mes)</span>
                 </span>
                 <input value={planForm.precioAcordadoStr} onChange={(e) => setPlanForm({ ...planForm, precioAcordadoStr: e.target.value })}
-                  placeholder={`Default plan: ${fmtCLP(PLAN_PRICES[planForm.plan] ?? 0)}`}
+                  placeholder={`Default plan: ${fmtCLP(planPriceMap[planForm.plan] ?? 0)}`}
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white font-mono focus:outline-none focus:ring-2 focus:ring-purple-500" />
                 <p className="text-xs text-slate-500 mt-1">Dejá vacío para usar el precio estándar del plan.</p>
               </label>

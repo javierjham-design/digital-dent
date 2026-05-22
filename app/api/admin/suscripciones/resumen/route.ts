@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSuperAdmin } from '@/lib/auth'
-import { getEstadoPago, precioMensualEfectivo } from '@/lib/billing'
+import { getEstadoPago, precioMensualEfectivo, type PlanPriceMap } from '@/lib/billing'
+import { getPlanes } from '@/lib/plans'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,6 +11,10 @@ export const dynamic = 'force-dynamic'
 export async function GET(_req: NextRequest) {
   const admin = await requireSuperAdmin()
   if (!admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const planes = await getPlanes()
+  const priceMap: PlanPriceMap = {}
+  for (const p of planes) priceMap[p.id] = p.precioMensual
 
   const clinicas = await prisma.clinica.findMany({
     select: {
@@ -51,7 +56,7 @@ export async function GET(_req: NextRequest) {
     }, now)
     contadores[estado]++
 
-    const precio = precioMensualEfectivo({ plan: c.plan, precioAcordado: c.precioAcordado })
+    const precio = precioMensualEfectivo({ plan: c.plan, precioAcordado: c.precioAcordado }, priceMap)
 
     // MRR / ARR cuentan solo clínicas pagadas y al día (no trial, no suspendidas, no atrasadas)
     if (estado === 'AL_DIA' && c.plan !== 'TRIAL') {

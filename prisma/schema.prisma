@@ -57,6 +57,23 @@ model Clinica {
   pagosSuscripcion PagoSuscripcion[]
 }
 
+// Catálogo de planes de suscripción que la plataforma ofrece a las clínicas.
+// El "id" es el código corto (TRIAL, BASICO, PRO, ENTERPRISE...) y coincide
+// con el valor de Clinica.plan. Editable desde el super-admin.
+model PlanSuscripcion {
+  id              String   @id                    // código corto en mayúsculas
+  nombre          String                          // nombre comercial
+  descripcion     String?
+  precioMensual   Float    @default(0)            // CLP/mes (0 = gratis / trial)
+  precioAnual     Float?                          // CLP/año (opcional; si null se asume mensual * 12)
+  caracteristicas String   @default("[]")         // JSON: string[] con bullets descriptivos
+  destacado       Boolean  @default(false)        // marcar como "más popular" en la grilla
+  orden           Int      @default(0)            // orden de presentación
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
 // Pago de suscripción que recibe la plataforma desde una clínica.
 // Registro manual hasta que exista pasarela (Fase 4): el super-admin marca
 // la transferencia/depósito recibido, y la plataforma recalcula próximoCobro.

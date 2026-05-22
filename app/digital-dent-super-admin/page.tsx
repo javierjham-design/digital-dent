@@ -2,11 +2,11 @@ export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
-import { PLAN_PRICES } from '@/lib/plans'
+import { getPlanes } from '@/lib/plans'
 
 async function loadStats() {
   try {
-    const [clinicas, activas, enTrial, suspendidas, total] = await Promise.all([
+    const [clinicas, activas, enTrial, suspendidas, total, planes] = await Promise.all([
       prisma.clinica.findMany({
         orderBy: { createdAt: 'desc' },
         take: 5,
@@ -18,14 +18,22 @@ async function loadStats() {
       prisma.clinica.count({ where: { activo: true, plan: 'TRIAL' } }),
       prisma.clinica.count({ where: { activo: false } }),
       prisma.clinica.count(),
+      getPlanes(),
     ])
 
-    // MRR estimado: suma de precios mensuales de clínicas activas no-trial
+    const priceMap: Record<string, number> = {}
+    for (const p of planes) priceMap[p.id] = p.precioMensual
+
+    // MRR estimado: suma de precios mensuales de clínicas activas no-trial,
+    // respetando precioAcordado si está definido.
     const clinicasPagantes = await prisma.clinica.findMany({
       where: { activo: true, plan: { not: 'TRIAL' } },
-      select: { plan: true },
+      select: { plan: true, precioAcordado: true },
     })
-    const mrrEstimado = clinicasPagantes.reduce((s, c) => s + (PLAN_PRICES[c.plan] ?? 0), 0)
+    const mrrEstimado = clinicasPagantes.reduce(
+      (s, c) => s + (c.precioAcordado ?? priceMap[c.plan] ?? 0),
+      0,
+    )
 
     return { ok: true as const, clinicas, activas, enTrial, suspendidas, total, mrrEstimado }
   } catch (e: any) {

@@ -57,10 +57,12 @@ export function ClinicaDetailClient({
   clinica: initial,
   platformDomain,
   passwordPendiente,
+  planesDisponibles,
 }: {
   clinica: Clinica
   platformDomain: string | null
   passwordPendiente: boolean
+  planesDisponibles: { id: string; nombre: string; precioMensual: number }[]
 }) {
   const router = useRouter()
   const [c, setC] = useState(initial)
@@ -161,18 +163,21 @@ export function ClinicaDetailClient({
       </div>
 
       {/* SUSCRIPCIÓN / PLAN / PAGOS */}
-      <SuscripcionPanel data={{
-        id: c.id,
-        plan: c.plan,
-        activo: c.activo,
-        trialHasta: c.trialHasta,
-        proximoCobro: c.proximoCobro,
-        cicloFacturacion: c.cicloFacturacion,
-        precioAcordado: c.precioAcordado,
-        precioMensual: c.precioMensual,
-        estadoPago: c.estadoPago,
-        pagos: c.pagos,
-      }} />
+      <SuscripcionPanel
+        planesDisponibles={planesDisponibles}
+        data={{
+          id: c.id,
+          plan: c.plan,
+          activo: c.activo,
+          trialHasta: c.trialHasta,
+          proximoCobro: c.proximoCobro,
+          cicloFacturacion: c.cicloFacturacion,
+          precioAcordado: c.precioAcordado,
+          precioMensual: c.precioMensual,
+          estadoPago: c.estadoPago,
+          pagos: c.pagos,
+        }}
+      />
 
       {/* RESUMEN DE PACIENTES */}
       <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">

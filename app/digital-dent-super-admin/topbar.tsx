@@ -10,6 +10,7 @@ const NAV = [
   { label: 'Dashboard',     href: '/digital-dent-super-admin' },
   { label: 'Clínicas',      href: '/digital-dent-super-admin/clinicas' },
   { label: 'Suscripciones', href: '/digital-dent-super-admin/suscripciones' },
+  { label: 'Planes',        href: '/digital-dent-super-admin/planes' },
 ]
 
 export function SuperAdminTopBar({ email, name }: { email: string; name: string }) {

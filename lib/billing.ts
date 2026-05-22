@@ -1,5 +1,3 @@
-import { PLAN_PRICES } from './plans'
-
 export type EstadoPago = 'TRIAL' | 'AL_DIA' | 'ATRASADO' | 'SUSPENDIDO'
 export type CicloFacturacion = 'MENSUAL' | 'ANUAL'
 
@@ -11,6 +9,10 @@ export interface ClinicaBillingInput {
   precioAcordado: number | null
   cicloFacturacion?: string | null
 }
+
+// Mapa { planId -> precioMensual } que los consumidores pasan a las funciones
+// de billing. Se construye una vez desde getPlanes() en el server component.
+export type PlanPriceMap = Record<string, number>
 
 function toDate(v: Date | string | null | undefined): Date | null {
   if (!v) return null
@@ -29,13 +31,16 @@ export function getEstadoPago(c: ClinicaBillingInput, now: Date = new Date()): E
   return proximo.getTime() < now.getTime() ? 'ATRASADO' : 'AL_DIA'
 }
 
-export function precioMensualEfectivo(c: Pick<ClinicaBillingInput, 'plan' | 'precioAcordado'>): number {
+export function precioMensualEfectivo(
+  c: Pick<ClinicaBillingInput, 'plan' | 'precioAcordado'>,
+  planPrices: PlanPriceMap,
+): number {
   if (c.precioAcordado != null && c.precioAcordado >= 0) return c.precioAcordado
-  return PLAN_PRICES[c.plan] ?? 0
+  return planPrices[c.plan] ?? 0
 }
 
-export function precioPeriodo(c: ClinicaBillingInput): number {
-  const mensual = precioMensualEfectivo(c)
+export function precioPeriodo(c: ClinicaBillingInput, planPrices: PlanPriceMap): number {
+  const mensual = precioMensualEfectivo(c, planPrices)
   return c.cicloFacturacion === 'ANUAL' ? mensual * 12 : mensual
 }
 

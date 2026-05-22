@@ -2,7 +2,8 @@ export const dynamic = 'force-dynamic'
 
 import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
-import { getEstadoPago, precioMensualEfectivo } from '@/lib/billing'
+import { getEstadoPago, precioMensualEfectivo, type PlanPriceMap } from '@/lib/billing'
+import { getPlanes } from '@/lib/plans'
 import { ClinicaDetailClient } from './clinica-detail-client'
 
 export default async function ClinicaDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -51,6 +52,10 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
     cuotaBytes: clinica.plan === 'PRO' ? 50 * 1024 ** 3 : clinica.plan === 'BASICO' ? 10 * 1024 ** 3 : 1 * 1024 ** 3,
   }
 
+  const planes = await getPlanes()
+  const priceMap: PlanPriceMap = {}
+  for (const p of planes) priceMap[p.id] = p.precioMensual
+
   const billingInput = {
     plan: clinica.plan,
     activo: clinica.activo,
@@ -59,15 +64,20 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
     precioAcordado: clinica.precioAcordado,
     cicloFacturacion: clinica.cicloFacturacion,
   }
-  const precioMensual = precioMensualEfectivo(billingInput)
+  const precioMensual = precioMensualEfectivo(billingInput, priceMap)
   const estadoPago = getEstadoPago(billingInput)
   const platformDomain = process.env.PLATFORM_DOMAIN ?? null
   const passwordPendiente = adminInicial?.username === 'Administrador' && adminInicial?.passwordChangedAt == null
+
+  const planesDisponibles = planes
+    .filter((p) => p.activo)
+    .map((p) => ({ id: p.id, nombre: p.nombre, precioMensual: p.precioMensual }))
 
   return (
     <ClinicaDetailClient
       platformDomain={platformDomain}
       passwordPendiente={passwordPendiente}
+      planesDisponibles={planesDisponibles}
       clinica={{
         id: clinica.id,
         slug: clinica.slug,

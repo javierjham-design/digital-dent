@@ -1,10 +1,15 @@
 export const dynamic = 'force-dynamic'
 
 import { prisma } from '@/lib/prisma'
-import { getEstadoPago, precioMensualEfectivo, type EstadoPago } from '@/lib/billing'
+import { getEstadoPago, precioMensualEfectivo, type EstadoPago, type PlanPriceMap } from '@/lib/billing'
+import { getPlanes } from '@/lib/plans'
 import { SuscripcionesClient } from './suscripciones-client'
 
 export default async function SuscripcionesPage() {
+  const planes = await getPlanes()
+  const priceMap: PlanPriceMap = {}
+  for (const p of planes) priceMap[p.id] = p.precioMensual
+
   const clinicas = await prisma.clinica.findMany({
     select: {
       id: true,
@@ -45,7 +50,7 @@ export default async function SuscripcionesPage() {
     }, now)
     contadores[estado]++
 
-    const precio = precioMensualEfectivo({ plan: c.plan, precioAcordado: c.precioAcordado })
+    const precio = precioMensualEfectivo({ plan: c.plan, precioAcordado: c.precioAcordado }, priceMap)
 
     if (estado === 'AL_DIA' && c.plan !== 'TRIAL') {
       mrr += precio
