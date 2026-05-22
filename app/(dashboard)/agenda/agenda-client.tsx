@@ -105,6 +105,35 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
   const [updating, setUpdating] = useState(false)
   const [saving,   setSaving]   = useState(false)
 
+  // Mobile-only state: drawer de filtros + día seleccionado en la vista lista.
+  const [showSidebar, setShowSidebar] = useState(false)
+  const [mobileDate, setMobileDate] = useState<Date>(() => {
+    const d = new Date()
+    d.setHours(0, 0, 0, 0)
+    return d
+  })
+
+  function mobileShiftDay(dir: -1 | 1) {
+    setMobileDate(prev => {
+      const d = new Date(prev)
+      d.setDate(d.getDate() + dir)
+      return d
+    })
+  }
+
+  // Citas del día seleccionado (vista mobile)
+  const mobileCitasDia = useMemo(() => {
+    const start = new Date(mobileDate); start.setHours(0, 0, 0, 0)
+    const end = new Date(mobileDate); end.setHours(23, 59, 59, 999)
+    return citas
+      .filter(c => statusFilter.has(c.estado) && (doctorFilter === 'todos' || c.doctorId === doctorFilter))
+      .filter(c => {
+        const t = new Date(c.start)
+        return t >= start && t <= end
+      })
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+  }, [citas, statusFilter, doctorFilter, mobileDate])
+
   const [darCita, setDarCita] = useState<{
     step: 1 | 2
     slotISO: string
@@ -289,9 +318,29 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
   }
 
   return (
-    <div className="flex h-[calc(100vh-60px)] overflow-hidden bg-slate-50">
+    <div className="flex h-[calc(100vh-60px)] overflow-hidden bg-slate-50 relative">
+      {/* Overlay para cerrar el drawer en mobile */}
+      {showSidebar && (
+        <div
+          onClick={() => setShowSidebar(false)}
+          className="md:hidden fixed inset-0 bg-black/40 z-30"
+        />
+      )}
       {/* ── LEFT PANEL ── */}
-      <div className="w-52 flex-shrink-0 bg-white border-r border-slate-100 flex flex-col gap-5 p-4 overflow-y-auto shadow-sm">
+      <div className={cn(
+        'w-64 md:w-52 flex-shrink-0 bg-white border-r border-slate-100 flex flex-col gap-5 p-4 overflow-y-auto shadow-sm',
+        'fixed md:relative inset-y-0 left-0 z-40 md:z-auto transition-transform duration-200 ease-out',
+        showSidebar ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
+      )}>
+        {/* Header solo mobile: título + cerrar */}
+        <div className="md:hidden flex items-center justify-between -mt-1 mb-1 pb-3 border-b border-slate-100">
+          <p className="text-sm font-semibold text-slate-700">Filtros</p>
+          <button onClick={() => setShowSidebar(false)} className="p-1 text-slate-400 hover:text-slate-600">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
         <div>
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2.5">Estado de la cita</p>
           <div className="space-y-2">
@@ -337,10 +386,9 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
 
       {/* ── CALENDAR ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Header */}
-        <div className="bg-white border-b border-slate-100 px-5 py-3 flex items-center justify-between flex-shrink-0">
+        {/* Header — desktop */}
+        <div className="hidden md:flex bg-white border-b border-slate-100 px-5 py-3 items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">
-            {/* Prev / Today / Next */}
             <button onClick={() => calRef.current?.getApi().prev()}
               className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500 transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
@@ -354,7 +402,6 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
 
-            {/* View toggle */}
             <div className="flex bg-slate-100 rounded-lg p-0.5 ml-2">
               <button
                 onClick={() => changeView('timeGridWeek')}
@@ -378,8 +425,107 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
           </button>
         </div>
 
-        {/* FullCalendar */}
-        <div className="flex-1 overflow-auto bg-white">
+        {/* Header — mobile: filtros + navegación de día */}
+        <div className="md:hidden bg-white border-b border-slate-100 px-3 py-2.5 flex-shrink-0 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <button onClick={() => setShowSidebar(true)}
+              className="flex items-center gap-1.5 text-xs font-medium text-slate-700 border border-slate-200 rounded-lg px-2.5 py-1.5">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+              </svg>
+              Filtros
+              {(statusFilter.size < Object.keys(ESTADO_CONFIG).length || doctorFilter !== 'todos') && (
+                <span className="w-1.5 h-1.5 rounded-full bg-cyan-500" />
+              )}
+            </button>
+            <button onClick={() => handleDateClick({ date: new Date() })}
+              className="flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              Nueva cita
+            </button>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <button onClick={() => mobileShiftDay(-1)}
+              className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+            </button>
+            <div className="flex-1 text-center">
+              <p className="text-sm font-semibold text-slate-900 capitalize">
+                {mobileDate.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </p>
+              <button
+                onClick={() => {
+                  const d = new Date(); d.setHours(0, 0, 0, 0); setMobileDate(d)
+                }}
+                className="text-[11px] text-cyan-600 underline">
+                Hoy
+              </button>
+            </div>
+            <button onClick={() => mobileShiftDay(1)}
+              className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Vista lista — solo mobile */}
+        <div className="md:hidden flex-1 overflow-y-auto bg-slate-50 p-3 space-y-2">
+          {mobileCitasDia.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center">
+              <svg className="w-10 h-10 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <p className="text-sm text-slate-500">Sin citas para este día</p>
+              <button onClick={() => handleDateClick({ date: new Date(mobileDate.getTime() + 9 * 3600 * 1000) })}
+                className="mt-3 text-xs text-cyan-600 underline">
+                + Agendar
+              </button>
+            </div>
+          ) : (
+            mobileCitasDia.map(c => {
+              const cfg = ESTADO_CONFIG[c.estado] ?? { label: c.estado, color: '#64748b', bg: '#f1f5f9', text: '#334155' }
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => { setSelectedCita(c); setShowHistorial(false) }}
+                  className="w-full text-left bg-white rounded-2xl border border-slate-100 shadow-sm active:scale-[0.99] transition-transform"
+                >
+                  <div className="flex items-stretch">
+                    <div className="w-1.5 rounded-l-2xl flex-shrink-0" style={{ backgroundColor: cfg.color }} />
+                    <div className="flex-1 p-3.5 min-w-0">
+                      <div className="flex items-start justify-between gap-2 mb-1.5">
+                        <div className="min-w-0">
+                          <p className="font-mono text-[11px] font-semibold text-slate-500">
+                            {formatTime(c.start)} – {formatTime(c.end)}
+                          </p>
+                          <p className="font-semibold text-slate-900 truncate">
+                            {c.confirmadoWA && <span className="text-emerald-500 mr-1">✓</span>}
+                            {c.pacienteNombre}
+                          </p>
+                        </div>
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap flex-shrink-0"
+                          style={{ backgroundColor: cfg.bg, color: cfg.text }}>
+                          {cfg.label}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 space-y-0.5">
+                        <p className="truncate">
+                          <span className="text-slate-400">Dr.</span> {c.doctor ?? '—'}
+                        </p>
+                        {c.tipo && c.tipo !== 'CONSULTA' && (
+                          <p className="truncate"><span className="text-slate-400">Motivo:</span> {c.tipo}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              )
+            })
+          )}
+        </div>
+
+        {/* FullCalendar — solo desktop */}
+        <div className="hidden md:block flex-1 overflow-auto bg-white">
           <style>{`
             .fc { font-family: inherit; }
             .fc .fc-toolbar { display: none !important; }
@@ -521,14 +667,14 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
 
       {/* ── MODAL: Dar cita — PASO 2 ── */}
       {darCita?.step === 2 && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex overflow-hidden" style={{ maxHeight: '90vh' }}>
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-2 md:p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl flex flex-col md:flex-row overflow-hidden" style={{ maxHeight: '95vh' }}>
             {/* Left: radio tabs */}
-            <div className="w-52 flex-shrink-0 bg-slate-50 border-r border-slate-200 p-5 flex flex-col gap-3">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Tipo de paciente</p>
+            <div className="md:w-52 flex-shrink-0 bg-slate-50 border-b md:border-b-0 md:border-r border-slate-200 p-3 md:p-5 flex md:flex-col gap-2 md:gap-3">
+              <p className="hidden md:block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">Tipo de paciente</p>
               {(['existente', 'nuevo'] as const).map(mode => (
                 <label key={mode}
-                  className={cn('flex items-center gap-2.5 p-3 rounded-xl border-2 cursor-pointer transition-all',
+                  className={cn('flex-1 md:flex-initial flex items-center gap-2.5 p-2.5 md:p-3 rounded-xl border-2 cursor-pointer transition-all',
                     darCita.mode === mode ? 'border-cyan-500 bg-cyan-50' : 'border-slate-200 bg-white hover:border-slate-300')}>
                   <div className={cn('w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0',
                     darCita.mode === mode ? 'border-cyan-500' : 'border-slate-300')}>
@@ -537,7 +683,8 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
                   <input type="radio" className="sr-only" checked={darCita.mode === mode}
                     onChange={() => setDarCita(d => d ? { ...d, mode, pacienteId: '', search: '' } : d)} />
                   <span className="text-sm font-medium text-slate-700">
-                    {mode === 'existente' ? 'Paciente existente' : 'Paciente nuevo'}
+                    <span className="md:hidden">{mode === 'existente' ? 'Existente' : 'Nuevo'}</span>
+                    <span className="hidden md:inline">{mode === 'existente' ? 'Paciente existente' : 'Paciente nuevo'}</span>
                   </span>
                 </label>
               ))}
