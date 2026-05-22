@@ -5,6 +5,19 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { AccesoClinicaCard } from '../acceso-clinica'
 import { ResetAdminPasswordCard } from '../reset-pass-card'
+import { SuscripcionPanel } from './suscripcion-panel'
+import type { EstadoPago } from '@/lib/billing'
+
+type Pago = {
+  id: string
+  fechaPago: string
+  monto: number
+  periodoDesde: string
+  periodoHasta: string
+  metodoPago: string
+  comprobante: string | null
+  notas: string | null
+}
 
 type Clinica = {
   id: string; slug: string; nombre: string
@@ -13,6 +26,11 @@ type Clinica = {
   plan: string; activo: boolean
   trialHasta: string | null; createdAt: string; updatedAt: string
   precioMensual: number
+  proximoCobro: string | null
+  cicloFacturacion: string | null
+  precioAcordado: number | null
+  notasInternas: string | null
+  estadoPago: EstadoPago
   stats: {
     usuarios: number; pacientes: number
     pacientesConAgenda: number; pacientesSinAgenda: number
@@ -22,6 +40,7 @@ type Clinica = {
   }
   storage: { bytesUsados: number; cuotaBytes: number }
   adminInicial: { name: string | null; email: string | null; role: string; createdAt: string } | null
+  pagos: Pago[]
 }
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
@@ -32,12 +51,6 @@ function fmtBytes(n: number): string {
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(n) / Math.log(1024))
   return `${(n / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
-}
-
-function daysUntil(iso: string | null): number | null {
-  if (!iso) return null
-  const ms = new Date(iso).getTime() - Date.now()
-  return Math.ceil(ms / (1000 * 60 * 60 * 24))
 }
 
 export function ClinicaDetailClient({
@@ -98,7 +111,6 @@ export function ClinicaDetailClient({
     } finally { setSaving(false) }
   }
 
-  const trialDias = daysUntil(c.trialHasta)
   const storagePct = c.storage.cuotaBytes > 0 ? (c.storage.bytesUsados / c.storage.cuotaBytes) * 100 : 0
 
   return (
@@ -148,45 +160,19 @@ export function ClinicaDetailClient({
         <ResetAdminPasswordCard clinicaId={c.id} />
       </div>
 
-      {/* SUSCRIPCIÓN / PLAN */}
-      <section className="bg-gradient-to-br from-purple-500/10 to-fuchsia-500/10 border border-purple-500/30 rounded-2xl p-6 mb-6">
-        <h2 className="font-semibold mb-4 flex items-center gap-2">
-          <svg className="w-5 h-5 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
-          </svg>
-          Suscripción a la plataforma
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-purple-300/70">Plan actual</p>
-            <p className="text-2xl font-bold mt-1">{c.plan}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wider text-purple-300/70">Cobro mensual</p>
-            <p className="text-2xl font-bold mt-1">{c.precioMensual > 0 ? fmtCLP(c.precioMensual) : 'Sin cobro'}</p>
-            {c.precioMensual > 0 && <p className="text-xs text-purple-300/60 mt-1">Estimado · Pasarela pendiente (Fase 4)</p>}
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-wider text-purple-300/70">
-              {c.plan === 'TRIAL' ? 'Trial vence' : 'Próximo cobro'}
-            </p>
-            {c.plan === 'TRIAL' ? (
-              c.trialHasta ? (
-                <>
-                  <p className="text-2xl font-bold mt-1">{fmtDate(c.trialHasta)}</p>
-                  {trialDias !== null && (
-                    <p className={`text-xs mt-1 ${trialDias <= 5 ? 'text-amber-300' : 'text-purple-300/70'}`}>
-                      {trialDias > 0 ? `${trialDias} días restantes` : `Vencido hace ${-trialDias} días`}
-                    </p>
-                  )}
-                </>
-              ) : <p className="text-2xl font-bold mt-1">—</p>
-            ) : (
-              <p className="text-sm text-purple-300/70 mt-2">Pasarela de pagos pendiente</p>
-            )}
-          </div>
-        </div>
-      </section>
+      {/* SUSCRIPCIÓN / PLAN / PAGOS */}
+      <SuscripcionPanel data={{
+        id: c.id,
+        plan: c.plan,
+        activo: c.activo,
+        trialHasta: c.trialHasta,
+        proximoCobro: c.proximoCobro,
+        cicloFacturacion: c.cicloFacturacion,
+        precioAcordado: c.precioAcordado,
+        precioMensual: c.precioMensual,
+        estadoPago: c.estadoPago,
+        pagos: c.pagos,
+      }} />
 
       {/* RESUMEN DE PACIENTES */}
       <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">

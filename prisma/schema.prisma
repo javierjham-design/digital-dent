@@ -27,6 +27,14 @@ model Clinica {
   plan        String   @default("TRIAL")
   activo      Boolean  @default(true)
   trialHasta  DateTime?
+
+  // Facturación de la suscripción a la plataforma (gestionado por super-admin).
+  // El estado de pago se deriva de proximoCobro/trialHasta/activo (ver lib/billing.ts).
+  cicloFacturacion String    @default("MENSUAL") // MENSUAL | ANUAL
+  precioAcordado   Float?    // override del precio del plan (negociación particular)
+  proximoCobro     DateTime? // siguiente vencimiento; null si TRIAL o sin definir
+  notasInternas    String?   // notas privadas del super-admin sobre la cuenta
+
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -46,6 +54,27 @@ model Clinica {
   horarios      HorarioDoctor[]
   comentariosAdmin ComentarioAdministrativo[]
   mensajes         MensajePaciente[]
+  pagosSuscripcion PagoSuscripcion[]
+}
+
+// Pago de suscripción que recibe la plataforma desde una clínica.
+// Registro manual hasta que exista pasarela (Fase 4): el super-admin marca
+// la transferencia/depósito recibido, y la plataforma recalcula próximoCobro.
+model PagoSuscripcion {
+  id            String   @id @default(cuid())
+  clinicaId     String
+  fechaPago     DateTime @default(now())
+  monto         Float
+  periodoDesde  DateTime
+  periodoHasta  DateTime
+  metodoPago    String   // TRANSFERENCIA | WEBPAY | EFECTIVO | OTRO
+  comprobante   String?  // referencia, número de op, o URL del recibo
+  notas         String?
+  registradoPor String?  // user id del super-admin que registró el pago
+  createdAt     DateTime @default(now())
+  clinica       Clinica  @relation(fields: [clinicaId], references: [id])
+
+  @@index([clinicaId, fechaPago])
 }
 
 // LEGACY: se mantiene durante la migración a multi-tenant.

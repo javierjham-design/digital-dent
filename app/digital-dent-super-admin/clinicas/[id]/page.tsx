@@ -2,7 +2,7 @@ export const dynamic = 'force-dynamic'
 
 import { notFound } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
-import { PLAN_PRICES } from '@/lib/plans'
+import { getEstadoPago, precioMensualEfectivo } from '@/lib/billing'
 import { ClinicaDetailClient } from './clinica-detail-client'
 
 export default async function ClinicaDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -18,6 +18,7 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
     cobrosAgg,
     cobrosUltimos90Dias,
     adminInicial,
+    pagosSuscripcion,
   ] = await Promise.all([
     prisma.user.count({ where: { clinicaId: id, activo: true } }),
     prisma.paciente.count({ where: { clinicaId: id, activo: true } }),
@@ -36,6 +37,10 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
       orderBy: { createdAt: 'asc' },
       select: { name: true, email: true, role: true, createdAt: true, passwordChangedAt: true, username: true },
     }),
+    prisma.pagoSuscripcion.findMany({
+      where: { clinicaId: id },
+      orderBy: { fechaPago: 'desc' },
+    }),
   ])
 
   const pacientesSinAgenda = totalPacientes - pacientesConAgenda
@@ -46,7 +51,16 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
     cuotaBytes: clinica.plan === 'PRO' ? 50 * 1024 ** 3 : clinica.plan === 'BASICO' ? 10 * 1024 ** 3 : 1 * 1024 ** 3,
   }
 
-  const precioMensual = PLAN_PRICES[clinica.plan] ?? 0
+  const billingInput = {
+    plan: clinica.plan,
+    activo: clinica.activo,
+    trialHasta: clinica.trialHasta,
+    proximoCobro: clinica.proximoCobro,
+    precioAcordado: clinica.precioAcordado,
+    cicloFacturacion: clinica.cicloFacturacion,
+  }
+  const precioMensual = precioMensualEfectivo(billingInput)
+  const estadoPago = getEstadoPago(billingInput)
   const platformDomain = process.env.PLATFORM_DOMAIN ?? null
   const passwordPendiente = adminInicial?.username === 'Administrador' && adminInicial?.passwordChangedAt == null
 
@@ -66,6 +80,11 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
         plan: clinica.plan,
         activo: clinica.activo,
         trialHasta: clinica.trialHasta?.toISOString() ?? null,
+        proximoCobro: clinica.proximoCobro?.toISOString() ?? null,
+        cicloFacturacion: clinica.cicloFacturacion,
+        precioAcordado: clinica.precioAcordado,
+        notasInternas: clinica.notasInternas,
+        estadoPago,
         createdAt: clinica.createdAt.toISOString(),
         updatedAt: clinica.updatedAt.toISOString(),
         precioMensual,
@@ -86,6 +105,16 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
           role: adminInicial.role,
           createdAt: adminInicial.createdAt.toISOString(),
         } : null,
+        pagos: pagosSuscripcion.map((p) => ({
+          id: p.id,
+          fechaPago: p.fechaPago.toISOString(),
+          monto: p.monto,
+          periodoDesde: p.periodoDesde.toISOString(),
+          periodoHasta: p.periodoHasta.toISOString(),
+          metodoPago: p.metodoPago,
+          comprobante: p.comprobante,
+          notas: p.notas,
+        })),
       }}
     />
   )

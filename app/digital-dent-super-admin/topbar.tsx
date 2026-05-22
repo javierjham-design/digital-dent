@@ -7,8 +7,9 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
 const NAV = [
-  { label: 'Dashboard', href: '/digital-dent-super-admin' },
-  { label: 'Clínicas',  href: '/digital-dent-super-admin/clinicas' },
+  { label: 'Dashboard',     href: '/digital-dent-super-admin' },
+  { label: 'Clínicas',      href: '/digital-dent-super-admin/clinicas' },
+  { label: 'Suscripciones', href: '/digital-dent-super-admin/suscripciones' },
 ]
 
 export function SuperAdminTopBar({ email, name }: { email: string; name: string }) {
