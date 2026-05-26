@@ -18,14 +18,27 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
   return NextResponse.json(liquidacion)
 }
 
+const ESTADOS_LIQ = ['BORRADOR', 'APROBADA', 'PAGADA']
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const u = await getSessionUser()
   if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await params
   const existing = await prisma.liquidacion.findFirst({ where: { id, clinicaId: u.clinicaId }, select: { id: true } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
   const body = await req.json()
-  if (body.fechaPago) body.fechaPago = new Date(body.fechaPago)
-  const liquidacion = await prisma.liquidacion.update({ where: { id }, data: body })
+  const data: Record<string, unknown> = {}
+
+  if (body.estado !== undefined) {
+    if (!ESTADOS_LIQ.includes(body.estado)) {
+      return NextResponse.json({ error: `estado inválido. Use: ${ESTADOS_LIQ.join(', ')}` }, { status: 400 })
+    }
+    data.estado = body.estado
+  }
+  if (body.notas !== undefined) data.notas = body.notas ? String(body.notas) : null
+  if (body.fechaPago !== undefined) data.fechaPago = body.fechaPago ? new Date(body.fechaPago) : null
+
+  const liquidacion = await prisma.liquidacion.update({ where: { id }, data })
   return NextResponse.json(liquidacion)
 }

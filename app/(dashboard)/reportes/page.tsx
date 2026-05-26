@@ -1,12 +1,13 @@
 export const dynamic = 'force-dynamic'
 
+import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import { ReportesClient } from './reportes-client'
 
 export default async function ReportesPage() {
   const u = await getSessionUser()
-  if (!u?.clinicaId) return null
+  if (!u?.clinicaId) redirect('/login')
 
   const doctores = await prisma.user.findMany({
     where: { clinicaId: u.clinicaId, role: 'doctor', activo: true },

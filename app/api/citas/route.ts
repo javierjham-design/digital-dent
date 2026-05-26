@@ -25,6 +25,18 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const userName = u.name ?? u.email ?? 'Sistema'
 
+  if (!body.pacienteId || !body.doctorId || !body.fecha) {
+    return NextResponse.json({ error: 'Faltan campos requeridos (pacienteId, doctorId, fecha)' }, { status: 400 })
+  }
+
+  // Verificar que paciente y doctor pertenezcan a la clínica del usuario.
+  const [paciente, doctor] = await Promise.all([
+    prisma.paciente.findFirst({ where: { id: body.pacienteId, clinicaId: u.clinicaId }, select: { id: true } }),
+    prisma.user.findFirst({ where: { id: body.doctorId, clinicaId: u.clinicaId, activo: true }, select: { id: true } }),
+  ])
+  if (!paciente) return NextResponse.json({ error: 'Paciente no existe en esta clínica' }, { status: 404 })
+  if (!doctor) return NextResponse.json({ error: 'Doctor no existe en esta clínica' }, { status: 404 })
+
   const cita = await prisma.cita.create({
     data: {
       clinicaId:  u.clinicaId,
