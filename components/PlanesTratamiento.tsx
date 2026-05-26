@@ -1072,9 +1072,24 @@ function FormAgregarAccion({
   const resultados = useMemo(() => {
     if (!busqueda.trim()) return prestaciones.slice(0, 20)
     const q = busqueda.toLowerCase()
-    return prestaciones
-      .filter((p) => p.nombre.toLowerCase().includes(q) || (p.categoria ?? '').toLowerCase().includes(q))
-      .slice(0, 20)
+
+    // Ranking: matches por NOMBRE primero (con prefix > substring),
+    // y solo después matches que coincidan solo por categoría.
+    type Ranked = { p: Prestacion; score: number }
+    const ranked: Ranked[] = []
+    for (const p of prestaciones) {
+      const nombre = p.nombre.toLowerCase()
+      const categoria = (p.categoria ?? '').toLowerCase()
+      let score = 0
+      if (nombre === q) score = 100
+      else if (nombre.startsWith(q)) score = 80
+      else if (nombre.includes(q)) score = 60
+      else if (categoria.startsWith(q)) score = 30
+      else if (categoria.includes(q)) score = 20
+      if (score > 0) ranked.push({ p, score })
+    }
+    ranked.sort((a, b) => b.score - a.score || a.p.nombre.localeCompare(b.p.nombre, 'es'))
+    return ranked.slice(0, 20).map((r) => r.p)
   }, [busqueda, prestaciones])
 
   function elegir(p: Prestacion) {

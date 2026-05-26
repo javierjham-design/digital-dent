@@ -194,12 +194,12 @@ export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, p
 function IndicadorMedico({ icon, label, valor }: { icon: string; label: string; valor: string | null | undefined }) {
   const tiene = !!valor
   return (
-    <div className={`rounded-xl px-3 py-2 text-xs ${tiene ? 'bg-red-500/20 border border-red-300/30' : 'bg-white/10 border border-white/20'}`}>
-      <div className="flex items-center gap-1.5 mb-0.5">
-        <span className="text-base">{icon}</span>
-        <span className="font-medium text-white">{label}</span>
+    <div className={`rounded-xl px-2.5 py-2 text-xs min-w-0 overflow-hidden ${tiene ? 'bg-red-500/20 border border-red-300/30' : 'bg-white/10 border border-white/20'}`}>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:gap-1.5 mb-0.5">
+        <span className="text-base leading-none">{icon}</span>
+        <span className="font-medium text-white text-[11px] sm:text-xs leading-tight break-words">{label}</span>
       </div>
-      <p className={`${tiene ? 'text-white' : 'text-cyan-100/70'} truncate`}>{tiene ? valor : 'Sin información'}</p>
+      <p className={`${tiene ? 'text-white' : 'text-cyan-100/70'} truncate text-[11px] sm:text-xs`}>{tiene ? valor : 'Sin info'}</p>
     </div>
   )
 }

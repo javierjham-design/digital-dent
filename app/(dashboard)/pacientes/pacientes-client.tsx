@@ -181,7 +181,8 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
-        <div className="grid grid-cols-12 px-4 py-3 bg-cyan-700 text-white text-xs font-semibold uppercase tracking-wider">
+        {/* Header de tabla — solo desktop */}
+        <div className="hidden md:grid grid-cols-12 px-4 py-3 bg-cyan-700 text-white text-xs font-semibold uppercase tracking-wider">
           <div className="col-span-1">#</div>
           <div className="col-span-4">Nombre</div>
           <div className="col-span-4">Apellidos</div>
@@ -203,21 +204,46 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
                 <div key={p.id}>
                   <button
                     onClick={() => toggleExpand(p.id)}
-                    className={`w-full grid grid-cols-12 px-4 py-3.5 text-left hover:bg-slate-50 transition-colors text-sm ${isOpen ? 'bg-cyan-50/40 border-l-4 border-cyan-500' : ''}`}
+                    className={`w-full text-left hover:bg-slate-50 transition-colors text-sm ${isOpen ? 'bg-cyan-50/40 border-l-4 border-cyan-500' : ''}`}
                   >
-                    <div className="col-span-1 text-slate-500 font-mono">{p.numero || '—'}</div>
-                    <div className="col-span-4 font-medium text-slate-800 truncate">{p.nombre}</div>
-                    <div className="col-span-4 text-slate-700 truncate">{p.apellido}</div>
-                    <div className="col-span-2">
-                      {p.prevision
-                        ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${PREVISION_COLORS[p.prevision] ?? 'bg-slate-100 text-slate-700'}`}>{p.prevision}</span>
-                        : <span className="text-slate-400 text-xs">—</span>}
-                    </div>
-                    <div className="col-span-1 flex justify-end items-center">
+                    {/* Layout MOBILE: stack vertical con nombre + previsión + chevron */}
+                    <div className="md:hidden flex items-center gap-3 px-4 py-3">
+                      <div className="flex-shrink-0 w-10 h-10 rounded-full bg-cyan-100 text-cyan-700 flex items-center justify-center text-xs font-bold">
+                        {p.nombre[0]}{p.apellido[0]}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-slate-900 truncate">{p.nombre} {p.apellido}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-xs font-mono text-slate-400">#{p.numero || '—'}</span>
+                          {p.prevision && (
+                            <span className={`px-1.5 py-0 rounded-full text-[10px] font-medium ${PREVISION_COLORS[p.prevision] ?? 'bg-slate-100 text-slate-700'}`}>
+                              {p.prevision}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                       <Link href={`/pacientes/${p.id}`} onClick={(e) => e.stopPropagation()}
-                        className="p-1.5 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg">
+                        className="flex-shrink-0 p-2 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
                       </Link>
+                    </div>
+
+                    {/* Layout DESKTOP: grid 12 columnas */}
+                    <div className="hidden md:grid grid-cols-12 px-4 py-3.5 items-center">
+                      <div className="col-span-1 text-slate-500 font-mono">{p.numero || '—'}</div>
+                      <div className="col-span-4 font-medium text-slate-800 truncate">{p.nombre}</div>
+                      <div className="col-span-4 text-slate-700 truncate">{p.apellido}</div>
+                      <div className="col-span-2">
+                        {p.prevision
+                          ? <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${PREVISION_COLORS[p.prevision] ?? 'bg-slate-100 text-slate-700'}`}>{p.prevision}</span>
+                          : <span className="text-slate-400 text-xs">—</span>}
+                      </div>
+                      <div className="col-span-1 flex justify-end items-center">
+                        <Link href={`/pacientes/${p.id}`} onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 rounded-lg">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                        </Link>
+                      </div>
                     </div>
                   </button>
 
