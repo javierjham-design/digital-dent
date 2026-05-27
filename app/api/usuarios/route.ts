@@ -10,7 +10,7 @@ export async function GET() {
     where: { clinicaId: u.clinicaId },
     orderBy: { name: 'asc' },
     select: {
-      id: true, name: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true,
+      id: true, name: true, username: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true,
       puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
       createdAt: true,
     },
@@ -19,6 +19,14 @@ export async function GET() {
 }
 
 const ROLES_PERMITIDOS = ['admin', 'doctor', 'staff']
+const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,30}$/
+
+function normalizeUsername(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const s = raw.trim().toLowerCase()
+  if (!s) return null
+  return s
+}
 
 export async function POST(req: NextRequest) {
   const u = await getSessionUser()
@@ -26,10 +34,24 @@ export async function POST(req: NextRequest) {
   if (u.role !== 'admin') return NextResponse.json({ error: 'Solo admin' }, { status: 403 })
 
   const body = await req.json()
-  const { name, email, password, role, rut, especialidad, telefono } = body
+  const { name, password, role, rut, especialidad, telefono } = body
 
-  if (!name || !email || !password) return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 })
-  if (typeof password !== 'string' || password.length < 6) {
+  if (!name) return NextResponse.json({ error: 'Falta el nombre' }, { status: 400 })
+
+  const username = normalizeUsername(body.username)
+  if (!username) {
+    return NextResponse.json({ error: 'Falta el nombre de usuario (login)' }, { status: 400 })
+  }
+  if (!USERNAME_RE.test(username)) {
+    return NextResponse.json({
+      error: 'El nombre de usuario solo puede tener letras, números, puntos, guiones y guiones bajos (2 a 31 caracteres, sin espacios ni acentos).',
+    }, { status: 400 })
+  }
+
+  // Email es opcional. Si viene, normalizamos a null si está vacío.
+  const email = typeof body.email === 'string' && body.email.trim() ? body.email.trim().toLowerCase() : null
+
+  if (!password || typeof password !== 'string' || password.length < 6) {
     return NextResponse.json({ error: 'Password debe tener al menos 6 caracteres' }, { status: 400 })
   }
 
@@ -38,22 +60,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `role inválido. Use: ${ROLES_PERMITIDOS.join(', ')}` }, { status: 400 })
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } })
-  if (existing) return NextResponse.json({ error: 'Ya existe un usuario con ese email' }, { status: 409 })
+  // username único POR CLÍNICA (constraint compuesto en el schema)
+  const existsUsername = await prisma.user.findFirst({
+    where: { clinicaId: u.clinicaId, username },
+    select: { id: true },
+  })
+  if (existsUsername) {
+    return NextResponse.json({ error: `Ya existe un usuario "${username}" en esta clínica` }, { status: 409 })
+  }
+
+  // email único globalmente solo si viene
+  if (email) {
+    const existsEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } })
+    if (existsEmail) return NextResponse.json({ error: 'Ya existe un usuario con ese email' }, { status: 409 })
+  }
 
   const hashed = await bcrypt.hash(password, 10)
   const usuario = await prisma.user.create({
     data: {
       clinicaId: u.clinicaId,
-      name, email, password: hashed,
+      name,
+      username,
+      email,
+      password: hashed,
       role: roleFinal,
       rut: rut || null,
       especialidad: especialidad || null,
       telefono: telefono || null,
-      // Nunca permitir crear platform-admins desde esta ruta
       isPlatformAdmin: false,
     },
-    select: { id: true, name: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true, createdAt: true },
+    select: { id: true, name: true, username: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true, createdAt: true },
   })
   return NextResponse.json(usuario, { status: 201 })
 }

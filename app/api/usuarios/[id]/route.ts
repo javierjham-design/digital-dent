@@ -4,13 +4,14 @@ import { getSessionUser } from '@/lib/auth'
 import bcrypt from 'bcryptjs'
 
 const ROLES_PERMITIDOS = ['admin', 'doctor', 'staff']
+const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,30}$/
 
 // Campos que un usuario puede editar de sí mismo (no admin)
 const CAMPOS_PROPIOS = ['name', 'rut', 'especialidad', 'telefono'] as const
 
 // Campos adicionales que solo un admin puede editar
 const CAMPOS_ADMIN = [
-  'name', 'email', 'role', 'rut', 'especialidad', 'telefono', 'activo',
+  'name', 'username', 'email', 'role', 'rut', 'especialidad', 'telefono', 'activo',
   'puedeRecibirPagos', 'puedeModificarPrecio', 'puedeAplicarDescuento', 'puedeRevertirCompletado',
 ] as const
 
@@ -36,16 +37,43 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (body[key] !== undefined) data[key] = body[key]
   }
 
-  // Validaciones específicas
+  // Normalizaciones / validaciones
   if ('role' in data) {
     if (!ROLES_PERMITIDOS.includes(data.role as string)) {
       return NextResponse.json({ error: `role inválido. Use: ${ROLES_PERMITIDOS.join(', ')}` }, { status: 400 })
     }
   }
-  if ('email' in data && data.email) {
-    const otro = await prisma.user.findUnique({ where: { email: data.email as string }, select: { id: true } })
-    if (otro && otro.id !== id) {
-      return NextResponse.json({ error: 'Ya existe otro usuario con ese email' }, { status: 409 })
+
+  if ('username' in data) {
+    if (data.username === null || data.username === '') {
+      return NextResponse.json({ error: 'El nombre de usuario no puede quedar vacío' }, { status: 400 })
+    }
+    const username = String(data.username).trim().toLowerCase()
+    if (!USERNAME_RE.test(username)) {
+      return NextResponse.json({
+        error: 'El nombre de usuario solo puede tener letras, números, puntos, guiones y guiones bajos (2 a 31 caracteres, sin espacios ni acentos).',
+      }, { status: 400 })
+    }
+    const otro = await prisma.user.findFirst({
+      where: { clinicaId: u.clinicaId, username, NOT: { id } },
+      select: { id: true },
+    })
+    if (otro) {
+      return NextResponse.json({ error: `Ya existe otro usuario "${username}" en esta clínica` }, { status: 409 })
+    }
+    data.username = username
+  }
+
+  if ('email' in data) {
+    if (data.email === null || data.email === '') {
+      data.email = null
+    } else {
+      const email = String(data.email).trim().toLowerCase()
+      const otro = await prisma.user.findUnique({ where: { email }, select: { id: true } })
+      if (otro && otro.id !== id) {
+        return NextResponse.json({ error: 'Ya existe otro usuario con ese email' }, { status: 409 })
+      }
+      data.email = email
     }
   }
 
@@ -62,7 +90,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     where: { id },
     data,
     select: {
-      id: true, name: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true,
+      id: true, name: true, username: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true,
       puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
       createdAt: true,
     },

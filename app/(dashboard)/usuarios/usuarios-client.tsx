@@ -25,9 +25,9 @@ const DEFAULT_DIAS = [
 
 interface Horario { id?: string; doctorId: string; diaSemana: number; horaInicio: string; horaFin: string; activo: boolean }
 interface Contrato { id: string; doctorId: string; tipo: string; porcentaje: number | null; montoFijo: number | null; descripcion: string | null; fechaInicio: string; fechaFin: string | null; activo: boolean }
-interface Usuario { id: string; name: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean; createdAt: string; contratos: Contrato[] }
+interface Usuario { id: string; name: string | null; username: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean; createdAt: string; contratos: Contrato[] }
 
-const emptyUser     = { name: '', email: '', password: '', role: 'doctor', rut: '', especialidad: '', telefono: '' }
+const emptyUser     = { name: '', username: '', email: '', password: '', role: 'doctor', rut: '', especialidad: '', telefono: '' }
 const emptyContrato = { doctorId: '', tipo: 'PORCENTAJE', porcentaje: '', montoFijo: '', descripcion: '', fechaInicio: '', fechaFin: '' }
 
 export function UsuariosClient({
@@ -53,29 +53,37 @@ export function UsuariosClient({
   const [contratoForm, setContratoForm] = useState(emptyContrato)
   const [horarioForm,  setHorarioForm]  = useState(DEFAULT_DIAS)
   const [saving, setSaving] = useState(false)
+  const [userFormError, setUserFormError] = useState('')
 
   // ── Usuarios ─────────────────────────────────────────────────────────────
-  function openNewUser() { setEditingUser(null); setUserForm(emptyUser); setShowUserModal(true) }
+  function openNewUser() { setEditingUser(null); setUserForm(emptyUser); setUserFormError(''); setShowUserModal(true) }
   function openEditUser(u: Usuario) {
     setEditingUser(u)
-    setUserForm({ name: u.name ?? '', email: u.email ?? '', password: '', role: u.role, rut: u.rut ?? '', especialidad: u.especialidad ?? '', telefono: u.telefono ?? '' })
+    setUserForm({ name: u.name ?? '', username: u.username ?? '', email: u.email ?? '', password: '', role: u.role, rut: u.rut ?? '', especialidad: u.especialidad ?? '', telefono: u.telefono ?? '' })
+    setUserFormError('')
     setShowUserModal(true)
   }
 
   async function saveUser(e: React.FormEvent) {
-    e.preventDefault(); setSaving(true)
-    const payload: Record<string, unknown> = { name: userForm.name, email: userForm.email, role: userForm.role, rut: userForm.rut || null, especialidad: userForm.especialidad || null, telefono: userForm.telefono || null }
-    if (!editingUser || userForm.password) payload.password = userForm.password
-    if (editingUser) {
-      const res = await fetch(`/api/usuarios/${editingUser.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      const updated = await res.json()
-      setUsuarios(p => p.map(u => u.id === updated.id ? { ...u, ...updated } : u))
-    } else {
-      const res = await fetch('/api/usuarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
-      const created = await res.json()
-      setUsuarios(p => [...p, { ...created, contratos: [] }])
-    }
-    setSaving(false); setShowUserModal(false)
+    e.preventDefault(); setSaving(true); setUserFormError('')
+    try {
+      const payload: Record<string, unknown> = { name: userForm.name, username: userForm.username.trim() || null, email: userForm.email.trim() || null, role: userForm.role, rut: userForm.rut || null, especialidad: userForm.especialidad || null, telefono: userForm.telefono || null }
+      if (!editingUser || userForm.password) payload.password = userForm.password
+      const res = editingUser
+        ? await fetch(`/api/usuarios/${editingUser.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        : await fetch('/api/usuarios', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setUserFormError(data.error ?? `Error ${res.status}`)
+        return
+      }
+      if (editingUser) {
+        setUsuarios(p => p.map(u => u.id === data.id ? { ...u, ...data } : u))
+      } else {
+        setUsuarios(p => [...p, { ...data, contratos: [] }])
+      }
+      setShowUserModal(false)
+    } finally { setSaving(false) }
   }
 
   async function toggleActivo(u: Usuario) {
@@ -212,7 +220,9 @@ export function UsuariosClient({
                         </div>
                         <div>
                           <p className="font-medium text-slate-900">{u.name ?? '—'}</p>
-                          <p className="text-xs text-slate-400">{u.email}</p>
+                          <p className="text-xs text-slate-400 font-mono">
+                            {u.username ? `@${u.username}` : (u.email ?? '—')}
+                          </p>
                         </div>
                       </div>
                     </td>
@@ -413,8 +423,19 @@ export function UsuariosClient({
                   <input required value={userForm.name} onChange={e => setUserForm({ ...userForm, name: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"/>
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Email *</label>
-                  <input required type="email" value={userForm.email} onChange={e => setUserForm({ ...userForm, email: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"/>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Nombre de usuario * <span className="font-normal text-slate-400">(login en la clínica)</span>
+                  </label>
+                  <input required value={userForm.username} onChange={e => setUserForm({ ...userForm, username: e.target.value.replace(/\s+/g, '') })}
+                    placeholder="ej: nicopabst" autoComplete="off"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 font-mono lowercase"/>
+                  <p className="text-xs text-slate-400 mt-1">Sin espacios, sin acentos. Es el usuario con el que el doctor accederá.</p>
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Email <span className="font-normal text-slate-400">(opcional)</span></label>
+                  <input type="email" value={userForm.email} onChange={e => setUserForm({ ...userForm, email: e.target.value })}
+                    placeholder="usuario@correo.cl"
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"/>
                 </div>
                 <div className="col-span-2">
                   <label className="block text-sm font-medium text-slate-700 mb-1">Contraseña {editingUser ? '(dejar vacío para no cambiar)' : '*'}</label>
@@ -441,6 +462,11 @@ export function UsuariosClient({
                   <input value={userForm.telefono} onChange={e => setUserForm({ ...userForm, telefono: e.target.value })} placeholder="+56 9 1234 5678" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"/>
                 </div>
               </div>
+              {userFormError && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm px-3 py-2 rounded-lg">
+                  {userFormError}
+                </div>
+              )}
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setShowUserModal(false)} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
                 <button type="submit" disabled={saving} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-400 text-white rounded-xl text-sm font-medium">{saving ? 'Guardando…' : editingUser ? 'Actualizar' : 'Crear usuario'}</button>
