@@ -13,6 +13,16 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(horarios)
 }
 
+interface DayInput {
+  diaSemana: number
+  horaInicio: string
+  horaFin: string
+  activo: boolean
+  sobrecupoActivo?: boolean
+  sobrecupoInicio?: string | null
+  sobrecupoFin?: string | null
+}
+
 export async function POST(req: NextRequest) {
   const u = await getSessionUser()
   if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -22,13 +32,24 @@ export async function POST(req: NextRequest) {
   if (!doctor) return NextResponse.json({ error: 'Doctor no encontrado' }, { status: 404 })
 
   const results = await Promise.all(
-    (days as { diaSemana: number; horaInicio: string; horaFin: string; activo: boolean }[]).map((day) =>
-      prisma.horarioDoctor.upsert({
+    (days as DayInput[]).map((day) => {
+      const sobrecupoActivo = Boolean(day.sobrecupoActivo)
+      const sobrecupoInicio = sobrecupoActivo ? (day.sobrecupoInicio || day.horaInicio) : null
+      const sobrecupoFin    = sobrecupoActivo ? (day.sobrecupoFin    || day.horaFin)    : null
+      return prisma.horarioDoctor.upsert({
         where: { doctorId_diaSemana: { doctorId, diaSemana: day.diaSemana } },
-        update: { horaInicio: day.horaInicio, horaFin: day.horaFin, activo: day.activo, clinicaId: u.clinicaId },
-        create: { clinicaId: u.clinicaId, doctorId, diaSemana: day.diaSemana, horaInicio: day.horaInicio, horaFin: day.horaFin, activo: day.activo },
+        update: {
+          horaInicio: day.horaInicio, horaFin: day.horaFin, activo: day.activo,
+          sobrecupoActivo, sobrecupoInicio, sobrecupoFin,
+          clinicaId: u.clinicaId,
+        },
+        create: {
+          clinicaId: u.clinicaId, doctorId, diaSemana: day.diaSemana,
+          horaInicio: day.horaInicio, horaFin: day.horaFin, activo: day.activo,
+          sobrecupoActivo, sobrecupoInicio, sobrecupoFin,
+        },
       })
-    )
+    })
   )
   return NextResponse.json(results)
 }

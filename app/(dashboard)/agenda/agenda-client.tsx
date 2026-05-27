@@ -35,6 +35,7 @@ interface Cita {
   pacienteTelefono: string | null; pacienteId: string
   doctorId: string; doctor: string | null
   start: string; end: string; estado: string; tipo: string; notas: string
+  sobrecupo: boolean
   confirmadoWA: boolean
   logs: CitaLog[]
 }
@@ -42,7 +43,11 @@ interface Cita {
 interface Horario {
   id: string; doctorId: string; diaSemana: number
   horaInicio: string; horaFin: string; activo: boolean
+  sobrecupoActivo?: boolean; sobrecupoInicio?: string | null; sobrecupoFin?: string | null
 }
+
+type AgendaView = 'diaria' | 'semanal' | 'global'
+type AgendaMode = 'base' | 'sobrecupo'
 
 interface ClinicConfig { clinica: string; direccion: string; ciudad: string; mensajeWA: string }
 
@@ -99,40 +104,18 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
   const calRef = useRef<FullCalendar>(null)
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(Object.keys(ESTADO_CONFIG)))
   const [doctorFilter, setDoctorFilter] = useState('todos')
-  const [currentView,  setCurrentView]  = useState<'timeGridWeek' | 'timeGridDay'>('timeGridWeek')
+  const [view, setView] = useState<AgendaView>('semanal')
+  const [agendaMode, setAgendaMode] = useState<AgendaMode>('base')
+  const [currentDate, setCurrentDate] = useState<Date>(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d
+  })
   const [selectedCita,   setSelectedCita]   = useState<Cita | null>(null)
   const [showHistorial,  setShowHistorial]  = useState(false)
   const [updating, setUpdating] = useState(false)
   const [saving,   setSaving]   = useState(false)
 
-  // Mobile-only state: drawer de filtros + día seleccionado en la vista lista.
+  // Drawer de filtros mobile
   const [showSidebar, setShowSidebar] = useState(false)
-  const [mobileDate, setMobileDate] = useState<Date>(() => {
-    const d = new Date()
-    d.setHours(0, 0, 0, 0)
-    return d
-  })
-
-  function mobileShiftDay(dir: -1 | 1) {
-    setMobileDate(prev => {
-      const d = new Date(prev)
-      d.setDate(d.getDate() + dir)
-      return d
-    })
-  }
-
-  // Citas del día seleccionado (vista mobile)
-  const mobileCitasDia = useMemo(() => {
-    const start = new Date(mobileDate); start.setHours(0, 0, 0, 0)
-    const end = new Date(mobileDate); end.setHours(23, 59, 59, 999)
-    return citas
-      .filter(c => statusFilter.has(c.estado) && (doctorFilter === 'todos' || c.doctorId === doctorFilter))
-      .filter(c => {
-        const t = new Date(c.start)
-        return t >= start && t <= end
-      })
-      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
-  }, [citas, statusFilter, doctorFilter, mobileDate])
 
   const [darCita, setDarCita] = useState<{
     step: 1 | 2
@@ -140,6 +123,7 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
     tipo: string
     duracion: number
     doctorId: string
+    sobrecupo: boolean
     mode: 'existente' | 'nuevo'
     search: string
     pacienteId: string
@@ -181,42 +165,48 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
   // ── Business hours for FullCalendar ──────────────────────────────────────
   const businessHours = useMemo(() => {
     const filtered = doctorFilter === 'todos'
-      ? horarios.filter(h => h.activo)
-      : horarios.filter(h => h.doctorId === doctorFilter && h.activo)
+      ? horarios.filter(h => agendaMode === 'sobrecupo' ? h.sobrecupoActivo : h.activo)
+      : horarios.filter(h => h.doctorId === doctorFilter && (agendaMode === 'sobrecupo' ? h.sobrecupoActivo : h.activo))
     if (filtered.length === 0) return false
     return filtered.map(h => ({
       daysOfWeek: [h.diaSemana],
-      startTime: h.horaInicio,
-      endTime: h.horaFin,
+      startTime: agendaMode === 'sobrecupo' ? (h.sobrecupoInicio ?? h.horaInicio) : h.horaInicio,
+      endTime:   agendaMode === 'sobrecupo' ? (h.sobrecupoFin    ?? h.horaFin)    : h.horaFin,
     }))
-  }, [horarios, doctorFilter])
+  }, [horarios, doctorFilter, agendaMode])
 
   // ── Filtered calendar events ─────────────────────────────────────────────
   const events = useMemo(() => citas
     .filter(c => statusFilter.has(c.estado) && (doctorFilter === 'todos' || c.doctorId === doctorFilter))
+    .filter(c => agendaMode === 'sobrecupo' ? c.sobrecupo : !c.sobrecupo)
     .map(c => ({
       id: c.id,
-      title: (c.confirmadoWA ? '✓ ' : '') + c.pacienteNombre,
+      title: (c.confirmadoWA ? '✓ ' : '') + (c.sobrecupo ? '⚠ ' : '') + c.pacienteNombre,
       start: c.start, end: c.end,
       backgroundColor: ESTADO_CONFIG[c.estado]?.color ?? '#0891b2',
-      borderColor: c.confirmadoWA ? '#15803d' : 'transparent',
+      borderColor: c.sobrecupo ? '#f59e0b' : (c.confirmadoWA ? '#15803d' : 'transparent'),
       textColor: '#fff',
       extendedProps: c,
     })),
-  [citas, statusFilter, doctorFilter])
+  [citas, statusFilter, doctorFilter, agendaMode])
+
+  // Conteos para badges
+  const countBase = useMemo(() => citas.filter(c => !c.sobrecupo).length, [citas])
+  const countSobre = useMemo(() => citas.filter(c => c.sobrecupo).length, [citas])
 
   // ── Handlers ─────────────────────────────────────────────────────────────
-  const handleDateClick = useCallback((info: { date: Date }) => {
-    const selectedDoctorId = doctorFilter !== 'todos' ? doctorFilter : (doctors[0]?.id ?? '')
+  const handleDateClick = useCallback((info: { date: Date; doctorId?: string }) => {
+    const selectedDoctorId = info.doctorId ?? (doctorFilter !== 'todos' ? doctorFilter : (doctors[0]?.id ?? ''))
     const available = getAvailableDuraciones(info.date.toISOString(), selectedDoctorId)
     const defaultDur = available.includes(30) ? 30 : (available[0] ?? 30)
     setDarCita({
       step: 1, slotISO: info.date.toISOString(),
       tipo: '', duracion: defaultDur, doctorId: selectedDoctorId,
+      sobrecupo: agendaMode === 'sobrecupo',
       mode: 'existente', search: '', pacienteId: '', notas: '',
       nuevo: { nombre: '', apellido: '', rut: '', extranjero: false, email: '', prevision: 'Sin convenio', telefono: '' },
     })
-  }, [doctorFilter, doctors, horarios, citas])
+  }, [doctorFilter, doctors, horarios, citas, agendaMode])
 
   const handleEventClick = useCallback((info: EventClickArg) => {
     setSelectedCita(info.event.extendedProps as Cita)
@@ -282,6 +272,7 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
           pacienteId, doctorId: darCita.doctorId,
           fecha: darCita.slotISO, duracion: darCita.duracion,
           tipo: darCita.tipo || 'CONSULTA', notas: darCita.notas || null,
+          sobrecupo: darCita.sobrecupo,
         }),
       })
       setDarCita(null); window.location.reload()
@@ -312,10 +303,63 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
     (darCita.mode === 'nuevo' && darCita.nuevo.nombre !== '' && darCita.nuevo.apellido !== '')
   )
 
-  function changeView(view: 'timeGridWeek' | 'timeGridDay') {
-    calRef.current?.getApi().changeView(view)
-    setCurrentView(view)
+  function shiftCurrentDate(dir: -1 | 1) {
+    setCurrentDate(prev => {
+      const d = new Date(prev)
+      const step = view === 'semanal' ? 7 : 1
+      d.setDate(d.getDate() + dir * step)
+      return d
+    })
   }
+
+  function goToToday() {
+    const d = new Date(); d.setHours(0, 0, 0, 0); setCurrentDate(d)
+  }
+
+  function changeView(v: AgendaView) {
+    setView(v)
+    if (v === 'semanal' || v === 'diaria') {
+      const fcView = v === 'semanal' ? 'timeGridWeek' : 'timeGridDay'
+      setTimeout(() => { calRef.current?.getApi().changeView(fcView, currentDate) }, 0)
+    }
+  }
+
+  // Header label de la vista actual
+  const viewLabel = useMemo(() => {
+    if (view === 'semanal') {
+      const start = new Date(currentDate)
+      start.setDate(start.getDate() - start.getDay() + 1) // lunes
+      const end = new Date(start); end.setDate(end.getDate() + 6)
+      const f = (d: Date) => d.toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })
+      return `${f(start)} al ${f(end)}`
+    }
+    return currentDate.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  }, [view, currentDate])
+
+  // Citas del día seleccionado (vista lista desktop + diaria global)
+  const citasDelDia = useMemo(() => {
+    const start = new Date(currentDate); start.setHours(0, 0, 0, 0)
+    const end = new Date(currentDate); end.setHours(23, 59, 59, 999)
+    return citas
+      .filter(c => statusFilter.has(c.estado))
+      .filter(c => agendaMode === 'sobrecupo' ? c.sobrecupo : !c.sobrecupo)
+      .filter(c => doctorFilter === 'todos' || c.doctorId === doctorFilter)
+      .filter(c => {
+        const t = new Date(c.start)
+        return t >= start && t <= end
+      })
+      .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
+  }, [citas, statusFilter, doctorFilter, currentDate, agendaMode])
+
+  // Doctores que tienen al menos un horario activo este día (para Diaria global)
+  const doctorsForGlobal = useMemo(() => {
+    const dow = currentDate.getDay()
+    return doctors.filter(d => {
+      const h = horarios.find(h => h.doctorId === d.id && h.diaSemana === dow)
+      if (!h) return false
+      return agendaMode === 'sobrecupo' ? h.sobrecupoActivo : h.activo
+    })
+  }, [doctors, horarios, currentDate, agendaMode])
 
   return (
     <div className="flex h-[calc(100vh-60px)] overflow-hidden bg-slate-50 relative">
@@ -372,10 +416,16 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
           </select>
         </div>
 
-        <div className="bg-gradient-to-br from-cyan-50 to-teal-50 rounded-xl p-3 border border-cyan-100">
-          <p className="text-xs font-semibold text-cyan-600 uppercase tracking-wider mb-1">Citas hoy</p>
-          <p className="text-3xl font-bold text-cyan-700">
+        <div className={cn(
+          'rounded-xl p-3 border',
+          agendaMode === 'sobrecupo' ? 'bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200' : 'bg-gradient-to-br from-cyan-50 to-teal-50 border-cyan-100'
+        )}>
+          <p className={cn('text-xs font-semibold uppercase tracking-wider mb-1', agendaMode === 'sobrecupo' ? 'text-amber-600' : 'text-cyan-600')}>
+            {agendaMode === 'sobrecupo' ? 'Sobrecupos hoy' : 'Citas hoy'}
+          </p>
+          <p className={cn('text-3xl font-bold', agendaMode === 'sobrecupo' ? 'text-amber-700' : 'text-cyan-700')}>
             {citas.filter(c => {
+              if (agendaMode === 'sobrecupo' ? !c.sobrecupo : c.sobrecupo) return false
               const d = new Date(c.start); const t = new Date(); t.setHours(0,0,0,0)
               const te = new Date(t); te.setHours(23,59,59,999)
               return d >= t && d <= te
@@ -387,42 +437,84 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
       {/* ── CALENDAR ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Header — desktop */}
-        <div className="hidden md:flex bg-white border-b border-slate-100 px-5 py-3 items-center justify-between flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <button onClick={() => calRef.current?.getApi().prev()}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500 transition-colors">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
-            </button>
-            <button onClick={() => calRef.current?.getApi().today()}
-              className="text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors">
-              Hoy
-            </button>
-            <button onClick={() => calRef.current?.getApi().next()}
-              className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500 transition-colors">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
-            </button>
-
-            <div className="flex bg-slate-100 rounded-lg p-0.5 ml-2">
+        <div className="hidden md:flex bg-white border-b border-slate-100 px-5 py-3 flex-col gap-3 flex-shrink-0">
+          {/* Fila 1: tabs Sillón / Sobre Agendamiento */}
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
               <button
-                onClick={() => changeView('timeGridWeek')}
-                className={cn('flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-all', currentView === 'timeGridWeek' ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" /></svg>
-                Semana
+                onClick={() => setAgendaMode('base')}
+                className={cn('flex items-center gap-2 text-xs font-semibold px-3.5 py-2 rounded-md transition-all',
+                  agendaMode === 'base' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900')}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10m0 0a2 2 0 002 2h14a2 2 0 002-2V7M3 7l2-3h14l2 3M3 7h18M8 11h8" />
+                </svg>
+                Sillón
+                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-bold',
+                  agendaMode === 'base' ? 'bg-white/30 text-white' : 'bg-cyan-100 text-cyan-700')}>
+                  {countBase}
+                </span>
               </button>
               <button
-                onClick={() => changeView('timeGridDay')}
-                className={cn('flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-all', currentView === 'timeGridDay' ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                onClick={() => setAgendaMode('sobrecupo')}
+                className={cn('flex items-center gap-2 text-xs font-semibold px-3.5 py-2 rounded-md transition-all',
+                  agendaMode === 'sobrecupo' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900')}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z" />
+                </svg>
+                Sobre Agendamiento
+                <span className={cn('text-[10px] px-1.5 py-0.5 rounded-full font-bold',
+                  agendaMode === 'sobrecupo' ? 'bg-white/30 text-white' : 'bg-amber-100 text-amber-700')}>
+                  {countSobre}
+                </span>
+              </button>
+            </div>
+            <button onClick={() => handleDateClick({ date: new Date() })}
+              className={cn('flex items-center gap-2 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm',
+                agendaMode === 'sobrecupo' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-cyan-600 hover:bg-cyan-700')}>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+              {agendaMode === 'sobrecupo' ? 'Nuevo sobrecupo' : 'Nueva cita'}
+            </button>
+          </div>
+
+          {/* Fila 2: navegación + selector de vista */}
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <button onClick={() => shiftCurrentDate(-1)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+              </button>
+              <button onClick={goToToday}
+                className="text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 transition-colors">
+                Hoy
+              </button>
+              <button onClick={() => shiftCurrentDate(1)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-500 transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+              </button>
+              <p className="text-sm font-semibold text-slate-800 capitalize ml-2">{viewLabel}</p>
+            </div>
+
+            <div className="flex bg-slate-100 rounded-lg p-0.5">
+              <button onClick={() => changeView('diaria')}
+                className={cn('flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-all',
+                  view === 'diaria' ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
-                Día
+                Diaria
+              </button>
+              <button onClick={() => changeView('semanal')}
+                className={cn('flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-all',
+                  view === 'semanal' ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 4v16M3 8h4M3 16h4M11 4h10v16H11z" /></svg>
+                Semanal
+              </button>
+              <button onClick={() => changeView('global')}
+                className={cn('flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md transition-all',
+                  view === 'global' ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700')}>
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m6-5a4 4 0 11-8 0 4 4 0 018 0zm6 0a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                Diaria global
               </button>
             </div>
           </div>
-
-          <button onClick={() => handleDateClick({ date: new Date() })}
-            className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm">
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-            Nueva cita
-          </button>
         </div>
 
         {/* Header — mobile: filtros + navegación de día */}
@@ -445,44 +537,63 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
             </button>
           </div>
           <div className="flex items-center justify-between gap-2">
-            <button onClick={() => mobileShiftDay(-1)}
+            <button onClick={() => shiftCurrentDate(-1)}
               className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
             <div className="flex-1 text-center">
               <p className="text-sm font-semibold text-slate-900 capitalize">
-                {mobileDate.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
+                {currentDate.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
               </p>
               <button
-                onClick={() => {
-                  const d = new Date(); d.setHours(0, 0, 0, 0); setMobileDate(d)
-                }}
+                onClick={goToToday}
                 className="text-[11px] text-cyan-600 underline">
                 Hoy
               </button>
             </div>
-            <button onClick={() => mobileShiftDay(1)}
+            <button onClick={() => shiftCurrentDate(1)}
               className="w-9 h-9 flex items-center justify-center rounded-lg border border-slate-200 text-slate-500">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+            </button>
+          </div>
+          {/* Tabs Sillón/Sobre Agendamiento — mobile */}
+          <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
+            <button
+              onClick={() => setAgendaMode('base')}
+              className={cn('flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2 py-1.5 rounded-md transition-all',
+                agendaMode === 'base' ? 'bg-cyan-600 text-white shadow-sm' : 'text-slate-600')}>
+              Sillón
+              <span className={cn('text-[9px] px-1 rounded-full font-bold',
+                agendaMode === 'base' ? 'bg-white/30 text-white' : 'bg-cyan-100 text-cyan-700')}>{countBase}</span>
+            </button>
+            <button
+              onClick={() => setAgendaMode('sobrecupo')}
+              className={cn('flex-1 flex items-center justify-center gap-1.5 text-[11px] font-semibold px-2 py-1.5 rounded-md transition-all',
+                agendaMode === 'sobrecupo' ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600')}>
+              Sobre Agendamiento
+              <span className={cn('text-[9px] px-1 rounded-full font-bold',
+                agendaMode === 'sobrecupo' ? 'bg-white/30 text-white' : 'bg-amber-100 text-amber-700')}>{countSobre}</span>
             </button>
           </div>
         </div>
 
         {/* Vista lista — solo mobile */}
         <div className="md:hidden flex-1 overflow-y-auto bg-slate-50 p-3 space-y-2">
-          {mobileCitasDia.length === 0 ? (
+          {citasDelDia.length === 0 ? (
             <div className="bg-white rounded-2xl border border-slate-100 p-10 text-center">
               <svg className="w-10 h-10 mx-auto text-slate-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
-              <p className="text-sm text-slate-500">Sin citas para este día</p>
-              <button onClick={() => handleDateClick({ date: new Date(mobileDate.getTime() + 9 * 3600 * 1000) })}
+              <p className="text-sm text-slate-500">
+                {agendaMode === 'sobrecupo' ? 'Sin sobrecupos para este día' : 'Sin citas para este día'}
+              </p>
+              <button onClick={() => handleDateClick({ date: new Date(currentDate.getTime() + 9 * 3600 * 1000) })}
                 className="mt-3 text-xs text-cyan-600 underline">
                 + Agendar
               </button>
             </div>
           ) : (
-            mobileCitasDia.map(c => {
+            citasDelDia.map(c => {
               const cfg = ESTADO_CONFIG[c.estado] ?? { label: c.estado, color: '#64748b', bg: '#f1f5f9', text: '#334155' }
               return (
                 <button
@@ -524,7 +635,7 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
           )}
         </div>
 
-        {/* FullCalendar — solo desktop */}
+        {/* Vistas desktop — condicional según view */}
         <div className="hidden md:block flex-1 overflow-auto bg-white">
           <style>{`
             .fc { font-family: inherit; }
@@ -559,27 +670,69 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
             .fc-scrollgrid { border: none !important; }
             .fc-scrollgrid-section > td { border: none !important; }
           `}</style>
-          <FullCalendar
-            ref={calRef}
-            plugins={[timeGridPlugin, dayGridPlugin, interactionPlugin]}
-            initialView="timeGridWeek"
-            locale={esLocale}
-            headerToolbar={false}
-            events={events}
-            eventClick={handleEventClick}
-            dateClick={handleDateClick}
-            businessHours={businessHours}
-            slotDuration="00:15:00"
-            slotMinTime="07:00:00"
-            slotMaxTime="21:00:00"
-            allDaySlot={false}
-            height="100%"
-            nowIndicator={true}
-            eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
-            slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
-            dayHeaderFormat={{ weekday: 'short', day: 'numeric' }}
-            expandRows={true}
-          />
+
+          {/* ── Vista SEMANAL: FullCalendar ────────────────────────────────── */}
+          {view === 'semanal' && (
+            <FullCalendar
+              ref={calRef}
+              plugins={[timeGridPlugin, dayGridPlugin, interactionPlugin]}
+              initialView="timeGridWeek"
+              initialDate={currentDate}
+              locale={esLocale}
+              headerToolbar={false}
+              events={events}
+              eventClick={handleEventClick}
+              dateClick={handleDateClick}
+              datesSet={(arg) => {
+                // Mantener currentDate sincronizado con el calendario
+                const start = arg.view.currentStart
+                if (start.getTime() !== currentDate.getTime()) {
+                  // Solo sincronizar si la fecha del calendario está fuera de la semana actual
+                  const ws = new Date(currentDate); ws.setDate(ws.getDate() - ws.getDay()); ws.setHours(0,0,0,0)
+                  if (start < ws || start > new Date(ws.getTime() + 6 * 86400000)) {
+                    const d = new Date(start); d.setHours(0,0,0,0)
+                    setCurrentDate(d)
+                  }
+                }
+              }}
+              businessHours={businessHours}
+              slotDuration="00:15:00"
+              slotMinTime="07:00:00"
+              slotMaxTime="21:00:00"
+              allDaySlot={false}
+              height="100%"
+              nowIndicator={true}
+              eventTimeFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
+              slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
+              dayHeaderFormat={{ weekday: 'short', day: 'numeric' }}
+              expandRows={true}
+            />
+          )}
+
+          {/* ── Vista DIARIA: lista del día con columnas Hora/Paciente/Doctor/Estado ── */}
+          {view === 'diaria' && (
+            <ListaDiaria
+              citas={citasDelDia}
+              onCitaClick={(c) => { setSelectedCita(c); setShowHistorial(false) }}
+              estadoConfig={ESTADO_CONFIG}
+              onUpdateEstado={updateEstado}
+              date={currentDate}
+            />
+          )}
+
+          {/* ── Vista DIARIA GLOBAL: grilla con columnas por doctor ────────── */}
+          {view === 'global' && (
+            <DiariaGlobal
+              doctors={doctorsForGlobal}
+              horarios={horarios}
+              citas={citasDelDia}
+              date={currentDate}
+              agendaMode={agendaMode}
+              estadoConfig={ESTADO_CONFIG}
+              onSlotClick={(date, doctorId) => handleDateClick({ date, doctorId })}
+              onCitaClick={(c) => { setSelectedCita(c); setShowHistorial(false) }}
+            />
+          )}
         </div>
       </div>
 
@@ -587,13 +740,35 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
       {darCita?.step === 1 && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
-            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="text-base font-semibold text-slate-900">Dar cita</h2>
+            <div className={cn('px-6 py-5 border-b border-slate-100 flex justify-between items-center',
+              darCita.sobrecupo && 'bg-amber-50')}>
+              <h2 className="text-base font-semibold text-slate-900">
+                {darCita.sobrecupo ? 'Dar sobrecupo' : 'Dar cita'}
+              </h2>
               <button onClick={() => setDarCita(null)} className="text-slate-400 hover:text-slate-600">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
             <div className="p-6 space-y-5">
+              {/* Tipo de agenda: base / sobrecupo */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Tipo de agenda</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button"
+                    onClick={() => setDarCita(d => d ? { ...d, sobrecupo: false } : d)}
+                    className={cn('flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border-2 transition-all',
+                      !darCita.sobrecupo ? 'bg-cyan-50 border-cyan-500 text-cyan-700' : 'border-slate-200 text-slate-600 hover:border-slate-300')}>
+                    Cita base
+                  </button>
+                  <button type="button"
+                    onClick={() => setDarCita(d => d ? { ...d, sobrecupo: true } : d)}
+                    className={cn('flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-medium border-2 transition-all',
+                      darCita.sobrecupo ? 'bg-amber-50 border-amber-500 text-amber-700' : 'border-slate-200 text-slate-600 hover:border-slate-300')}>
+                    Sobrecupo
+                  </button>
+                </div>
+              </div>
+
               {/* Profesional */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Profesional</label>
@@ -913,6 +1088,16 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
                 </div>
               </div>
 
+              {/* Sobrecupo badge */}
+              {selectedCita.sobrecupo && (
+                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+                  <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z" />
+                  </svg>
+                  <span className="text-sm font-medium text-amber-700">Cita de Sobre Agendamiento</span>
+                </div>
+              )}
+
               {/* ── Historial colapsable ── */}
               <div className="border border-slate-200 rounded-xl overflow-hidden">
                 <button
@@ -978,6 +1163,239 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Vista DIARIA: lista compacta con hora · paciente · doctor · estado
+// ────────────────────────────────────────────────────────────────────────────
+function ListaDiaria({
+  citas, onCitaClick, estadoConfig, onUpdateEstado, date,
+}: {
+  citas: Cita[]
+  onCitaClick: (c: Cita) => void
+  estadoConfig: typeof ESTADO_CONFIG
+  onUpdateEstado: (citaId: string, estado: string) => void
+  date: Date
+}) {
+  if (citas.length === 0) {
+    return (
+      <div className="p-12 text-center">
+        <svg className="w-12 h-12 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+        </svg>
+        <p className="text-sm text-slate-500">
+          Sin citas para {date.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })}
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-5 py-4">
+      <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="grid grid-cols-[100px_1fr_220px_140px_120px] gap-4 px-5 py-3 border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <div>Hora</div>
+          <div>Paciente</div>
+          <div>Doctor</div>
+          <div>Estado</div>
+          <div>Acciones</div>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {citas.map((c) => {
+            const cfg = estadoConfig[c.estado] ?? { label: c.estado, color: '#64748b', bg: '#f1f5f9', text: '#334155' }
+            return (
+              <div key={c.id} className="grid grid-cols-[100px_1fr_220px_140px_120px] gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors items-center">
+                <div className="flex flex-col">
+                  <span className="font-mono text-sm font-semibold text-slate-900">{formatTime(c.start)}</span>
+                  <span className="font-mono text-[11px] text-slate-400">{formatTime(c.end)}</span>
+                </div>
+                <button onClick={() => onCitaClick(c)} className="text-left min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 truncate">
+                    {c.sobrecupo && <span className="text-amber-500 mr-1">⚠</span>}
+                    {c.confirmadoWA && <span className="text-emerald-500 mr-1">✓</span>}
+                    {c.pacienteNombre}
+                  </p>
+                  {(c.pacienteRut || c.pacienteTelefono) && (
+                    <p className="text-[11px] text-slate-400 font-mono mt-0.5 truncate">
+                      {c.pacienteRut ?? ''}{c.pacienteRut && c.pacienteTelefono ? ' · ' : ''}{c.pacienteTelefono ?? ''}
+                    </p>
+                  )}
+                </button>
+                <div className="text-sm text-slate-700 truncate">{c.doctor ?? '—'}</div>
+                <div>
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap"
+                    style={{ backgroundColor: cfg.bg, color: cfg.text }}>
+                    {cfg.label}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => onCitaClick(c)}
+                    className="px-2.5 py-1.5 text-[11px] font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100">
+                    Detalle
+                  </button>
+                  {c.estado === 'PENDIENTE' && (
+                    <button onClick={() => onUpdateEstado(c.id, 'CONFIRMADA')}
+                      className="px-2.5 py-1.5 text-[11px] font-medium text-cyan-700 border border-cyan-200 bg-cyan-50 rounded-lg hover:bg-cyan-100">
+                      Confirmar
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Vista DIARIA GLOBAL: una columna por doctor, slots de 15 min sobre el día
+// ────────────────────────────────────────────────────────────────────────────
+function DiariaGlobal({
+  doctors, horarios, citas, date, agendaMode, estadoConfig, onSlotClick, onCitaClick,
+}: {
+  doctors: { id: string; name: string | null; email: string | null }[]
+  horarios: Horario[]
+  citas: Cita[]
+  date: Date
+  agendaMode: AgendaMode
+  estadoConfig: typeof ESTADO_CONFIG
+  onSlotClick: (date: Date, doctorId: string) => void
+  onCitaClick: (c: Cita) => void
+}) {
+  const dow = date.getDay()
+  // Min/max global del día (considerando todos los doctores que atienden)
+  const { minMin, maxMin } = useMemo(() => {
+    let lo = 24 * 60, hi = 0
+    for (const d of doctors) {
+      const h = horarios.find(h => h.doctorId === d.id && h.diaSemana === dow)
+      if (!h) continue
+      const ini = agendaMode === 'sobrecupo' ? (h.sobrecupoInicio ?? h.horaInicio) : h.horaInicio
+      const fin = agendaMode === 'sobrecupo' ? (h.sobrecupoFin    ?? h.horaFin)    : h.horaFin
+      const a = toMinutes(ini), b = toMinutes(fin)
+      if (a < lo) lo = a
+      if (b > hi) hi = b
+    }
+    if (hi <= lo) { lo = 9 * 60; hi = 18 * 60 }
+    // Redondear a la hora
+    lo = Math.floor(lo / 60) * 60
+    hi = Math.ceil(hi / 60) * 60
+    return { minMin: lo, maxMin: hi }
+  }, [doctors, horarios, dow, agendaMode])
+
+  if (doctors.length === 0) {
+    return (
+      <div className="p-12 text-center">
+        <p className="text-sm text-slate-500">
+          Ningún profesional tiene {agendaMode === 'sobrecupo' ? 'sobrecupos' : 'horario'} habilitado este día.
+        </p>
+      </div>
+    )
+  }
+
+  const SLOT_MIN = 15
+  const SLOT_PX = 22
+  const slots: number[] = []
+  for (let m = minMin; m < maxMin; m += SLOT_MIN) slots.push(m)
+
+  function toHHMM(min: number) {
+    const h = Math.floor(min / 60).toString().padStart(2, '0')
+    const m = (min % 60).toString().padStart(2, '0')
+    return `${h}:${m}`
+  }
+
+  function isWorking(doctorId: string, slotMin: number) {
+    const h = horarios.find(h => h.doctorId === doctorId && h.diaSemana === dow)
+    if (!h) return false
+    if (agendaMode === 'sobrecupo' ? !h.sobrecupoActivo : !h.activo) return false
+    const a = toMinutes(agendaMode === 'sobrecupo' ? (h.sobrecupoInicio ?? h.horaInicio) : h.horaInicio)
+    const b = toMinutes(agendaMode === 'sobrecupo' ? (h.sobrecupoFin    ?? h.horaFin)    : h.horaFin)
+    return slotMin >= a && slotMin < b
+  }
+
+  function citasOf(doctorId: string) {
+    return citas.filter(c => c.doctorId === doctorId)
+  }
+
+  function buildSlotDate(slotMin: number) {
+    const d = new Date(date)
+    d.setHours(Math.floor(slotMin / 60), slotMin % 60, 0, 0)
+    return d
+  }
+
+  return (
+    <div className="overflow-auto h-full">
+      <div className="inline-flex min-w-full">
+        {/* Columna de horas */}
+        <div className="flex-shrink-0 w-16 border-r border-slate-200 bg-slate-50 sticky left-0 z-10">
+          <div className="h-12 border-b border-slate-200 bg-white" />
+          {slots.map((m) => (
+            <div key={m} style={{ height: SLOT_PX }} className="flex items-start justify-end pr-2 pt-0.5 text-[10px] font-medium text-slate-400 border-b border-slate-100 font-mono">
+              {m % 60 === 0 ? toHHMM(m) : ''}
+            </div>
+          ))}
+        </div>
+        {/* Una columna por doctor */}
+        {doctors.map((doc) => {
+          const dCitas = citasOf(doc.id)
+          return (
+            <div key={doc.id} className="flex-shrink-0 w-44 border-r border-slate-200 relative">
+              <div className="h-12 border-b border-slate-200 bg-slate-50 px-3 flex items-center sticky top-0 z-10">
+                <p className="text-xs font-bold text-slate-700 truncate uppercase tracking-wide">{doc.name ?? doc.email}</p>
+              </div>
+              <div className="relative">
+                {/* slots */}
+                {slots.map((m) => {
+                  const working = isWorking(doc.id, m)
+                  return (
+                    <div
+                      key={m}
+                      style={{ height: SLOT_PX }}
+                      onClick={working ? () => onSlotClick(buildSlotDate(m), doc.id) : undefined}
+                      className={cn(
+                        'border-b border-slate-100 transition-colors',
+                        working ? 'bg-emerald-50/40 hover:bg-emerald-100/60 cursor-pointer' : 'bg-slate-100/40 cursor-not-allowed',
+                        m % 60 === 0 && 'border-t border-slate-200/70',
+                      )}
+                    />
+                  )
+                })}
+                {/* citas */}
+                {dCitas.map((c) => {
+                  const start = new Date(c.start)
+                  const end = new Date(c.end)
+                  const startMin = start.getHours() * 60 + start.getMinutes()
+                  const endMin = end.getHours() * 60 + end.getMinutes()
+                  if (endMin <= minMin || startMin >= maxMin) return null
+                  const top = ((Math.max(startMin, minMin) - minMin) / SLOT_MIN) * SLOT_PX
+                  const height = ((Math.min(endMin, maxMin) - Math.max(startMin, minMin)) / SLOT_MIN) * SLOT_PX
+                  const cfg = estadoConfig[c.estado] ?? { color: '#64748b', bg: '#f1f5f9', text: '#334155', label: c.estado }
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => onCitaClick(c)}
+                      className="absolute left-1 right-1 rounded-md px-1.5 py-0.5 text-left overflow-hidden shadow-sm border border-white/20 hover:opacity-90 transition-opacity"
+                      style={{ top, height: Math.max(height, 18), backgroundColor: cfg.color }}
+                    >
+                      <div className="text-[10px] font-bold text-white truncate leading-tight">
+                        {c.confirmadoWA && '✓ '}{c.pacienteNombre}
+                      </div>
+                      {height >= 36 && (
+                        <div className="text-[9px] text-white/80 truncate font-mono leading-tight">
+                          {formatTime(c.start)}
+                        </div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }

@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
   if (!paciente) return NextResponse.json({ error: 'Paciente no existe en esta clínica' }, { status: 404 })
   if (!doctor) return NextResponse.json({ error: 'Doctor no existe en esta clínica' }, { status: 404 })
 
+  const sobrecupo = Boolean(body.sobrecupo)
   const cita = await prisma.cita.create({
     data: {
       clinicaId:  u.clinicaId,
@@ -47,10 +48,11 @@ export async function POST(req: NextRequest) {
       tipo:       body.tipo  || 'CONSULTA',
       notas:      body.notas || null,
       sala:       body.sala  || null,
+      sobrecupo,
       logs: {
         create: {
           tipo:     'AGENDADA',
-          detalle:  `Cita agendada por ${userName}`,
+          detalle:  `Cita ${sobrecupo ? 'sobrecupo ' : ''}agendada por ${userName}`,
           userName,
         },
       },

@@ -51,6 +51,7 @@ export default async function AgendaPage() {
         estado:           c.estado,
         tipo:             c.tipo ?? 'CONSULTA',
         notas:            c.notas ?? '',
+        sobrecupo:        c.sobrecupo,
         confirmadoWA:     c.confirmadoWA,
         logs:             c.logs.map(l => ({
           id:        l.id,
@@ -62,7 +63,11 @@ export default async function AgendaPage() {
       }))}
       doctors={doctors}
       pacientes={pacientes}
-      horarios={horarios}
+      horarios={horarios.map(h => ({
+        id: h.id, doctorId: h.doctorId, diaSemana: h.diaSemana,
+        horaInicio: h.horaInicio, horaFin: h.horaFin, activo: h.activo,
+        sobrecupoActivo: h.sobrecupoActivo, sobrecupoInicio: h.sobrecupoInicio, sobrecupoFin: h.sobrecupoFin,
+      }))}
       config={{ clinica: config.nombre, direccion: config.direccion, ciudad: config.ciudad, mensajeWA: config.mensajeWA }}
     />
   )

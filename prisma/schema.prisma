@@ -239,6 +239,7 @@ model Cita {
   tipo          String?
   notas         String?
   sala          String?
+  sobrecupo     Boolean   @default(false)   // si true, va a la agenda paralela de Sobre Agendamiento
   confirmadoWA  Boolean   @default(false)
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -510,15 +511,19 @@ model LiquidacionItem {
 }
 
 model HorarioDoctor {
-  id         String  @id @default(cuid())
-  clinicaId  String?
-  doctorId   String
-  diaSemana  Int     // 0=Dom 1=Lun 2=Mar 3=Mié 4=Jue 5=Vie 6=Sáb
-  horaInicio String
-  horaFin    String
-  activo     Boolean @default(true)
-  clinica    Clinica? @relation(fields: [clinicaId], references: [id])
-  doctor     User    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  id              String   @id @default(cuid())
+  clinicaId       String?
+  doctorId        String
+  diaSemana       Int      // 0=Dom 1=Lun 2=Mar 3=Mié 4=Jue 5=Vie 6=Sáb
+  horaInicio      String
+  horaFin         String
+  activo          Boolean  @default(true)
+  // Sobrecupos: agenda paralela para casos excepcionales (overbooking)
+  sobrecupoActivo Boolean  @default(false)
+  sobrecupoInicio String?
+  sobrecupoFin    String?
+  clinica         Clinica? @relation(fields: [clinicaId], references: [id])
+  doctor          User     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 
   @@unique([doctorId, diaSemana])
 }

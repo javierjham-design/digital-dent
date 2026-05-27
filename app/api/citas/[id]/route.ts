@@ -42,6 +42,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.notas !== undefined) data.notas = body.notas ? String(body.notas) : null
   if (body.sala !== undefined) data.sala = body.sala ? String(body.sala) : null
   if (body.confirmadoWA !== undefined) data.confirmadoWA = Boolean(body.confirmadoWA)
+  if (body.sobrecupo !== undefined) data.sobrecupo = Boolean(body.sobrecupo)
 
   // Si cambia doctor, validar que pertenezca a la clínica.
   if (body.doctorId !== undefined) {
