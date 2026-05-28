@@ -3,7 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
 import bcrypt from 'bcryptjs'
 
-const ROLES_PERMITIDOS = ['admin', 'doctor', 'staff']
+const ROLES_PERMITIDOS = ['admin', 'doctor', 'medico', 'staff']
+const ROLES_CON_AGENDA = ['doctor', 'medico']
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,30}$/
 
 // Campos que un usuario puede editar de sí mismo (no admin)
@@ -13,6 +14,7 @@ const CAMPOS_PROPIOS = ['name', 'rut', 'especialidad', 'telefono'] as const
 const CAMPOS_ADMIN = [
   'name', 'username', 'email', 'role', 'rut', 'especialidad', 'telefono', 'activo',
   'puedeRecibirPagos', 'puedeModificarPrecio', 'puedeAplicarDescuento', 'puedeRevertirCompletado',
+  'puedeEditarPagos',
 ] as const
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -92,8 +94,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     select: {
       id: true, name: true, username: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true,
       puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
+      puedeEditarPagos: true,
       createdAt: true,
     },
   })
+
+  // Si el rol pasa a uno SIN agenda, borrar horarios huérfanos
+  if ('role' in data && !ROLES_CON_AGENDA.includes(String(data.role))) {
+    await prisma.horarioDoctor.deleteMany({ where: { doctorId: id } })
+  }
+
   return NextResponse.json(usuario)
 }

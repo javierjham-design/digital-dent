@@ -20,7 +20,7 @@ export default async function AgendaPage() {
       orderBy: { fecha: 'asc' },
     }),
     prisma.user.findMany({
-      where: { clinicaId: u.clinicaId, role: { in: ['admin', 'doctor'] }, activo: true },
+      where: { clinicaId: u.clinicaId, role: { in: ['doctor', 'medico'] }, activo: true },
       select: { id: true, name: true, email: true },
     }),
     prisma.paciente.findMany({
@@ -66,6 +66,7 @@ export default async function AgendaPage() {
       horarios={horarios.map(h => ({
         id: h.id, doctorId: h.doctorId, diaSemana: h.diaSemana,
         horaInicio: h.horaInicio, horaFin: h.horaFin, activo: h.activo,
+        recesoActivo: h.recesoActivo, recesoInicio: h.recesoInicio, recesoFin: h.recesoFin,
         sobrecupoActivo: h.sobrecupoActivo, sobrecupoInicio: h.sobrecupoInicio, sobrecupoFin: h.sobrecupoFin,
       }))}
       config={{ clinica: config.nombre, direccion: config.direccion, ciudad: config.ciudad, mensajeWA: config.mensajeWA }}

@@ -18,7 +18,8 @@ export async function GET() {
   return NextResponse.json(usuarios)
 }
 
-const ROLES_PERMITIDOS = ['admin', 'doctor', 'staff']
+const ROLES_PERMITIDOS = ['admin', 'doctor', 'medico', 'staff']
+const ROLES_CON_AGENDA = ['doctor', 'medico']
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,30}$/
 
 function normalizeUsername(raw: unknown): string | null {

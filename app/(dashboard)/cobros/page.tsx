@@ -9,6 +9,8 @@ export default async function CobrosPage() {
   const u = await getSessionUser()
   if (!u?.clinicaId) redirect('/login')
 
+  const canEditPayments = u.role === 'admin' || u.puedeEditarPagos
+
   const [cobros, pacientes, mediosPago, cajeros, tratamientos] = await Promise.all([
     prisma.cobro.findMany({
       where: { clinicaId: u.clinicaId },
@@ -42,7 +44,8 @@ export default async function CobrosPage() {
       where: {
         clinicaId: u.clinicaId,
         estado: 'COMPLETADO',
-        cobroItems: { none: {} },
+        // Si todos los cobros que lo contienen están anulados, vuelve a estar disponible
+        cobroItems: { none: { cobro: { anulado: false } } },
       },
       include: {
         ficha: { include: { paciente: { select: { id: true, nombre: true, apellido: true } } } },
@@ -54,6 +57,7 @@ export default async function CobrosPage() {
 
   return (
     <CobrosClient
+      canEditPayments={canEditPayments}
       cobros={cobros.map((c) => ({
         id:          c.id,
         numero:      c.numero,
@@ -62,6 +66,11 @@ export default async function CobrosPage() {
         montoNeto:   c.montoNeto,
         comisionMonto: c.comisionMonto,
         estado:      c.estado,
+        anulado:     c.anulado,
+        motivoAnulacion:   c.motivoAnulacion,
+        anuladoAt:         c.anuladoAt?.toISOString() ?? null,
+        anuladoPorNombre:  c.anuladoPorNombre,
+        notas:       c.notas,
         medioPago:   c.medioPago ? { id: c.medioPago.id, nombre: c.medioPago.nombre, comision: c.medioPago.comision } : null,
         reciboUsuario: c.reciboUsuario ? { id: c.reciboUsuario.id, nombre: c.reciboUsuario.name ?? c.reciboUsuario.email } : null,
         fechaPago:   c.fechaPago?.toISOString() ?? null,

@@ -128,6 +128,7 @@ model User {
   puedeModificarPrecio  Boolean @default(false)
   puedeAplicarDescuento Boolean @default(false)
   puedeRevertirCompletado Boolean @default(false)
+  puedeEditarPagos  Boolean   @default(false)   // editar y anular cobros ya emitidos
   clinica       Clinica?       @relation(fields: [clinicaId], references: [id])
   sessions      Session[]
   citas         Cita[]         @relation("DoctorCitas")
@@ -436,6 +437,12 @@ model Cobro {
   reciboUsuarioId String?
   fechaPago       DateTime?
   notas           String?
+  // Anulación: si anulado=true, el cobro queda registrado para auditoría
+  anulado         Boolean    @default(false)
+  motivoAnulacion String?
+  anuladoAt       DateTime?
+  anuladoPorId    String?
+  anuladoPorNombre String?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
   clinica         Clinica?   @relation(fields: [clinicaId], references: [id])
@@ -518,6 +525,10 @@ model HorarioDoctor {
   horaInicio      String
   horaFin         String
   activo          Boolean  @default(true)
+  // Receso (bloque sin agenda, ej. almuerzo). Opcional.
+  recesoActivo    Boolean  @default(false)
+  recesoInicio    String?
+  recesoFin       String?
   // Sobrecupos: agenda paralela para casos excepcionales (overbooking)
   sobrecupoActivo Boolean  @default(false)
   sobrecupoInicio String?

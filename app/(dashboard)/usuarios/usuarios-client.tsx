@@ -5,30 +5,35 @@ import { formatCLP, formatDate } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
 const ROLES = {
-  admin:  { label: 'Admin',  cls: 'bg-purple-100 text-purple-700' },
-  doctor: { label: 'Doctor', cls: 'bg-cyan-100 text-cyan-700' },
-  staff:  { label: 'Staff',  cls: 'bg-slate-100 text-slate-600' },
+  admin:  { label: 'Admin',   cls: 'bg-purple-100 text-purple-700' },
+  doctor: { label: 'Dentista', cls: 'bg-cyan-100 text-cyan-700' },
+  medico: { label: 'Médico',  cls: 'bg-blue-100 text-blue-700' },
+  staff:  { label: 'Staff',   cls: 'bg-slate-100 text-slate-600' },
 }
+
+const ROLES_CON_AGENDA = ['doctor', 'medico']
+const tieneAgenda = (role: string) => ROLES_CON_AGENDA.includes(role)
 
 const DIAS_SEMANA = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
 const DIAS_CORTO  = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 
 const DEFAULT_DIAS = [
-  { diaSemana: 0, horaInicio: '09:00', horaFin: '18:00', activo: false, sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
-  { diaSemana: 1, horaInicio: '09:00', horaFin: '18:00', activo: true,  sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
-  { diaSemana: 2, horaInicio: '09:00', horaFin: '18:00', activo: true,  sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
-  { diaSemana: 3, horaInicio: '09:00', horaFin: '18:00', activo: true,  sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
-  { diaSemana: 4, horaInicio: '09:00', horaFin: '18:00', activo: true,  sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
-  { diaSemana: 5, horaInicio: '09:00', horaFin: '18:00', activo: true,  sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
-  { diaSemana: 6, horaInicio: '09:00', horaFin: '14:00', activo: false, sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '14:00' },
+  { diaSemana: 0, horaInicio: '09:00', horaFin: '18:00', activo: false, recesoActivo: false, recesoInicio: '13:00', recesoFin: '14:00', sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
+  { diaSemana: 1, horaInicio: '09:00', horaFin: '18:00', activo: true,  recesoActivo: false, recesoInicio: '13:00', recesoFin: '14:00', sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
+  { diaSemana: 2, horaInicio: '09:00', horaFin: '18:00', activo: true,  recesoActivo: false, recesoInicio: '13:00', recesoFin: '14:00', sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
+  { diaSemana: 3, horaInicio: '09:00', horaFin: '18:00', activo: true,  recesoActivo: false, recesoInicio: '13:00', recesoFin: '14:00', sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
+  { diaSemana: 4, horaInicio: '09:00', horaFin: '18:00', activo: true,  recesoActivo: false, recesoInicio: '13:00', recesoFin: '14:00', sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
+  { diaSemana: 5, horaInicio: '09:00', horaFin: '18:00', activo: true,  recesoActivo: false, recesoInicio: '13:00', recesoFin: '14:00', sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '18:00' },
+  { diaSemana: 6, horaInicio: '09:00', horaFin: '14:00', activo: false, recesoActivo: false, recesoInicio: '12:00', recesoFin: '13:00', sobrecupoActivo: false, sobrecupoInicio: '09:00', sobrecupoFin: '14:00' },
 ]
 
 interface Horario {
   id?: string; doctorId: string; diaSemana: number; horaInicio: string; horaFin: string; activo: boolean
+  recesoActivo?: boolean;    recesoInicio?: string | null;    recesoFin?: string | null
   sobrecupoActivo?: boolean; sobrecupoInicio?: string | null; sobrecupoFin?: string | null
 }
 interface Contrato { id: string; doctorId: string; tipo: string; porcentaje: number | null; montoFijo: number | null; descripcion: string | null; fechaInicio: string; fechaFin: string | null; activo: boolean }
-interface Usuario { id: string; name: string | null; username: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean; createdAt: string; contratos: Contrato[] }
+interface Usuario { id: string; name: string | null; username: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean; puedeEditarPagos: boolean; createdAt: string; contratos: Contrato[] }
 
 const emptyUser     = { name: '', username: '', email: '', password: '', role: 'doctor', rut: '', especialidad: '', telefono: '' }
 const emptyContrato = { doctorId: '', tipo: 'PORCENTAJE', porcentaje: '', montoFijo: '', descripcion: '', fechaInicio: '', fechaFin: '' }
@@ -95,7 +100,7 @@ export function UsuariosClient({
     setUsuarios(p => p.map(x => x.id === updated.id ? { ...x, ...updated } : x))
   }
 
-  async function togglePermiso(u: Usuario, campo: 'puedeRecibirPagos' | 'puedeModificarPrecio' | 'puedeAplicarDescuento' | 'puedeRevertirCompletado') {
+  async function togglePermiso(u: Usuario, campo: 'puedeRecibirPagos' | 'puedeModificarPrecio' | 'puedeAplicarDescuento' | 'puedeRevertirCompletado' | 'puedeEditarPagos') {
     const res = await fetch(`/api/usuarios/${u.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -135,6 +140,9 @@ export function UsuariosClient({
         horaInicio: existing.horaInicio,
         horaFin: existing.horaFin,
         activo: existing.activo,
+        recesoActivo:    existing.recesoActivo ?? false,
+        recesoInicio:    existing.recesoInicio ?? def.recesoInicio,
+        recesoFin:       existing.recesoFin    ?? def.recesoFin,
         sobrecupoActivo: existing.sobrecupoActivo ?? false,
         sobrecupoInicio: existing.sobrecupoInicio ?? existing.horaInicio,
         sobrecupoFin:    existing.sobrecupoFin    ?? existing.horaFin,
@@ -171,7 +179,7 @@ export function UsuariosClient({
     return dias.map(h => DIAS_CORTO[h.diaSemana]).join(' · ')
   }
 
-  const doctores = usuarios.filter(u => u.role === 'doctor' || u.role === 'admin')
+  const doctores = usuarios.filter(u => tieneAgenda(u.role))
   const doctoresConContrato = contratos.filter(c => c.activo).map(c => c.doctorId)
 
   return (
@@ -214,7 +222,7 @@ export function UsuariosClient({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Usuario', 'RUT', 'Especialidad', 'Teléfono', 'Rol', 'Contrato', 'Horario', 'Pagos', 'Precio', 'Desc.', 'Revertir', 'Estado', ''].map(h => (
+                {['Usuario', 'RUT', 'Especialidad', 'Teléfono', 'Rol', 'Contrato', 'Horario', 'Pagos', 'Editar pagos', 'Precio', 'Desc.', 'Revertir', 'Estado', ''].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">{h}</th>
                 ))}
               </tr>
@@ -254,7 +262,9 @@ export function UsuariosClient({
                       )}
                     </td>
                     <td className="px-4 py-3">
-                      {horarioLabel ? (
+                      {!tieneAgenda(u.role) ? (
+                        <span className="text-xs text-slate-300">—</span>
+                      ) : horarioLabel ? (
                         <span className="text-xs text-emerald-600 font-medium">{horarioLabel}</span>
                       ) : (
                         <span className="text-xs text-slate-300">Sin horario</span>
@@ -267,6 +277,15 @@ export function UsuariosClient({
                         className={cn('relative w-9 h-5 rounded-full transition-colors flex-shrink-0', u.puedeRecibirPagos ? 'bg-emerald-500' : 'bg-slate-300')}
                       >
                         <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all', u.puedeRecibirPagos ? 'left-4' : 'left-0.5')} />
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => togglePermiso(u, 'puedeEditarPagos')}
+                        title={u.puedeEditarPagos ? 'Quitar permiso de editar/anular pagos' : 'Permitir editar y anular pagos'}
+                        className={cn('relative w-9 h-5 rounded-full transition-colors flex-shrink-0', u.puedeEditarPagos ? 'bg-orange-500' : 'bg-slate-300')}
+                      >
+                        <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all', u.puedeEditarPagos ? 'left-4' : 'left-0.5')} />
                       </button>
                     </td>
                     <td className="px-4 py-3">
@@ -306,9 +325,11 @@ export function UsuariosClient({
                         <button onClick={() => openEditUser(u)} title="Editar" className="p-1.5 text-slate-400 hover:text-cyan-600 rounded-lg hover:bg-cyan-50">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                         </button>
-                        <button onClick={() => openHorario(u)} title="Configurar horario" className="p-1.5 text-slate-400 hover:text-violet-600 rounded-lg hover:bg-violet-50">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                        </button>
+                        {tieneAgenda(u.role) && (
+                          <button onClick={() => openHorario(u)} title="Configurar horario" className="p-1.5 text-slate-400 hover:text-violet-600 rounded-lg hover:bg-violet-50">
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                          </button>
+                        )}
                         <button onClick={() => toggleActivo(u)} title={u.activo ? 'Desactivar' : 'Activar'} className={cn('p-1.5 rounded-lg', u.activo ? 'text-slate-400 hover:text-red-500 hover:bg-red-50' : 'text-slate-400 hover:text-emerald-600 hover:bg-emerald-50')}>
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             {u.activo
@@ -457,9 +478,11 @@ export function UsuariosClient({
                   <label className="block text-sm font-medium text-slate-700 mb-1">Rol</label>
                   <select value={userForm.role} onChange={e => setUserForm({ ...userForm, role: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
                     <option value="admin">Admin</option>
-                    <option value="doctor">Doctor</option>
+                    <option value="doctor">Dentista</option>
+                    <option value="medico">Médico</option>
                     <option value="staff">Staff</option>
                   </select>
+                  <p className="text-[11px] text-slate-400 mt-1">Solo Dentistas y Médicos tienen agenda.</p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1">RUT</label>
@@ -529,6 +552,35 @@ export function UsuariosClient({
                           dia.activo ? 'left-4' : 'left-0.5')} />
                       </button>
                     </div>
+                    {/* Fila receso (solo visible si el día está activo) */}
+                    {dia.activo && (
+                      <div className="border-t border-slate-100 px-3 py-2.5 bg-slate-50/60">
+                        <div className="grid grid-cols-[90px_1fr_1fr_40px] gap-3 items-center">
+                          <div className="flex items-center gap-1.5">
+                            <svg className="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 13l-5 5m0 0l-5-5m5 5V6" />
+                            </svg>
+                            <span className="text-[11px] font-medium text-slate-600 uppercase tracking-wide">Receso</span>
+                          </div>
+                          <input
+                            type="time" value={dia.recesoInicio} disabled={!dia.recesoActivo}
+                            onChange={e => setDia(idx, 'recesoInicio', e.target.value)}
+                            className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-300 disabled:border-slate-200"
+                          />
+                          <input
+                            type="time" value={dia.recesoFin} disabled={!dia.recesoActivo}
+                            onChange={e => setDia(idx, 'recesoFin', e.target.value)}
+                            className="w-full border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:bg-slate-50 disabled:text-slate-300 disabled:border-slate-200"
+                          />
+                          <button type="button" onClick={() => setDia(idx, 'recesoActivo', !dia.recesoActivo)}
+                            className={cn('w-9 h-5 rounded-full transition-colors relative flex-shrink-0',
+                              dia.recesoActivo ? 'bg-slate-500' : 'bg-slate-300')}>
+                            <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all',
+                              dia.recesoActivo ? 'left-4' : 'left-0.5')} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     {/* Fila sobrecupos (solo visible si el día está activo) */}
                     {dia.activo && (
                       <div className="border-t border-slate-100 px-3 py-2.5 bg-amber-50/40">

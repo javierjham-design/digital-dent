@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useRef, useState, useMemo } from 'react'
+import Link from 'next/link'
 import FullCalendar from '@fullcalendar/react'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import dayGridPlugin from '@fullcalendar/daygrid'
@@ -43,6 +44,7 @@ interface Cita {
 interface Horario {
   id: string; doctorId: string; diaSemana: number
   horaInicio: string; horaFin: string; activo: boolean
+  recesoActivo?: boolean;    recesoInicio?: string | null;    recesoFin?: string | null
   sobrecupoActivo?: boolean; sobrecupoInicio?: string | null; sobrecupoFin?: string | null
 }
 
@@ -142,6 +144,18 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
     let endMins = 20 * 60 // fallback: 20:00
     if (horario) endMins = toMinutes(horario.horaFin)
 
+    // Si el slot está antes de un receso activo, recortamos hasta el inicio del receso
+    if (horario?.recesoActivo && horario.recesoInicio && horario.recesoFin) {
+      const recIni = toMinutes(horario.recesoInicio)
+      const recFin = toMinutes(horario.recesoFin)
+      if (slotMins < recIni) {
+        endMins = Math.min(endMins, recIni)
+      } else if (slotMins >= recIni && slotMins < recFin) {
+        // El slot cae dentro del receso → 0 disponible
+        return []
+      }
+    }
+
     // Next appointment for this doctor same day after slot
     const next = citas
       .filter(c => c.doctorId === doctorId)
@@ -163,16 +177,26 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
   }
 
   // ── Business hours for FullCalendar ──────────────────────────────────────
+  // Si el día tiene receso activo, partimos las business hours en dos bloques
+  // (antes y después del receso) para que se vea como "fuera de horario".
   const businessHours = useMemo(() => {
     const filtered = doctorFilter === 'todos'
       ? horarios.filter(h => agendaMode === 'sobrecupo' ? h.sobrecupoActivo : h.activo)
       : horarios.filter(h => h.doctorId === doctorFilter && (agendaMode === 'sobrecupo' ? h.sobrecupoActivo : h.activo))
     if (filtered.length === 0) return false
-    return filtered.map(h => ({
-      daysOfWeek: [h.diaSemana],
-      startTime: agendaMode === 'sobrecupo' ? (h.sobrecupoInicio ?? h.horaInicio) : h.horaInicio,
-      endTime:   agendaMode === 'sobrecupo' ? (h.sobrecupoFin    ?? h.horaFin)    : h.horaFin,
-    }))
+    const blocks: { daysOfWeek: number[]; startTime: string; endTime: string }[] = []
+    for (const h of filtered) {
+      const ini = agendaMode === 'sobrecupo' ? (h.sobrecupoInicio ?? h.horaInicio) : h.horaInicio
+      const fin = agendaMode === 'sobrecupo' ? (h.sobrecupoFin    ?? h.horaFin)    : h.horaFin
+      // Solo aplicamos receso en modo base (en sobrecupo se asume sin receso).
+      if (agendaMode === 'base' && h.recesoActivo && h.recesoInicio && h.recesoFin) {
+        blocks.push({ daysOfWeek: [h.diaSemana], startTime: ini, endTime: h.recesoInicio })
+        blocks.push({ daysOfWeek: [h.diaSemana], startTime: h.recesoFin, endTime: fin })
+      } else {
+        blocks.push({ daysOfWeek: [h.diaSemana], startTime: ini, endTime: fin })
+      }
+    }
+    return blocks
   }, [horarios, doctorFilter, agendaMode])
 
   // ── Filtered calendar events ─────────────────────────────────────────────
@@ -1013,17 +1037,30 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
       {/* ── MODAL: Detalle cita ── */}
       {selectedCita && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
-            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-start">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[92vh] flex flex-col">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-start flex-shrink-0">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">{selectedCita.pacienteNombre}</h2>
+                <Link
+                  href={`/pacientes/${selectedCita.pacienteId}`}
+                  className="text-lg font-semibold text-slate-900 hover:text-cyan-700 hover:underline">
+                  {selectedCita.pacienteNombre}
+                </Link>
                 <p className="text-sm text-slate-500 mt-0.5">{formatTime(selectedCita.start)} — {formatTime(selectedCita.end)}</p>
               </div>
               <button onClick={() => setSelectedCita(null)} className="text-slate-400 hover:text-slate-600 mt-0.5">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto">
+              {/* CTA: ir a la ficha del paciente */}
+              <Link
+                href={`/pacientes/${selectedCita.pacienteId}`}
+                className="w-full flex items-center justify-center gap-2 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 text-cyan-700 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                </svg>
+                Ver ficha del paciente
+              </Link>
               <dl className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <dt className="text-slate-500">RUT</dt>
@@ -1313,7 +1350,13 @@ function DiariaGlobal({
     if (agendaMode === 'sobrecupo' ? !h.sobrecupoActivo : !h.activo) return false
     const a = toMinutes(agendaMode === 'sobrecupo' ? (h.sobrecupoInicio ?? h.horaInicio) : h.horaInicio)
     const b = toMinutes(agendaMode === 'sobrecupo' ? (h.sobrecupoFin    ?? h.horaFin)    : h.horaFin)
-    return slotMin >= a && slotMin < b
+    if (!(slotMin >= a && slotMin < b)) return false
+    // Receso solo aplica a la agenda base
+    if (agendaMode === 'base' && h.recesoActivo && h.recesoInicio && h.recesoFin) {
+      const ri = toMinutes(h.recesoInicio), rf = toMinutes(h.recesoFin)
+      if (slotMin >= ri && slotMin < rf) return false
+    }
+    return true
   }
 
   function citasOf(doctorId: string) {
