@@ -82,7 +82,10 @@ export function CobrosClient({
 
   // form state
   const [pacienteId,      setPacienteId]      = useState('')
+  const [modoCobro,       setModoCobro]       = useState<'tratamientos' | 'abono'>('tratamientos')
   const [selectedItems,   setSelectedItems]   = useState<Set<string>>(new Set())
+  const [abonoMonto,      setAbonoMonto]      = useState<string>('')
+  const [abonoConcepto,   setAbonoConcepto]   = useState<string>('Abono al plan de tratamiento')
   const [medioPagoId,     setMedioPagoId]     = useState('')
   const [reciboUsuarioId, setReciboUsuarioId] = useState('')
   const [notas,           setNotas]           = useState('')
@@ -99,9 +102,11 @@ export function CobrosClient({
   const patientTratamientos = pacienteId ? (pendingByPatient[pacienteId] ?? []) : []
 
   const selectedMedio = mediosPago.find(m => m.id === medioPagoId)
-  const subtotal = patientTratamientos
+  const subtotalTrat = patientTratamientos
     .filter(t => selectedItems.has(t.id))
     .reduce((s, t) => s + t.monto, 0)
+  const subtotalAbono = Number(abonoMonto) || 0
+  const subtotal = modoCobro === 'abono' ? subtotalAbono : subtotalTrat
   const comision = selectedMedio ? subtotal * (selectedMedio.comision / 100) : 0
   const neto     = subtotal - comision
 
@@ -115,7 +120,8 @@ export function CobrosClient({
 
   function openModal() {
     setPacienteId(''); setSelectedItems(new Set()); setMedioPagoId(''); setReciboUsuarioId(''); setNotas('')
-    setSearch(''); setFormError('')
+    setSearch(''); setFormError(''); setModoCobro('tratamientos')
+    setAbonoMonto(''); setAbonoConcepto('Abono al plan de tratamiento')
     if (!cajaId && cajas.length > 0) setCajaId(cajas[0].id)
     setShowModal(true)
   }
@@ -125,16 +131,26 @@ export function CobrosClient({
     setFormError('')
     if (!pacienteId) { setFormError('Selecciona un paciente.'); return }
     if (!cajaId) { setFormError('Selecciona una caja.'); return }
-    if (selectedItems.size === 0) { setFormError('Marca al menos un tratamiento.'); return }
-    setSaving(true)
-    try {
-      const items = patientTratamientos
+
+    let items: { tratamientoId?: string; descripcion: string; monto: number }[]
+    if (modoCobro === 'abono') {
+      const monto = Number(abonoMonto)
+      if (!Number.isFinite(monto) || monto <= 0) { setFormError('Ingresa un monto válido.'); return }
+      const concepto = abonoConcepto.trim() || 'Abono al plan de tratamiento'
+      items = [{ descripcion: concepto, monto }]
+    } else {
+      if (selectedItems.size === 0) { setFormError('Marca al menos un tratamiento.'); return }
+      items = patientTratamientos
         .filter(t => selectedItems.has(t.id))
         .map(t => ({
           tratamientoId: t.id,
           descripcion:   t.diente ? `${t.descripcion} (diente ${t.diente})` : t.descripcion,
           monto:         t.monto,
         }))
+    }
+
+    setSaving(true)
+    try {
       const res = await fetch('/api/cobros', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -524,34 +540,68 @@ export function CobrosClient({
                 </select>
               </div>
 
-              {/* Tratamientos del paciente */}
+              {/* Toggle modo: tratamientos completados vs abono libre */}
               {pacienteId && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-2">
-                    Tratamientos a cobrar *
-                    {patientTratamientos.length === 0 && <span className="ml-2 text-xs text-amber-600 font-normal">Este paciente no tiene tratamientos completados pendientes de cobro</span>}
-                  </label>
-                  {patientTratamientos.length > 0 ? (
-                    <div className="space-y-1.5">
-                      {patientTratamientos.map(t => (
-                        <label key={t.id} className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-colors ${selectedItems.has(t.id) ? 'bg-cyan-50 border-cyan-300' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}>
-                          <div className="flex items-center gap-3">
-                            <input type="checkbox" checked={selectedItems.has(t.id)} onChange={() => toggleItem(t.id)} className="w-4 h-4 accent-cyan-600 rounded" />
-                            <div>
-                              <p className="text-sm font-medium text-slate-900">{t.descripcion}{t.diente ? <span className="text-slate-400 font-normal"> · diente {t.diente}</span> : ''}</p>
-                              {t.fechaCompletado && <p className="text-xs text-slate-400">{formatDate(t.fechaCompletado)}</p>}
-                            </div>
-                          </div>
-                          <span className="text-sm font-semibold text-slate-900 flex-shrink-0">{formatCLP(t.monto)}</span>
-                        </label>
-                      ))}
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">Tipo de cobro *</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button type="button" onClick={() => setModoCobro('tratamientos')}
+                        className={`px-3 py-2 rounded-xl text-sm font-medium border-2 transition-all ${modoCobro === 'tratamientos' ? 'bg-cyan-50 border-cyan-500 text-cyan-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                        Tratamientos completados
+                      </button>
+                      <button type="button" onClick={() => setModoCobro('abono')}
+                        className={`px-3 py-2 rounded-xl text-sm font-medium border-2 transition-all ${modoCobro === 'abono' ? 'bg-teal-50 border-teal-500 text-teal-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                        Abono libre
+                      </button>
+                    </div>
+                  </div>
+
+                  {modoCobro === 'tratamientos' ? (
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 mb-2">
+                        Tratamientos a cobrar *
+                        {patientTratamientos.length === 0 && <span className="ml-2 text-xs text-amber-600 font-normal">Sin tratamientos completados pendientes</span>}
+                      </label>
+                      {patientTratamientos.length > 0 ? (
+                        <div className="space-y-1.5">
+                          {patientTratamientos.map(t => (
+                            <label key={t.id} className={`flex items-center justify-between gap-3 px-4 py-3 rounded-xl border cursor-pointer transition-colors ${selectedItems.has(t.id) ? 'bg-cyan-50 border-cyan-300' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}>
+                              <div className="flex items-center gap-3">
+                                <input type="checkbox" checked={selectedItems.has(t.id)} onChange={() => toggleItem(t.id)} className="w-4 h-4 accent-cyan-600 rounded" />
+                                <div>
+                                  <p className="text-sm font-medium text-slate-900">{t.descripcion}{t.diente ? <span className="text-slate-400 font-normal"> · diente {t.diente}</span> : ''}</p>
+                                  {t.fechaCompletado && <p className="text-xs text-slate-400">{formatDate(t.fechaCompletado)}</p>}
+                                </div>
+                              </div>
+                              <span className="text-sm font-semibold text-slate-900 flex-shrink-0">{formatCLP(t.monto)}</span>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700">
+                          Sin tratamientos completados pendientes. Usa <strong>Abono libre</strong> para registrar el pago.
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700">
-                      No hay tratamientos completados sin cobrar para este paciente.
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Concepto *</label>
+                        <input value={abonoConcepto} onChange={e => setAbonoConcepto(e.target.value)}
+                          placeholder="Abono al plan de tratamiento"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Monto (CLP) *</label>
+                        <input type="number" min="1" step="1" inputMode="numeric"
+                          value={abonoMonto} onChange={e => setAbonoMonto(e.target.value)}
+                          placeholder="50000"
+                          className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                      </div>
                     </div>
                   )}
-                </div>
+                </>
               )}
 
               {/* Medio de pago */}
@@ -592,10 +642,14 @@ export function CobrosClient({
               </div>
 
               {/* Resumen financiero */}
-              {selectedItems.size > 0 && (
+              {subtotal > 0 && (
                 <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-1.5">
                   <div className="flex justify-between text-sm text-slate-600">
-                    <span>Subtotal ({selectedItems.size} tratamiento{selectedItems.size !== 1 ? 's' : ''})</span>
+                    <span>
+                      {modoCobro === 'abono'
+                        ? 'Abono libre'
+                        : `Subtotal (${selectedItems.size} tratamiento${selectedItems.size !== 1 ? 's' : ''})`}
+                    </span>
                     <span className="font-semibold">{formatCLP(subtotal)}</span>
                   </div>
                   {comision > 0 && (
@@ -620,9 +674,10 @@ export function CobrosClient({
                   className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">
                   Cancelar
                 </button>
-                <button type="submit" disabled={saving || !pacienteId || !cajaId || selectedItems.size === 0}
+                <button type="submit"
+                  disabled={saving || !pacienteId || !cajaId || (modoCobro === 'tratamientos' ? selectedItems.size === 0 : !(Number(abonoMonto) > 0))}
                   className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-300 text-white rounded-xl text-sm font-medium transition-colors">
-                  {saving ? 'Guardando…' : `Registrar ${selectedItems.size > 0 ? formatCLP(subtotal) : ''}`}
+                  {saving ? 'Guardando…' : `Registrar ${subtotal > 0 ? formatCLP(subtotal) : ''}`}
                 </button>
               </div>
             </form>

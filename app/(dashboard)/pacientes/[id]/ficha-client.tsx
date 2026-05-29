@@ -477,6 +477,9 @@ function RecibirPago({ paciente, kpis, pagosData, currentUserId, permisos, onCob
   const canReceive   = permisos?.puedeRecibirPagos === true
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [modoCobro, setModoCobro] = useState<'tratamientos' | 'abono'>(tratamientos.length > 0 ? 'tratamientos' : 'abono')
+  const [abonoMonto, setAbonoMonto] = useState('')
+  const [abonoConcepto, setAbonoConcepto] = useState('Abono al plan de tratamiento')
   const [cajaId, setCajaId] = useState<string>(cajas[0]?.id ?? '')
   const [medioPagoId, setMedioPagoId] = useState<string>('')
   const [reciboUsuarioId, setReciboUsuarioId] = useState<string>(
@@ -487,7 +490,9 @@ function RecibirPago({ paciente, kpis, pagosData, currentUserId, permisos, onCob
   const [saving, setSaving] = useState(false)
 
   const seleccionados = tratamientos.filter((t: any) => selected.has(t.id))
-  const subtotal = seleccionados.reduce((s: number, t: any) => s + t.monto, 0)
+  const subtotalTrat = seleccionados.reduce((s: number, t: any) => s + t.monto, 0)
+  const subtotalAbono = Number(abonoMonto) || 0
+  const subtotal = modoCobro === 'abono' ? subtotalAbono : subtotalTrat
   const medio = mediosPago.find((m: any) => m.id === medioPagoId)
   const comision = medio ? subtotal * (medio.comision / 100) : 0
   const neto = subtotal - comision
@@ -504,14 +509,24 @@ function RecibirPago({ paciente, kpis, pagosData, currentUserId, permisos, onCob
     e.preventDefault()
     setError('')
     if (!cajaId) { setError('Selecciona una caja.'); return }
-    if (seleccionados.length === 0) { setError('Marca al menos un tratamiento.'); return }
-    setSaving(true)
-    try {
-      const items = seleccionados.map((t: any) => ({
+
+    let items: { tratamientoId?: string; descripcion: string; monto: number }[]
+    if (modoCobro === 'abono') {
+      const monto = Number(abonoMonto)
+      if (!Number.isFinite(monto) || monto <= 0) { setError('Ingresa un monto válido.'); return }
+      const concepto = abonoConcepto.trim() || 'Abono al plan de tratamiento'
+      items = [{ descripcion: concepto, monto }]
+    } else {
+      if (seleccionados.length === 0) { setError('Marca al menos un tratamiento.'); return }
+      items = seleccionados.map((t: any) => ({
         tratamientoId: t.id,
         descripcion:   t.diente ? `${t.descripcion} (diente ${t.diente})` : t.descripcion,
         monto:         t.monto,
       }))
+    }
+
+    setSaving(true)
+    try {
       const res = await fetch('/api/cobros', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -549,31 +564,63 @@ function RecibirPago({ paciente, kpis, pagosData, currentUserId, permisos, onCob
         </div>
       ) : (
         <form onSubmit={registrar} className="bg-white border border-slate-200 rounded-2xl p-5 mb-6 space-y-5">
-          {/* Tratamientos */}
+          {/* Toggle modo */}
           <div>
-            <p className="text-sm font-medium text-slate-700 mb-2">
-              Tratamientos a cobrar *
-              {tratamientos.length === 0 && (
-                <span className="ml-2 text-xs text-slate-400 font-normal">Sin tratamientos completados pendientes de cobro.</span>
-              )}
-            </p>
-            {tratamientos.length > 0 && (
-              <div className="space-y-1.5">
-                {tratamientos.map((t: any) => (
-                  <label key={t.id} className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors ${selected.has(t.id) ? 'bg-cyan-50 border-cyan-300' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}>
-                    <div className="flex items-center gap-3">
-                      <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} className="w-4 h-4 accent-cyan-600 rounded" />
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">{t.descripcion}{t.diente ? <span className="text-slate-400 font-normal"> · diente {t.diente}</span> : ''}</p>
-                        {t.fechaCompletado && <p className="text-xs text-slate-400">{formatDate(t.fechaCompletado)}</p>}
-                      </div>
-                    </div>
-                    <span className="text-sm font-semibold text-slate-900">{formatCLP(t.monto)}</span>
-                  </label>
-                ))}
-              </div>
-            )}
+            <p className="text-sm font-medium text-slate-700 mb-2">Tipo de cobro *</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button" onClick={() => setModoCobro('tratamientos')}
+                className={`px-3 py-2 rounded-xl text-sm font-medium border-2 transition-all ${modoCobro === 'tratamientos' ? 'bg-cyan-50 border-cyan-500 text-cyan-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                Tratamientos completados
+              </button>
+              <button type="button" onClick={() => setModoCobro('abono')}
+                className={`px-3 py-2 rounded-xl text-sm font-medium border-2 transition-all ${modoCobro === 'abono' ? 'bg-teal-50 border-teal-500 text-teal-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
+                Abono libre
+              </button>
+            </div>
           </div>
+
+          {modoCobro === 'tratamientos' ? (
+            <div>
+              <p className="text-sm font-medium text-slate-700 mb-2">
+                Tratamientos a cobrar *
+                {tratamientos.length === 0 && (
+                  <span className="ml-2 text-xs text-amber-600 font-normal">Sin tratamientos pendientes — usa <strong>Abono libre</strong>.</span>
+                )}
+              </p>
+              {tratamientos.length > 0 && (
+                <div className="space-y-1.5">
+                  {tratamientos.map((t: any) => (
+                    <label key={t.id} className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors ${selected.has(t.id) ? 'bg-cyan-50 border-cyan-300' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}>
+                      <div className="flex items-center gap-3">
+                        <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} className="w-4 h-4 accent-cyan-600 rounded" />
+                        <div>
+                          <p className="text-sm font-medium text-slate-900">{t.descripcion}{t.diente ? <span className="text-slate-400 font-normal"> · diente {t.diente}</span> : ''}</p>
+                          {t.fechaCompletado && <p className="text-xs text-slate-400">{formatDate(t.fechaCompletado)}</p>}
+                        </div>
+                      </div>
+                      <span className="text-sm font-semibold text-slate-900">{formatCLP(t.monto)}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Concepto *</label>
+                <input value={abonoConcepto} onChange={e => setAbonoConcepto(e.target.value)}
+                  placeholder="Abono al plan de tratamiento"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Monto (CLP) *</label>
+                <input type="number" min="1" step="1" inputMode="numeric"
+                  value={abonoMonto} onChange={e => setAbonoMonto(e.target.value)}
+                  placeholder="50000"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -611,10 +658,14 @@ function RecibirPago({ paciente, kpis, pagosData, currentUserId, permisos, onCob
             </div>
           </div>
 
-          {selected.size > 0 && (
+          {subtotal > 0 && (
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1 text-sm">
               <div className="flex justify-between">
-                <span className="text-slate-600">Subtotal ({selected.size} tratamiento{selected.size !== 1 ? 's' : ''})</span>
+                <span className="text-slate-600">
+                  {modoCobro === 'abono'
+                    ? 'Abono libre'
+                    : `Subtotal (${selected.size} tratamiento${selected.size !== 1 ? 's' : ''})`}
+                </span>
                 <span className="font-semibold">{formatCLP(subtotal)}</span>
               </div>
               {comision > 0 && (
@@ -633,9 +684,10 @@ function RecibirPago({ paciente, kpis, pagosData, currentUserId, permisos, onCob
           {error && <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-sm text-rose-700">{error}</div>}
 
           <div className="flex justify-end">
-            <button type="submit" disabled={saving || selected.size === 0 || !cajaId}
+            <button type="submit"
+              disabled={saving || !cajaId || (modoCobro === 'tratamientos' ? selected.size === 0 : !(Number(abonoMonto) > 0))}
               className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-300 text-white rounded-xl text-sm font-medium">
-              {saving ? 'Registrando…' : `Registrar pago ${selected.size > 0 ? formatCLP(subtotal) : ''}`}
+              {saving ? 'Registrando…' : `Registrar pago ${subtotal > 0 ? formatCLP(subtotal) : ''}`}
             </button>
           </div>
         </form>
