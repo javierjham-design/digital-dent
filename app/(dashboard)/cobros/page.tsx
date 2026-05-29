@@ -10,8 +10,11 @@ export default async function CobrosPage() {
   if (!u?.clinicaId) redirect('/login')
 
   const canEditPayments = u.role === 'admin' || u.puedeEditarPagos
+  const canReceivePayments = u.role === 'admin' || (await prisma.user.findUnique({
+    where: { id: u.id }, select: { puedeRecibirPagos: true },
+  }))?.puedeRecibirPagos === true
 
-  const [cobros, pacientes, mediosPago, cajeros, tratamientos] = await Promise.all([
+  const [cobros, pacientes, mediosPago, cajeros, tratamientos, cajas] = await Promise.all([
     prisma.cobro.findMany({
       where: { clinicaId: u.clinicaId },
       include: {
@@ -53,11 +56,20 @@ export default async function CobrosPage() {
       },
       orderBy: { fechaCompletado: 'desc' },
     }),
+    prisma.caja.findMany({
+      where: u.role === 'admin'
+        ? { clinicaId: u.clinicaId, activo: true }
+        : { clinicaId: u.clinicaId, activo: true, usuarios: { some: { userId: u.id } } },
+      orderBy: { nombre: 'asc' },
+      select: { id: true, nombre: true },
+    }),
   ])
 
   return (
     <CobrosClient
       canEditPayments={canEditPayments}
+      canReceivePayments={canReceivePayments}
+      cajas={cajas}
       cobros={cobros.map((c) => ({
         id:          c.id,
         numero:      c.numero,

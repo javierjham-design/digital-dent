@@ -51,6 +51,14 @@ const REPORTES: Reporte[] = [
     filtros: ['rangoFechas', 'campoFechaCobro', 'estadoCobro'],
   },
   {
+    id: 'caja',
+    categoria: 'Finanzas',
+    nombre: 'Movimientos de caja',
+    descripcion: 'Ingresos y egresos por caja en el periodo, con motivo, categoría y registrado por.',
+    endpoint: '/api/reportes/caja',
+    filtros: ['rangoFechas'],
+  },
+  {
     id: 'tratamientos',
     categoria: 'Tratamientos',
     nombre: 'Tratamientos',

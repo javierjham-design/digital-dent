@@ -38,13 +38,48 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
   if (!paciente) notFound()
 
   const doctors = await prisma.user.findMany({
-    where: { clinicaId: u.clinicaId, role: { in: ['admin', 'doctor'] } },
+    where: { clinicaId: u.clinicaId, role: { in: ['admin', 'doctor', 'medico'] } },
     select: { id: true, name: true, email: true },
   })
   const prestaciones = await prisma.prestacion.findMany({
     where: { clinicaId: u.clinicaId, activo: true },
     orderBy: { nombre: 'asc' },
   })
+
+  // Datos extra para registrar pagos directo desde la ficha
+  const canReceivePayments = u.role === 'admin' || (await prisma.user.findUnique({
+    where: { id: u.id }, select: { puedeRecibirPagos: true },
+  }))?.puedeRecibirPagos === true
+
+  const [mediosPago, cajasAccesibles, cajeros, tratamientosPendientes] = await Promise.all([
+    prisma.medioPago.findMany({
+      where: { clinicaId: u.clinicaId, activo: true },
+      orderBy: { nombre: 'asc' },
+      select: { id: true, nombre: true, comision: true },
+    }),
+    prisma.caja.findMany({
+      where: u.role === 'admin'
+        ? { clinicaId: u.clinicaId, activo: true }
+        : { clinicaId: u.clinicaId, activo: true, usuarios: { some: { userId: u.id } } },
+      orderBy: { nombre: 'asc' },
+      select: { id: true, nombre: true },
+    }),
+    prisma.user.findMany({
+      where: { clinicaId: u.clinicaId, activo: true, puedeRecibirPagos: true },
+      orderBy: { name: 'asc' },
+      select: { id: true, name: true, email: true },
+    }),
+    prisma.tratamiento.findMany({
+      where: {
+        clinicaId: u.clinicaId,
+        ficha: { pacienteId: id },
+        estado: 'COMPLETADO',
+        cobroItems: { none: { cobro: { anulado: false } } },
+      },
+      include: { prestacion: { select: { nombre: true } } },
+      orderBy: { fechaCompletado: 'desc' },
+    }),
+  ])
 
   return (
     <FichaClinicaClient
@@ -76,6 +111,19 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
         puedeModificarPrecio: u.puedeModificarPrecio,
         puedeAplicarDescuento: u.puedeAplicarDescuento,
         puedeRevertirCompletado: u.puedeRevertirCompletado,
+        puedeRecibirPagos: canReceivePayments,
+      }}
+      pagosData={{
+        mediosPago,
+        cajas: cajasAccesibles,
+        cajeros: cajeros.map(c => ({ id: c.id, nombre: c.name ?? c.email })),
+        tratamientosPendientes: tratamientosPendientes.map(t => ({
+          id: t.id,
+          descripcion: t.prestacion.nombre,
+          monto: t.precio,
+          diente: t.diente,
+          fechaCompletado: t.fechaCompletado?.toISOString() ?? null,
+        })),
       }}
     />
   )

@@ -55,6 +55,8 @@ model Clinica {
   comentariosAdmin ComentarioAdministrativo[]
   mensajes         MensajePaciente[]
   pagosSuscripcion PagoSuscripcion[]
+  cajas            Caja[]
+  movimientosCaja  MovimientoCaja[]
 }
 
 // Catálogo de planes de suscripción que la plataforma ofrece a las clínicas.
@@ -139,6 +141,8 @@ model User {
   cobrosRecibidos Cobro[]      @relation("CobroUsuario")
   evolucionesCreadas Evolucion[] @relation("AutorEvolucion")
   planesTitulares PlanTratamiento[] @relation("DoctorTitularPlanes")
+  cajas            CajaUsuario[]
+  movimientosCaja  MovimientoCaja[] @relation("MovimientoUsuario")
 
   @@unique([clinicaId, username])
 }
@@ -435,6 +439,7 @@ model Cobro {
   medioPagoId     String?
   metodoPago      String?
   reciboUsuarioId String?
+  cajaId          String?    // caja a la que se asoció el ingreso
   fechaPago       DateTime?
   notas           String?
   // Anulación: si anulado=true, el cobro queda registrado para auditoría
@@ -449,9 +454,67 @@ model Cobro {
   paciente        Paciente   @relation(fields: [pacienteId], references: [id])
   medioPago       MedioPago? @relation(fields: [medioPagoId], references: [id])
   reciboUsuario   User?      @relation("CobroUsuario", fields: [reciboUsuarioId], references: [id])
+  caja            Caja?      @relation(fields: [cajaId], references: [id])
   items           CobroItem[]
+  movimientos     MovimientoCaja[]
 
   @@unique([clinicaId, numero])
+}
+
+// ─────────────────────────────────────────────────────────────
+// CAJA: registro de ingresos y egresos (flujo de efectivo) por clínica.
+// Cada caja puede tener uno o más usuarios autorizados a operarla.
+// Los ingresos vienen de Cobros; los egresos se registran manualmente.
+// ─────────────────────────────────────────────────────────────
+model Caja {
+  id            String    @id @default(cuid())
+  clinicaId     String
+  nombre        String
+  descripcion   String?
+  saldoInicial  Float     @default(0)
+  activo        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  clinica       Clinica   @relation(fields: [clinicaId], references: [id])
+  usuarios      CajaUsuario[]
+  movimientos   MovimientoCaja[]
+  cobros        Cobro[]
+
+  @@unique([clinicaId, nombre])
+}
+
+model CajaUsuario {
+  cajaId String
+  userId String
+  caja   Caja   @relation(fields: [cajaId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([cajaId, userId])
+}
+
+model MovimientoCaja {
+  id              String   @id @default(cuid())
+  clinicaId       String
+  cajaId          String
+  tipo            String   // INGRESO | EGRESO
+  monto           Float
+  descripcion     String
+  categoria       String?  // EGRESO: ARRIENDO, INSUMOS, SUELDO, RETIRO, OTRO. INGRESO: COBRO, OTRO.
+  fecha           DateTime @default(now())
+  cobroId         String?  // si el movimiento es ingreso por un cobro
+  userId          String   // quien registra el movimiento
+  anulado         Boolean  @default(false)
+  motivoAnulacion String?
+  anuladoAt       DateTime?
+  anuladoPorId    String?
+  anuladoPorNombre String?
+  createdAt       DateTime @default(now())
+  caja            Caja     @relation(fields: [cajaId], references: [id])
+  cobro           Cobro?   @relation(fields: [cobroId], references: [id])
+  user            User     @relation("MovimientoUsuario", fields: [userId], references: [id])
+  clinica         Clinica  @relation(fields: [clinicaId], references: [id])
+
+  @@index([clinicaId, cajaId, fecha])
 }
 
 model CobroItem {

@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { formatCLP, formatDate } from '@/lib/utils'
+import { formatCLP, formatDate, formatRUT } from '@/lib/utils'
+import { CobrosSubNav } from './sub-nav'
 
 interface CobroItem { id: string; descripcion: string; monto: number; tratamientoId?: string | null }
 interface MedioPago  { id: string; nombre: string; comision: number }
@@ -32,20 +33,30 @@ const ESTADO_STYLES: Record<string, string> = {
 }
 
 export function CobrosClient({
-  cobros: initCobros, pacientes, mediosPago, cajeros, tratamientos, canEditPayments,
+  cobros: initCobros, pacientes, mediosPago, cajeros, tratamientos, cajas, canEditPayments, canReceivePayments,
 }: {
   cobros:       Cobro[]
   pacientes:    Paciente[]
   mediosPago:   MedioPago[]
   cajeros:      Cajero[]
   tratamientos: Tratamiento[]
+  cajas:        { id: string; nombre: string }[]
   canEditPayments: boolean
+  canReceivePayments: boolean
 }) {
   const [cobros,       setCobros]       = useState<Cobro[]>(initCobros)
   const [showModal,    setShowModal]    = useState(false)
   const [filtroEstado, setFiltroEstado] = useState('TODOS')
   const [expandedId,   setExpandedId]   = useState<string | null>(null)
   const [saving,       setSaving]       = useState(false)
+  const [formError,    setFormError]    = useState('')
+
+  // Caja seleccionada y búsqueda de paciente
+  const [cajaId, setCajaId] = useState<string>(cajas[0]?.id ?? '')
+  const [search, setSearch] = useState('')
+
+  // Filtro búsqueda en tabla de cobros
+  const [searchCobros, setSearchCobros] = useState('')
 
   // Anulación
   const [anulando,        setAnulando]        = useState<Cobro | null>(null)
@@ -56,6 +67,18 @@ export function CobrosClient({
   const [editing,    setEditing]    = useState<Cobro | null>(null)
   const [editForm,   setEditForm]   = useState({ concepto: '', monto: '', notas: '', fechaPago: '', medioPagoId: '' })
   const [editError,  setEditError]  = useState('')
+
+  // Resultados de la búsqueda de paciente en el modal de nuevo cobro
+  const searchResults = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (q.length < 2) return []
+    return pacientes
+      .filter(p =>
+        `${p.nombre} ${p.apellido}`.toLowerCase().includes(q) ||
+        (p.rut ?? '').toLowerCase().includes(q),
+      )
+      .slice(0, 8)
+  }, [search, pacientes])
 
   // form state
   const [pacienteId,      setPacienteId]      = useState('')
@@ -92,36 +115,49 @@ export function CobrosClient({
 
   function openModal() {
     setPacienteId(''); setSelectedItems(new Set()); setMedioPagoId(''); setReciboUsuarioId(''); setNotas('')
+    setSearch(''); setFormError('')
+    if (!cajaId && cajas.length > 0) setCajaId(cajas[0].id)
     setShowModal(true)
   }
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault()
-    if (!pacienteId || selectedItems.size === 0) return
+    setFormError('')
+    if (!pacienteId) { setFormError('Selecciona un paciente.'); return }
+    if (!cajaId) { setFormError('Selecciona una caja.'); return }
+    if (selectedItems.size === 0) { setFormError('Marca al menos un tratamiento.'); return }
     setSaving(true)
-    const items = patientTratamientos
-      .filter(t => selectedItems.has(t.id))
-      .map(t => ({
-        tratamientoId: t.id,
-        descripcion:   t.diente ? `${t.descripcion} (diente ${t.diente})` : t.descripcion,
-        monto:         t.monto,
-      }))
-    const res = await fetch('/api/cobros', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pacienteId, items, medioPagoId: medioPagoId || null, reciboUsuarioId: reciboUsuarioId || null, notas: notas || null }),
-    })
-    const created = await res.json()
-    const paciente = pacientes.find(p => p.id === pacienteId)
-    setCobros(prev => [{
-      ...created,
-      paciente:      `${paciente?.nombre} ${paciente?.apellido}`,
-      medioPago:     selectedMedio ?? null,
-      reciboUsuario: cajeros.find(c => c.id === reciboUsuarioId) ? { id: reciboUsuarioId, nombre: cajeros.find(c => c.id === reciboUsuarioId)!.nombre } : null,
-      fechaPago:     created.fechaPago,
-      createdAt:     created.createdAt,
-    }, ...prev])
-    setSaving(false); setShowModal(false)
+    try {
+      const items = patientTratamientos
+        .filter(t => selectedItems.has(t.id))
+        .map(t => ({
+          tratamientoId: t.id,
+          descripcion:   t.diente ? `${t.descripcion} (diente ${t.diente})` : t.descripcion,
+          monto:         t.monto,
+        }))
+      const res = await fetch('/api/cobros', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pacienteId, items, cajaId,
+          medioPagoId: medioPagoId || null,
+          reciboUsuarioId: reciboUsuarioId || null,
+          notas: notas || null,
+        }),
+      })
+      const created = await res.json().catch(() => ({}))
+      if (!res.ok) { setFormError(created.error ?? `Error ${res.status}`); return }
+      const paciente = pacientes.find(p => p.id === pacienteId)
+      setCobros(prev => [{
+        ...created,
+        paciente:      `${paciente?.nombre} ${paciente?.apellido}`,
+        medioPago:     selectedMedio ?? null,
+        reciboUsuario: cajeros.find(c => c.id === reciboUsuarioId) ? { id: reciboUsuarioId, nombre: cajeros.find(c => c.id === reciboUsuarioId)!.nombre } : null,
+        fechaPago:     created.fechaPago,
+        createdAt:     created.createdAt,
+      }, ...prev])
+      setShowModal(false)
+    } finally { setSaving(false) }
   }
 
   // ── Editar ────────────────────────────────────────────────────────────
@@ -205,20 +241,36 @@ export function CobrosClient({
     window.open(`/print/cobro/${id}`, '_blank')
   }
 
-  const filtered = cobros.filter(c => filtroEstado === 'TODOS' || c.estado === filtroEstado)
+  const filtered = cobros.filter(c => {
+    if (filtroEstado !== 'TODOS' && c.estado !== filtroEstado) return false
+    const q = searchCobros.trim().toLowerCase()
+    if (!q) return true
+    return c.paciente.toLowerCase().includes(q) || String(c.numero).includes(q)
+  })
   const totalPagado   = cobros.filter(c => c.estado === 'PAGADO').reduce((s, c) => s + c.monto, 0)
   const totalNeto     = cobros.filter(c => c.estado === 'PAGADO').reduce((s, c) => s + (c.montoNeto ?? c.monto), 0)
   const totalPendiente = cobros.filter(c => c.estado === 'PENDIENTE').reduce((s, c) => s + c.monto, 0)
 
+  const newCobroDisabled = !canReceivePayments || cajas.length === 0
+  const newCobroDisabledTitle = !canReceivePayments
+    ? 'No tienes permiso para recibir pagos (pídelo al admin)'
+    : cajas.length === 0
+      ? 'No tienes cajas asignadas (pídelo al admin)'
+      : ''
+
   return (
     <div className="p-8">
+      <CobrosSubNav />
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Cobros</h1>
           <p className="text-slate-500 text-sm mt-1">Registro de pagos por tratamientos completados</p>
         </div>
-        <button onClick={openModal}
-          className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm">
+        <button
+          onClick={openModal}
+          disabled={newCobroDisabled}
+          title={newCobroDisabledTitle}
+          className="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-sm">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
           Registrar cobro
         </button>
@@ -239,14 +291,25 @@ export function CobrosClient({
         ))}
       </div>
 
-      {/* Filtros */}
-      <div className="flex gap-2 mb-5">
+      {/* Filtros + búsqueda */}
+      <div className="flex flex-wrap gap-2 mb-5 items-center">
         {['TODOS', 'PAGADO', 'PENDIENTE', 'ANULADO'].map(e => (
           <button key={e} onClick={() => setFiltroEstado(e)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${filtroEstado === e ? 'bg-cyan-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
             {e === 'TODOS' ? 'Todos' : e.charAt(0) + e.slice(1).toLowerCase()}
           </button>
         ))}
+        <div className="ml-auto relative">
+          <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 110-16 8 8 0 010 16z" />
+          </svg>
+          <input
+            type="search" value={searchCobros}
+            onChange={e => setSearchCobros(e.target.value)}
+            placeholder="Buscar paciente o N° cobro…"
+            className="pl-9 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm w-64 focus:outline-none focus:ring-2 focus:ring-cyan-500"
+          />
+        </div>
       </div>
 
       {/* Tabla */}
@@ -390,18 +453,74 @@ export function CobrosClient({
               </button>
             </div>
             <form onSubmit={handleSave} className="p-6 space-y-5">
-              {/* Paciente */}
+              {/* Paciente: buscador */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Paciente *</label>
-                <select required value={pacienteId}
-                  onChange={e => { setPacienteId(e.target.value); setSelectedItems(new Set()) }}
+                {pacienteId ? (
+                  (() => {
+                    const p = pacientes.find(x => x.id === pacienteId)
+                    return (
+                      <div className="flex items-center gap-2 bg-cyan-50 border border-cyan-200 rounded-xl px-3 py-2.5">
+                        <svg className="w-4 h-4 text-cyan-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-cyan-900">{p?.nombre} {p?.apellido}</p>
+                          {p?.rut && <p className="text-xs text-cyan-600 font-mono">{formatRUT(p.rut)}</p>}
+                        </div>
+                        <button type="button" onClick={() => { setPacienteId(''); setSelectedItems(new Set()); setSearch('') }}
+                          className="text-cyan-400 hover:text-cyan-600 text-xs font-medium">Cambiar</button>
+                      </div>
+                    )
+                  })()
+                ) : (
+                  <div className="relative">
+                    <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 110-16 8 8 0 010 16z" />
+                    </svg>
+                    <input
+                      type="search" value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      placeholder="Buscar por nombre o RUT…"
+                      autoFocus
+                      className="w-full pl-9 pr-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+                    />
+                    {searchResults.length > 0 && (
+                      <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-10 max-h-72 overflow-y-auto">
+                        {searchResults.map(p => {
+                          const pendientes = pendingByPatient[p.id]?.length ?? 0
+                          return (
+                            <button key={p.id} type="button"
+                              onClick={() => { setPacienteId(p.id); setSelectedItems(new Set()); setSearch('') }}
+                              className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-100 last:border-0">
+                              <div className="flex items-center justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-medium text-slate-800">{p.nombre} {p.apellido}</p>
+                                  <p className="text-xs text-slate-500 font-mono">{p.rut ? formatRUT(p.rut) : 'Sin RUT'}</p>
+                                </div>
+                                {pendientes > 0 && (
+                                  <span className="text-[11px] font-semibold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                                    {pendientes} pend.
+                                  </span>
+                                )}
+                              </div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                    {search.length >= 2 && searchResults.length === 0 && (
+                      <p className="text-xs text-slate-400 mt-1">Sin coincidencias.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Caja */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Caja *</label>
+                <select required value={cajaId} onChange={e => setCajaId(e.target.value)}
                   className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                  <option value="">Seleccionar paciente</option>
-                  {pacientes.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.apellido}, {p.nombre}{pendingByPatient[p.id]?.length ? ` (${pendingByPatient[p.id].length} trat. pendiente${pendingByPatient[p.id].length > 1 ? 's' : ''})` : ''}
-                    </option>
-                  ))}
+                  {cajas.length === 0 && <option value="">— Sin cajas —</option>}
+                  {cajas.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
               </div>
 
@@ -492,12 +611,16 @@ export function CobrosClient({
                 </div>
               )}
 
+              {formError && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-sm text-rose-700">{formError}</div>
+              )}
+
               <div className="flex gap-3 pt-1">
                 <button type="button" onClick={() => setShowModal(false)}
                   className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">
                   Cancelar
                 </button>
-                <button type="submit" disabled={saving || !pacienteId || selectedItems.size === 0}
+                <button type="submit" disabled={saving || !pacienteId || !cajaId || selectedItems.size === 0}
                   className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-300 text-white rounded-xl text-sm font-medium transition-colors">
                   {saving ? 'Guardando…' : `Registrar ${selectedItems.size > 0 ? formatCLP(subtotal) : ''}`}
                 </button>

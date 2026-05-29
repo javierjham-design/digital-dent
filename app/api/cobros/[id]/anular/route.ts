@@ -31,22 +31,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const nombre = me?.name ?? me?.email ?? 'Sistema'
-  const cobro = await prisma.cobro.update({
-    where: { id },
-    data: {
-      anulado: true,
-      motivoAnulacion: motivo,
-      anuladoAt: new Date(),
-      anuladoPorId: u.id,
-      anuladoPorNombre: nombre,
-      estado: 'ANULADO',
-    },
-    include: {
-      paciente: true,
-      medioPago: true,
-      reciboUsuario: { select: { id: true, name: true, email: true } },
-      items: true,
-    },
+  const cobro = await prisma.$transaction(async (tx) => {
+    const updated = await tx.cobro.update({
+      where: { id },
+      data: {
+        anulado: true,
+        motivoAnulacion: motivo,
+        anuladoAt: new Date(),
+        anuladoPorId: u.id,
+        anuladoPorNombre: nombre,
+        estado: 'ANULADO',
+      },
+      include: {
+        paciente: true,
+        medioPago: true,
+        reciboUsuario: { select: { id: true, name: true, email: true } },
+        items: true,
+      },
+    })
+    // Anular movimientos de caja asociados al cobro
+    await tx.movimientoCaja.updateMany({
+      where: { cobroId: id, anulado: false },
+      data: {
+        anulado: true,
+        motivoAnulacion: `Cobro anulado · ${motivo}`,
+        anuladoAt: new Date(),
+        anuladoPorId: u.id,
+        anuladoPorNombre: nombre,
+      },
+    })
+    return updated
   })
   return NextResponse.json(cobro)
 }

@@ -31,7 +31,7 @@ const TIPO_MSG_BADGE: Record<string, string> = {
   SMS:      'bg-amber-100 text-amber-700',
 }
 
-export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, permisos, currentUserId }: any) {
+export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, permisos, currentUserId, pagosData }: any) {
   const [paciente, setPaciente] = useState(initial)
   const [tab, setTab] = useState<typeof TABS_PRINCIPALES[number]>('Datos personales')
   const [subtab, setSubtab] = useState<typeof SUBTABS_DATOS[number]>('Datos')
@@ -179,7 +179,14 @@ export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, p
           )}
 
           {tab === 'Recibir pago' && (
-            <RecibirPago paciente={paciente} kpis={kpis} onCobro={() => window.location.reload()} />
+            <RecibirPago
+              paciente={paciente}
+              kpis={kpis}
+              pagosData={pagosData}
+              currentUserId={currentUserId}
+              permisos={permisos}
+              onCobro={() => window.location.reload()}
+            />
           )}
         </div>
       </div>
@@ -462,18 +469,179 @@ function FacturacionPagos({ paciente, kpis }: any) {
   )
 }
 
-function RecibirPago({ paciente, kpis }: any) {
+function RecibirPago({ paciente, kpis, pagosData, currentUserId, permisos, onCobro }: any) {
+  const tratamientos = pagosData?.tratamientosPendientes ?? []
+  const mediosPago   = pagosData?.mediosPago ?? []
+  const cajas        = pagosData?.cajas ?? []
+  const cajeros      = pagosData?.cajeros ?? []
+  const canReceive   = permisos?.puedeRecibirPagos === true
+
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [cajaId, setCajaId] = useState<string>(cajas[0]?.id ?? '')
+  const [medioPagoId, setMedioPagoId] = useState<string>('')
+  const [reciboUsuarioId, setReciboUsuarioId] = useState<string>(
+    cajeros.find((c: any) => c.id === currentUserId)?.id ?? '',
+  )
+  const [notas, setNotas] = useState('')
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const seleccionados = tratamientos.filter((t: any) => selected.has(t.id))
+  const subtotal = seleccionados.reduce((s: number, t: any) => s + t.monto, 0)
+  const medio = mediosPago.find((m: any) => m.id === medioPagoId)
+  const comision = medio ? subtotal * (medio.comision / 100) : 0
+  const neto = subtotal - comision
+
+  function toggle(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  async function registrar(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    if (!cajaId) { setError('Selecciona una caja.'); return }
+    if (seleccionados.length === 0) { setError('Marca al menos un tratamiento.'); return }
+    setSaving(true)
+    try {
+      const items = seleccionados.map((t: any) => ({
+        tratamientoId: t.id,
+        descripcion:   t.diente ? `${t.descripcion} (diente ${t.diente})` : t.descripcion,
+        monto:         t.monto,
+      }))
+      const res = await fetch('/api/cobros', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pacienteId:     paciente.id,
+          cajaId,
+          medioPagoId:    medioPagoId || null,
+          reciboUsuarioId: reciboUsuarioId || null,
+          notas:          notas || null,
+          items,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error ?? `Error ${res.status}`); return }
+      onCobro?.()
+    } finally { setSaving(false) }
+  }
+
   return (
     <div>
       <h2 className="text-2xl font-light text-slate-700 mb-5">Recibir pago</h2>
+
       <div className="grid grid-cols-3 gap-3 mb-6">
         <KpiBox label="Realizado" value={formatCLP(kpis.realizado)} />
         <KpiBox label="Abonado" value={formatCLP(kpis.abonado)} />
         <KpiBox label="Saldo pendiente" value={formatCLP(kpis.saldo)} tono={kpis.saldo > 0 ? 'red' : 'emerald'} />
       </div>
-      <p className="text-sm text-slate-500 mb-4">
-        Los cobros se registran en el módulo de Cobros. Aquí ves el historial del paciente.
-      </p>
+
+      {!canReceive ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 mb-6">
+          No tienes permiso para recibir pagos. Pide al admin que active el toggle <strong>&ldquo;Recibir pagos&rdquo;</strong> en tu usuario.
+        </div>
+      ) : cajas.length === 0 ? (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 mb-6">
+          No tienes cajas asignadas. Pide al admin que te asigne al menos una caja en <strong>Cobros → Caja</strong>.
+        </div>
+      ) : (
+        <form onSubmit={registrar} className="bg-white border border-slate-200 rounded-2xl p-5 mb-6 space-y-5">
+          {/* Tratamientos */}
+          <div>
+            <p className="text-sm font-medium text-slate-700 mb-2">
+              Tratamientos a cobrar *
+              {tratamientos.length === 0 && (
+                <span className="ml-2 text-xs text-slate-400 font-normal">Sin tratamientos completados pendientes de cobro.</span>
+              )}
+            </p>
+            {tratamientos.length > 0 && (
+              <div className="space-y-1.5">
+                {tratamientos.map((t: any) => (
+                  <label key={t.id} className={`flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border cursor-pointer transition-colors ${selected.has(t.id) ? 'bg-cyan-50 border-cyan-300' : 'bg-slate-50 border-slate-200 hover:border-slate-300'}`}>
+                    <div className="flex items-center gap-3">
+                      <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} className="w-4 h-4 accent-cyan-600 rounded" />
+                      <div>
+                        <p className="text-sm font-medium text-slate-900">{t.descripcion}{t.diente ? <span className="text-slate-400 font-normal"> · diente {t.diente}</span> : ''}</p>
+                        {t.fechaCompletado && <p className="text-xs text-slate-400">{formatDate(t.fechaCompletado)}</p>}
+                      </div>
+                    </div>
+                    <span className="text-sm font-semibold text-slate-900">{formatCLP(t.monto)}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Caja *</label>
+              <select value={cajaId} onChange={e => setCajaId(e.target.value)} required
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                {cajas.map((c: any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Medio de pago</label>
+              <select value={medioPagoId} onChange={e => setMedioPagoId(e.target.value)}
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                <option value="">Sin especificar</option>
+                {mediosPago.map((m: any) => (
+                  <option key={m.id} value={m.id}>{m.nombre}{m.comision > 0 ? ` (${m.comision}%)` : ''}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Recibe el pago</label>
+              <select value={reciboUsuarioId} onChange={e => setReciboUsuarioId(e.target.value)}
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                <option value="">— Yo —</option>
+                {cajeros.map((c: any) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Notas</label>
+              <input value={notas} onChange={e => setNotas(e.target.value)} placeholder="Observaciones..."
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+            </div>
+          </div>
+
+          {selected.size > 0 && (
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Subtotal ({selected.size} tratamiento{selected.size !== 1 ? 's' : ''})</span>
+                <span className="font-semibold">{formatCLP(subtotal)}</span>
+              </div>
+              {comision > 0 && (
+                <div className="flex justify-between text-rose-600">
+                  <span>Comisión {medio?.nombre} ({medio?.comision}%)</span>
+                  <span>- {formatCLP(comision)}</span>
+                </div>
+              )}
+              <div className="flex justify-between font-bold border-t border-slate-200 pt-1.5">
+                <span>Neto a caja</span>
+                <span className="text-teal-700">{formatCLP(neto)}</span>
+              </div>
+            </div>
+          )}
+
+          {error && <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-sm text-rose-700">{error}</div>}
+
+          <div className="flex justify-end">
+            <button type="submit" disabled={saving || selected.size === 0 || !cajaId}
+              className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-300 text-white rounded-xl text-sm font-medium">
+              {saving ? 'Registrando…' : `Registrar pago ${selected.size > 0 ? formatCLP(subtotal) : ''}`}
+            </button>
+          </div>
+        </form>
+      )}
+
+      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Historial</p>
       {paciente.cobros.length === 0 ? (
         <p className="text-slate-400 text-sm py-6 text-center">Sin cobros registrados.</p>
       ) : (
@@ -487,7 +655,7 @@ function RecibirPago({ paciente, kpis }: any) {
               </div>
               <div className="text-right">
                 <p className="text-sm font-semibold text-slate-800">{formatCLP(c.monto)}</p>
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.estado === 'PAGADO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{c.estado}</span>
+                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${c.anulado ? 'bg-rose-100 text-rose-700' : c.estado === 'PAGADO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{c.anulado ? 'ANULADO' : c.estado}</span>
               </div>
             </div>
           ))}
