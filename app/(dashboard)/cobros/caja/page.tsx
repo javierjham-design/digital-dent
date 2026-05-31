@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
+import { diasDesde, SESION_STALE_DIAS } from '@/lib/caja'
 import { CajaListClient } from './caja-list-client'
 
 export default async function CajaPage() {
@@ -19,6 +20,12 @@ export default async function CajaPage() {
       include: {
         usuarios: { include: { user: { select: { id: true, name: true, email: true } } } },
         movimientos: { where: { anulado: false }, select: { tipo: true, monto: true } },
+        sesiones: {
+          where: { estado: 'ABIERTA' },
+          orderBy: { abiertaAt: 'desc' },
+          take: 1,
+          select: { id: true, abiertaAt: true, abiertaPorNombre: true, saldoApertura: true },
+        },
       },
       orderBy: { nombre: 'asc' },
     }),
@@ -35,6 +42,8 @@ export default async function CajaPage() {
     const ingresos = c.movimientos.filter(m => m.tipo === 'INGRESO').reduce((s, m) => s + m.monto, 0)
     const egresos  = c.movimientos.filter(m => m.tipo === 'EGRESO').reduce((s, m) => s + m.monto, 0)
     const saldo = c.saldoInicial + ingresos - egresos
+    const sesionAbierta = c.sesiones[0] ?? null
+    const diasAbierta = sesionAbierta ? diasDesde(sesionAbierta.abiertaAt) : null
     return {
       id: c.id,
       nombre: c.nombre,
@@ -43,6 +52,13 @@ export default async function CajaPage() {
       activo: c.activo,
       ingresos, egresos, saldo,
       usuarios: c.usuarios.map(cu => ({ id: cu.user.id, nombre: cu.user.name ?? cu.user.email })),
+      sesionAbierta: sesionAbierta ? {
+        id: sesionAbierta.id,
+        abiertaAt: sesionAbierta.abiertaAt.toISOString(),
+        abiertaPorNombre: sesionAbierta.abiertaPorNombre,
+      } : null,
+      diasAbierta,
+      stale: diasAbierta != null && diasAbierta >= SESION_STALE_DIAS,
     }
   })
 
@@ -51,6 +67,7 @@ export default async function CajaPage() {
       cajas={data}
       isAdmin={isAdmin}
       usuariosDisponibles={usuarios.map(u => ({ id: u.id, nombre: u.name ?? u.email }))}
+      staleDias={SESION_STALE_DIAS}
     />
   )
 }

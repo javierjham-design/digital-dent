@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
+import { ensureSesionAbierta } from '@/lib/caja'
 
 export async function GET() {
   const u = await getSessionUser()
@@ -72,6 +73,14 @@ export async function POST(req: NextRequest) {
   const numero = (lastCobro?.numero ?? 0) + 1
   const fechaPago = body.fechaPago ? new Date(body.fechaPago) : new Date()
 
+  // Asegurar sesión abierta para vincular el movimiento.
+  const sesion = await ensureSesionAbierta({
+    cajaId: caja.id,
+    clinicaId: u.clinicaId,
+    userId: u.id,
+    userNombre: u.name ?? u.email,
+  })
+
   // Cobro + MovimientoCaja en una transacción.
   const cobro = await prisma.$transaction(async (tx) => {
     const nuevo = await tx.cobro.create({
@@ -109,6 +118,7 @@ export async function POST(req: NextRequest) {
       data: {
         clinicaId:    u.clinicaId!,
         cajaId:       caja.id,
+        sesionCajaId: sesion.id,
         tipo:         'INGRESO',
         // El ingreso a caja es el neto (lo que efectivamente entra) — la comisión
         // del medio de pago se descuenta antes de tocar la caja.

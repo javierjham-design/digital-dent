@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { formatCLP } from '@/lib/utils'
+import { formatCLP, formatDate } from '@/lib/utils'
 import { CobrosSubNav } from '../sub-nav'
 
 interface CajaResumen {
@@ -15,16 +15,20 @@ interface CajaResumen {
   egresos: number
   saldo: number
   usuarios: { id: string; nombre: string | null }[]
+  sesionAbierta: { id: string; abiertaAt: string; abiertaPorNombre: string | null } | null
+  diasAbierta: number | null
+  stale: boolean
 }
 
 interface Usuario { id: string; nombre: string | null }
 
 export function CajaListClient({
-  cajas: initCajas, isAdmin, usuariosDisponibles,
+  cajas: initCajas, isAdmin, usuariosDisponibles, staleDias,
 }: {
   cajas: CajaResumen[]
   isAdmin: boolean
   usuariosDisponibles: Usuario[]
+  staleDias: number
 }) {
   const [cajas, setCajas] = useState(initCajas)
   const [showCreate, setShowCreate] = useState(false)
@@ -51,6 +55,7 @@ export function CajaListClient({
         saldoInicial: data.saldoInicial, activo: data.activo,
         ingresos: 0, egresos: 0, saldo: data.saldoInicial,
         usuarios: data.usuarios.map((cu: any) => ({ id: cu.user.id, nombre: cu.user.name ?? cu.user.email })),
+        sesionAbierta: null, diasAbierta: null, stale: false,
       }])
       setShowCreate(false)
       setForm({ nombre: '', descripcion: '', saldoInicial: '0', usuarioIds: [] })
@@ -83,6 +88,29 @@ export function CajaListClient({
         )}
       </div>
 
+      {/* Alerta cajas estancadas */}
+      {cajas.some(c => c.stale) && (
+        <div className="mb-5 bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3">
+          <svg className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z" />
+          </svg>
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-amber-900">Cajas sin cerrar hace más de {staleDias} días</p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Los cierres regulares aseguran trazabilidad del flujo de efectivo. Considera cerrar las cajas marcadas y hacer arqueo.
+            </p>
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {cajas.filter(c => c.stale).map(c => (
+                <Link key={c.id} href={`/cobros/caja/${c.id}`}
+                  className="text-[11px] font-medium bg-white border border-amber-300 text-amber-800 px-2 py-1 rounded-lg hover:bg-amber-50">
+                  {c.nombre} · {c.diasAbierta} días
+                </Link>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {cajas.length === 0 ? (
         <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center">
           <svg className="w-12 h-12 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -96,13 +124,21 @@ export function CajaListClient({
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
           {cajas.map(c => (
             <Link key={c.id} href={`/cobros/caja/${c.id}`}
-              className={`bg-white border rounded-2xl p-5 hover:border-cyan-300 hover:shadow-md transition-all ${c.activo ? 'border-slate-200' : 'border-slate-200 opacity-60'}`}>
-              <div className="flex items-start justify-between mb-3">
+              className={`bg-white border rounded-2xl p-5 hover:border-cyan-300 hover:shadow-md transition-all ${c.stale ? 'border-amber-300 shadow-amber-100/50' : c.activo ? 'border-slate-200' : 'border-slate-200 opacity-60'}`}>
+              <div className="flex items-start justify-between mb-3 gap-2">
                 <div className="min-w-0">
                   <p className="font-bold text-slate-900 truncate">{c.nombre}</p>
                   {c.descripcion && <p className="text-xs text-slate-500 truncate">{c.descripcion}</p>}
                 </div>
-                {!c.activo && <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Inactiva</span>}
+                <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                  {!c.activo && <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">Inactiva</span>}
+                  {c.sesionAbierta && (
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${c.stale ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${c.stale ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'}`} />
+                      Abierta {c.diasAbierta === 0 ? 'hoy' : `${c.diasAbierta} d`}
+                    </span>
+                  )}
+                </div>
               </div>
               <p className={`text-2xl font-bold mb-3 ${c.saldo >= 0 ? 'text-emerald-700' : 'text-rose-700'} font-mono`}>{formatCLP(c.saldo)}</p>
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -115,8 +151,14 @@ export function CajaListClient({
                   <p className="text-sm font-mono text-rose-700">{formatCLP(c.egresos)}</p>
                 </div>
               </div>
-              {c.usuarios.length > 0 && (
+              {c.sesionAbierta && (
                 <p className="text-[11px] text-slate-400 mt-3 truncate">
+                  Sesión abierta desde {formatDate(c.sesionAbierta.abiertaAt)}
+                  {c.sesionAbierta.abiertaPorNombre ? ` por ${c.sesionAbierta.abiertaPorNombre}` : ''}
+                </p>
+              )}
+              {c.usuarios.length > 0 && (
+                <p className="text-[11px] text-slate-400 truncate">
                   Operada por: {c.usuarios.map(u => u.nombre).join(', ')}
                 </p>
               )}

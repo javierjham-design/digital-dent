@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import { notFound, redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
+import { ensureSesionAbierta, calcularResumenSesion, diasDesde, SESION_STALE_DIAS } from '@/lib/caja'
 import { CajaDetalleClient } from './caja-detalle-client'
 
 export default async function CajaDetallePage({ params }: { params: Promise<{ id: string }> }) {
@@ -23,25 +24,45 @@ export default async function CajaDetallePage({ params }: { params: Promise<{ id
   const isMiembro = caja.usuarios.some(cu => cu.userId === u.id)
   if (!isAdmin && !isMiembro) notFound()
 
-  // Cargar todos los movimientos (no anulados o anulados) — el cliente filtra por período en memoria
-  const movimientos = await prisma.movimientoCaja.findMany({
-    where: { cajaId: id },
-    include: {
-      user: { select: { id: true, name: true, email: true } },
-      cobro: {
-        select: {
-          id: true, numero: true, anulado: true,
-          paciente: { select: { id: true, nombre: true, apellido: true } },
-        },
-      },
-    },
-    orderBy: { fecha: 'desc' },
-    take: 500,
+  // Asegurar que exista una sesión abierta (auto-bootstrap para cajas legacy)
+  const sesionAbierta = await ensureSesionAbierta({
+    cajaId: id,
+    clinicaId: u.clinicaId,
+    userId: u.id,
+    userNombre: u.name ?? u.email,
   })
 
-  // Permiso para anular movimientos manuales
-  const me = await prisma.user.findUnique({ where: { id: u.id }, select: { puedeEditarPagos: true } })
+  const [movimientos, sesionesPrevias, resumenSesion, me] = await Promise.all([
+    prisma.movimientoCaja.findMany({
+      where: { cajaId: id },
+      include: {
+        user: { select: { id: true, name: true, email: true } },
+        cobro: {
+          select: {
+            id: true, numero: true, anulado: true,
+            paciente: { select: { id: true, nombre: true, apellido: true } },
+          },
+        },
+      },
+      orderBy: { fecha: 'desc' },
+      take: 500,
+    }),
+    prisma.sesionCaja.findMany({
+      where: { cajaId: id, estado: 'CERRADA' },
+      orderBy: { cerradaAt: 'desc' },
+      take: 12,
+      select: {
+        id: true, abiertaAt: true, cerradaAt: true,
+        abiertaPorNombre: true, cerradaPorNombre: true,
+        saldoApertura: true, saldoEsperado: true, saldoReal: true, diferencia: true,
+        totalIngresos: true, totalEgresos: true,
+      },
+    }),
+    calcularResumenSesion(sesionAbierta.id),
+    prisma.user.findUnique({ where: { id: u.id }, select: { puedeEditarPagos: true } }),
+  ])
   const canVoidMovements = isAdmin || me?.puedeEditarPagos === true
+  const diasAbierta = diasDesde(sesionAbierta.abiertaAt)
 
   return (
     <CajaDetalleClient
@@ -53,6 +74,30 @@ export default async function CajaDetallePage({ params }: { params: Promise<{ id
         activo: caja.activo,
         usuarios: caja.usuarios.map(cu => ({ id: cu.user.id, nombre: cu.user.name ?? cu.user.email })),
       }}
+      sesionActual={{
+        id: sesionAbierta.id,
+        abiertaAt: sesionAbierta.abiertaAt.toISOString(),
+        abiertaPorNombre: sesionAbierta.abiertaPorNombre,
+        saldoApertura: sesionAbierta.saldoApertura,
+        ingresos: resumenSesion?.ingresos ?? 0,
+        egresos: resumenSesion?.egresos ?? 0,
+        saldoEsperado: resumenSesion?.saldoEsperado ?? sesionAbierta.saldoApertura,
+        diasAbierta,
+        stale: diasAbierta >= SESION_STALE_DIAS,
+      }}
+      sesionesPrevias={sesionesPrevias.map(s => ({
+        id: s.id,
+        abiertaAt: s.abiertaAt.toISOString(),
+        cerradaAt: s.cerradaAt?.toISOString() ?? null,
+        abiertaPorNombre: s.abiertaPorNombre,
+        cerradaPorNombre: s.cerradaPorNombre,
+        saldoApertura: s.saldoApertura,
+        saldoEsperado: s.saldoEsperado,
+        saldoReal: s.saldoReal,
+        diferencia: s.diferencia,
+        totalIngresos: s.totalIngresos,
+        totalEgresos: s.totalEgresos,
+      }))}
       movimientos={movimientos.map(m => ({
         id: m.id,
         tipo: m.tipo,
@@ -60,6 +105,7 @@ export default async function CajaDetallePage({ params }: { params: Promise<{ id
         descripcion: m.descripcion,
         categoria: m.categoria,
         fecha: m.fecha.toISOString(),
+        sesionCajaId: m.sesionCajaId,
         anulado: m.anulado,
         motivoAnulacion: m.motivoAnulacion,
         anuladoAt: m.anuladoAt?.toISOString() ?? null,
@@ -70,6 +116,7 @@ export default async function CajaDetallePage({ params }: { params: Promise<{ id
         userNombre: m.user.name ?? m.user.email,
       }))}
       canVoidMovements={canVoidMovements}
+      staleDias={SESION_STALE_DIAS}
     />
   )
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
+import { ensureSesionAbierta } from '@/lib/caja'
 
 const CATEGORIAS_EGRESO = ['ARRIENDO', 'INSUMOS', 'SUELDO', 'SERVICIOS', 'RETIRO', 'OTRO']
 
@@ -70,10 +71,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const fecha = body.fecha ? new Date(body.fecha) : new Date()
 
+  const sesion = await ensureSesionAbierta({
+    cajaId: id,
+    clinicaId: u.clinicaId,
+    userId: u.id,
+    userNombre: u.name ?? u.email,
+  })
+
   const mov = await prisma.movimientoCaja.create({
     data: {
       clinicaId: u.clinicaId,
       cajaId: id,
+      sesionCajaId: sesion.id,
       tipo,
       monto,
       descripcion,

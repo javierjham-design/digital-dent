@@ -479,8 +479,40 @@ model Caja {
   usuarios      CajaUsuario[]
   movimientos   MovimientoCaja[]
   cobros        Cobro[]
+  sesiones      SesionCaja[]
 
   @@unique([clinicaId, nombre])
+}
+
+// Sesión de caja (período abierto/cerrado).
+// Una caja puede tener varias sesiones cronológicamente. Solo una está ABIERTA a la vez.
+// Al cerrar se hace cuadre: el sistema calcula el saldo esperado y el usuario ingresa
+// el conteo real → diferencia. Cada movimiento queda asociado a su sesión.
+model SesionCaja {
+  id              String    @id @default(cuid())
+  clinicaId       String
+  cajaId          String
+  estado          String    @default("ABIERTA")  // ABIERTA | CERRADA
+  saldoApertura   Float     @default(0)          // snapshot del saldo de la caja al abrir esta sesión
+  abiertaPorId    String
+  abiertaPorNombre String?
+  abiertaAt       DateTime  @default(now())
+  cerradaPorId    String?
+  cerradaPorNombre String?
+  cerradaAt       DateTime?
+  // Cuadre al cierre
+  saldoEsperado   Float?    // saldoApertura + ingresos - egresos del período
+  saldoReal       Float?    // conteo declarado por el usuario
+  diferencia      Float?    // saldoReal - saldoEsperado
+  totalIngresos   Float?
+  totalEgresos    Float?
+  observaciones   String?
+  createdAt       DateTime  @default(now())
+  caja            Caja      @relation(fields: [cajaId], references: [id])
+  movimientos     MovimientoCaja[]
+
+  @@index([cajaId, estado])
+  @@index([cajaId, abiertaAt])
 }
 
 model CajaUsuario {
@@ -496,6 +528,7 @@ model MovimientoCaja {
   id              String   @id @default(cuid())
   clinicaId       String
   cajaId          String
+  sesionCajaId    String?  // sesión a la que pertenece (nullable para movs legacy)
   tipo            String   // INGRESO | EGRESO
   monto           Float
   descripcion     String
@@ -513,8 +546,10 @@ model MovimientoCaja {
   cobro           Cobro?   @relation(fields: [cobroId], references: [id])
   user            User     @relation("MovimientoUsuario", fields: [userId], references: [id])
   clinica         Clinica  @relation(fields: [clinicaId], references: [id])
+  sesion          SesionCaja? @relation(fields: [sesionCajaId], references: [id])
 
   @@index([clinicaId, cajaId, fecha])
+  @@index([sesionCajaId])
 }
 
 model CobroItem {
