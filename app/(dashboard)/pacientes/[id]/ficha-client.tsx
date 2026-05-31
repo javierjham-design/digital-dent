@@ -175,7 +175,18 @@ export function FichaClinicaClient({ paciente: initial, doctors, prestaciones, p
           )}
 
           {tab === 'Facturación y pagos' && (
-            <FacturacionPagos paciente={paciente} kpis={kpis} />
+            <FacturacionPagos
+              paciente={paciente}
+              kpis={kpis}
+              permisos={permisos}
+              mediosPago={pagosData?.mediosPago ?? []}
+              onCobroChange={(updated: any) => {
+                setPaciente((prev: any) => ({
+                  ...prev,
+                  cobros: prev.cobros.map((c: any) => c.id === updated.id ? { ...c, ...updated } : c),
+                }))
+              }}
+            />
           )}
 
           {tab === 'Recibir pago' && (
@@ -436,7 +447,97 @@ function FichaClinicaTab({ paciente }: any) {
   )
 }
 
-function FacturacionPagos({ paciente, kpis }: any) {
+function FacturacionPagos({ paciente, kpis, permisos, mediosPago, onCobroChange }: any) {
+  const canEdit = permisos?.puedeEditarPagos === true
+  const cobros = paciente.cobros ?? []
+
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [editing,   setEditing]   = useState<any>(null)
+  const [editForm,  setEditForm]  = useState({ concepto: '', monto: '', notas: '', fechaPago: '', medioPagoId: '' })
+  const [editError, setEditError] = useState('')
+  const [anulando, setAnulando]   = useState<any>(null)
+  const [motivo,   setMotivo]     = useState('')
+  const [anuError, setAnuError]   = useState('')
+  const [saving,   setSaving]     = useState(false)
+
+  function openEdit(c: any) {
+    setEditing(c); setEditError('')
+    setEditForm({
+      concepto:    c.concepto ?? '',
+      monto:       String(c.monto ?? ''),
+      notas:       c.notas ?? '',
+      fechaPago:   c.fechaPago ? c.fechaPago.slice(0, 10) : '',
+      medioPagoId: c.medioPagoId ?? c.medioPago?.id ?? '',
+    })
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editing) return
+    setSaving(true); setEditError('')
+    try {
+      const payload: Record<string, unknown> = {
+        concepto:    editForm.concepto,
+        monto:       Number(editForm.monto),
+        notas:       editForm.notas || null,
+        fechaPago:   editForm.fechaPago || null,
+        medioPagoId: editForm.medioPagoId || null,
+      }
+      const res = await fetch(`/api/cobros/${editing.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setEditError(data.error ?? `Error ${res.status}`); return }
+      const medio = mediosPago.find((m: any) => m.id === payload.medioPagoId)
+      onCobroChange?.({
+        id: editing.id,
+        concepto: data.concepto ?? editing.concepto,
+        monto: data.monto ?? editing.monto,
+        montoNeto: data.montoNeto ?? editing.montoNeto,
+        notas: data.notas ?? null,
+        fechaPago: data.fechaPago ?? null,
+        medioPagoId: payload.medioPagoId ?? null,
+        medioPago: medio ?? null,
+      })
+      setEditing(null)
+    } finally { setSaving(false) }
+  }
+
+  function openAnular(c: any) {
+    setAnulando(c); setMotivo(''); setAnuError('')
+  }
+
+  async function confirmAnular(e: React.FormEvent) {
+    e.preventDefault()
+    if (!anulando) return
+    if (motivo.trim().length < 4) { setAnuError('Indica un motivo (mínimo 4 caracteres).'); return }
+    setSaving(true); setAnuError('')
+    try {
+      const res = await fetch(`/api/cobros/${anulando.id}/anular`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: motivo.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setAnuError(data.error ?? `Error ${res.status}`); return }
+      onCobroChange?.({
+        id: anulando.id,
+        estado: 'ANULADO',
+        anulado: true,
+        motivoAnulacion: data.motivoAnulacion,
+        anuladoAt: data.anuladoAt,
+        anuladoPorNombre: data.anuladoPorNombre,
+      })
+      setAnulando(null)
+    } finally { setSaving(false) }
+  }
+
+  function printCobro(id: string) {
+    window.open(`/print/cobro/${id}`, '_blank')
+  }
+
+  const totalAnulados = cobros.filter((c: any) => c.anulado).length
+
   return (
     <div>
       <h2 className="text-2xl font-light text-slate-700 mb-5">Facturación y pagos</h2>
@@ -446,6 +547,119 @@ function FacturacionPagos({ paciente, kpis }: any) {
         <KpiBox label="Saldo" value={formatCLP(kpis.saldo)} tono={kpis.saldo > 0 ? 'red' : 'emerald'} />
       </div>
 
+      {/* Cobros recibidos */}
+      <div className="flex items-baseline justify-between mb-3">
+        <h3 className="font-semibold text-slate-800">Cobros recibidos</h3>
+        <span className="text-xs text-slate-400">
+          {cobros.length} {cobros.length === 1 ? 'cobro' : 'cobros'}
+          {totalAnulados > 0 && ` · ${totalAnulados} anulado${totalAnulados !== 1 ? 's' : ''}`}
+        </span>
+      </div>
+      {cobros.length === 0 ? (
+        <p className="text-slate-400 text-sm py-6 text-center border border-dashed border-slate-200 rounded-xl mb-6">
+          Sin cobros registrados.
+        </p>
+      ) : (
+        <div className="space-y-2 mb-6">
+          {cobros.map((c: any) => {
+            const isOpen = expandedId === c.id
+            return (
+              <div key={c.id} className={`border rounded-xl overflow-hidden transition-colors ${c.anulado ? 'border-rose-200 bg-rose-50/30' : 'border-slate-200'}`}>
+                <button type="button" onClick={() => setExpandedId(isOpen ? null : c.id)}
+                  className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 transition-colors text-left">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <p className="text-sm font-medium text-slate-800 truncate">Cobro N° {c.numero}</p>
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${c.anulado ? 'bg-rose-100 text-rose-700' : c.estado === 'PAGADO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {c.anulado ? 'ANULADO' : c.estado}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500 truncate">{c.concepto}</p>
+                    <p className="text-[11px] text-slate-400">
+                      {c.fechaPago ? formatDateTime(c.fechaPago) : formatDateTime(c.createdAt)}
+                      {c.medioPago?.nombre ? ` · ${c.medioPago.nombre}` : ''}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-semibold text-slate-800">{formatCLP(c.monto)}</p>
+                    {c.montoNeto != null && c.montoNeto !== c.monto && (
+                      <p className="text-[11px] text-teal-700 font-mono">neto {formatCLP(c.montoNeto)}</p>
+                    )}
+                  </div>
+                  <svg className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {isOpen && (
+                  <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-3 space-y-2">
+                    {/* Items */}
+                    {c.items?.length > 0 && (
+                      <div className="space-y-1">
+                        {c.items.map((it: any) => (
+                          <div key={it.id} className="flex items-center justify-between bg-white rounded-lg border border-slate-100 px-3 py-2">
+                            <span className="text-xs text-slate-700">{it.descripcion}</span>
+                            <span className="text-xs font-semibold text-slate-800">{formatCLP(it.monto)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {c.comisionMonto != null && c.comisionMonto > 0 && (
+                      <p className="text-[11px] text-slate-500">
+                        Comisión {c.medioPago?.nombre} ({c.medioPago?.comision}%): <span className="text-rose-600 font-mono">- {formatCLP(c.comisionMonto)}</span>
+                      </p>
+                    )}
+                    {c.notas && (
+                      <p className="text-[11px] text-slate-500"><span className="font-semibold uppercase tracking-wide text-slate-400 mr-1">Notas:</span>{c.notas}</p>
+                    )}
+
+                    {c.anulado && (
+                      <div className="bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mt-1.5">
+                        <p className="text-[11px] font-bold text-rose-700 uppercase tracking-wide">Cobro anulado</p>
+                        <p className="text-xs text-rose-700"><span className="font-semibold">Motivo:</span> {c.motivoAnulacion ?? '—'}</p>
+                        <p className="text-[10px] text-rose-500">
+                          Por {c.anuladoPorNombre ?? '—'}{c.anuladoAt ? ` · ${formatDateTime(c.anuladoAt)}` : ''}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Acciones */}
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      <button type="button" onClick={() => printCobro(c.id)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        Imprimir
+                      </button>
+                      {canEdit && !c.anulado && (
+                        <>
+                          <button type="button" onClick={() => openEdit(c)}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-cyan-700 bg-cyan-50 border border-cyan-200 rounded-lg hover:bg-cyan-100">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                            </svg>
+                            Editar
+                          </button>
+                          <button type="button" onClick={() => openAnular(c)}
+                            className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-rose-700 bg-rose-50 border border-rose-200 rounded-lg hover:bg-rose-100">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                            </svg>
+                            Anular
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Presupuestos */}
       <h3 className="font-semibold text-slate-800 mb-3">Presupuestos</h3>
       {paciente.presupuestos.length === 0 ? (
         <p className="text-slate-400 text-sm py-6 text-center">Sin presupuestos.</p>
@@ -463,6 +677,106 @@ function FacturacionPagos({ paciente, kpis }: any) {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Modal editar */}
+      {editing && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">Editar cobro N° {editing.numero}</h3>
+                <p className="text-xs text-slate-500">{paciente.nombre} {paciente.apellido}</p>
+              </div>
+              <button type="button" onClick={() => setEditing(null)} className="text-slate-400 hover:text-slate-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form onSubmit={saveEdit} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Concepto</label>
+                <input value={editForm.concepto} onChange={e => setEditForm({ ...editForm, concepto: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Monto bruto (CLP)</label>
+                  <input type="number" min="0" step="1" value={editForm.monto}
+                    onChange={e => setEditForm({ ...editForm, monto: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de pago</label>
+                  <input type="date" value={editForm.fechaPago}
+                    onChange={e => setEditForm({ ...editForm, fechaPago: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Medio de pago</label>
+                <select value={editForm.medioPagoId}
+                  onChange={e => setEditForm({ ...editForm, medioPagoId: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                  <option value="">Sin especificar</option>
+                  {mediosPago.map((m: any) => (
+                    <option key={m.id} value={m.id}>{m.nombre}{m.comision > 0 ? ` (${m.comision}%)` : ''}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Notas</label>
+                <input value={editForm.notas} onChange={e => setEditForm({ ...editForm, notas: e.target.value })}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+              </div>
+              {editError && <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-sm text-rose-700">{editError}</div>}
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setEditing(null)}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+                <button type="submit" disabled={saving}
+                  className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:bg-cyan-300 text-white rounded-xl text-sm font-medium">
+                  {saving ? 'Guardando…' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal anular */}
+      {anulando && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-rose-50">
+              <div>
+                <h3 className="text-lg font-semibold text-rose-900">Anular cobro N° {anulando.numero}</h3>
+                <p className="text-xs text-rose-700">{paciente.nombre} {paciente.apellido} · {formatCLP(anulando.monto)}</p>
+              </div>
+              <button type="button" onClick={() => setAnulando(null)} className="text-rose-400 hover:text-rose-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form onSubmit={confirmAnular} className="p-6 space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
+                Al anular el cobro queda registrado con tu nombre y la fecha. El movimiento de caja también se revierte. Este texto se conserva para siempre.
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Motivo *</label>
+                <textarea required value={motivo} rows={3}
+                  onChange={e => setMotivo(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              </div>
+              {anuError && <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-sm text-rose-700">{anuError}</div>}
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setAnulando(null)}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+                <button type="submit" disabled={saving || motivo.trim().length < 4}
+                  className="flex-1 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white rounded-xl text-sm font-medium">
+                  {saving ? 'Anulando…' : 'Confirmar anulación'}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

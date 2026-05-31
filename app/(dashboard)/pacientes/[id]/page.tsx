@@ -24,7 +24,15 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
         orderBy: { fecha: 'desc' },
         take: 20,
       },
-      cobros: { orderBy: { createdAt: 'desc' }, take: 20 },
+      cobros: {
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        include: {
+          items: true,
+          medioPago: { select: { id: true, nombre: true, comision: true } },
+          reciboUsuario: { select: { id: true, name: true, email: true } },
+        },
+      },
       presupuestos: {
         include: { items: { include: { prestacion: true } } },
         orderBy: { createdAt: 'desc' },
@@ -112,6 +120,7 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
         puedeAplicarDescuento: u.puedeAplicarDescuento,
         puedeRevertirCompletado: u.puedeRevertirCompletado,
         puedeRecibirPagos: canReceivePayments,
+        puedeEditarPagos: u.puedeEditarPagos,
       }}
       pagosData={{
         mediosPago,
