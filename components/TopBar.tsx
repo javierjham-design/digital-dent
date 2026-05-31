@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation'
 import { signOut, useSession } from 'next-auth/react'
 import { cn } from '@/lib/utils'
 import { useState } from 'react'
+import { PatientSearchBox } from './PatientSearchBox'
 
 const navItems = [
   {
@@ -96,6 +97,7 @@ export function TopBar({ clinica, logoUrl }: { clinica: string; logoUrl: string 
   const { data: session } = useSession()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
 
   return (
     <header className="fixed top-0 left-0 right-0 h-[60px] bg-white border-b border-slate-100 shadow-sm z-50 flex items-center px-3 sm:px-4 gap-3 sm:gap-4">
@@ -127,8 +129,11 @@ export function TopBar({ clinica, logoUrl }: { clinica: string; logoUrl: string 
       {/* Divider (desktop) */}
       <div className="hidden md:block w-px h-6 bg-slate-200 flex-shrink-0" />
 
+      {/* Buscador global de pacientes (desktop) */}
+      <PatientSearchBox variant="desktop" />
+
       {/* Nav desktop */}
-      <nav className="hidden md:flex items-center gap-0.5 overflow-x-auto flex-1 scrollbar-hide">
+      <nav className="hidden md:flex items-center gap-0.5 overflow-x-auto flex-1 scrollbar-hide min-w-0">
         {navItems.map((item) => {
           const active = item.href === '/agenda'
             ? pathname === '/' || pathname.startsWith('/agenda')
@@ -193,6 +198,39 @@ export function TopBar({ clinica, logoUrl }: { clinica: string; logoUrl: string 
             </nav>
           </aside>
         </>
+      )}
+
+      {/* Buscador de pacientes (mobile) — botón que abre overlay */}
+      <button
+        onClick={() => setMobileSearchOpen(true)}
+        aria-label="Buscar paciente"
+        className="md:hidden p-1.5 rounded-lg hover:bg-slate-100 flex-shrink-0 ml-auto"
+      >
+        <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M11 19a8 8 0 110-16 8 8 0 010 16z" />
+        </svg>
+      </button>
+
+      {mobileSearchOpen && (
+        <div className="md:hidden fixed inset-0 z-50 bg-white flex flex-col">
+          <div className="h-[60px] px-3 flex items-center gap-2 border-b border-slate-100 flex-shrink-0">
+            <button
+              onClick={() => setMobileSearchOpen(false)}
+              aria-label="Cerrar búsqueda"
+              className="p-1.5 -ml-1 rounded-lg hover:bg-slate-100"
+            >
+              <svg className="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+            <div className="flex-1 min-w-0">
+              <PatientSearchBox variant="mobile" onSelect={() => setMobileSearchOpen(false)} />
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 text-center px-4 py-3">
+            Escribe nombre, apellido o RUT del paciente.
+          </p>
+        </div>
       )}
 
       {/* User */}
