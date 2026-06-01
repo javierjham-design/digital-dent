@@ -1,4 +1,4 @@
-// Idempotente: corre en cada build de Vercel.
+// Idempotente: corre en cada build de Railway.
 // Migra la base single-tenant a multi-tenant creando una clínica inicial
 // y asignando todos los registros existentes a ella.
 // También asigna numero correlativo a pacientes que no lo tengan.

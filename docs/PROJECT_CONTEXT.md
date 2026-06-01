@@ -37,28 +37,28 @@ La operación dental tradicional combina papel, Excel y software fragmentado. Es
 
 ### 3.1 Arquitectura general
 
-**Aplicación monolítica Next.js** desplegada en Vercel. No hay separación física entre frontend y backend: ambos viven en la misma base de código.
+**Aplicación monolítica Next.js** desplegada en Railway. No hay separación física entre frontend y backend: ambos viven en la misma base de código.
 
 ```
 Navegador
    │
    │ HTTPS
    ▼
-Vercel Edge / Node Runtime
+Railway (servicio web Node)
    │
-   ├── Next.js Server Components ───► Prisma ───► PostgreSQL (Neon)
-   ├── API routes (app/api/*)     ───► Prisma ───► PostgreSQL (Neon)
+   ├── Next.js Server Components ───► Prisma ───► PostgreSQL (Railway)
+   ├── API routes (app/api/*)     ───► Prisma ───► PostgreSQL (Railway)
    ├── NextAuth (Credentials/JWT)
    └── React Client Components (interacción)
 ```
 
 - **Frontend** = React 19 + Server Components + Client Components (`'use client'`) + Tailwind 4.
 - **Backend** = API routes en `app/api/*/route.ts` (REST-ish) + lógica directamente en Server Components que consultan Prisma.
-- **Base de datos** = PostgreSQL en Neon (Vercel Postgres compatible). Schema gestionado por Prisma.
+- **Base de datos** = PostgreSQL gestionado por Railway (mismo proyecto). Schema gestionado por Prisma.
 - **Autenticación** = NextAuth con Credentials Provider, sesión JWT, password hasheado con bcryptjs.
 - **Middleware** = `proxy.ts` con matcher global que redirige a `/login` cualquier request sin sesión, excepto `/api/auth/*` y la página de login.
 
-### 3.2 Build de Vercel
+### 3.2 Build de Railway
 
 Definido en `package.json → scripts.build`:
 
@@ -239,7 +239,7 @@ Usuario → /login → POST /api/auth/callback/credentials
 | **Next.js App Router + Server Components**                              | Reduce JS al cliente, queries Prisma directas en `page.tsx`                    |
 | **Patrón `page.tsx` (server) → `*-client.tsx` (client)**                | Server obtiene datos serializados, Client maneja interacción                   |
 | **`export const dynamic = 'force-dynamic'` en todo el dashboard**       | Evita caché y datos obsoletos                                                  |
-| **Prisma + PostgreSQL en Neon**                                         | Free tier, autoescala, compatible con Vercel                                   |
+| **Prisma + PostgreSQL en Railway**                                      | Misma plataforma de despliegue, conexión privada, autoprovisionamiento         |
 | **Build incluye `prisma db push --accept-data-loss`**                   | Auto-migración en cada deploy. ⚠️ Renombrar columna = perderla                |
 | **`seed-aranceles.ts` corre en cada build**                             | El arancel completo siempre está sincronizado en producción                    |
 | **NextAuth con JWT (no DB sessions)**                                   | Menos queries, suficiente para clínica pequeña                                 |
@@ -264,7 +264,7 @@ Usuario → /login → POST /api/auth/callback/credentials
 - ✅ CRUD Usuarios/Equipo (admin/doctor/staff) con `puedeRecibirPagos`.
 - ✅ Liquidaciones por doctor con contratos (% o monto fijo) y vista imprimible.
 - ✅ Configuración de clínica (datos, logo, plantilla WA).
-- ✅ Seed automático del arancel en cada deploy de Vercel.
+- ✅ Seed automático del arancel en cada deploy de Railway.
 
 ### 8.2 Funcionalidades parcialmente implementadas
 
@@ -279,14 +279,14 @@ Usuario → /login → POST /api/auth/callback/credentials
 - 📋 Recordatorios automáticos de citas (WA / email).
 - 📋 Reportes financieros (recharts ya está instalado, pero sin vistas).
 - 📋 Multi-clínica (hoy es single-tenant).
-- 📋 Backup automático fuera de Neon.
+- 📋 Backup automático fuera de Railway.
 
 ---
 
 ## 9. Puntos delicados (no romper)
 
 1. **`schema.prisma` + `prisma db push --accept-data-loss`** → cualquier renombrado/eliminación de columna en el schema **borra datos en prod** al desplegar. Si necesitas renombrar, hazlo en dos pasos: añadir nueva, migrar datos, eliminar vieja.
-2. **`seed-aranceles.ts`** debe seguir siendo **idempotente** (`skipDuplicates: true`). Si lo rompes, el build de Vercel falla y no hay deploy.
+2. **`seed-aranceles.ts`** debe seguir siendo **idempotente** (`skipDuplicates: true`). Si lo rompes, el build de Railway falla y no hay deploy.
 3. **`proxy.ts` matcher global**: si añades una ruta pública nueva (callback de pago, webhook), debe excluirse explícitamente o el middleware la bloqueará.
 4. **`Configuracion` es singleton**. No usar `create` simple, usar `upsert({ where: { id: 'singleton' } })`. Ya está implementado así en `(dashboard)/layout.tsx`.
 5. **`numero` único en Presupuesto/Cobro**: si lo asignas, calcula `max(numero) + 1` dentro de una transacción o aceptarás colisiones bajo concurrencia.
@@ -303,11 +303,11 @@ Usuario → /login → POST /api/auth/callback/credentials
 - **OS:** Windows 10 Pro.
 - **Node:** `C:\Program Files\nodejs\node.exe`.
 - **Git:** `C:\Program Files\Git\bin\git.exe`.
-- **Repo:** GitHub, rama `master`, auto-deploy a Vercel.
-- **Variables de entorno producción** (Vercel):
-  - `DATABASE_URL` — Postgres de Neon
+- **Repo:** GitHub, rama `master`, auto-deploy a Railway.
+- **Variables de entorno producción** (Railway):
+  - `DATABASE_URL` — Postgres de Railway (servicio gestionado en el mismo proyecto)
   - `NEXTAUTH_SECRET` — string aleatorio 32+ chars
-  - `NEXTAUTH_URL` — dominio Vercel
+  - `NEXTAUTH_URL` — dominio Cláriva (ej. `https://app.clariva.cl`)
   - `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` — sólo para el seed inicial
 - **`.env` local** puede usar SQLite (`DATABASE_URL="file:./dev.db"`) para algunas pruebas, **pero el schema requiere `postgresql://`** — el seed local fallará a menos que apuntes a la DB de prod o uses una Postgres local.
 
@@ -345,7 +345,7 @@ Hetzner CCX13 (2 vCPU, 8 GB RAM, 80 GB SSD)
 
 1. **Multi-tenancy** — modelo `Clinica`, scope de datos, onboarding "Crear nueva clínica". (Fase actual)
 2. **Módulo de archivos** — radiografías, documentos clínicos.
-3. **Migración a Hetzner** — última fase, ya con todo estable en Vercel.
+3. **Migración a Hetzner** — última fase, ya con todo estable en Railway.
 4. **Pasarela de pagos** — Stripe / Khipu / MercadoPago para cobrar suscripciones.
 
 ### Por qué este orden

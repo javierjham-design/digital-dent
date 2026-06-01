@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 
 export default function SuperAdminError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
-    // Esto aparece en Runtime Logs de Vercel.
+    // Esto aparece en los logs de despliegue de Railway.
     console.error('[super-admin] Unhandled error:', error)
   }, [error])
 

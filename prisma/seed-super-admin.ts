@@ -1,7 +1,7 @@
-// Idempotente: corre en cada build de Vercel.
+// Idempotente: corre en cada build de Railway.
 // Crea el usuario super-admin de la plataforma a partir de env vars.
 //
-// Variables requeridas en Vercel:
+// Variables requeridas en Railway:
 //   SUPER_ADMIN_EMAIL    — email de acceso del super-admin
 //   SUPER_ADMIN_PASSWORD — password en texto plano (se hashea aquí)
 //

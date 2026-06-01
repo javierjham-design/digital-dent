@@ -11,11 +11,11 @@ Cubre: agenda de citas, fichas clínicas con odontograma, presupuestos, prestaci
 
 ## 2. Arquitectura (resumen)
 
-App **monolítica Next.js 16 App Router** desplegada en Vercel.
+App **monolítica Next.js 16 App Router** desplegada en **Railway** (auto-deploy desde GitHub `master`).
 Una sola base de código contiene frontend (React Server/Client Components) y backend (API routes en `app/api/*`).
-Persistencia en **PostgreSQL** (Neon / Vercel Postgres) vía **Prisma 5**.
+Persistencia en **PostgreSQL** servido por Railway (servicio gestionado), vía **Prisma 5**.
 Autenticación con **NextAuth (Credentials + JWT)**, protegida por el middleware `proxy.ts` (matcher global, redirige a `/login` si no hay sesión).
-Build de Vercel: `prisma db push --accept-data-loss && prisma generate && ts-node --transpile-only prisma/seed-aranceles.ts && next build`.
+Build de Railway: `prisma db push --accept-data-loss && prisma generate && ts-node --transpile-only prisma/seed-aranceles.ts && next build`.
 
 ## 3. Stack tecnológico real
 
@@ -30,7 +30,7 @@ Build de Vercel: `prisma db push --accept-data-loss && prisma generate && ts-nod
 | Gráficos        | recharts 3                                                        |
 | Fechas          | date-fns 4                                                        |
 | Iconos          | lucide-react                                                      |
-| Hosting         | Vercel (auto-deploy desde GitHub `master`)                        |
+| Hosting         | Railway (auto-deploy desde GitHub `master`)                       |
 
 ## 4. Estructura del proyecto
 
@@ -92,7 +92,7 @@ dental-platform/
 
 ## 6. Reglas para NO romper funcionalidades existentes
 
-1. **No cambiar `schema.prisma` sin documentarlo** en `docs/AI_CHANGELOG.md`. Cada cambio dispara `prisma db push --accept-data-loss` en Vercel — un campo mal renombrado **destruye datos en producción**.
+1. **No cambiar `schema.prisma` sin documentarlo** en `docs/AI_CHANGELOG.md`. Cada cambio dispara `prisma db push --accept-data-loss` en Railway — un campo mal renombrado **destruye datos en producción**.
 2. **No tocar `proxy.ts`** salvo para añadir rutas públicas. El matcher global es lo único que protege todo el dashboard.
 3. **No introducir nuevas dependencias pesadas** sin necesidad. Antes de instalar `xlsx`, `puppeteer`, etc., revisa si Next o un módulo ya existente lo resuelve.
 4. **El seed `seed-aranceles.ts` corre en cada build.** Mantenlo idempotente (`skipDuplicates: true` o `findFirst` antes de crear).
@@ -132,7 +132,7 @@ npm run dev                              # next dev (puerto 3000)
 npm run db:push                          # prisma db push (sincroniza schema)
 npm run db:seed                          # corre prisma/seed.ts (admin + 12 prestaciones)
 
-# Build local (replica el de Vercel)
+# Build local (replica el de Railway)
 npm run build
 
 # Git (ruta completa porque no está en PATH)
@@ -148,6 +148,6 @@ npm run build
 - **Idioma:** español Chile.
 - **Moneda:** CLP, formato `$1.234.567`.
 - **RUT:** formato chileno (con DV).
-- **Hosting:** Vercel + Neon Postgres.
+- **Hosting:** Railway (app + Postgres).
 - **Repo:** GitHub, rama `master`, auto-deploy.
 - **Modo de trabajo:** el usuario autorizó operación autónoma; no pedir confirmación para tareas claras.

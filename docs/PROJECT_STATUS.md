@@ -7,7 +7,7 @@
 
 ## Resumen ejecutivo
 
-Plataforma **operativa en producción como SaaS multi-tenant** (Vercel + Neon Postgres). La Fase 1 (multi-tenancy) está completa: cada clínica es un tenant aislado, el onboarding `/registro` permite crear clínicas nuevas con 30 días de trial, y los datos existentes están preservados en la "Clínica Digital-Dent" inicial.
+Plataforma **operativa en producción como SaaS multi-tenant** en **Railway** (app + Postgres gestionado en el mismo proyecto). La Fase 1 (multi-tenancy) está completa: cada clínica es un tenant aislado, el onboarding `/registro` permite crear clínicas nuevas con 30 días de trial, y los datos existentes están preservados en la "Clínica Digital-Dent" inicial.
 
 Próximo paso: **Fase 1B — Panel super-admin (`/admin`)** para que el dueño de la plataforma pueda gestionar todas las clínicas (listado, métricas, suspender, ver almacenamiento usado).
 
@@ -29,7 +29,7 @@ Próximo paso: **Fase 1B — Panel super-admin (`/admin`)** para que el dueño d
 | Liquidaciones     |   ✅   | Por doctor × período × clínica.                                                       |
 | Equipo (Usuarios) |   ✅   | Cada usuario pertenece a una clínica. Email único global.                            |
 | Configuración     |   ✅   | Edita los datos de la clínica del usuario.                                            |
-| Deploy Vercel     |   ✅   | Auto-deploy desde `master`. Build incluye `seed-multi-tenant` idempotente.           |
+| Deploy Railway    |   ✅   | Auto-deploy desde `master`. Build incluye `seed-multi-tenant` idempotente.           |
 
 ---
 
@@ -66,7 +66,7 @@ Próximo paso: **Fase 1B — Panel super-admin (`/admin`)** para que el dueño d
 ## Errores conocidos / áreas a revisar
 
 - ⚠️ **`clinicaId` es nullable en DB.** A nivel de código se valida siempre que esté presente. Endurecer a NOT NULL en un segundo paso una vez verificada la migración.
-- ⚠️ **Cliente Prisma local no se puede regenerar** en Windows (`.dll` bloqueado). Vercel lo regenera limpio en cada build.
+- ⚠️ **Cliente Prisma local no se puede regenerar** en Windows (`.dll` bloqueado). Railway lo regenera limpio en cada build.
 - ⚠️ **Modelo `Configuracion` legacy** se mantiene temporalmente. Eliminar en Fase 1.5.
 - ⚠️ **`numero` correlativo** en Presupuesto/Cobro sin transacción explícita. Aceptable para uso bajo.
 - ⚠️ **`prisma db push --accept-data-loss`** corre en cada build — cuidado al renombrar/eliminar columnas.
@@ -78,5 +78,5 @@ Próximo paso: **Fase 1B — Panel super-admin (`/admin`)** para que el dueño d
 
 - **Última build:** commit `f919fcc` (multi-tenancy + chore).
 - **Branch:** `master`.
-- **Variables de entorno en Vercel:** sin cambios respecto al deploy anterior.
+- **Variables de entorno en Railway:** sin cambios respecto al deploy anterior.
 - **Migración automática:** `seed-multi-tenant.ts` crea la clínica inicial y migra todos los registros existentes al primer deploy.
