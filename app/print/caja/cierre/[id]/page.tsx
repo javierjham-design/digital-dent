@@ -14,22 +14,33 @@ export default async function PrintCierrePage({ params }: { params: Promise<{ id
     where: { id, clinicaId: u.clinicaId },
     include: {
       caja: { select: { id: true, nombre: true, descripcion: true } },
-      movimientos: {
-        include: {
-          user: { select: { id: true, name: true, email: true } },
-          cobro: {
-            select: {
-              id: true, numero: true,
-              medioPago: { select: { nombre: true } },
-              paciente: { select: { nombre: true, apellido: true, rut: true } },
-            },
-          },
-        },
-        orderBy: { fecha: 'asc' },
-      },
     },
   })
   if (!sesion) notFound()
+
+  // Movimientos: por relación sesionCajaId OR huérfanos dentro de la ventana
+  // de la sesión. Esto cubre sesiones cerradas antes del back-fill automático.
+  const hasta = sesion.cerradaAt ?? new Date()
+  const movimientos = await prisma.movimientoCaja.findMany({
+    where: {
+      cajaId: sesion.cajaId,
+      OR: [
+        { sesionCajaId: sesion.id },
+        { sesionCajaId: null, fecha: { gte: sesion.abiertaAt, lte: hasta } },
+      ],
+    },
+    include: {
+      user: { select: { id: true, name: true, email: true } },
+      cobro: {
+        select: {
+          id: true, numero: true,
+          medioPago: { select: { nombre: true } },
+          paciente: { select: { nombre: true, apellido: true, rut: true } },
+        },
+      },
+    },
+    orderBy: { fecha: 'asc' },
+  })
 
   const clinica = await prisma.clinica.findUnique({
     where: { id: u.clinicaId },
@@ -37,7 +48,7 @@ export default async function PrintCierrePage({ params }: { params: Promise<{ id
   })
 
   // Agregaciones
-  const movsActivos = sesion.movimientos.filter(m => !m.anulado)
+  const movsActivos = movimientos.filter(m => !m.anulado)
   const ingresos = movsActivos.filter(m => m.tipo === 'INGRESO')
   const egresos  = movsActivos.filter(m => m.tipo === 'EGRESO')
 
@@ -52,6 +63,13 @@ export default async function PrintCierrePage({ params }: { params: Promise<{ id
     egresosPorCategoria.set(k, (egresosPorCategoria.get(k) ?? 0) + m.monto)
   }
 
+  // Si la sesión no tiene totales persistidos (caso raro de sesión abierta o
+  // cierres pre-fix), recalculamos desde los movimientos para mostrar valores
+  // consistentes en el reporte.
+  const ingresosCalc = ingresos.reduce((s, m) => s + m.monto, 0)
+  const egresosCalc  = egresos.reduce((s, m) => s + m.monto, 0)
+  const saldoEsperadoCalc = sesion.saldoApertura + ingresosCalc - egresosCalc
+
   return (
     <PrintCierreClient
       clinica={clinica}
@@ -63,17 +81,17 @@ export default async function PrintCierrePage({ params }: { params: Promise<{ id
         abiertaPorNombre: sesion.abiertaPorNombre,
         cerradaPorNombre: sesion.cerradaPorNombre,
         saldoApertura: sesion.saldoApertura,
-        saldoEsperado: sesion.saldoEsperado,
+        saldoEsperado: sesion.saldoEsperado ?? saldoEsperadoCalc,
         saldoReal: sesion.saldoReal,
         diferencia: sesion.diferencia,
-        totalIngresos: sesion.totalIngresos,
-        totalEgresos: sesion.totalEgresos,
+        totalIngresos: sesion.totalIngresos ?? ingresosCalc,
+        totalEgresos: sesion.totalEgresos ?? egresosCalc,
         observaciones: sesion.observaciones,
         caja: sesion.caja,
       }}
       ingresosPorMedio={Array.from(ingresosPorMedio.entries()).map(([k, v]) => ({ label: k, monto: v }))}
       egresosPorCategoria={Array.from(egresosPorCategoria.entries()).map(([k, v]) => ({ label: k, monto: v }))}
-      movimientos={sesion.movimientos.map(m => ({
+      movimientos={movimientos.map(m => ({
         id: m.id,
         tipo: m.tipo,
         monto: m.monto,

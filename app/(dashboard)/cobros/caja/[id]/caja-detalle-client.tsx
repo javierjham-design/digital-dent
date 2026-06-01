@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { formatCLP, formatDate, formatDateTime } from '@/lib/utils'
@@ -45,7 +45,7 @@ interface SesionPrevia {
   totalIngresos: number | null; totalEgresos: number | null
 }
 
-type Periodo = 'sesion' | 'hoy' | 'semana' | 'mes' | 'todo' | 'rango'
+const PAGE_SIZE = 15
 
 const CATEGORIAS_EGRESO = [
   { value: 'ARRIENDO',  label: 'Arriendo' },
@@ -55,18 +55,6 @@ const CATEGORIAS_EGRESO = [
   { value: 'RETIRO',    label: 'Retiro' },
   { value: 'OTRO',      label: 'Otro' },
 ]
-
-function startOfToday() { const d = new Date(); d.setHours(0,0,0,0); return d }
-function startOfWeek() {
-  const d = startOfToday()
-  const day = (d.getDay() + 6) % 7 // lunes = 0
-  d.setDate(d.getDate() - day)
-  return d
-}
-function startOfMonth() {
-  const d = startOfToday(); d.setDate(1); return d
-}
-function endOfToday() { const d = new Date(); d.setHours(23,59,59,999); return d }
 
 export function CajaDetalleClient({
   caja, sesionActual, sesionesPrevias, movimientos: init, canVoidMovements, staleDias,
@@ -80,12 +68,10 @@ export function CajaDetalleClient({
 }) {
   const router = useRouter()
   const [movs, setMovs] = useState(init)
-  const [periodo, setPeriodo] = useState<Periodo>('sesion')
+  const [page, setPage] = useState(0)
   const [showCierre, setShowCierre] = useState(false)
   const [cierreForm, setCierreForm] = useState({ saldoReal: '', observaciones: '' })
   const [cierreError, setCierreError] = useState('')
-  const [desde, setDesde] = useState<string>('')
-  const [hasta, setHasta] = useState<string>('')
   const [showGasto, setShowGasto] = useState(false)
   const [gastoForm, setGastoForm] = useState({ monto: '', descripcion: '', categoria: 'OTRO', fecha: new Date().toISOString().slice(0, 10) })
   const [gastoError, setGastoError] = useState('')
@@ -94,30 +80,10 @@ export function CajaDetalleClient({
   const [motivoAnulacion, setMotivoAnulacion] = useState('')
   const [anularError, setAnularError] = useState('')
 
-  // Filtrado en memoria por período
-  const { desdeDt, hastaDt } = useMemo(() => {
-    if (periodo === 'hoy') return { desdeDt: startOfToday(), hastaDt: endOfToday() }
-    if (periodo === 'semana') return { desdeDt: startOfWeek(), hastaDt: endOfToday() }
-    if (periodo === 'mes') return { desdeDt: startOfMonth(), hastaDt: endOfToday() }
-    if (periodo === 'rango' && desde && hasta) {
-      return { desdeDt: new Date(desde), hastaDt: new Date(hasta + 'T23:59:59') }
-    }
-    return { desdeDt: null, hastaDt: null }
-  }, [periodo, desde, hasta])
-
-  const filtrados = useMemo(() => {
-    return movs.filter(m => {
-      if (periodo === 'sesion') return m.sesionCajaId === sesionActual.id
-      if (!desdeDt || !hastaDt) return true
-      const t = new Date(m.fecha).getTime()
-      return t >= desdeDt.getTime() && t <= hastaDt.getTime()
-    })
-  }, [movs, desdeDt, hastaDt, periodo, sesionActual.id])
-
-  const ingresos = filtrados.filter(m => !m.anulado && m.tipo === 'INGRESO').reduce((s, m) => s + m.monto, 0)
-  const egresos  = filtrados.filter(m => !m.anulado && m.tipo === 'EGRESO').reduce((s, m) => s + m.monto, 0)
-  const saldoPeriodo = ingresos - egresos
-  const saldoTotal = movs.filter(m => !m.anulado).reduce((s, m) => s + (m.tipo === 'INGRESO' ? m.monto : -m.monto), 0) + caja.saldoInicial
+  // Paginación: 15 por página, mantener la página dentro de rango aunque movs cambie.
+  const totalPages = Math.max(1, Math.ceil(movs.length / PAGE_SIZE))
+  const safePage = Math.min(page, totalPages - 1)
+  const pagedMovs = movs.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE)
 
   async function registrarGasto(e: React.FormEvent) {
     e.preventDefault(); setGastoError(''); setSaving(true)
@@ -143,8 +109,10 @@ export function CajaDetalleClient({
         userNombre: data.user?.name ?? data.user?.email,
         cobroId: null, cobroNumero: null, pacienteNombre: null,
       }, ...prev])
+      setPage(0)
       setShowGasto(false)
       setGastoForm({ monto: '', descripcion: '', categoria: 'OTRO', fecha: new Date().toISOString().slice(0, 10) })
+      router.refresh()
     } finally { setSaving(false) }
   }
 
@@ -192,6 +160,7 @@ export function CajaDetalleClient({
         anuladoPorNombre: data.anuladoPorNombre,
       } : m))
       setAnulando(null)
+      router.refresh()
     } finally { setSaving(false) }
   }
 
@@ -271,110 +240,100 @@ export function CajaDetalleClient({
         </div>
       </div>
 
-      {/* Período */}
-      <div className="flex flex-wrap gap-2 items-center mb-5">
-        {(['sesion', 'hoy', 'semana', 'mes', 'todo', 'rango'] as Periodo[]).map(p => (
-          <button key={p} onClick={() => setPeriodo(p)}
-            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${periodo === p ? 'bg-slate-900 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-            {p === 'sesion' ? 'Sesión actual'
-              : p === 'hoy' ? 'Hoy'
-              : p === 'semana' ? 'Esta semana'
-              : p === 'mes' ? 'Este mes'
-              : p === 'todo' ? 'Histórico'
-              : 'Personalizado'}
-          </button>
-        ))}
-        {periodo === 'rango' && (
-          <>
-            <input type="date" value={desde} onChange={e => setDesde(e.target.value)}
-              className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
-            <input type="date" value={hasta} onChange={e => setHasta(e.target.value)}
-              className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
-          </>
-        )}
-      </div>
-
-      {/* KPIs */}
-      <div className="grid md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-emerald-50 border border-emerald-100 rounded-2xl p-5">
-          <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide">Ingresos</p>
-          <p className="text-2xl font-bold text-emerald-700 mt-1 font-mono">{formatCLP(ingresos)}</p>
-          <p className="text-[10px] text-emerald-500 mt-0.5">en el período</p>
-        </div>
-        <div className="bg-rose-50 border border-rose-100 rounded-2xl p-5">
-          <p className="text-xs font-semibold text-rose-600 uppercase tracking-wide">Egresos</p>
-          <p className="text-2xl font-bold text-rose-700 mt-1 font-mono">{formatCLP(egresos)}</p>
-          <p className="text-[10px] text-rose-500 mt-0.5">en el período</p>
-        </div>
-        <div className={`${saldoPeriodo >= 0 ? 'bg-teal-50 border-teal-100' : 'bg-amber-50 border-amber-100'} border rounded-2xl p-5`}>
-          <p className={`text-xs font-semibold uppercase tracking-wide ${saldoPeriodo >= 0 ? 'text-teal-600' : 'text-amber-600'}`}>Saldo período</p>
-          <p className={`text-2xl font-bold mt-1 font-mono ${saldoPeriodo >= 0 ? 'text-teal-700' : 'text-amber-700'}`}>{formatCLP(saldoPeriodo)}</p>
-        </div>
-        <div className="bg-slate-900 rounded-2xl p-5 text-white">
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Saldo total caja</p>
-          <p className="text-2xl font-bold mt-1 font-mono">{formatCLP(saldoTotal)}</p>
-          <p className="text-[10px] text-slate-400 mt-0.5">incluye saldo inicial {formatCLP(caja.saldoInicial)}</p>
-        </div>
-      </div>
-
-      {/* Tabla movimientos */}
+      {/* Tabla movimientos (todos, paginados) */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900 text-sm">Movimientos del período <span className="text-slate-400 font-normal">· {filtrados.length}</span></h2>
+        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap">
+          <h2 className="font-semibold text-slate-900 text-sm">
+            Movimientos de la caja <span className="text-slate-400 font-normal">· {movs.length}</span>
+          </h2>
+          {totalPages > 1 && (
+            <span className="text-xs text-slate-500">
+              Página <span className="font-semibold text-slate-700">{safePage + 1}</span> de <span className="font-semibold text-slate-700">{totalPages}</span>
+            </span>
+          )}
         </div>
-        {filtrados.length === 0 ? (
-          <div className="p-12 text-center text-sm text-slate-400">Sin movimientos en el período seleccionado.</div>
+        {movs.length === 0 ? (
+          <div className="p-12 text-center text-sm text-slate-400">Sin movimientos registrados.</div>
         ) : (
-          <div className="table-scroll">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200">
-                <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Fecha</th>
-                <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Descripción</th>
-                <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cat.</th>
-                <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Usuario</th>
-                <th className="text-right px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Monto</th>
-                <th className="px-4 py-2.5"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filtrados.map(m => (
-                <tr key={m.id} className={m.anulado ? 'bg-slate-50 text-slate-400 line-through' : ''}>
-                  <td className="px-4 py-2.5 text-xs text-slate-500 font-mono">{formatDateTime(m.fecha)}</td>
-                  <td className="px-4 py-2.5">
-                    <p className="text-slate-800 font-medium">{m.descripcion}</p>
-                    {m.cobroNumero && (
-                      <p className="text-[11px] text-slate-400">
-                        Cobro #{m.cobroNumero}{m.pacienteNombre ? ` · ${m.pacienteNombre}` : ''}
-                      </p>
-                    )}
-                    {m.anulado && m.motivoAnulacion && (
-                      <p className="text-[11px] text-rose-500 not-italic no-underline">Motivo: {m.motivoAnulacion}</p>
-                    )}
-                  </td>
-                  <td className="px-4 py-2.5 text-xs text-slate-500">{m.categoria ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-xs text-slate-500 truncate max-w-[120px]">{m.userNombre ?? '—'}</td>
-                  <td className={`px-4 py-2.5 text-right text-sm font-bold font-mono ${m.anulado ? '' : m.tipo === 'INGRESO' ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    {m.tipo === 'INGRESO' ? '+ ' : '- '}{formatCLP(m.monto)}
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    {canVoidMovements && !m.anulado && !m.cobroId && (
-                      <button onClick={() => { setAnulando(m); setMotivoAnulacion(''); setAnularError('') }}
-                        className="text-[11px] text-rose-600 hover:underline">
-                        Anular
-                      </button>
-                    )}
-                    {m.cobroId && (
-                      <Link href="/cobros" className="text-[11px] text-cyan-600 hover:underline">
-                        Ver cobro
-                      </Link>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
+          <>
+            <div className="table-scroll">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Fecha</th>
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Descripción</th>
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Cat.</th>
+                    <th className="text-left px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Usuario</th>
+                    <th className="text-right px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Monto</th>
+                    <th className="px-4 py-2.5"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {pagedMovs.map(m => (
+                    <tr key={m.id} className={m.anulado ? 'bg-slate-50 text-slate-400 line-through' : ''}>
+                      <td className="px-4 py-2.5 text-xs text-slate-500 font-mono">{formatDateTime(m.fecha)}</td>
+                      <td className="px-4 py-2.5">
+                        <p className="text-slate-800 font-medium">{m.descripcion}</p>
+                        {m.cobroNumero && (
+                          <p className="text-[11px] text-slate-400">
+                            Cobro #{m.cobroNumero}{m.pacienteNombre ? ` · ${m.pacienteNombre}` : ''}
+                          </p>
+                        )}
+                        {m.anulado && m.motivoAnulacion && (
+                          <p className="text-[11px] text-rose-500 not-italic no-underline">Motivo: {m.motivoAnulacion}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500">{m.categoria ?? '—'}</td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500 truncate max-w-[120px]">{m.userNombre ?? '—'}</td>
+                      <td className={`px-4 py-2.5 text-right text-sm font-bold font-mono ${m.anulado ? '' : m.tipo === 'INGRESO' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                        {m.tipo === 'INGRESO' ? '+ ' : '- '}{formatCLP(m.monto)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {canVoidMovements && !m.anulado && !m.cobroId && (
+                          <button onClick={() => { setAnulando(m); setMotivoAnulacion(''); setAnularError('') }}
+                            className="text-[11px] text-rose-600 hover:underline">
+                            Anular
+                          </button>
+                        )}
+                        {m.cobroId && (
+                          <Link href="/cobros" className="text-[11px] text-cyan-600 hover:underline">
+                            Ver cobro
+                          </Link>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {totalPages > 1 && (
+              <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex gap-1.5">
+                  <button onClick={() => setPage(0)} disabled={safePage === 0}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                    « Primero
+                  </button>
+                  <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={safePage === 0}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                    ← Anterior
+                  </button>
+                </div>
+                <span className="text-xs text-slate-500">
+                  Mostrando {safePage * PAGE_SIZE + 1}–{Math.min((safePage + 1) * PAGE_SIZE, movs.length)} de {movs.length}
+                </span>
+                <div className="flex gap-1.5">
+                  <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={safePage === totalPages - 1}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                    Siguiente →
+                  </button>
+                  <button onClick={() => setPage(totalPages - 1)} disabled={safePage === totalPages - 1}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">
+                    Último »
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -447,8 +406,8 @@ export function CajaDetalleClient({
               {/* Resumen calculado */}
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5 text-sm">
                 <div className="flex justify-between"><span className="text-slate-500">Saldo de apertura</span><span className="font-mono">{formatCLP(sesionActual.saldoApertura)}</span></div>
-                <div className="flex justify-between text-emerald-700"><span>+ Ingresos del período</span><span className="font-mono">{formatCLP(sesionActual.ingresos)}</span></div>
-                <div className="flex justify-between text-rose-700"><span>− Egresos del período</span><span className="font-mono">{formatCLP(sesionActual.egresos)}</span></div>
+                <div className="flex justify-between text-emerald-700"><span>+ Ingresos de la sesión</span><span className="font-mono">{formatCLP(sesionActual.ingresos)}</span></div>
+                <div className="flex justify-between text-rose-700"><span>− Egresos de la sesión</span><span className="font-mono">{formatCLP(sesionActual.egresos)}</span></div>
                 <div className="flex justify-between font-bold text-slate-900 border-t border-slate-200 pt-1.5">
                   <span>Saldo esperado en caja</span>
                   <span className="font-mono">{formatCLP(sesionActual.saldoEsperado)}</span>
