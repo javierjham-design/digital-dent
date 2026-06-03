@@ -119,6 +119,7 @@ export type SessionUser = {
   puedeAplicarDescuento: boolean
   puedeRevertirCompletado: boolean
   puedeEditarPagos: boolean
+  puedeGestionarLiquidaciones: boolean
 }
 
 export async function getSessionUser(): Promise<SessionUser | null> {
@@ -133,10 +134,11 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   let puedeAplicarDescuento = false
   let puedeRevertirCompletado = false
   let puedeEditarPagos = false
+  let puedeGestionarLiquidaciones = false
   if (u.clinicaId) {
     const dbUser = await prisma.user.findUnique({
       where: { id: u.id },
-      select: { puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true, puedeEditarPagos: true, role: true },
+      select: { puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true, puedeEditarPagos: true, puedeGestionarLiquidaciones: true, role: true },
     })
     if (dbUser) {
       const isAdmin = dbUser.role === 'admin'
@@ -144,6 +146,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
       puedeAplicarDescuento = isAdmin || dbUser.puedeAplicarDescuento
       puedeRevertirCompletado = isAdmin || dbUser.puedeRevertirCompletado
       puedeEditarPagos = isAdmin || dbUser.puedeEditarPagos
+      puedeGestionarLiquidaciones = isAdmin || dbUser.puedeGestionarLiquidaciones
     }
   }
 
@@ -159,6 +162,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     puedeAplicarDescuento,
     puedeRevertirCompletado,
     puedeEditarPagos,
+    puedeGestionarLiquidaciones,
   }
 }
 

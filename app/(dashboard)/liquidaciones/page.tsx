@@ -9,9 +9,13 @@ export default async function LiquidacionesPage() {
   const u = await getSessionUser()
   if (!u?.clinicaId) redirect('/login')
 
+  const canManage = u.role === 'admin' || u.puedeGestionarLiquidaciones
+
   const [liquidaciones, doctores] = await Promise.all([
     prisma.liquidacion.findMany({
-      where: { clinicaId: u.clinicaId },
+      where: canManage
+        ? { clinicaId: u.clinicaId }
+        : { clinicaId: u.clinicaId, doctorId: u.id },
       include: {
         doctor: { select: { id: true, name: true, email: true, especialidad: true } },
         contrato: true,
@@ -19,27 +23,40 @@ export default async function LiquidacionesPage() {
       },
       orderBy: [{ periodo: 'desc' }, { createdAt: 'desc' }],
     }),
-    prisma.user.findMany({
-      where: { clinicaId: u.clinicaId, role: 'doctor', activo: true, contratos: { some: { activo: true } } },
-      select: { id: true, name: true, email: true, especialidad: true },
-      orderBy: { name: 'asc' },
-    }),
+    // Solo los gestores necesitan la lista de doctores (para seleccionar
+    // a quién generarle liquidación). Doctores comunes ven solo lo suyo.
+    canManage
+      ? prisma.user.findMany({
+          where: { clinicaId: u.clinicaId, role: { in: ['doctor', 'medico'] }, activo: true, contratos: { some: { activo: true } } },
+          select: { id: true, name: true, email: true, especialidad: true },
+          orderBy: { name: 'asc' },
+        })
+      : Promise.resolve([]),
   ])
 
   return (
     <LiquidacionesClient
+      canManage={canManage}
+      currentUserId={u.id}
       liquidaciones={liquidaciones.map((l) => ({
-        ...l,
+        id: l.id,
+        doctorId: l.doctorId,
+        periodo: l.periodo,
+        totalBruto: l.totalBruto,
+        totalLiquidado: l.totalLiquidado,
+        estado: l.estado,
+        notas: l.notas,
+        fechaPago: l.fechaPago?.toISOString() ?? null,
         createdAt: l.createdAt.toISOString(),
         updatedAt: l.updatedAt.toISOString(),
-        fechaPago: l.fechaPago?.toISOString() ?? null,
+        doctor: l.doctor,
         contrato: {
-          ...l.contrato,
-          fechaInicio: l.contrato.fechaInicio.toISOString(),
-          fechaFin: l.contrato.fechaFin?.toISOString() ?? null,
-          createdAt: l.contrato.createdAt.toISOString(),
-          updatedAt: l.contrato.updatedAt.toISOString(),
+          id: l.contrato.id,
+          tipo: l.contrato.tipo,
+          porcentaje: l.contrato.porcentaje,
+          montoFijo: l.contrato.montoFijo,
         },
+        _count: { items: l._count.items },
       }))}
       doctores={doctores}
     />

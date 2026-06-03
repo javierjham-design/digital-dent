@@ -2,20 +2,38 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
 
+// Lista de liquidaciones según rol:
+//   - admin / puedeGestionarLiquidaciones: TODAS las liquidaciones de la clínica
+//   - doctor / cualquier otro rol: SOLO las suyas
 export async function GET() {
   const u = await getSessionUser()
   if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const canManage = u.role === 'admin' || u.puedeGestionarLiquidaciones
+  const where = canManage
+    ? { clinicaId: u.clinicaId }
+    : { clinicaId: u.clinicaId, doctorId: u.id }
+
   const liquidaciones = await prisma.liquidacion.findMany({
-    where: { clinicaId: u.clinicaId },
-    include: { doctor: { select: { id: true, name: true, email: true, especialidad: true } }, contrato: true, _count: { select: { items: true } } },
+    where,
+    include: {
+      doctor: { select: { id: true, name: true, email: true, especialidad: true } },
+      contrato: true,
+      _count: { select: { items: true } },
+    },
     orderBy: [{ periodo: 'desc' }, { createdAt: 'desc' }],
   })
   return NextResponse.json(liquidaciones)
 }
 
+// Crear nueva liquidación. Solo admin o usuarios con puedeGestionarLiquidaciones.
 export async function POST(req: NextRequest) {
   const u = await getSessionUser()
   if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const canManage = u.role === 'admin' || u.puedeGestionarLiquidaciones
+  if (!canManage) {
+    return NextResponse.json({ error: 'No tienes permiso para generar liquidaciones.' }, { status: 403 })
+  }
 
   const body = await req.json()
   const { doctorId, periodo } = body // periodo = "2025-01"
@@ -70,7 +88,15 @@ export async function POST(req: NextRequest) {
       totalBruto, totalLiquidado,
       items: { create: items },
     },
-    include: { doctor: { select: { id: true, name: true, email: true } }, contrato: true, items: true },
+    // Devolver shape COMPATIBLE con el listado del cliente: incluye _count y
+    // doctor con todos los campos que la UI espera. Sin esto, el cliente
+    // accede a `l._count.items` y revienta con "Cannot read 'items' of undefined".
+    include: {
+      doctor: { select: { id: true, name: true, email: true, especialidad: true } },
+      contrato: true,
+      items: true,
+      _count: { select: { items: true } },
+    },
   })
 
   return NextResponse.json(liquidacion, { status: 201 })

@@ -131,6 +131,7 @@ model User {
   puedeAplicarDescuento Boolean @default(false)
   puedeRevertirCompletado Boolean @default(false)
   puedeEditarPagos  Boolean   @default(false)   // editar y anular cobros ya emitidos
+  puedeGestionarLiquidaciones Boolean @default(false) // crear/aprobar/pagar liquidaciones de cualquier doctor
   clinica       Clinica?       @relation(fields: [clinicaId], references: [id])
   sessions      Session[]
   citas         Cita[]         @relation("DoctorCitas")

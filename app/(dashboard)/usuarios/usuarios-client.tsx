@@ -33,7 +33,7 @@ interface Horario {
   sobrecupoActivo?: boolean; sobrecupoInicio?: string | null; sobrecupoFin?: string | null
 }
 interface Contrato { id: string; doctorId: string; tipo: string; porcentaje: number | null; montoFijo: number | null; descripcion: string | null; fechaInicio: string; fechaFin: string | null; activo: boolean }
-interface Usuario { id: string; name: string | null; username: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean; puedeEditarPagos: boolean; createdAt: string; contratos: Contrato[] }
+interface Usuario { id: string; name: string | null; username: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean; puedeEditarPagos: boolean; puedeGestionarLiquidaciones: boolean; createdAt: string; contratos: Contrato[] }
 
 const emptyUser     = { name: '', username: '', email: '', password: '', role: 'doctor', rut: '', especialidad: '', telefono: '' }
 const emptyContrato = { doctorId: '', tipo: 'PORCENTAJE', porcentaje: '', montoFijo: '', descripcion: '', fechaInicio: '', fechaFin: '' }
@@ -100,7 +100,7 @@ export function UsuariosClient({
     setUsuarios(p => p.map(x => x.id === updated.id ? { ...x, ...updated } : x))
   }
 
-  async function togglePermiso(u: Usuario, campo: 'puedeRecibirPagos' | 'puedeModificarPrecio' | 'puedeAplicarDescuento' | 'puedeRevertirCompletado' | 'puedeEditarPagos') {
+  async function togglePermiso(u: Usuario, campo: 'puedeRecibirPagos' | 'puedeModificarPrecio' | 'puedeAplicarDescuento' | 'puedeRevertirCompletado' | 'puedeEditarPagos' | 'puedeGestionarLiquidaciones') {
     const res = await fetch(`/api/usuarios/${u.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -222,7 +222,7 @@ export function UsuariosClient({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50">
-                {['Usuario', 'RUT', 'Especialidad', 'Teléfono', 'Rol', 'Contrato', 'Horario', 'Pagos', 'Editar pagos', 'Precio', 'Desc.', 'Revertir', 'Estado', ''].map(h => (
+                {['Usuario', 'RUT', 'Especialidad', 'Teléfono', 'Rol', 'Contrato', 'Horario', 'Pagos', 'Editar pagos', 'Precio', 'Desc.', 'Revertir', 'Liquidac.', 'Estado', ''].map(h => (
                   <th key={h} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase">{h}</th>
                 ))}
               </tr>
@@ -313,6 +313,15 @@ export function UsuariosClient({
                         className={cn('relative w-9 h-5 rounded-full transition-colors flex-shrink-0', u.puedeRevertirCompletado ? 'bg-rose-500' : 'bg-slate-300')}
                       >
                         <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all', u.puedeRevertirCompletado ? 'left-4' : 'left-0.5')} />
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => togglePermiso(u, 'puedeGestionarLiquidaciones')}
+                        title={u.puedeGestionarLiquidaciones ? 'Quitar permiso de gestionar liquidaciones' : 'Permitir generar y aprobar liquidaciones de cualquier doctor'}
+                        className={cn('relative w-9 h-5 rounded-full transition-colors flex-shrink-0', u.puedeGestionarLiquidaciones ? 'bg-violet-500' : 'bg-slate-300')}
+                      >
+                        <span className={cn('absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all', u.puedeGestionarLiquidaciones ? 'left-4' : 'left-0.5')} />
                       </button>
                     </td>
                     <td className="px-4 py-3">
