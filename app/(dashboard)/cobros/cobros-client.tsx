@@ -271,7 +271,7 @@ export function CobrosClient({
   const newCobroDisabledTitle = !canReceivePayments
     ? 'No tienes permiso para recibir pagos (pídelo al admin)'
     : cajas.length === 0
-      ? 'No tienes cajas asignadas (pídelo al admin)'
+      ? 'No hay cajas con sesión abierta. Abre una caja en Cobros → Caja antes de recaudar.'
       : ''
 
   return (

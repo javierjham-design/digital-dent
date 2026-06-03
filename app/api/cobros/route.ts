@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
-import { ensureSesionAbierta } from '@/lib/caja'
+import { getSesionAbierta } from '@/lib/caja'
 
 export async function GET() {
   const u = await getSessionUser()
@@ -73,13 +73,16 @@ export async function POST(req: NextRequest) {
   const numero = (lastCobro?.numero ?? 0) + 1
   const fechaPago = body.fechaPago ? new Date(body.fechaPago) : new Date()
 
-  // Asegurar sesión abierta para vincular el movimiento.
-  const sesion = await ensureSesionAbierta({
-    cajaId: caja.id,
-    clinicaId: u.clinicaId,
-    userId: u.id,
-    userNombre: u.name ?? u.email,
-  })
+  // Requerir una sesión abierta. No bootstrap-eamos en silencio: si el
+  // usuario quiere recibir un pago debe haber abierto la caja antes con su
+  // conteo inicial declarado.
+  const sesion = await getSesionAbierta(caja.id)
+  if (!sesion) {
+    return NextResponse.json(
+      { error: 'La caja seleccionada no tiene una sesión abierta. Abre la caja antes de recibir pagos.' },
+      { status: 409 },
+    )
+  }
 
   // Cobro + MovimientoCaja en una transacción.
   const cobro = await prisma.$transaction(async (tx) => {

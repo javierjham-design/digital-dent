@@ -56,10 +56,12 @@ export default async function CobrosPage() {
       },
       orderBy: { fechaCompletado: 'desc' },
     }),
+    // Sólo cajas con sesión ABIERTA pueden recibir cobros. Cajas cerradas
+    // o sin sesión iniciada deben abrirse explícitamente primero.
     prisma.caja.findMany({
       where: u.role === 'admin'
-        ? { clinicaId: u.clinicaId, activo: true }
-        : { clinicaId: u.clinicaId, activo: true, usuarios: { some: { userId: u.id } } },
+        ? { clinicaId: u.clinicaId, activo: true, sesiones: { some: { estado: 'ABIERTA' } } }
+        : { clinicaId: u.clinicaId, activo: true, usuarios: { some: { userId: u.id } }, sesiones: { some: { estado: 'ABIERTA' } } },
       orderBy: { nombre: 'asc' },
       select: { id: true, nombre: true },
     }),

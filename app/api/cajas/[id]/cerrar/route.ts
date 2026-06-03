@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
-import { ensureSesionAbierta } from '@/lib/caja'
+import { getSesionAbierta } from '@/lib/caja'
 
-// Cierra la sesión abierta actual y abre la siguiente con el saldoReal como
-// punto de partida. Quien cierra debe poder operar la caja (asignado o admin).
+// Cierra la sesión abierta actual. NO abre una nueva automáticamente:
+// la apertura siguiente es siempre un acto explícito del usuario para
+// registrar el conteo real de inicio.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const u = await getSessionUser()
   if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -28,22 +29,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
   const observaciones = typeof body.observaciones === 'string' ? body.observaciones.trim() : ''
 
-  // Asegurar sesión abierta
-  const sesion = await ensureSesionAbierta({
-    cajaId: id,
-    clinicaId: u.clinicaId,
-    userId: u.id,
-    userNombre: u.name ?? u.email,
-  })
+  const sesion = await getSesionAbierta(id)
+  if (!sesion) {
+    return NextResponse.json({ error: 'Esta caja no tiene una sesión abierta para cerrar.' }, { status: 409 })
+  }
   const nombre = u.name ?? u.email ?? 'Sistema'
   const cerradaAt = new Date()
-  const clinicaId = u.clinicaId
 
-  // Todo el cierre se hace en una transacción para evitar races con nuevos movimientos.
+  // Cierre transaccional: back-fill huérfanos, recomputo totales y cierre.
   const cerrada = await prisma.$transaction(async (tx) => {
     // 1) Back-fill: cualquier movimiento huérfano (sesionCajaId NULL) creado
-    //    durante la ventana de la sesión queda asociado a esta sesión, así el
-    //    reporte imprimible (que filtra por relación) los muestra correctamente.
+    //    durante la ventana de la sesión queda asociado a esta sesión, así
+    //    el reporte imprimible (que filtra por relación) lo muestra correctamente.
     await tx.movimientoCaja.updateMany({
       where: {
         cajaId: id,
@@ -64,7 +61,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const diferencia = saldoReal - saldoEsperado
 
     // 3) Cerrar la sesión con los totales reales.
-    const closed = await tx.sesionCaja.update({
+    return tx.sesionCaja.update({
       where: { id: sesion.id },
       data: {
         estado: 'CERRADA',
@@ -79,18 +76,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         observaciones: observaciones || null,
       },
     })
-
-    // 4) Abrir la siguiente sesión con saldoReal como saldoApertura.
-    await tx.sesionCaja.create({
-      data: {
-        clinicaId,
-        cajaId: id,
-        saldoApertura: saldoReal,
-        abiertaPorId: u.id,
-        abiertaPorNombre: nombre,
-      },
-    })
-    return closed
   })
 
   return NextResponse.json(cerrada)

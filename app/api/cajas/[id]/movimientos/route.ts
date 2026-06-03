@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
-import { ensureSesionAbierta } from '@/lib/caja'
+import { getSesionAbierta } from '@/lib/caja'
 
 const CATEGORIAS_EGRESO = ['ARRIENDO', 'INSUMOS', 'SUELDO', 'SERVICIOS', 'RETIRO', 'OTRO']
 
@@ -71,12 +71,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const fecha = body.fecha ? new Date(body.fecha) : new Date()
 
-  const sesion = await ensureSesionAbierta({
-    cajaId: id,
-    clinicaId: u.clinicaId,
-    userId: u.id,
-    userNombre: u.name ?? u.email,
-  })
+  const sesion = await getSesionAbierta(id)
+  if (!sesion) {
+    return NextResponse.json(
+      { error: 'La caja no tiene una sesión abierta. Abre la caja antes de registrar movimientos.' },
+      { status: 409 },
+    )
+  }
 
   const mov = await prisma.movimientoCaja.create({
     data: {

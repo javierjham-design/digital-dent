@@ -874,7 +874,13 @@ function RecibirPago({ paciente, kpis, pagosData, currentUserId, permisos, onCob
         </div>
       ) : cajas.length === 0 ? (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 mb-6">
-          No tienes cajas asignadas. Pide al admin que te asigne al menos una caja en <strong>Cobros → Caja</strong>.
+          <p className="font-semibold mb-1">No hay cajas disponibles para recibir pagos.</p>
+          <p className="text-xs">
+            Para recaudar necesitas una caja con <strong>sesión abierta</strong>.
+            {' '}Ve a <Link href="/cobros/caja" className="underline font-medium">Cobros → Caja</Link>{' '}
+            y abre tu caja declarando el conteo inicial.
+            {' '}Si no tienes ninguna caja asignada, pide al admin que te asigne una.
+          </p>
         </div>
       ) : (
         <form onSubmit={registrar} className="bg-white border border-slate-200 rounded-2xl p-5 mb-6 space-y-5">

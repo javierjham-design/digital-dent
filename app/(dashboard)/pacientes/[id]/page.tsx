@@ -65,10 +65,12 @@ export default async function FichaPacientePage({ params }: { params: Promise<{ 
       orderBy: { nombre: 'asc' },
       select: { id: true, nombre: true, comision: true },
     }),
+    // Sólo cajas con sesión ABIERTA aparecen para recibir pago. Una caja cerrada
+    // no puede recibir movimientos hasta que se abra explícitamente.
     prisma.caja.findMany({
       where: u.role === 'admin'
-        ? { clinicaId: u.clinicaId, activo: true }
-        : { clinicaId: u.clinicaId, activo: true, usuarios: { some: { userId: u.id } } },
+        ? { clinicaId: u.clinicaId, activo: true, sesiones: { some: { estado: 'ABIERTA' } } }
+        : { clinicaId: u.clinicaId, activo: true, usuarios: { some: { userId: u.id } }, sesiones: { some: { estado: 'ABIERTA' } } },
       orderBy: { nombre: 'asc' },
       select: { id: true, nombre: true },
     }),

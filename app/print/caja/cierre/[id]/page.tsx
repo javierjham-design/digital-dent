@@ -33,7 +33,7 @@ export default async function PrintCierrePage({ params }: { params: Promise<{ id
       user: { select: { id: true, name: true, email: true } },
       cobro: {
         select: {
-          id: true, numero: true,
+          id: true, numero: true, monto: true, montoNeto: true, comisionMonto: true,
           medioPago: { select: { nombre: true } },
           paciente: { select: { nombre: true, apellido: true, rut: true } },
         },
@@ -47,25 +47,41 @@ export default async function PrintCierrePage({ params }: { params: Promise<{ id
     select: { nombre: true, direccion: true, ciudad: true, telefono: true, email: true, rut: true, logoUrl: true },
   })
 
-  // Agregaciones
+  // Agregaciones (sólo movimientos no anulados).
   const movsActivos = movimientos.filter(m => !m.anulado)
   const ingresos = movsActivos.filter(m => m.tipo === 'INGRESO')
   const egresos  = movsActivos.filter(m => m.tipo === 'EGRESO')
 
-  const ingresosPorMedio = new Map<string, number>()
+  // Resumen por medio de pago: cobros agrupados por medio + ingresos manuales
+  // como "Ajuste". Cada entrada tiene cantidad de movimientos para auditoría.
+  const porMedio = new Map<string, { monto: number; cantidad: number }>()
   for (const m of ingresos) {
-    const k = m.cobro?.medioPago?.nombre ?? (m.categoria === 'COBRO' ? 'Sin medio' : (m.categoria ?? 'Otro'))
-    ingresosPorMedio.set(k, (ingresosPorMedio.get(k) ?? 0) + m.monto)
+    const k = m.cobroId
+      ? (m.cobro?.medioPago?.nombre ?? 'Sin medio')
+      : (m.categoria === 'COBRO' ? 'Sin medio' : (m.categoria ?? 'Ajuste'))
+    const cur = porMedio.get(k) ?? { monto: 0, cantidad: 0 }
+    porMedio.set(k, { monto: cur.monto + m.monto, cantidad: cur.cantidad + 1 })
   }
-  const egresosPorCategoria = new Map<string, number>()
+  const porCategoria = new Map<string, { monto: number; cantidad: number }>()
   for (const m of egresos) {
     const k = m.categoria ?? 'OTRO'
-    egresosPorCategoria.set(k, (egresosPorCategoria.get(k) ?? 0) + m.monto)
+    const cur = porCategoria.get(k) ?? { monto: 0, cantidad: 0 }
+    porCategoria.set(k, { monto: cur.monto + m.monto, cantidad: cur.cantidad + 1 })
   }
 
-  // Si la sesión no tiene totales persistidos (caso raro de sesión abierta o
-  // cierres pre-fix), recalculamos desde los movimientos para mostrar valores
-  // consistentes en el reporte.
+  // Subtotales adicionales para el reporte: bruto cobros vs neto a caja.
+  const cobrosBruto = ingresos
+    .filter(m => m.cobroId)
+    .reduce((s, m) => s + (m.cobro?.monto ?? m.monto), 0)
+  const cobrosComision = ingresos
+    .filter(m => m.cobroId)
+    .reduce((s, m) => s + (m.cobro?.comisionMonto ?? 0), 0)
+  const ingresosManuales = ingresos
+    .filter(m => !m.cobroId)
+    .reduce((s, m) => s + m.monto, 0)
+
+  // Si la sesión no tiene totales persistidos (sesión abierta o cierres
+  // pre-fix), recalculamos para mantener consistencia visual.
   const ingresosCalc = ingresos.reduce((s, m) => s + m.monto, 0)
   const egresosCalc  = egresos.reduce((s, m) => s + m.monto, 0)
   const saldoEsperadoCalc = sesion.saldoApertura + ingresosCalc - egresosCalc
@@ -89,8 +105,9 @@ export default async function PrintCierrePage({ params }: { params: Promise<{ id
         observaciones: sesion.observaciones,
         caja: sesion.caja,
       }}
-      ingresosPorMedio={Array.from(ingresosPorMedio.entries()).map(([k, v]) => ({ label: k, monto: v }))}
-      egresosPorCategoria={Array.from(egresosPorCategoria.entries()).map(([k, v]) => ({ label: k, monto: v }))}
+      ingresosPorMedio={Array.from(porMedio.entries()).map(([label, v]) => ({ label, monto: v.monto, cantidad: v.cantidad }))}
+      egresosPorCategoria={Array.from(porCategoria.entries()).map(([label, v]) => ({ label, monto: v.monto, cantidad: v.cantidad }))}
+      desgloseCobros={{ bruto: cobrosBruto, comision: cobrosComision, ingresosManuales }}
       movimientos={movimientos.map(m => ({
         id: m.id,
         tipo: m.tipo,
@@ -101,6 +118,9 @@ export default async function PrintCierrePage({ params }: { params: Promise<{ id
         anulado: m.anulado,
         motivoAnulacion: m.motivoAnulacion,
         cobroNumero: m.cobro?.numero ?? null,
+        cobroBruto: m.cobro?.monto ?? null,
+        cobroComision: m.cobro?.comisionMonto ?? null,
+        medioPagoNombre: m.cobro?.medioPago?.nombre ?? null,
         userNombre: m.user.name ?? m.user.email,
       }))}
     />

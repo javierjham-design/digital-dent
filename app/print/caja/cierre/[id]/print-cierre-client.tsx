@@ -19,11 +19,21 @@ interface SesionInfo {
   caja: { id: string; nombre: string; descripcion: string | null }
 }
 
-interface AggRow { label: string; monto: number }
+interface AggRow { label: string; monto: number; cantidad: number }
 interface MovRow {
   id: string; tipo: string; monto: number; descripcion: string; categoria: string | null
   fecha: string; anulado: boolean; motivoAnulacion: string | null
-  cobroNumero: number | null; userNombre: string | null
+  cobroNumero: number | null
+  cobroBruto: number | null
+  cobroComision: number | null
+  medioPagoNombre: string | null
+  userNombre: string | null
+}
+
+interface DesgloseCobros {
+  bruto: number
+  comision: number
+  ingresosManuales: number
 }
 
 const CATEGORIA_LABEL: Record<string, string> = {
@@ -37,12 +47,13 @@ const CATEGORIA_LABEL: Record<string, string> = {
 }
 
 export function PrintCierreClient({
-  clinica, sesion, ingresosPorMedio, egresosPorCategoria, movimientos,
+  clinica, sesion, ingresosPorMedio, egresosPorCategoria, desgloseCobros, movimientos,
 }: {
   clinica: ClinicaInfo | null
   sesion: SesionInfo
   ingresosPorMedio: AggRow[]
   egresosPorCategoria: AggRow[]
+  desgloseCobros: DesgloseCobros
   movimientos: MovRow[]
 }) {
   const isCerrada = sesion.estado === 'CERRADA'
@@ -138,15 +149,43 @@ export function PrintCierreClient({
                   {ingresosPorMedio.map(r => (
                     <tr key={r.label}>
                       <td className="px-3 py-1.5 text-slate-700">{r.label}</td>
+                      <td className="px-3 py-1.5 text-right text-[10px] text-slate-400">{r.cantidad}</td>
                       <td className="px-3 py-1.5 text-right font-mono text-emerald-700">{formatCLP(r.monto)}</td>
                     </tr>
                   ))}
                   <tr className="bg-slate-50 border-t border-slate-200">
-                    <td className="px-3 py-1.5 font-bold text-slate-700">Total</td>
+                    <td className="px-3 py-1.5 font-bold text-slate-700" colSpan={2}>Total ingresos netos</td>
                     <td className="px-3 py-1.5 text-right font-mono font-bold text-emerald-700">{formatCLP(ingresos)}</td>
                   </tr>
                 </tbody>
               </table>
+            )}
+            {(desgloseCobros.bruto > 0 || desgloseCobros.ingresosManuales > 0) && (
+              <div className="border-t border-slate-200 px-3 py-2 bg-slate-50">
+                <p className="text-[10px] uppercase tracking-wide font-semibold text-slate-500 mb-1">Composición</p>
+                <table className="w-full text-[11px]">
+                  <tbody>
+                    {desgloseCobros.bruto > 0 && (
+                      <>
+                        <tr>
+                          <td className="py-0.5 text-slate-600">Cobros (bruto)</td>
+                          <td className="py-0.5 text-right font-mono">{formatCLP(desgloseCobros.bruto)}</td>
+                        </tr>
+                        <tr>
+                          <td className="py-0.5 text-rose-600">− Comisión medios pago</td>
+                          <td className="py-0.5 text-right font-mono text-rose-600">{formatCLP(desgloseCobros.comision)}</td>
+                        </tr>
+                      </>
+                    )}
+                    {desgloseCobros.ingresosManuales > 0 && (
+                      <tr>
+                        <td className="py-0.5 text-slate-600">Ingresos manuales</td>
+                        <td className="py-0.5 text-right font-mono">{formatCLP(desgloseCobros.ingresosManuales)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
           <div className="border border-slate-200 rounded-lg">
@@ -161,11 +200,12 @@ export function PrintCierreClient({
                   {egresosPorCategoria.map(r => (
                     <tr key={r.label}>
                       <td className="px-3 py-1.5 text-slate-700">{CATEGORIA_LABEL[r.label] ?? r.label}</td>
+                      <td className="px-3 py-1.5 text-right text-[10px] text-slate-400">{r.cantidad}</td>
                       <td className="px-3 py-1.5 text-right font-mono text-rose-700">{formatCLP(r.monto)}</td>
                     </tr>
                   ))}
                   <tr className="bg-slate-50 border-t border-slate-200">
-                    <td className="px-3 py-1.5 font-bold text-slate-700">Total</td>
+                    <td className="px-3 py-1.5 font-bold text-slate-700" colSpan={2}>Total</td>
                     <td className="px-3 py-1.5 text-right font-mono font-bold text-rose-700">{formatCLP(egresos)}</td>
                   </tr>
                 </tbody>
@@ -187,7 +227,7 @@ export function PrintCierreClient({
                 <tr className="bg-white border-b border-slate-200 text-slate-500 uppercase text-[10px]">
                   <th className="text-left px-3 py-1.5">Fecha</th>
                   <th className="text-left px-3 py-1.5">Descripción</th>
-                  <th className="text-left px-3 py-1.5">Cat.</th>
+                  <th className="text-left px-3 py-1.5">Medio/Cat.</th>
                   <th className="text-left px-3 py-1.5">Usuario</th>
                   <th className="text-right px-3 py-1.5">Monto</th>
                 </tr>
@@ -201,7 +241,11 @@ export function PrintCierreClient({
                       {m.cobroNumero && <span className="text-slate-400"> · #{m.cobroNumero}</span>}
                       {m.anulado && m.motivoAnulacion && <p className="text-[10px] text-rose-500 not-italic no-underline">Motivo: {m.motivoAnulacion}</p>}
                     </td>
-                    <td className="px-3 py-1.5">{m.categoria ? (CATEGORIA_LABEL[m.categoria] ?? m.categoria) : '—'}</td>
+                    <td className="px-3 py-1.5">
+                      {m.tipo === 'INGRESO'
+                        ? (m.medioPagoNombre ?? (m.cobroNumero ? 'Sin medio' : (m.categoria ? (CATEGORIA_LABEL[m.categoria] ?? m.categoria) : '—')))
+                        : (m.categoria ? (CATEGORIA_LABEL[m.categoria] ?? m.categoria) : '—')}
+                    </td>
                     <td className="px-3 py-1.5 truncate max-w-[100px]">{m.userNombre ?? '—'}</td>
                     <td className={`px-3 py-1.5 text-right font-mono font-bold ${m.anulado ? '' : m.tipo === 'INGRESO' ? 'text-emerald-700' : 'text-rose-700'}`}>
                       {m.tipo === 'INGRESO' ? '+' : '−'} {formatCLP(m.monto)}

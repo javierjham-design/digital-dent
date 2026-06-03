@@ -4,46 +4,83 @@ import { prisma } from '@/lib/prisma'
 export const SESION_STALE_DIAS = 7
 
 /**
- * Devuelve la sesión ABIERTA de una caja. Si no existe, la crea on-the-fly
- * usando como saldo de apertura el saldo REAL de la caja en ese momento
- * (saldoInicial + acumulado de movimientos huérfanos no anulados).
- *
- * El parámetro `userInfo` se usa solo si hay que bootstrap-ear una sesión.
+ * Devuelve la sesión ABIERTA de una caja, o null si no hay ninguna.
+ * No crea sesiones — la apertura es siempre explícita por el usuario.
  */
-export async function ensureSesionAbierta(args: {
-  cajaId: string
-  clinicaId: string
-  userId: string
-  userNombre: string | null
-}) {
-  const existing = await prisma.sesionCaja.findFirst({
-    where: { cajaId: args.cajaId, estado: 'ABIERTA' },
+export async function getSesionAbierta(cajaId: string) {
+  return prisma.sesionCaja.findFirst({
+    where: { cajaId, estado: 'ABIERTA' },
     orderBy: { abiertaAt: 'desc' },
   })
-  if (existing) return existing
+}
 
-  // Bootstrap: el punto de partida es el saldo real actual de la caja.
-  // Esto incluye cualquier movimiento histórico que no haya quedado asociado a
-  // una sesión (legacy data) para que el saldoEsperado siempre cuadre.
+/**
+ * Devuelve la última sesión de una caja (abierta o cerrada). Útil para
+ * mostrar el "estado actual" de la caja en la UI.
+ */
+export async function getUltimaSesion(cajaId: string) {
+  return prisma.sesionCaja.findFirst({
+    where: { cajaId },
+    orderBy: { abiertaAt: 'desc' },
+  })
+}
+
+/**
+ * Devuelve la última sesión CERRADA de una caja. Sirve para sugerir el
+ * saldo de apertura al abrir una nueva (= saldoReal del último cierre).
+ */
+export async function getUltimaSesionCerrada(cajaId: string) {
+  return prisma.sesionCaja.findFirst({
+    where: { cajaId, estado: 'CERRADA' },
+    orderBy: { cerradaAt: 'desc' },
+  })
+}
+
+/**
+ * Saldo sugerido al abrir una nueva sesión:
+ *   - Si hay sesión cerrada previa: su `saldoReal` (cuadrado al cierre).
+ *   - Si no: `saldoInicial` de la caja + saldo neto de movimientos
+ *     huérfanos no anulados (legacy sin sesión asociada).
+ */
+export async function calcularSaldoSugerido(cajaId: string): Promise<number> {
+  const ultimaCerrada = await getUltimaSesionCerrada(cajaId)
+  if (ultimaCerrada?.saldoReal != null) return ultimaCerrada.saldoReal
+
   const caja = await prisma.caja.findUnique({
-    where: { id: args.cajaId },
+    where: { id: cajaId },
     select: { saldoInicial: true },
   })
   const orphans = await prisma.movimientoCaja.findMany({
-    where: { cajaId: args.cajaId, sesionCajaId: null, anulado: false },
+    where: { cajaId, sesionCajaId: null, anulado: false },
     select: { tipo: true, monto: true },
   })
   const orphanSaldo = orphans.reduce(
     (s, m) => s + (m.tipo === 'INGRESO' ? m.monto : -m.monto),
     0,
   )
-  const saldoApertura = (caja?.saldoInicial ?? 0) + orphanSaldo
+  return (caja?.saldoInicial ?? 0) + orphanSaldo
+}
 
+/**
+ * Abre una nueva sesión de caja con el saldoApertura declarado.
+ * Falla si ya existe una sesión abierta para esa caja.
+ */
+export async function abrirSesion(args: {
+  cajaId: string
+  clinicaId: string
+  userId: string
+  userNombre: string | null
+  saldoApertura: number
+}) {
+  const existing = await getSesionAbierta(args.cajaId)
+  if (existing) {
+    throw new Error('Ya hay una sesión abierta en esta caja.')
+  }
   return prisma.sesionCaja.create({
     data: {
       clinicaId: args.clinicaId,
       cajaId: args.cajaId,
-      saldoApertura,
+      saldoApertura: args.saldoApertura,
       abiertaPorId: args.userId,
       abiertaPorNombre: args.userNombre,
     },
@@ -51,11 +88,10 @@ export async function ensureSesionAbierta(args: {
 }
 
 /**
- * Resumen acumulado de la sesión: ingresos / egresos / saldo esperado.
- * Captura tanto los movimientos enlazados por sesionCajaId como los huérfanos
- * que cayeron dentro de la ventana temporal de la sesión (defensa en
- * profundidad: si por alguna razón un movimiento no quedó enlazado, igual
- * aparece en el cuadre).
+ * Resumen acumulado de una sesión: ingresos / egresos / saldo esperado.
+ * Captura tanto los movimientos enlazados por `sesionCajaId` como los
+ * huérfanos que cayeron dentro de la ventana temporal (defensa contra
+ * movimientos que por alguna razón no quedaron enlazados).
  */
 export async function calcularResumenSesion(sesionId: string) {
   const sesion = await prisma.sesionCaja.findUnique({
@@ -84,4 +120,17 @@ export async function calcularResumenSesion(sesionId: string) {
 export function diasDesde(fecha: Date): number {
   const ms = Date.now() - fecha.getTime()
   return Math.floor(ms / (1000 * 60 * 60 * 24))
+}
+
+export type EstadoCaja = 'ABIERTA' | 'CERRADA' | 'SIN_SESION'
+
+/**
+ * Determina el estado de una caja según su última sesión.
+ *   - ABIERTA: hay una sesión actualmente abierta.
+ *   - CERRADA: la última sesión está cerrada (caja lista para reabrir).
+ *   - SIN_SESION: caja nueva, nunca abierta. Necesita primera apertura.
+ */
+export function estadoDeCaja(ultima: { estado: string } | null | undefined): EstadoCaja {
+  if (!ultima) return 'SIN_SESION'
+  return ultima.estado === 'ABIERTA' ? 'ABIERTA' : 'CERRADA'
 }
