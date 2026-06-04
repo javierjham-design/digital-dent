@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
 
-const PUBLIC_API = ['/api/auth']
+// APIs públicas en el sentido de "el middleware no las bloquea por sesión".
+// Cada endpoint hace su propia auth internamente (excepto el callback de
+// Google que se autoriza con state firmado).
+const PUBLIC_API = ['/api/auth', '/api/google']
 const SUPER_ADMIN_LOGIN = '/digital-dent-admin-login'
 const SUPER_ADMIN_PREFIX = '/digital-dent-super-admin'
 

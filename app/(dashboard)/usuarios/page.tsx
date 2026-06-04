@@ -9,7 +9,7 @@ export default async function UsuariosPage() {
   const u = await getSessionUser()
   if (!u?.clinicaId) redirect('/login')
 
-  const [usuarios, contratos, horarios] = await Promise.all([
+  const [usuarios, contratos, horarios, clinicaGoogle] = await Promise.all([
     prisma.user.findMany({
       where: { clinicaId: u.clinicaId },
       orderBy: { name: 'asc' },
@@ -24,7 +24,12 @@ export default async function UsuariosPage() {
       where: { clinicaId: u.clinicaId },
       orderBy: [{ doctorId: 'asc' }, { diaSemana: 'asc' }],
     }),
+    prisma.clinica.findUnique({
+      where: { id: u.clinicaId },
+      select: { googleRefreshToken: true, googleAccountEmail: true },
+    }),
   ])
+  const googleConnected = Boolean(clinicaGoogle?.googleRefreshToken)
 
   return (
     <UsuariosClient
@@ -48,6 +53,8 @@ export default async function UsuariosPage() {
         updatedAt: c.updatedAt.toISOString(),
       }))}
       horarios={horarios}
+      googleConnected={googleConnected}
+      googleAccountEmail={clinicaGoogle?.googleAccountEmail ?? null}
     />
   )
 }

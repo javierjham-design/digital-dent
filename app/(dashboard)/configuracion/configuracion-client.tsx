@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 interface Config {
   id: string
@@ -20,6 +21,13 @@ interface MedioPago {
   activo: boolean
 }
 
+interface GoogleStatus {
+  connected: boolean
+  accountEmail: string | null
+  connectedAt: string | null
+  connectedByName: string | null
+}
+
 const WA_PREVIEW_NOMBRE = 'Juan'
 const WA_PREVIEW_FECHA  = 'martes 10 de junio a las 10:30 hrs'
 
@@ -28,10 +36,15 @@ const DEFAULT_MENSAJE = 'Hola {nombre}, te escribimos de *{clinica}* para confir
 export function ConfiguracionClient({
   config: init,
   mediosPago: initMedios,
+  google: initGoogle,
+  isAdmin,
 }: {
   config: Config
   mediosPago: MedioPago[]
+  google: GoogleStatus
+  isAdmin: boolean
 }) {
+  const searchParams = useSearchParams()
   const [form,    setForm]    = useState<Config>(init)
   const [saving,  setSaving]  = useState(false)
   const [saved,   setSaved]   = useState(false)
@@ -42,8 +55,38 @@ export function ConfiguracionClient({
   const [mpForm,      setMpForm]      = useState({ nombre: '', comision: '0' })
   const [savingMP,    setSavingMP]    = useState(false)
 
+  const [google, setGoogle] = useState<GoogleStatus>(initGoogle)
+  const [googleBusy, setGoogleBusy] = useState(false)
+  const [googleFeedback, setGoogleFeedback] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null)
+
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [logoError,  setLogoError]  = useState('')
+
+  // Mensaje al volver del OAuth callback
+  useEffect(() => {
+    const status = searchParams.get('google')
+    if (!status) return
+    if (status === 'connected') setGoogleFeedback({ kind: 'ok', text: 'Google Calendar conectado correctamente.' })
+    else if (status === 'error') {
+      const reason = searchParams.get('reason') || 'desconocido'
+      setGoogleFeedback({ kind: 'error', text: `No se pudo conectar Google Calendar (${reason}).` })
+    }
+  }, [searchParams])
+
+  async function desconectarGoogle() {
+    if (!confirm('¿Desconectar Google Calendar? Los doctores perderán su asignación de calendario y deberás reconectar para usar la sincronización.')) return
+    setGoogleBusy(true)
+    try {
+      const res = await fetch('/api/google/disconnect', { method: 'POST' })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setGoogleFeedback({ kind: 'error', text: d.error ?? 'Error al desconectar.' })
+        return
+      }
+      setGoogle({ connected: false, accountEmail: null, connectedAt: null, connectedByName: null })
+      setGoogleFeedback({ kind: 'ok', text: 'Google Calendar desconectado.' })
+    } finally { setGoogleBusy(false) }
+  }
 
   function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -358,6 +401,87 @@ export function ConfiguracionClient({
               ))}
             </tbody>
           </table>
+          </div>
+        )}
+      </div>
+
+      {/* Google Calendar */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-6 space-y-4">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            Google Calendar
+          </h2>
+          {google.connected && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Conectado
+            </span>
+          )}
+        </div>
+
+        {!google.connected && (
+          <div>
+            <p className="text-sm text-slate-600 mb-3">
+              Conecta una cuenta de Google de la clínica para sincronizar las agendas de los dentistas con sus calendarios.
+              Una vez conectada, podrás asignar a cada dentista su calendario desde <strong>Equipo</strong>.
+            </p>
+            {isAdmin ? (
+              <a href="/api/google/connect"
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl text-sm font-medium shadow-sm">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                </svg>
+                Conectar Google
+              </a>
+            ) : (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-800">
+                Solo el administrador de la clínica puede conectar Google Calendar.
+              </div>
+            )}
+          </div>
+        )}
+
+        {google.connected && (
+          <div className="space-y-3">
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-1.5 text-sm">
+              <div className="flex justify-between"><span className="text-slate-500">Cuenta</span><span className="font-mono text-slate-800">{google.accountEmail ?? '—'}</span></div>
+              {google.connectedAt && (
+                <div className="flex justify-between"><span className="text-slate-500">Conectada</span><span className="text-slate-700">{new Date(google.connectedAt).toLocaleDateString('es-CL', { day: 'numeric', month: 'long', year: 'numeric' })}</span></div>
+              )}
+              {google.connectedByName && (
+                <div className="flex justify-between"><span className="text-slate-500">Conectada por</span><span className="text-slate-700">{google.connectedByName}</span></div>
+              )}
+            </div>
+            <p className="text-xs text-slate-500">
+              Ahora asigna a cada dentista el calendario en el que se sincronizará su agenda, desde <a href="/usuarios" className="text-cyan-600 hover:underline">Equipo</a>.
+            </p>
+            {isAdmin && (
+              <div className="flex flex-wrap gap-2">
+                <a href="/api/google/connect"
+                  className="inline-flex items-center gap-2 border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 py-2 rounded-xl text-xs font-medium">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Reconectar
+                </a>
+                <button type="button" onClick={desconectarGoogle} disabled={googleBusy}
+                  className="inline-flex items-center gap-2 border border-rose-200 hover:bg-rose-50 text-rose-700 px-3 py-2 rounded-xl text-xs font-medium disabled:opacity-50">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  {googleBusy ? 'Desconectando…' : 'Desconectar'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {googleFeedback && (
+          <div className={`rounded-xl px-3 py-2 text-sm ${googleFeedback.kind === 'ok' ? 'bg-emerald-50 border border-emerald-200 text-emerald-700' : 'bg-rose-50 border border-rose-200 text-rose-700'}`}>
+            {googleFeedback.text}
           </div>
         )}
       </div>

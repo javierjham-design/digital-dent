@@ -28,5 +28,19 @@ export default async function ConfiguracionPage() {
     logoUrl: clinica.logoUrl,
   }
 
-  return <ConfiguracionClient config={config} mediosPago={mediosPago} />
+  const google = {
+    connected: Boolean(clinica.googleRefreshToken),
+    accountEmail: clinica.googleAccountEmail,
+    connectedAt: clinica.googleConnectedAt?.toISOString() ?? null,
+    connectedByName: clinica.googleConnectedByName,
+  }
+
+  return (
+    <ConfiguracionClient
+      config={config}
+      mediosPago={mediosPago}
+      google={google}
+      isAdmin={u.role === 'admin'}
+    />
+  )
 }

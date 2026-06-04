@@ -15,6 +15,7 @@ const CAMPOS_ADMIN = [
   'name', 'username', 'email', 'role', 'rut', 'especialidad', 'telefono', 'activo',
   'puedeRecibirPagos', 'puedeModificarPrecio', 'puedeAplicarDescuento', 'puedeRevertirCompletado',
   'puedeEditarPagos', 'puedeGestionarLiquidaciones',
+  'googleCalendarId',
 ] as const
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -95,6 +96,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       id: true, name: true, username: true, email: true, role: true, rut: true, especialidad: true, telefono: true, activo: true,
       puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
       puedeEditarPagos: true, puedeGestionarLiquidaciones: true,
+      googleCalendarId: true,
       createdAt: true,
     },
   })

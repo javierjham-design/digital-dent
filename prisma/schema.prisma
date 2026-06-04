@@ -58,6 +58,16 @@ model Clinica {
   cajas            Caja[]
   movimientosCaja  MovimientoCaja[]
   bloqueosAgenda   BloqueoAgenda[]
+
+  // ─── Integración con Google Calendar (una sola cuenta por clínica) ──────
+  // Los tokens van cifrados (AES-256-GCM con ENCRYPTION_KEY del entorno).
+  googleRefreshToken   String?
+  googleAccessToken    String?
+  googleTokenExpiresAt DateTime?
+  googleAccountEmail   String?       // email de la cuenta Google conectada (visual)
+  googleConnectedAt    DateTime?
+  googleConnectedById  String?
+  googleConnectedByName String?
 }
 
 // Catálogo de planes de suscripción que la plataforma ofrece a las clínicas.
@@ -146,6 +156,9 @@ model User {
   cajas            CajaUsuario[]
   movimientosCaja  MovimientoCaja[] @relation("MovimientoUsuario")
   bloqueosAgenda   BloqueoAgenda[]  @relation("DoctorBloqueos")
+  // ID del Google Calendar (dentro de la cuenta de la clínica) al que se
+  // sincroniza la agenda de este doctor. Lo asigna el admin desde /usuarios.
+  googleCalendarId String?
 
   @@unique([clinicaId, username])
 }

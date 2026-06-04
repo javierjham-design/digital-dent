@@ -33,7 +33,9 @@ interface Horario {
   sobrecupoActivo?: boolean; sobrecupoInicio?: string | null; sobrecupoFin?: string | null
 }
 interface Contrato { id: string; doctorId: string; tipo: string; porcentaje: number | null; montoFijo: number | null; descripcion: string | null; fechaInicio: string; fechaFin: string | null; activo: boolean }
-interface Usuario { id: string; name: string | null; username: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean; puedeEditarPagos: boolean; puedeGestionarLiquidaciones: boolean; createdAt: string; contratos: Contrato[] }
+interface Usuario { id: string; name: string | null; username: string | null; email: string | null; role: string; rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean; puedeRecibirPagos: boolean; puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean; puedeEditarPagos: boolean; puedeGestionarLiquidaciones: boolean; googleCalendarId: string | null; createdAt: string; contratos: Contrato[] }
+
+interface CalendarOption { id: string; summary: string; primary: boolean; backgroundColor: string | null }
 
 const emptyUser     = { name: '', username: '', email: '', password: '', role: 'doctor', rut: '', especialidad: '', telefono: '' }
 const emptyContrato = { doctorId: '', tipo: 'PORCENTAJE', porcentaje: '', montoFijo: '', descripcion: '', fechaInicio: '', fechaFin: '' }
@@ -42,14 +44,49 @@ export function UsuariosClient({
   usuarios: init,
   contratos: initContratos,
   horarios: initHorarios,
+  googleConnected,
+  googleAccountEmail,
 }: {
   usuarios: Usuario[]
   contratos: Contrato[]
   horarios: Horario[]
+  googleConnected: boolean
+  googleAccountEmail: string | null
 }) {
   const [usuarios,  setUsuarios]  = useState<Usuario[]>(init)
   const [contratos, setContratos] = useState<Contrato[]>(initContratos)
   const [horarios,  setHorarios]  = useState<Horario[]>(initHorarios)
+
+  // Google Calendar: lista de calendarios disponibles para mapear a cada doctor.
+  const [calendars, setCalendars] = useState<CalendarOption[] | null>(null)
+  const [calendarsError, setCalendarsError] = useState('')
+  const [calendarsLoading, setCalendarsLoading] = useState(false)
+
+  // Cargamos calendarios on-demand cuando hay conexión activa.
+  async function loadCalendars() {
+    if (calendars !== null || calendarsLoading || !googleConnected) return
+    setCalendarsLoading(true); setCalendarsError('')
+    try {
+      const res = await fetch('/api/google/calendars')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setCalendarsError(data.error ?? 'No se pudo cargar la lista de calendarios.')
+        setCalendars([])
+        return
+      }
+      setCalendars(data as CalendarOption[])
+    } finally { setCalendarsLoading(false) }
+  }
+
+  async function setGoogleCalendar(u: Usuario, calendarId: string | null) {
+    const res = await fetch(`/api/usuarios/${u.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ googleCalendarId: calendarId }),
+    })
+    if (!res.ok) return
+    const updated = await res.json()
+    setUsuarios((p) => p.map((x) => x.id === updated.id ? { ...x, googleCalendarId: updated.googleCalendarId } : x))
+  }
 
   const [showUserModal,    setShowUserModal]    = useState(false)
   const [showContratoModal,setShowContratoModal] = useState(false)
@@ -208,6 +245,74 @@ export function UsuariosClient({
             <p className="text-3xl font-bold text-slate-900 mt-1">{s.value}</p>
           </div>
         ))}
+      </div>
+
+      {/* Google Calendar — mapeo por dentista */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-100 flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="font-semibold text-slate-900 flex items-center gap-2">
+              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              Sincronización con Google Calendar
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {googleConnected
+                ? <>Asigna a cada dentista el calendario de Google donde se sincronizará su agenda. Cuenta conectada: <span className="font-mono">{googleAccountEmail ?? '—'}</span></>
+                : <>Conecta Google Calendar desde <a href="/configuracion" className="text-cyan-600 hover:underline">Configuración</a> para empezar a asignar calendarios.</>
+              }
+            </p>
+          </div>
+          {googleConnected && (
+            <button type="button" onClick={loadCalendars} disabled={calendarsLoading || calendars !== null}
+              className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+              {calendarsLoading ? 'Cargando…' : calendars !== null ? 'Calendarios cargados' : 'Cargar calendarios'}
+            </button>
+          )}
+        </div>
+        {googleConnected && (
+          <div className="px-6 py-4 space-y-2">
+            {calendarsError && (
+              <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-xs text-rose-700">{calendarsError}</div>
+            )}
+            {doctores.length === 0 ? (
+              <p className="text-xs text-slate-400 text-center py-4">No hay dentistas registrados.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {doctores.map((d) => (
+                  <div key={d.id} className="flex items-center gap-3 py-1.5 px-3 rounded-lg hover:bg-slate-50">
+                    <div className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-500 to-teal-600 flex items-center justify-center flex-shrink-0">
+                      <span className="text-white text-[10px] font-bold">{(d.name ?? d.email ?? '?')[0].toUpperCase()}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-800 truncate">{d.name ?? d.email}</p>
+                      {d.especialidad && <p className="text-[11px] text-slate-400 truncate">{d.especialidad}</p>}
+                    </div>
+                    {calendars === null ? (
+                      <p className="text-xs text-slate-400">
+                        {d.googleCalendarId
+                          ? <span className="font-mono text-slate-500 truncate max-w-[160px] inline-block align-middle">{d.googleCalendarId}</span>
+                          : 'Sin asignar'}
+                      </p>
+                    ) : (
+                      <select value={d.googleCalendarId ?? ''}
+                        onChange={(e) => setGoogleCalendar(d, e.target.value || null)}
+                        className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-[300px] truncate">
+                        <option value="">— Sin sincronizar —</option>
+                        {calendars.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.summary}{c.primary ? ' (principal)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tabla usuarios */}
