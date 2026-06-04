@@ -57,6 +57,7 @@ model Clinica {
   pagosSuscripcion PagoSuscripcion[]
   cajas            Caja[]
   movimientosCaja  MovimientoCaja[]
+  bloqueosAgenda   BloqueoAgenda[]
 }
 
 // Catálogo de planes de suscripción que la plataforma ofrece a las clínicas.
@@ -144,6 +145,7 @@ model User {
   planesTitulares PlanTratamiento[] @relation("DoctorTitularPlanes")
   cajas            CajaUsuario[]
   movimientosCaja  MovimientoCaja[] @relation("MovimientoUsuario")
+  bloqueosAgenda   BloqueoAgenda[]  @relation("DoctorBloqueos")
 
   @@unique([clinicaId, username])
 }
@@ -636,4 +638,29 @@ model HorarioDoctor {
   doctor          User     @relation(fields: [doctorId], references: [id], onDelete: Cascade)
 
   @@unique([doctorId, diaSemana])
+}
+
+// Bloqueo de un rango horario en la agenda de un doctor.
+// Sirve para: vacaciones, capacitaciones, ausencias, almuerzos extra, etc.
+// Cuando llegue la integración con Google Calendar, los eventos sin paciente
+// identificable (creados directamente en Google) se materializan acá.
+model BloqueoAgenda {
+  id            String   @id @default(cuid())
+  clinicaId     String
+  doctorId      String
+  inicio        DateTime
+  fin           DateTime
+  motivo        String?
+  createdById   String?
+  createdByName String?
+  // Sincronización con Google Calendar (poblado en la fase 2).
+  googleEventId  String?
+  googleSyncedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  clinica       Clinica  @relation(fields: [clinicaId], references: [id])
+  doctor        User     @relation("DoctorBloqueos", fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([clinicaId, doctorId, inicio])
+  @@index([googleEventId])
 }

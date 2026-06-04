@@ -9,7 +9,7 @@ export default async function AgendaPage() {
   const u = await getSessionUser()
   if (!u?.clinicaId) redirect('/login')
 
-  const [citas, doctors, pacientes, horarios, clinica] = await Promise.all([
+  const [citas, doctors, pacientes, horarios, bloqueos, clinica] = await Promise.all([
     prisma.cita.findMany({
       where: { clinicaId: u.clinicaId },
       include: {
@@ -32,9 +32,15 @@ export default async function AgendaPage() {
       where: { clinicaId: u.clinicaId },
       orderBy: [{ doctorId: 'asc' }, { diaSemana: 'asc' }],
     }),
+    prisma.bloqueoAgenda.findMany({
+      where: { clinicaId: u.clinicaId },
+      include: { doctor: { select: { id: true, name: true, email: true } } },
+      orderBy: { inicio: 'asc' },
+    }),
     prisma.clinica.findUnique({ where: { id: u.clinicaId } }),
   ])
   const config = clinica!
+  const isAdmin = u.role === 'admin'
 
   return (
     <AgendaClient
@@ -69,6 +75,18 @@ export default async function AgendaPage() {
         recesoActivo: h.recesoActivo, recesoInicio: h.recesoInicio, recesoFin: h.recesoFin,
         sobrecupoActivo: h.sobrecupoActivo, sobrecupoInicio: h.sobrecupoInicio, sobrecupoFin: h.sobrecupoFin,
       }))}
+      bloqueos={bloqueos.map(b => ({
+        id: b.id,
+        doctorId: b.doctorId,
+        doctor: b.doctor.name ?? b.doctor.email ?? '—',
+        inicio: b.inicio.toISOString(),
+        fin: b.fin.toISOString(),
+        motivo: b.motivo,
+        createdByName: b.createdByName,
+        googleEventId: b.googleEventId,
+      }))}
+      isAdmin={isAdmin}
+      currentUserId={u.id}
       config={{ clinica: config.nombre, direccion: config.direccion, ciudad: config.ciudad, mensajeWA: config.mensajeWA }}
     />
   )

@@ -48,6 +48,17 @@ interface Horario {
   sobrecupoActivo?: boolean; sobrecupoInicio?: string | null; sobrecupoFin?: string | null
 }
 
+interface Bloqueo {
+  id: string
+  doctorId: string
+  doctor: string
+  inicio: string
+  fin: string
+  motivo: string | null
+  createdByName: string | null
+  googleEventId: string | null
+}
+
 type AgendaView = 'diaria' | 'semanal' | 'global'
 type AgendaMode = 'base' | 'sobrecupo'
 
@@ -58,11 +69,20 @@ interface Props {
   doctors: { id: string; name: string | null; email: string | null }[]
   pacientes: { id: string; rut: string | null; nombre: string; apellido: string; telefono: string | null }[]
   horarios: Horario[]
+  bloqueos: Bloqueo[]
+  isAdmin: boolean
+  currentUserId: string
   config: ClinicConfig
 }
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+
+// Convierte un Date al formato que espera <input type="datetime-local">.
+function toDateTimeLocal(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function toMinutes(hhmm: string) {
@@ -102,7 +122,7 @@ function buildWAUrl(phone: string, message: string): string {
   return `https://wa.me/${num}?text=${encodeURIComponent(message)}`
 }
 
-export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Props) {
+export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, isAdmin, currentUserId, config }: Props) {
   const calRef = useRef<FullCalendar>(null)
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(Object.keys(ESTADO_CONFIG)))
   const [doctorFilter, setDoctorFilter] = useState('todos')
@@ -115,6 +135,18 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
   const [showHistorial,  setShowHistorial]  = useState(false)
   const [updating, setUpdating] = useState(false)
   const [saving,   setSaving]   = useState(false)
+
+  // Bloqueo de agenda
+  const [selectedBloqueo, setSelectedBloqueo] = useState<Bloqueo | null>(null)
+  const defaultBloqueoDoctorId = isAdmin ? (doctorFilter !== 'todos' ? doctorFilter : (doctors[0]?.id ?? '')) : currentUserId
+  const [bloqueoForm, setBloqueoForm] = useState<null | {
+    doctorId: string
+    inicio: string  // datetime-local format
+    fin: string
+    motivo: string
+  }>(null)
+  const [bloqueoError, setBloqueoError] = useState('')
+  const [savingBloqueo, setSavingBloqueo] = useState(false)
 
   // Drawer de filtros mobile
   const [showSidebar, setShowSidebar] = useState(false)
@@ -200,19 +232,36 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
   }, [horarios, doctorFilter, agendaMode])
 
   // ── Filtered calendar events ─────────────────────────────────────────────
-  const events = useMemo(() => citas
-    .filter(c => statusFilter.has(c.estado) && (doctorFilter === 'todos' || c.doctorId === doctorFilter))
-    .filter(c => agendaMode === 'sobrecupo' ? c.sobrecupo : !c.sobrecupo)
-    .map(c => ({
-      id: c.id,
-      title: (c.confirmadoWA ? '✓ ' : '') + (c.sobrecupo ? '⚠ ' : '') + c.pacienteNombre,
-      start: c.start, end: c.end,
-      backgroundColor: ESTADO_CONFIG[c.estado]?.color ?? '#0891b2',
-      borderColor: c.sobrecupo ? '#f59e0b' : (c.confirmadoWA ? '#15803d' : 'transparent'),
-      textColor: '#fff',
-      extendedProps: c,
-    })),
-  [citas, statusFilter, doctorFilter, agendaMode])
+  // Combina citas + bloqueos. Los bloqueos se renderizan en gris oscuro con
+  // un patrón distintivo, no hereda los colores de estado.
+  const events = useMemo(() => {
+    const eventosCita = citas
+      .filter(c => statusFilter.has(c.estado) && (doctorFilter === 'todos' || c.doctorId === doctorFilter))
+      .filter(c => agendaMode === 'sobrecupo' ? c.sobrecupo : !c.sobrecupo)
+      .map(c => ({
+        id: `cita-${c.id}`,
+        title: (c.confirmadoWA ? '✓ ' : '') + (c.sobrecupo ? '⚠ ' : '') + c.pacienteNombre,
+        start: c.start, end: c.end,
+        backgroundColor: ESTADO_CONFIG[c.estado]?.color ?? '#0891b2',
+        borderColor: c.sobrecupo ? '#f59e0b' : (c.confirmadoWA ? '#15803d' : 'transparent'),
+        textColor: '#fff',
+        extendedProps: { ...c, __kind: 'cita' as const },
+      }))
+    // Los bloqueos no entran en modo sobrecupo (no tiene sentido bloquear sobrecupos).
+    const eventosBloqueo = agendaMode === 'sobrecupo' ? [] : bloqueos
+      .filter(b => doctorFilter === 'todos' || b.doctorId === doctorFilter)
+      .map(b => ({
+        id: `blq-${b.id}`,
+        title: `🚫 ${b.motivo || 'Bloqueo'}${doctorFilter === 'todos' ? ` · ${b.doctor}` : ''}`,
+        start: b.inicio, end: b.fin,
+        backgroundColor: '#475569',
+        borderColor: '#334155',
+        textColor: '#f1f5f9',
+        editable: false,
+        extendedProps: { ...b, __kind: 'bloqueo' as const },
+      }))
+    return [...eventosCita, ...eventosBloqueo]
+  }, [citas, bloqueos, statusFilter, doctorFilter, agendaMode])
 
   // Conteos para badges
   const countBase = useMemo(() => citas.filter(c => !c.sobrecupo).length, [citas])
@@ -233,9 +282,59 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
   }, [doctorFilter, doctors, horarios, citas, agendaMode])
 
   const handleEventClick = useCallback((info: EventClickArg) => {
-    setSelectedCita(info.event.extendedProps as Cita)
-    setShowHistorial(false)
+    const props = info.event.extendedProps as (Cita | Bloqueo) & { __kind?: 'cita' | 'bloqueo' }
+    if (props.__kind === 'bloqueo') {
+      setSelectedBloqueo(props as Bloqueo)
+    } else {
+      setSelectedCita(props as Cita)
+      setShowHistorial(false)
+    }
   }, [])
+
+  function openBloqueoModal(seedDate?: Date) {
+    const now = seedDate ?? new Date()
+    const dosHorasDespues = new Date(now.getTime() + 2 * 60 * 60 * 1000)
+    setBloqueoForm({
+      doctorId: defaultBloqueoDoctorId,
+      inicio: toDateTimeLocal(now),
+      fin: toDateTimeLocal(dosHorasDespues),
+      motivo: '',
+    })
+    setBloqueoError('')
+  }
+
+  async function saveBloqueo(e: React.FormEvent) {
+    e.preventDefault()
+    if (!bloqueoForm) return
+    setSavingBloqueo(true); setBloqueoError('')
+    try {
+      const res = await fetch('/api/bloqueos', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          doctorId: bloqueoForm.doctorId,
+          inicio: new Date(bloqueoForm.inicio).toISOString(),
+          fin: new Date(bloqueoForm.fin).toISOString(),
+          motivo: bloqueoForm.motivo,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setBloqueoError(data.error ?? `Error ${res.status}`); return }
+      setBloqueoForm(null)
+      window.location.reload()
+    } finally { setSavingBloqueo(false) }
+  }
+
+  async function deleteBloqueo(id: string) {
+    if (!confirm('¿Eliminar este bloqueo? El horario quedará disponible de nuevo.')) return
+    const res = await fetch(`/api/bloqueos/${id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      alert(d.error ?? 'No se pudo eliminar el bloqueo.')
+      return
+    }
+    setSelectedBloqueo(null)
+    window.location.reload()
+  }
 
   function toggleEstado(estado: string) {
     setStatusFilter(prev => {
@@ -492,12 +591,23 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
                 </span>
               </button>
             </div>
-            <button onClick={() => handleDateClick({ date: new Date() })}
-              className={cn('flex items-center gap-2 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm',
-                agendaMode === 'sobrecupo' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-cyan-600 hover:bg-cyan-700')}>
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-              {agendaMode === 'sobrecupo' ? 'Nuevo sobrecupo' : 'Nueva cita'}
-            </button>
+            <div className="flex gap-2">
+              {agendaMode === 'base' && (
+                <button onClick={() => openBloqueoModal()}
+                  className="flex items-center gap-2 text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-lg text-sm font-semibold transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  Bloquear horario
+                </button>
+              )}
+              <button onClick={() => handleDateClick({ date: new Date() })}
+                className={cn('flex items-center gap-2 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm',
+                  agendaMode === 'sobrecupo' ? 'bg-amber-500 hover:bg-amber-600' : 'bg-cyan-600 hover:bg-cyan-700')}>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                {agendaMode === 'sobrecupo' ? 'Nuevo sobrecupo' : 'Nueva cita'}
+              </button>
+            </div>
           </div>
 
           {/* Fila 2: navegación + selector de vista */}
@@ -554,11 +664,22 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
                 <span className="w-1.5 h-1.5 rounded-full bg-cyan-500" />
               )}
             </button>
-            <button onClick={() => handleDateClick({ date: new Date() })}
-              className="flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-              Nueva cita
-            </button>
+            <div className="flex gap-1.5">
+              {agendaMode === 'base' && (
+                <button onClick={() => openBloqueoModal()}
+                  className="flex items-center gap-1 text-xs font-semibold text-slate-700 border border-slate-200 bg-white px-2.5 py-1.5 rounded-lg">
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                  </svg>
+                  Bloqueo
+                </button>
+              )}
+              <button onClick={() => handleDateClick({ date: new Date() })}
+                className="flex items-center gap-1.5 bg-cyan-600 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                Nueva cita
+              </button>
+            </div>
           </div>
           <div className="flex items-center justify-between gap-2">
             <button onClick={() => shiftCurrentDate(-1)}
@@ -1196,6 +1317,120 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, config }: Pr
                 )}
               </div>
 
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: crear bloqueo de agenda */}
+      {bloqueoForm && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Bloquear horario</h2>
+                <p className="text-xs text-slate-500 mt-0.5">El doctor queda no disponible en ese rango y no se podrán agendar citas.</p>
+              </div>
+              <button onClick={() => setBloqueoForm(null)} className="text-slate-400 hover:text-slate-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form onSubmit={saveBloqueo} className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Doctor *</label>
+                {isAdmin ? (
+                  <select required value={bloqueoForm.doctorId}
+                    onChange={(e) => setBloqueoForm({ ...bloqueoForm, doctorId: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500">
+                    <option value="">Seleccionar doctor</option>
+                    {doctors.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name ?? d.email}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input type="text" disabled value={doctors.find(d => d.id === currentUserId)?.name ?? doctors.find(d => d.id === currentUserId)?.email ?? 'Tú'}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 text-slate-600" />
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Desde *</label>
+                  <input type="datetime-local" required value={bloqueoForm.inicio}
+                    onChange={(e) => setBloqueoForm({ ...bloqueoForm, inicio: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Hasta *</label>
+                  <input type="datetime-local" required value={bloqueoForm.fin}
+                    onChange={(e) => setBloqueoForm({ ...bloqueoForm, fin: e.target.value })}
+                    className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Motivo (opcional)</label>
+                <input type="text" value={bloqueoForm.motivo}
+                  onChange={(e) => setBloqueoForm({ ...bloqueoForm, motivo: e.target.value })}
+                  placeholder="Vacaciones, capacitación, congreso…"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-slate-500" />
+              </div>
+              {bloqueoError && <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-sm text-rose-700">{bloqueoError}</div>}
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setBloqueoForm(null)}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={savingBloqueo || !bloqueoForm.doctorId}
+                  className="flex-1 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white rounded-xl text-sm font-medium">
+                  {savingBloqueo ? 'Bloqueando…' : 'Bloquear horario'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: ver / eliminar bloqueo */}
+      {selectedBloqueo && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Bloqueo de agenda</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{selectedBloqueo.doctor}</p>
+              </div>
+              <button onClick={() => setSelectedBloqueo(null)} className="text-slate-400 hover:text-slate-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-6 space-y-3">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-sm space-y-1.5">
+                <div className="flex justify-between"><span className="text-slate-500">Desde</span><span className="font-mono text-slate-800">{new Date(selectedBloqueo.inicio).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Hasta</span><span className="font-mono text-slate-800">{new Date(selectedBloqueo.fin).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</span></div>
+              </div>
+              {selectedBloqueo.motivo && (
+                <div>
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1">Motivo</p>
+                  <p className="text-sm text-slate-700">{selectedBloqueo.motivo}</p>
+                </div>
+              )}
+              {selectedBloqueo.createdByName && (
+                <p className="text-[11px] text-slate-400">Creado por {selectedBloqueo.createdByName}</p>
+              )}
+              {selectedBloqueo.googleEventId && (
+                <p className="text-[11px] text-blue-600">Sincronizado con Google Calendar.</p>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button type="button" onClick={() => setSelectedBloqueo(null)}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  Cerrar
+                </button>
+                {(isAdmin || selectedBloqueo.doctorId === currentUserId) && (
+                  <button type="button" onClick={() => deleteBloqueo(selectedBloqueo.id)}
+                    className="flex-1 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-medium">
+                    Eliminar bloqueo
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
