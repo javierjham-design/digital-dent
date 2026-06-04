@@ -159,6 +159,11 @@ model User {
   // ID del Google Calendar (dentro de la cuenta de la clínica) al que se
   // sincroniza la agenda de este doctor. Lo asigna el admin desde /usuarios.
   googleCalendarId String?
+  // Token incremental para pull (events.list?syncToken=...). Cuando es null
+  // el próximo sync hace un full snapshot (e.g. tras mapear el calendario
+  // por primera vez o tras un 410 Gone de Google).
+  googleSyncToken  String?
+  googleSyncedAt   DateTime?
 
   @@unique([clinicaId, username])
 }
@@ -262,6 +267,11 @@ model Cita {
   sala          String?
   sobrecupo     Boolean   @default(false)   // si true, va a la agenda paralela de Sobre Agendamiento
   confirmadoWA  Boolean   @default(false)
+  // Sincronización con Google Calendar (Fase 2). googleEventId vacío =
+  // todavía no sincronizada. googleSyncError = última falla al pushear.
+  googleEventId   String?
+  googleSyncedAt  DateTime?
+  googleSyncError String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   clinica       Clinica?  @relation(fields: [clinicaId], references: [id])
@@ -269,6 +279,8 @@ model Cita {
   doctor        User      @relation("DoctorCitas", fields: [doctorId], references: [id])
   logs          CitaLog[]
   mensajes      MensajePaciente[]
+
+  @@index([googleEventId])
 }
 
 model CitaLog {
@@ -667,8 +679,9 @@ model BloqueoAgenda {
   createdById   String?
   createdByName String?
   // Sincronización con Google Calendar (poblado en la fase 2).
-  googleEventId  String?
-  googleSyncedAt DateTime?
+  googleEventId   String?
+  googleSyncedAt  DateTime?
+  googleSyncError String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   clinica       Clinica  @relation(fields: [clinicaId], references: [id])

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
+import { deleteCitaInGoogle, pushCita } from '@/lib/google-sync'
 
 const ESTADOS = ['PENDIENTE', 'CONFIRMADA', 'ATENDIDA', 'CANCELADA', 'NO_ASISTIO']
 
@@ -71,6 +72,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       ...(logEntries.length > 0 ? { logs: { create: logEntries } } : {}),
     },
   })
+
+  // Sincronizar con Google: si pasó a CANCELADA borramos el evento; si no
+  // hacemos push para reflejar el cambio.
+  if (data.estado === 'CANCELADA') {
+    deleteCitaInGoogle(cita.id).catch(() => {})
+  } else {
+    pushCita(cita.id).catch(() => {})
+  }
+
   return NextResponse.json(cita)
 }
 
@@ -80,6 +90,8 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params
   const existing = await prisma.cita.findFirst({ where: { id, clinicaId: u.clinicaId }, select: { id: true } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  // Borrar primero en Google (mientras todavía tenemos el googleEventId).
+  await deleteCitaInGoogle(id)
   await prisma.cita.delete({ where: { id } })
   return NextResponse.json({ ok: true })
 }

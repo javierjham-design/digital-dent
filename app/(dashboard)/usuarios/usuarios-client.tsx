@@ -88,6 +88,22 @@ export function UsuariosClient({
     setUsuarios((p) => p.map((x) => x.id === updated.id ? { ...x, googleCalendarId: updated.googleCalendarId } : x))
   }
 
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null)
+  const [syncRunning, setSyncRunning] = useState(false)
+
+  async function syncAhora() {
+    setSyncRunning(true); setSyncFeedback(null)
+    try {
+      const res = await fetch('/api/google/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setSyncFeedback(data.error ?? 'Error al sincronizar.'); return }
+      const summaries = (data.summaries ?? []) as { doctor: string; changed: number; newBloqueos: number; reAsserted: number; error: string | null }[]
+      const total = summaries.reduce((s, x) => s + x.changed + x.newBloqueos + x.reAsserted, 0)
+      const errores = summaries.filter((x) => x.error).length
+      setSyncFeedback(`Sincronización: ${total} cambios procesados${errores > 0 ? ` · ${errores} con error` : ''}.`)
+    } finally { setSyncRunning(false) }
+  }
+
   const [showUserModal,    setShowUserModal]    = useState(false)
   const [showContratoModal,setShowContratoModal] = useState(false)
   const [showHorarioModal, setShowHorarioModal]  = useState(false)
@@ -265,12 +281,23 @@ export function UsuariosClient({
             </p>
           </div>
           {googleConnected && (
-            <button type="button" onClick={loadCalendars} disabled={calendarsLoading || calendars !== null}
-              className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
-              {calendarsLoading ? 'Cargando…' : calendars !== null ? 'Calendarios cargados' : 'Cargar calendarios'}
-            </button>
+            <div className="flex gap-2">
+              <button type="button" onClick={loadCalendars} disabled={calendarsLoading || calendars !== null}
+                className="px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                {calendarsLoading ? 'Cargando…' : calendars !== null ? 'Calendarios cargados' : 'Cargar calendarios'}
+              </button>
+              <button type="button" onClick={syncAhora} disabled={syncRunning}
+                className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium disabled:opacity-50">
+                {syncRunning ? 'Sincronizando…' : 'Sincronizar ahora'}
+              </button>
+            </div>
           )}
         </div>
+        {syncFeedback && (
+          <div className="mx-6 mb-3 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-800">
+            {syncFeedback}
+          </div>
+        )}
         {googleConnected && (
           <div className="px-6 py-4 space-y-2">
             {calendarsError && (

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
+import { deleteBloqueoInGoogle, pushBloqueo } from '@/lib/google-sync'
 
 // Editar o eliminar un bloqueo. Mismas reglas que crear: admin puede tocar
 // cualquiera de la clínica; un doctor solo los suyos.
@@ -46,6 +47,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     data,
     include: { doctor: { select: { id: true, name: true, email: true } } },
   })
+  pushBloqueo(bloqueo.id).catch(() => {})
   return NextResponse.json(bloqueo)
 }
 
@@ -65,6 +67,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
     return NextResponse.json({ error: 'No puedes eliminar bloqueos de otros usuarios.' }, { status: 403 })
   }
 
+  // Borrar primero en Google con el id todavía intacto.
+  await deleteBloqueoInGoogle(id)
   await prisma.bloqueoAgenda.delete({ where: { id } })
   return NextResponse.json({ ok: true })
 }

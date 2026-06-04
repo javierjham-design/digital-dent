@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
+import { pushCita } from '@/lib/google-sync'
 
 export async function GET(req: NextRequest) {
   const u = await getSessionUser()
@@ -79,5 +80,9 @@ export async function POST(req: NextRequest) {
       },
     },
   })
+
+  // Push a Google Calendar (best-effort, no bloqueante).
+  pushCita(cita.id).catch(() => {})
+
   return NextResponse.json(cita, { status: 201 })
 }

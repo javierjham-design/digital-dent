@@ -89,6 +89,21 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     data.passwordChangedAt = new Date()
   }
 
+  // Si se está asignando o cambiando el googleCalendarId, reseteamos el
+  // syncToken para que el próximo sync sea un snapshot completo del nuevo
+  // calendario (trae las citas existentes de Dentalink al primer pull).
+  const previousCalendarId = await (async () => {
+    if (data.googleCalendarId === undefined) return undefined
+    const prev = await prisma.user.findUnique({
+      where: { id }, select: { googleCalendarId: true },
+    })
+    return prev?.googleCalendarId ?? null
+  })()
+  if (data.googleCalendarId !== undefined && previousCalendarId !== data.googleCalendarId) {
+    data.googleSyncToken = null
+    data.googleSyncedAt = null
+  }
+
   const usuario = await prisma.user.update({
     where: { id },
     data,
@@ -104,6 +119,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // Si el rol pasa a uno SIN agenda, borrar horarios huérfanos
   if ('role' in data && !ROLES_CON_AGENDA.includes(String(data.role))) {
     await prisma.horarioDoctor.deleteMany({ where: { doctorId: id } })
+  }
+
+  // Si recién asignamos un calendario, disparamos el import inicial en
+  // background (best-effort, no bloqueante).
+  if (data.googleCalendarId !== undefined && previousCalendarId !== data.googleCalendarId && data.googleCalendarId) {
+    import('@/lib/google-sync').then(({ syncCalendar }) => {
+      syncCalendar(id).catch(() => {})
+    }).catch(() => {})
   }
 
   return NextResponse.json(usuario)

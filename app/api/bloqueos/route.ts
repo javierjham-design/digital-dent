@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
+import { pushBloqueo } from '@/lib/google-sync'
 
 // Lista bloqueos de agenda en un rango. Filtros opcionales: doctorId, from, to.
 // Admin ve todos los de la clínica; un doctor solo los suyos.
@@ -94,6 +95,8 @@ export async function POST(req: NextRequest) {
       doctor: { select: { id: true, name: true, email: true } },
     },
   })
+
+  pushBloqueo(bloqueo.id).catch(() => {})
 
   return NextResponse.json(bloqueo, { status: 201 })
 }
