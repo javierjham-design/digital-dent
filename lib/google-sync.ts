@@ -62,6 +62,45 @@ async function getCalendarClient(clinicaId: string) {
   return google.calendar({ version: 'v3', auth })
 }
 
+// ─── Matching de paciente desde el título de un evento ──────────────────────
+// Las citas de Dentalink (que ya están en los calendars de Google) tienen el
+// nombre del paciente en el título. Intentamos matchear contra los pacientes
+// activos de la clínica. Si hay UN match unívoco → es una cita real;
+// si hay múltiples (homónimos) o cero → bloqueo.
+
+function normalize(s: string): string {
+  return s.toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // sin tildes
+    .replace(/[^a-z0-9\s]/g, ' ')                     // sin puntuación
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+export async function findMatchingPaciente(clinicaId: string, titulo: string): Promise<string | null> {
+  if (!titulo || !titulo.trim()) return null
+  const t = normalize(titulo)
+  if (t.length < 4) return null
+
+  const pacientes = await prisma.paciente.findMany({
+    where: { clinicaId, activo: true },
+    select: { id: true, nombre: true, apellido: true },
+  })
+
+  const matches = new Set<string>()
+  for (const p of pacientes) {
+    const n = normalize(p.nombre)
+    const a = normalize(p.apellido)
+    if (!n || !a) continue
+    // Match si el título contiene "nombre apellido" o "apellido nombre"
+    // (ambos órdenes son comunes en agendas dentales).
+    if (t.includes(`${n} ${a}`) || t.includes(`${a} ${n}`)) {
+      matches.add(p.id)
+    }
+  }
+  if (matches.size !== 1) return null
+  return Array.from(matches)[0]
+}
+
 // ─── Push: CITAS ────────────────────────────────────────────────────────────
 
 /**
@@ -234,6 +273,7 @@ export interface SyncSummary {
   doctor: string
   changed: number
   newBloqueos: number
+  newCitas: number
   reAsserted: number
   fullResync: boolean
   error: string | null
@@ -255,7 +295,7 @@ export interface SyncSummary {
  */
 export async function syncCalendar(userId: string): Promise<SyncSummary> {
   const summary: SyncSummary = {
-    userId, doctor: '—', changed: 0, newBloqueos: 0, reAsserted: 0, fullResync: false, error: null,
+    userId, doctor: '—', changed: 0, newBloqueos: 0, newCitas: 0, reAsserted: 0, fullResync: false, error: null,
   }
 
   const user = await prisma.user.findUnique({
@@ -323,6 +363,7 @@ export async function syncCalendar(userId: string): Promise<SyncSummary> {
       const result = await reconcileEvent(user.clinicaId, user.id, calendarId, ev, calendar)
       if (result === 'cancelled' || result === 'updated') summary.changed++
       if (result === 'bloqueo_created') summary.newBloqueos++
+      if (result === 'cita_imported') summary.newCitas++
       if (result === 're_asserted') summary.reAsserted++
     } catch {
       // No abortar todo el sync por un evento; el siguiente ciclo lo reintenta.
@@ -344,7 +385,7 @@ export async function syncCalendar(userId: string): Promise<SyncSummary> {
   return summary
 }
 
-type ReconcileResult = 'cancelled' | 'updated' | 'bloqueo_created' | 're_asserted' | 'ignored'
+type ReconcileResult = 'cancelled' | 'updated' | 'bloqueo_created' | 'cita_imported' | 're_asserted' | 'ignored'
 
 async function reconcileEvent(
   clinicaId: string,
@@ -417,14 +458,44 @@ async function reconcileEvent(
     return 'ignored'
   }
 
-  // 4) Evento nuevo y ajeno → crear como BloqueoAgenda.
+  // 4) Evento nuevo y ajeno: intentar matchear el título contra los pacientes
+  //    de la clínica. Si hay un match unívoco lo creamos como Cita real (caso
+  //    importación inicial desde Dentalink); si no, bloqueo.
+  const summary = ev.summary ?? ''
+  const pacienteId = await findMatchingPaciente(clinicaId, summary)
+  const duracionMin = Math.max(15, Math.round((endDate.getTime() - startDate.getTime()) / 60000))
+
+  if (pacienteId) {
+    await prisma.cita.create({
+      data: {
+        clinicaId,
+        pacienteId,
+        doctorId,
+        fecha: startDate,
+        duracion: duracionMin,
+        estado: 'CONFIRMADA',
+        tipo: 'CONSULTA',
+        googleEventId: ev.id,
+        googleSyncedAt: new Date(),
+        logs: {
+          create: {
+            tipo: 'AGENDADA',
+            detalle: `Importada de Google Calendar (título: "${summary}")`,
+            userName: 'Google Calendar',
+          },
+        },
+      },
+    })
+    return 'cita_imported'
+  }
+
   await prisma.bloqueoAgenda.create({
     data: {
       clinicaId,
       doctorId,
       inicio: startDate,
       fin: endDate,
-      motivo: ev.summary ?? 'Bloqueo importado de Google',
+      motivo: summary || 'Bloqueo importado de Google',
       createdByName: 'Google Calendar',
       googleEventId: ev.id,
       googleSyncedAt: new Date(),

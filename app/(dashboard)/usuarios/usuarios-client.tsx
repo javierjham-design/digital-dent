@@ -97,10 +97,30 @@ export function UsuariosClient({
       const res = await fetch('/api/google/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setSyncFeedback(data.error ?? 'Error al sincronizar.'); return }
-      const summaries = (data.summaries ?? []) as { doctor: string; changed: number; newBloqueos: number; reAsserted: number; error: string | null }[]
-      const total = summaries.reduce((s, x) => s + x.changed + x.newBloqueos + x.reAsserted, 0)
+      const summaries = (data.summaries ?? []) as { doctor: string; changed: number; newBloqueos: number; newCitas: number; reAsserted: number; error: string | null }[]
+      const newCitas = summaries.reduce((s, x) => s + (x.newCitas ?? 0), 0)
+      const newBloqueos = summaries.reduce((s, x) => s + x.newBloqueos, 0)
+      const changed = summaries.reduce((s, x) => s + x.changed, 0)
       const errores = summaries.filter((x) => x.error).length
-      setSyncFeedback(`Sincronización: ${total} cambios procesados${errores > 0 ? ` · ${errores} con error` : ''}.`)
+      const parts: string[] = []
+      if (newCitas > 0) parts.push(`${newCitas} citas nuevas`)
+      if (newBloqueos > 0) parts.push(`${newBloqueos} bloqueos nuevos`)
+      if (changed > 0) parts.push(`${changed} cambios`)
+      if (parts.length === 0) parts.push('sin cambios')
+      setSyncFeedback(`Sincronización: ${parts.join(' · ')}${errores > 0 ? ` · ${errores} con error` : ''}.`)
+    } finally { setSyncRunning(false) }
+  }
+
+  async function convertirBloqueos() {
+    if (!confirm('Esta acción busca bloqueos importados de Google cuyo título coincida con un paciente activo y los convierte en citas reales. ¿Continuar?')) return
+    setSyncRunning(true); setSyncFeedback(null)
+    try {
+      const res = await fetch('/api/google/reconcile-bloqueos', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setSyncFeedback(data.error ?? 'Error al convertir bloqueos.'); return }
+      setSyncFeedback(`Conversión: ${data.converted}/${data.total} bloqueos convertidos en citas reales${data.skippedCount > 0 ? ` (${data.skippedCount} sin match de paciente)` : ''}.`)
+      // Refrescar para reflejar la lista nueva
+      setTimeout(() => window.location.reload(), 1500)
     } finally { setSyncRunning(false) }
   }
 
@@ -289,6 +309,11 @@ export function UsuariosClient({
               <button type="button" onClick={syncAhora} disabled={syncRunning}
                 className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium disabled:opacity-50">
                 {syncRunning ? 'Sincronizando…' : 'Sincronizar ahora'}
+              </button>
+              <button type="button" onClick={convertirBloqueos} disabled={syncRunning}
+                className="px-3 py-1.5 border border-blue-200 text-blue-700 hover:bg-blue-50 rounded-lg text-xs font-medium disabled:opacity-50"
+                title="Busca bloqueos importados de Google cuyo título coincida con un paciente y los convierte en citas reales.">
+                Convertir bloqueos a citas
               </button>
             </div>
           )}

@@ -474,6 +474,24 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
       .sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
   }, [citas, statusFilter, doctorFilter, currentDate, agendaMode])
 
+  // Bloqueos del día seleccionado (mismo filtro de doctor; sobrecupo no aplica
+  // a bloqueos — los bloqueos rigen para la agenda base).
+  const bloqueosDelDia = useMemo(() => {
+    if (agendaMode === 'sobrecupo') return []
+    const start = new Date(currentDate); start.setHours(0, 0, 0, 0)
+    const end = new Date(currentDate); end.setHours(23, 59, 59, 999)
+    return bloqueos
+      .filter(b => doctorFilter === 'todos' || b.doctorId === doctorFilter)
+      .filter(b => {
+        // Hay solapamiento con el día si el bloqueo arranca o termina en él,
+        // o si lo abarca completo.
+        const ini = new Date(b.inicio).getTime()
+        const fin = new Date(b.fin).getTime()
+        return ini <= end.getTime() && fin >= start.getTime()
+      })
+      .sort((a, b) => new Date(a.inicio).getTime() - new Date(b.inicio).getTime())
+  }, [bloqueos, doctorFilter, currentDate, agendaMode])
+
   // Doctores que tienen al menos un horario activo este día (para Diaria global)
   const doctorsForGlobal = useMemo(() => {
     const dow = currentDate.getDay()
@@ -858,7 +876,9 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
           {view === 'diaria' && (
             <ListaDiaria
               citas={citasDelDia}
+              bloqueos={bloqueosDelDia}
               onCitaClick={(c) => { setSelectedCita(c); setShowHistorial(false) }}
+              onBloqueoClick={(b) => setSelectedBloqueo(b)}
               estadoConfig={ESTADO_CONFIG}
               onUpdateEstado={updateEstado}
               date={currentDate}
@@ -871,11 +891,13 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
               doctors={doctorsForGlobal}
               horarios={horarios}
               citas={citasDelDia}
+              bloqueos={bloqueosDelDia}
               date={currentDate}
               agendaMode={agendaMode}
               estadoConfig={ESTADO_CONFIG}
               onSlotClick={(date, doctorId) => handleDateClick({ date, doctorId })}
               onCitaClick={(c) => { setSelectedCita(c); setShowHistorial(false) }}
+              onBloqueoClick={(b) => setSelectedBloqueo(b)}
             />
           )}
         </div>
@@ -1443,15 +1465,26 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
 // Vista DIARIA: lista compacta con hora · paciente · doctor · estado
 // ────────────────────────────────────────────────────────────────────────────
 function ListaDiaria({
-  citas, onCitaClick, estadoConfig, onUpdateEstado, date,
+  citas, bloqueos, onCitaClick, onBloqueoClick, estadoConfig, onUpdateEstado, date,
 }: {
   citas: Cita[]
+  bloqueos: Bloqueo[]
   onCitaClick: (c: Cita) => void
+  onBloqueoClick: (b: Bloqueo) => void
   estadoConfig: typeof ESTADO_CONFIG
   onUpdateEstado: (citaId: string, estado: string) => void
   date: Date
 }) {
-  if (citas.length === 0) {
+  // Merge ordenado por hora de citas + bloqueos.
+  type Row =
+    | { kind: 'cita'; data: Cita; ts: number }
+    | { kind: 'bloqueo'; data: Bloqueo; ts: number }
+  const rows: Row[] = [
+    ...citas.map((c) => ({ kind: 'cita' as const, data: c, ts: new Date(c.start).getTime() })),
+    ...bloqueos.map((b) => ({ kind: 'bloqueo' as const, data: b, ts: new Date(b.inicio).getTime() })),
+  ].sort((a, b) => a.ts - b.ts)
+
+  if (rows.length === 0) {
     return (
       <div className="p-12 text-center">
         <svg className="w-12 h-12 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1469,16 +1502,48 @@ function ListaDiaria({
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <div className="grid grid-cols-[100px_1fr_220px_140px_120px] gap-4 px-5 py-3 border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
           <div>Hora</div>
-          <div>Paciente</div>
+          <div>Paciente / Motivo</div>
           <div>Doctor</div>
           <div>Estado</div>
           <div>Acciones</div>
         </div>
         <div className="divide-y divide-slate-100">
-          {citas.map((c) => {
+          {rows.map((row) => {
+            if (row.kind === 'bloqueo') {
+              const b = row.data
+              return (
+                <div key={`b-${b.id}`} className="grid grid-cols-[100px_1fr_220px_140px_120px] gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors items-center bg-slate-50/60">
+                  <div className="flex flex-col">
+                    <span className="font-mono text-sm font-semibold text-slate-600">{formatTime(b.inicio)}</span>
+                    <span className="font-mono text-[11px] text-slate-400">{formatTime(b.fin)}</span>
+                  </div>
+                  <button onClick={() => onBloqueoClick(b)} className="text-left min-w-0">
+                    <p className="text-sm font-semibold text-slate-700 truncate">
+                      <span className="mr-1">🚫</span>{b.motivo ?? 'Bloqueo'}
+                    </p>
+                    {b.googleEventId && (
+                      <p className="text-[11px] text-blue-500 mt-0.5">Importado de Google Calendar</p>
+                    )}
+                  </button>
+                  <div className="text-sm text-slate-700 truncate">{b.doctor ?? '—'}</div>
+                  <div>
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-medium whitespace-nowrap bg-slate-200 text-slate-700">
+                      Bloqueo
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => onBloqueoClick(b)}
+                      className="px-2.5 py-1.5 text-[11px] font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100">
+                      Detalle
+                    </button>
+                  </div>
+                </div>
+              )
+            }
+            const c = row.data
             const cfg = estadoConfig[c.estado] ?? { label: c.estado, color: '#64748b', bg: '#f1f5f9', text: '#334155' }
             return (
-              <div key={c.id} className="grid grid-cols-[100px_1fr_220px_140px_120px] gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors items-center">
+              <div key={`c-${c.id}`} className="grid grid-cols-[100px_1fr_220px_140px_120px] gap-4 px-5 py-3.5 hover:bg-slate-50 transition-colors items-center">
                 <div className="flex flex-col">
                   <span className="font-mono text-sm font-semibold text-slate-900">{formatTime(c.start)}</span>
                   <span className="font-mono text-[11px] text-slate-400">{formatTime(c.end)}</span>
@@ -1527,16 +1592,18 @@ function ListaDiaria({
 // Vista DIARIA GLOBAL: una columna por doctor, slots de 15 min sobre el día
 // ────────────────────────────────────────────────────────────────────────────
 function DiariaGlobal({
-  doctors, horarios, citas, date, agendaMode, estadoConfig, onSlotClick, onCitaClick,
+  doctors, horarios, citas, bloqueos, date, agendaMode, estadoConfig, onSlotClick, onCitaClick, onBloqueoClick,
 }: {
   doctors: { id: string; name: string | null; email: string | null }[]
   horarios: Horario[]
   citas: Cita[]
+  bloqueos: Bloqueo[]
   date: Date
   agendaMode: AgendaMode
   estadoConfig: typeof ESTADO_CONFIG
   onSlotClick: (date: Date, doctorId: string) => void
   onCitaClick: (c: Cita) => void
+  onBloqueoClick: (b: Bloqueo) => void
 }) {
   const dow = date.getDay()
   // Min/max global del día (considerando todos los doctores que atienden)
@@ -1598,6 +1665,10 @@ function DiariaGlobal({
     return citas.filter(c => c.doctorId === doctorId)
   }
 
+  function bloqueosOf(doctorId: string) {
+    return bloqueos.filter(b => b.doctorId === doctorId)
+  }
+
   function buildSlotDate(slotMin: number) {
     const d = new Date(date)
     d.setHours(Math.floor(slotMin / 60), slotMin % 60, 0, 0)
@@ -1619,6 +1690,7 @@ function DiariaGlobal({
         {/* Una columna por doctor */}
         {doctors.map((doc) => {
           const dCitas = citasOf(doc.id)
+          const dBloqueos = bloqueosOf(doc.id)
           return (
             <div key={doc.id} className="flex-shrink-0 w-44 border-r border-slate-200 relative">
               <div className="h-12 border-b border-slate-200 bg-slate-50 px-3 flex items-center sticky top-0 z-10">
@@ -1639,6 +1711,33 @@ function DiariaGlobal({
                         m % 60 === 0 && 'border-t border-slate-200/70',
                       )}
                     />
+                  )
+                })}
+                {/* bloqueos (van debajo de las citas en z-order) */}
+                {dBloqueos.map((b) => {
+                  const start = new Date(b.inicio)
+                  const end = new Date(b.fin)
+                  const startMin = start.getHours() * 60 + start.getMinutes()
+                  const endMin = end.getHours() * 60 + end.getMinutes()
+                  if (endMin <= minMin || startMin >= maxMin) return null
+                  const top = ((Math.max(startMin, minMin) - minMin) / SLOT_MIN) * SLOT_PX
+                  const height = ((Math.min(endMin, maxMin) - Math.max(startMin, minMin)) / SLOT_MIN) * SLOT_PX
+                  return (
+                    <button
+                      key={`b-${b.id}`}
+                      onClick={() => onBloqueoClick(b)}
+                      className="absolute left-1 right-1 rounded-md px-1.5 py-0.5 text-left overflow-hidden shadow-sm border border-slate-600/40 hover:opacity-90 transition-opacity"
+                      style={{ top, height: Math.max(height, 18), backgroundColor: '#475569' }}
+                    >
+                      <div className="text-[10px] font-bold text-slate-50 truncate leading-tight">
+                        🚫 {b.motivo ?? 'Bloqueo'}
+                      </div>
+                      {height >= 36 && (
+                        <div className="text-[9px] text-slate-300 truncate font-mono leading-tight">
+                          {formatTime(b.inicio)}
+                        </div>
+                      )}
+                    </button>
                   )
                 })}
                 {/* citas */}
