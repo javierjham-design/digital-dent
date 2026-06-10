@@ -50,22 +50,15 @@ export function AccesoClinicaCard({ slug, platformDomain, passwordPendiente }: P
 
       {passwordPendiente && (
         <div className="mt-5 p-4 bg-cyan-500/10 border border-cyan-500/30 rounded-xl">
-          <p className="text-sm font-medium text-cyan-200 mb-2">Credenciales iniciales</p>
+          <p className="text-sm font-medium text-cyan-200 mb-2">Acceso pendiente del primer login</p>
           <p className="text-xs text-cyan-300/80 mb-3">
-            El usuario Administrador todavía no ha cambiado la contraseña por defecto.
+            El usuario <span className="font-mono">Administrador</span> todavía no ha cambiado su contraseña.
+            La contraseña inicial se generó aleatoriamente al crear la clínica y se mostró
+            <span className="font-medium"> una sola vez</span>. Si la perdiste, podés generar
+            una nueva con el botón &quot;Reset contraseña&quot; más abajo.
           </p>
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <p className="text-cyan-400/60 uppercase tracking-wider mb-1">Usuario</p>
-              <code className="block px-3 py-2 bg-slate-950 border border-cyan-500/30 rounded font-mono text-white">Administrador</code>
-            </div>
-            <div>
-              <p className="text-cyan-400/60 uppercase tracking-wider mb-1">Contraseña</p>
-              <code className="block px-3 py-2 bg-slate-950 border border-cyan-500/30 rounded font-mono text-white">ADMIN22</code>
-            </div>
-          </div>
-          <p className="text-xs text-cyan-300/60 mt-3">
-            Se le pedirá cambiarla la primera vez que inicie sesión.
+          <p className="text-xs text-cyan-300/60">
+            En el primer login se le solicitará cambiarla.
           </p>
         </div>
       )}

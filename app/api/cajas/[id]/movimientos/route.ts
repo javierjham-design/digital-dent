@@ -32,8 +32,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const from = searchParams.get('from')
   const to = searchParams.get('to')
 
+  // Defensa en profundidad: el checkCajaAccess ya validó que esta caja es de
+  // la clínica del usuario, pero filtrar por clinicaId acá protege ante
+  // cualquier futuro bypass del check o cambio de lógica.
   const where = {
     cajaId: id,
+    clinicaId: u.clinicaId,
     ...(from && to ? { fecha: { gte: new Date(from), lte: new Date(to + 'T23:59:59') } } : {}),
   }
   const movs = await prisma.movimientoCaja.findMany({

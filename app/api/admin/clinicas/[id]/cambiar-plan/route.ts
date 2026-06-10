@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSuperAdmin } from '@/lib/auth'
+import { auditAdmin } from '@/lib/audit-admin'
 
 export const dynamic = 'force-dynamic'
 
@@ -64,5 +65,23 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const clinica = await prisma.clinica.update({ where: { id }, data })
+
+  await auditAdmin({
+    actorId: admin.id,
+    actorEmail: admin.email,
+    action: 'CAMBIAR_PLAN',
+    targetType: 'CLINICA',
+    targetId: clinica.id,
+    details: {
+      clinicaSlug: clinica.slug,
+      planNuevo: body.plan,
+      cicloFacturacion: body.cicloFacturacion,
+      precioAcordado: body.precioAcordado,
+      proximoCobro: body.proximoCobro,
+      trialHasta: body.trialHasta,
+    },
+    req,
+  })
+
   return NextResponse.json({ ok: true, clinica })
 }

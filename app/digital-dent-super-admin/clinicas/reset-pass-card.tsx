@@ -115,7 +115,7 @@ export function ResetAdminPasswordCard({ clinicaId }: { clinicaId: string }) {
               usarDefault ? 'bg-purple-500/20 text-purple-200 border border-purple-500/40' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-200'
             }`}
           >
-            Reset a ADMIN22
+            Generar aleatoria
           </button>
           <button
             type="button"

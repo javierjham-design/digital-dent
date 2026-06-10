@@ -34,7 +34,10 @@ export async function POST(req: NextRequest) {
   //    a la clínica del usuario.
   const u = await getSessionUser()
   if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (u.role !== 'admin' && !u.puedeGestionarLiquidaciones) {
+  // La sincronización con Google Calendar es operación administrativa: solo
+  // admin de la clínica. Otros permisos (puedeGestionarLiquidaciones, etc.)
+  // no implican poder forzar pulls de la agenda de toda la clínica.
+  if (u.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

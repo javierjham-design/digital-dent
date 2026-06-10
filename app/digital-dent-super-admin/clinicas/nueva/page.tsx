@@ -96,7 +96,7 @@ export default function NuevaClinicaPage() {
 
       <h1 className="text-3xl font-bold mb-1">Crear clínica nueva</h1>
       <p className="text-slate-400 text-sm mb-8">
-        Al crear la clínica se genera automáticamente un usuario <span className="text-white font-medium">Administrador</span> con contraseña <span className="text-white font-mono">ADMIN22</span>. El catálogo de aranceles se copia desde la plantilla.
+        Al crear la clínica se genera automáticamente un usuario <span className="text-white font-medium">Administrador</span> con una contraseña aleatoria que se mostrará UNA SOLA VEZ. Copiala antes de cerrar la vista de éxito y comunicala al cliente. El catálogo de aranceles se copia desde la plantilla.
       </p>
 
       <form onSubmit={submit} className="space-y-8">

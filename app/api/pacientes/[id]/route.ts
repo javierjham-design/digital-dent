@@ -43,11 +43,13 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const u = await getSessionUser()
   if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await params
-  const existing = await prisma.paciente.findFirst({ where: { id, clinicaId: u.clinicaId } })
-  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const body = await req.json()
   const data = pickPacienteData(body)
-  const paciente = await prisma.paciente.update({ where: { id }, data })
+  // updateMany con clinicaId garantiza que aunque alguien pasee un id de otra
+  // clínica, la operación no se ejecute (count=0 → 404).
+  const r = await prisma.paciente.updateMany({ where: { id, clinicaId: u.clinicaId }, data })
+  if (r.count === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const paciente = await prisma.paciente.findUnique({ where: { id } })
   return NextResponse.json(paciente)
 }

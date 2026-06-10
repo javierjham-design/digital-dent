@@ -92,11 +92,28 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     if (!Number.isFinite(n)) return NextResponse.json({ error: 'comisionMonto inválido' }, { status: 400 })
     data.comisionMonto = n
   }
-  if (body.reciboUsuarioId !== undefined) data.reciboUsuarioId = body.reciboUsuarioId || null
+  if (body.reciboUsuarioId !== undefined) {
+    if (body.reciboUsuarioId === null || body.reciboUsuarioId === '') {
+      data.reciboUsuarioId = null
+    } else {
+      // Validar que el usuario receptor exista en la misma clínica.
+      const user = await prisma.user.findFirst({
+        where: { id: String(body.reciboUsuarioId), clinicaId: u.clinicaId },
+        select: { id: true },
+      })
+      if (!user) {
+        return NextResponse.json({ error: 'Usuario receptor inválido' }, { status: 400 })
+      }
+      data.reciboUsuarioId = user.id
+    }
+  }
 
-  const cobro = await prisma.cobro.update({
+  // updateMany con filtro de clinicaId: defensa en profundidad.
+  const r = await prisma.cobro.updateMany({ where: { id, clinicaId: u.clinicaId }, data })
+  if (r.count === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const cobro = await prisma.cobro.findUnique({
     where: { id },
-    data,
     include: {
       paciente: true,
       medioPago: true,

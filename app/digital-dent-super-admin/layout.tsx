@@ -34,10 +34,7 @@ export default async function SuperAdminLayout({ children }: { children: React.R
             </Link>
           </div>
           <p className="text-xs text-slate-600 mt-8">
-            Si esperabas tener acceso, verifica que las variables de entorno{' '}
-            <code className="px-1 bg-slate-800 rounded text-slate-400">SUPER_ADMIN_EMAIL</code> y{' '}
-            <code className="px-1 bg-slate-800 rounded text-slate-400">SUPER_ADMIN_PASSWORD</code>{' '}
-            estén configuradas en Railway (Production) y dispara un Redeploy.
+            Si esperabas tener acceso, contacta al equipo de plataforma.
           </p>
         </div>
       </div>

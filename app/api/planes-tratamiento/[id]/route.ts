@@ -68,7 +68,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.fechaInicio === null) data.fechaInicio = null
   else if (typeof body.fechaInicio === 'string') data.fechaInicio = new Date(body.fechaInicio)
 
-  const plan = await prisma.planTratamiento.update({ where: { id }, data })
+  // updateMany con clinicaId garantiza defensa en profundidad: aunque el
+  // findFirst previo ya validó, si alguna llamada futura saltea esa validación,
+  // el WHERE con clinicaId hace imposible cruzar tenants.
+  const r = await prisma.planTratamiento.updateMany({ where: { id, clinicaId: u.clinicaId }, data })
+  if (r.count === 0) return NextResponse.json({ error: 'No existe' }, { status: 404 })
+  const plan = await prisma.planTratamiento.findUnique({ where: { id } })
   return NextResponse.json(plan)
 }
 
@@ -78,13 +83,8 @@ export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ 
   if (!u?.clinicaId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { id } = await params
 
-  const existing = await prisma.planTratamiento.findFirst({
-    where: { id, clinicaId: u.clinicaId },
-    include: { _count: { select: { tratamientos: true } } },
-  })
-  if (!existing) return NextResponse.json({ error: 'No existe' }, { status: 404 })
-
-  // Borrar secciones (cascada al borrar el plan); tratamientos quedan con planId=null por onDelete: SetNull
-  await prisma.planTratamiento.delete({ where: { id } })
+  // deleteMany con clinicaId: si el id no es de la clínica, count=0 y 404.
+  const r = await prisma.planTratamiento.deleteMany({ where: { id, clinicaId: u.clinicaId } })
+  if (r.count === 0) return NextResponse.json({ error: 'No existe' }, { status: 404 })
   return NextResponse.json({ ok: true })
 }

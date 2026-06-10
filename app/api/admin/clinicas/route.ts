@@ -1,12 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireSuperAdmin } from '@/lib/auth'
+import { auditAdmin } from '@/lib/audit-admin'
 import bcrypt from 'bcryptjs'
 
 export const dynamic = 'force-dynamic'
 
 const DEFAULT_ADMIN_USERNAME = 'Administrador'
-const DEFAULT_ADMIN_PASSWORD = 'ADMIN22'
+
+// Genera password aleatorio robusto. La password se devuelve UNA VEZ al
+// super-admin en el response del endpoint y este la comunica al cliente.
+function generateRandomPassword(): string {
+  const charset = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'
+  const len = 12
+  let out = ''
+  const bytes = new Uint8Array(len)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes)
+  } else {
+    for (let i = 0; i < len; i++) bytes[i] = Math.floor(Math.random() * 256)
+  }
+  for (let i = 0; i < len; i++) out += charset[bytes[i] % charset.length]
+  return out
+}
 
 // Slugs que NO se pueden usar como nombre de clínica porque colisionan con
 // subdominios reservados de la plataforma (mantén sincronizado con proxy.ts).
@@ -73,7 +89,11 @@ export async function POST(req: NextRequest) {
     trialHasta.setDate(trialHasta.getDate() + dias)
   }
 
-  const hash = await bcrypt.hash(DEFAULT_ADMIN_PASSWORD, 10)
+  // Generamos password aleatoria por cada clínica. Se devuelve UNA VEZ en
+  // el response del POST. Si el super-admin la pierde, debe usar el endpoint
+  // /reset-admin-password para generar otra (también aleatoria).
+  const generatedPassword = generateRandomPassword()
+  const hash = await bcrypt.hash(generatedPassword, 10)
 
   const clinica = await prisma.$transaction(async (tx) => {
     const c = await tx.clinica.create({
@@ -120,6 +140,20 @@ export async function POST(req: NextRequest) {
     return c
   })
 
+  await auditAdmin({
+    actorId: admin.id,
+    actorEmail: admin.email,
+    action: 'CREAR_CLINICA',
+    targetType: 'CLINICA',
+    targetId: clinica.id,
+    details: {
+      slug: clinica.slug,
+      nombre: clinica.nombre,
+      plan: planFinal,
+    },
+    req,
+  })
+
   return NextResponse.json({
     ok: true,
     clinica: { id: clinica.id, slug: clinica.slug, nombre: clinica.nombre },
@@ -127,8 +161,8 @@ export async function POST(req: NextRequest) {
       url_subdominio: `${clinica.slug}.{PLATFORM_DOMAIN}`,
       url_fallback: `/c/${clinica.slug}/login`,
       usuario: DEFAULT_ADMIN_USERNAME,
-      contrasena: DEFAULT_ADMIN_PASSWORD,
-      nota: 'La contraseña debe ser cambiada en el primer login.',
+      contrasena: generatedPassword,
+      nota: 'Esta contraseña aparece UNA SOLA VEZ. Cópiala antes de cerrar esta vista. La contraseña debe ser cambiada en el primer login del cliente.',
     },
     prestacionesCopiadas: prestacionesBase.length,
   }, { status: 201 })

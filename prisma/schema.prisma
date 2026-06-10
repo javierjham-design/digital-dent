@@ -690,3 +690,24 @@ model BloqueoAgenda {
   @@index([clinicaId, doctorId, inicio])
   @@index([googleEventId])
 }
+
+// Bitácora de acciones sensibles del super-admin (reset password, cambio de
+// plan, suspensión, registro de pago manual, extensión de trial). Se escribe
+// best-effort en cada endpoint admin/* — si falla la escritura del log NO
+// rompe la operación primaria, solo se loguea por consola.
+model AuditLogAdmin {
+  id           String   @id @default(cuid())
+  actorId      String   // User.id del super-admin
+  actorEmail   String   // copia plana (en caso de que el user se elimine)
+  action       String   // RESET_PASSWORD | CAMBIAR_PLAN | CAMBIAR_ESTADO | EXTENDER_TRIAL | REGISTRAR_PAGO | ELIMINAR_PAGO | CREAR_CLINICA
+  targetType   String   // CLINICA | USUARIO | PAGO | PLAN
+  targetId     String?  // id del recurso afectado (clinica, pago, etc.)
+  details      String?  // JSON serializado con contexto adicional (montos, fechas, etc.)
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId])
+  @@index([action, createdAt])
+}

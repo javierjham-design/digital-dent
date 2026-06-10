@@ -36,6 +36,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!Number.isFinite(monto) || monto <= 0) {
     return NextResponse.json({ error: 'monto debe ser un número positivo' }, { status: 400 })
   }
+  // Sanity check: ningún plan razonable de SaaS dental cobra más de $20M CLP.
+  // Si llega un monto fuera de rango es typo o fraude — bloqueamos.
+  if (monto > 20_000_000) {
+    return NextResponse.json({ error: 'Monto fuera de rango razonable (máximo $20.000.000)' }, { status: 400 })
+  }
 
   const metodoPago = typeof body.metodoPago === 'string' ? body.metodoPago : ''
   if (!METODOS_VALIDOS.includes(metodoPago)) {
@@ -90,6 +95,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       },
     }),
   ])
+
+  // Auditoría best-effort (import dinámico para no acoplar a un import en top).
+  import('@/lib/audit-admin').then(({ auditAdmin }) => {
+    auditAdmin({
+      actorId: admin.id,
+      actorEmail: admin.email,
+      action: 'REGISTRAR_PAGO',
+      targetType: 'PAGO',
+      targetId: pago.id,
+      details: {
+        clinicaSlug: clinicaActualizada.slug,
+        monto,
+        metodoPago,
+        fechaPago: fechaPago.toISOString(),
+        nuevoProximoCobro: nuevoProximoCobro.toISOString(),
+      },
+      req,
+    })
+  }).catch(() => {})
 
   return NextResponse.json({ ok: true, pago, clinica: clinicaActualizada })
 }
