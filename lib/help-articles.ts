@@ -1248,4 +1248,99 @@ Si revisaste la ayuda y no encontrás lo que necesitás:
 Vamos a responder lo más rápido posible. Si es algo crítico (la plataforma no funciona), respondemos en horas. Para dudas de uso, dentro de las 24 hs hábiles.
     `,
   },
+
+  // ─── INSTALAR LA APP (PWA) ───────────────────────────────────────────────
+  {
+    id: 'instalar-app',
+    title: 'Cómo instalar Cláriva como app en mi teléfono o PC',
+    category: 'empezando',
+    keywords: [
+      'app', 'aplicacion', 'instalar', 'pantalla inicio', 'icono', 'celular',
+      'movil', 'pwa', 'descargar', 'acceso directo', 'sin navegador',
+    ],
+    body: `
+Cláriva se puede usar como **app** en tu teléfono o computador, sin pasar por el navegador. El ícono queda en tu pantalla de inicio y al abrirla se ve en pantalla completa, igual que cualquier app nativa.
+
+No hay que descargar nada de App Store ni Play Store. La app se instala directamente desde tu navegador.
+
+## En iPhone (Safari)
+
+1. Abrí Cláriva en **Safari** (tiene que ser Safari, no Chrome).
+2. Tocá el botón **Compartir** (el cuadrado con flecha hacia arriba, abajo en el centro).
+3. Bajá en el menú y tocá **Agregar a pantalla de inicio**.
+4. Confirmá el nombre **Cláriva** y tocá **Agregar**.
+5. El ícono cyan con la "C" queda en tu pantalla. Tocalo y se abre como app.
+
+## En Android (Chrome, Edge, Brave, Samsung Internet)
+
+1. Abrí Cláriva en el navegador.
+2. Si te aparece el banner **"Instalar app"** abajo, tocalo y confirmá.
+3. Si no te aparece: tocá el menú **⋮** (tres puntos arriba a la derecha) → **Instalar app** o **Agregar a pantalla de inicio**.
+4. Confirmá. El ícono queda en tu pantalla de inicio y en el cajón de apps.
+
+## En PC o Mac (Chrome, Edge, Brave)
+
+1. Abrí Cláriva en el navegador.
+2. En la barra de direcciones, a la derecha, mirá si aparece un ícono de **monitor con flecha hacia abajo** (instalar). Hacé click.
+3. Confirmá **Instalar**.
+4. Cláriva se abre en una ventana propia, como una app de escritorio. Aparece en el menú inicio (Windows) o Launchpad (Mac).
+
+## ¿No me aparece la opción de instalar?
+
+- **Firefox** no soporta instalación de apps web (PWA) en móvil. Usá Chrome o Brave.
+- **iPhone** solo permite instalar desde Safari. Si estás en Chrome iOS, abrilo en Safari primero.
+- Algunos navegadores corporativos bloquean esta función. Probá con Chrome o Edge personal.
+    `,
+    relatedIds: ['primer-ingreso', 'app-vs-web', 'desinstalar-app'],
+  },
+
+  {
+    id: 'app-vs-web',
+    title: '¿Qué diferencia hay entre usar la app instalada y el navegador?',
+    category: 'empezando',
+    keywords: ['diferencia', 'app vs web', 'navegador', 'instalada', 'ventajas', 'pwa'],
+    body: `
+**Es la misma plataforma**. Los datos, la cuenta, todo es exactamente igual. Lo que cambia es la experiencia:
+
+## La app instalada
+- Ícono propio en tu pantalla de inicio o escritorio.
+- Se abre en pantalla completa, **sin barra de navegador** distrayendo.
+- Se siente como una app nativa (incluso aparece en el selector de apps abiertas).
+- Carga más rápido la próxima vez (ciertos archivos quedan guardados localmente).
+
+## El navegador
+- Funciona exactamente igual, sin instalar nada.
+- Útil si entrás desde un computador prestado o un cyber.
+- Útil si querés tener varias pestañas con distintas vistas a la vez.
+
+**Recomendación:** si vas a usar Cláriva todos los días, instalá la app. Es más cómodo y rápido. Si entrás esporádicamente o desde computadores ajenos, usá el navegador.
+
+⚠️ La app **no funciona offline**. Necesitás conexión a internet siempre, porque los datos viven en la nube.
+    `,
+    relatedIds: ['instalar-app', 'desinstalar-app'],
+  },
+
+  {
+    id: 'desinstalar-app',
+    title: 'Cómo desinstalo la app de Cláriva',
+    category: 'empezando',
+    keywords: ['desinstalar', 'eliminar', 'borrar app', 'quitar', 'remove'],
+    body: `
+## En iPhone
+1. Mantené presionado el ícono de Cláriva en la pantalla de inicio.
+2. Tocá **Eliminar app** → **Eliminar de la pantalla de inicio**.
+
+## En Android
+1. Mantené presionado el ícono de Cláriva.
+2. Arrastralo a **Desinstalar** (arriba) o tocá **Información de la app** → **Desinstalar**.
+
+## En PC o Mac
+1. Abrí Cláriva instalada.
+2. Hacé click en el menú **⋮** arriba a la derecha de la ventana → **Desinstalar Cláriva**.
+3. Confirmá.
+
+Desinstalar la app **no borra tu cuenta**. Tus datos siguen en la nube. Podés volver a entrar desde el navegador o reinstalar la app cuando quieras.
+    `,
+    relatedIds: ['instalar-app', 'app-vs-web'],
+  },
 ]

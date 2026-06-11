@@ -4,7 +4,17 @@ import { Providers } from './providers'
 
 export const metadata: Metadata = {
   title: 'Cláriva · Gestión dental multi-clínica',
-  description: 'Plataforma SaaS de gestión para clínicas dentales — agenda, fichas, presupuestos, cobros y liquidaciones.',
+  description:
+    'Plataforma SaaS de gestión para clínicas dentales — agenda, fichas, presupuestos, cobros y liquidaciones.',
+  applicationName: 'Cláriva',
+  appleWebApp: {
+    capable: true,
+    title: 'Cláriva',
+    statusBarStyle: 'default',
+  },
+  formatDetection: {
+    telephone: false,
+  },
 }
 
 export const viewport: Viewport = {

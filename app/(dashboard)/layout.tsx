@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { prisma } from '@/lib/prisma'
 import { TopBar } from '@/components/TopBar'
 import { HelpWidget } from '@/components/HelpWidget'
+import { PWASetup } from '@/components/PWASetup'
 import { getSessionUser } from '@/lib/auth'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -25,6 +26,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
       </main>
       {/* Centro de ayuda flotante para todos los usuarios autenticados. */}
       <HelpWidget />
+      {/* Service worker + banner de instalación PWA. */}
+      <PWASetup />
     </div>
   )
 }
