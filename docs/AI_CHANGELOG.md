@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-12 — Agenda semanal por profesional + vista diaria estilo planilla clínica
+
+**Solicitud:** (con capturas de Dentalink como referencia) La semanal con todos los doctores superpuestos era ilegible → dejar un solo profesional. La diaria → lista de trabajo con datos del paciente y cambio de estado inline.
+
+**Archivos modificados:**
+- `app/(dashboard)/agenda/agenda-client.tsx`:
+  - Semanal SIEMPRE de un profesional: selector en el header, sin opción "Todos" (que sigue en Diaria/Global). Default = el propio usuario si es doctor.
+  - ListaDiaria rediseñada: hora en bloque coloreado por estado (inicio→fin), RUT formateado + teléfono + motivo, dropdown de estado inline por fila, buscador del día (nombre/RUT/teléfono, ignora tildes), bloqueos ocultos durante búsqueda.
+  - Panel lateral: "Marcar todos" para los filtros de estado.
+
+**Riesgos / consideraciones:**
+- `doctorFilter` ahora inicia en un doctor concreto (la vista inicial es semanal). Al cambiar a Diaria/Global se puede elegir "Todos" manualmente.
+
+---
+
 ## 2026-06-12 — Drag & drop en agenda, toasts globales y hardening de seguridad
 
 **Solicitud:** Drag & drop para reagendar, toasts en el resto de módulos, y "seguridad cibernética robusta" pre-comercialización.
