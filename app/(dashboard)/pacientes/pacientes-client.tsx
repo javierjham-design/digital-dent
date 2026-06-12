@@ -1,5 +1,7 @@
 'use client'
 
+import { toast } from '@/components/ui/Toaster'
+
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { formatRUT, formatCLP } from '@/lib/utils'
@@ -112,7 +114,7 @@ export function PacientesClient({ pacientes }: { pacientes: Paciente[] }) {
       const a = document.createElement('a'); a.href = url
       a.download = `pacientes-${new Date().toISOString().slice(0, 10)}.xlsx`
       document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-    } catch (e: any) { alert(`No se pudo exportar: ${e.message ?? e}`) }
+    } catch (e: any) { toast.error(`No se pudo exportar: ${e.message ?? e}`) }
     finally { setExporting(false) }
   }
 

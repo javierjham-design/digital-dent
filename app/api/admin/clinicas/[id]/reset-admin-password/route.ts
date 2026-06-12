@@ -42,8 +42,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const newPassword = typeof body.newPassword === 'string' && body.newPassword.length > 0 ? body.newPassword : generateRandomPassword()
   const forceChange = body.forceChange === undefined ? true : Boolean(body.forceChange)
 
-  if (newPassword.length < 6) {
-    return NextResponse.json({ error: 'La contraseña debe tener al menos 6 caracteres' }, { status: 400 })
+  if (newPassword.length < 8) {
+    return NextResponse.json({ error: 'La contraseña debe tener al menos 8 caracteres' }, { status: 400 })
   }
 
   const clinica = await prisma.clinica.findUnique({ where: { id } })

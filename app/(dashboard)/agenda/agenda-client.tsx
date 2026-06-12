@@ -303,6 +303,36 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
     }
   }, [])
 
+  // Drag & drop / resize en el calendario semanal: mover una cita reagenda,
+  // estirar el borde inferior cambia la duración. El backend valida solapes
+  // y bloqueos; si rechaza, revertimos el evento a su posición original.
+  const handleEventDropOrResize = useCallback(async (info: {
+    event: { start: Date | null; end: Date | null; extendedProps: Record<string, unknown> }
+    revert: () => void
+  }) => {
+    const props = info.event.extendedProps as unknown as Cita & { __kind?: 'cita' | 'bloqueo' }
+    if (props.__kind !== 'cita' || !info.event.start) { info.revert(); return }
+
+    const start = info.event.start
+    const end = info.event.end
+    const duracion = end ? Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000)) : undefined
+
+    const res = await fetch(`/api/citas/${props.id}`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fecha: start.toISOString(), ...(duracion ? { duracion } : {}) }),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      toast.error(d.error ?? 'No se pudo mover la cita.')
+      info.revert()
+      return
+    }
+    const hora = start.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+    const dia = start.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric' })
+    toast.success(`${props.pacienteNombre} reagendado: ${dia}, ${hora} hrs`)
+    router.refresh()
+  }, [router])
+
   function openBloqueoModal(seedDate?: Date) {
     const now = seedDate ?? new Date()
     const dosHorasDespues = new Date(now.getTime() + 2 * 60 * 60 * 1000)
@@ -927,6 +957,11 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
               events={events}
               eventClick={handleEventClick}
               dateClick={handleDateClick}
+              editable={true}
+              eventDurationEditable={true}
+              eventDrop={handleEventDropOrResize}
+              eventResize={handleEventDropOrResize}
+              dragRevertDuration={150}
               datesSet={(arg) => {
                 // Mantener currentDate sincronizado con el calendario
                 const start = arg.view.currentStart

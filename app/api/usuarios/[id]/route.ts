@@ -82,8 +82,8 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // Password va por separado (no en CAMPOS_*): se permite si edita propio o si es admin.
   if (typeof body.password === 'string' && body.password.length > 0) {
-    if (body.password.length < 6) {
-      return NextResponse.json({ error: 'Password muy corto (mínimo 6)' }, { status: 400 })
+    if (body.password.length < 8) {
+      return NextResponse.json({ error: 'Password muy corto (mínimo 8, con letra y número)' }, { status: 400 })
     }
     data.password = await bcrypt.hash(body.password, 10)
     data.passwordChangedAt = new Date()

@@ -15,7 +15,8 @@ export function MiCuentaClient({ email, name }: { email: string; name: string })
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
-    if (nueva.length < 6) return setError('La nueva contraseña debe tener al menos 6 caracteres')
+    if (nueva.length < 8) return setError('La nueva contraseña debe tener al menos 8 caracteres')
+    if (!/[a-zA-Z]/.test(nueva) || !/[0-9]/.test(nueva)) return setError('Debe incluir al menos una letra y un número')
     if (nueva !== confirma) return setError('Las contraseñas no coinciden')
     if (nueva === current) return setError('La nueva contraseña debe ser distinta a la actual')
 
@@ -91,13 +92,13 @@ export function MiCuentaClient({ email, name }: { email: string; name: string })
                 className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             </Field>
-            <Field label="Nueva contraseña" hint="Mínimo 6 caracteres">
+            <Field label="Nueva contraseña" hint="Mínimo 8 caracteres, con letra y número">
               <input
                 type="password"
                 value={nueva}
                 onChange={(e) => setNueva(e.target.value)}
                 required
-                minLength={6}
+                minLength={8}
                 autoComplete="new-password"
                 className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
@@ -108,7 +109,7 @@ export function MiCuentaClient({ email, name }: { email: string; name: string })
                 value={confirma}
                 onChange={(e) => setConfirma(e.target.value)}
                 required
-                minLength={6}
+                minLength={8}
                 autoComplete="new-password"
                 className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
               />

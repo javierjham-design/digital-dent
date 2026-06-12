@@ -1,5 +1,7 @@
 'use client'
 
+import { toast } from '@/components/ui/Toaster'
+
 import { useEffect, useMemo, useState } from 'react'
 import { OdontogramaSelector, type SeleccionDental } from './OdontogramaSelector'
 import { formatCLP } from '@/lib/utils'
@@ -184,7 +186,7 @@ function BotonImprimirEnviar({ planId, planNombre, pacienteEmail, pacienteNombre
   function enviarPorCorreo() {
     setOpen(false)
     if (!pacienteEmail) {
-      alert('Este paciente no tiene email registrado. Agrégalo en sus datos personales antes de enviarle el presupuesto.')
+      toast.error('Este paciente no tiene email registrado. Agrégalo en sus datos personales antes de enviarle el presupuesto.')
       return
     }
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
@@ -763,7 +765,7 @@ function FilaTratamiento({
       })
       if (!r.ok) {
         const err = await r.json().catch(() => ({}))
-        alert(err.error ?? 'Error guardando')
+        toast.error(err.error ?? 'Error guardando')
         return false
       }
       onChanged()
@@ -777,7 +779,7 @@ function FilaTratamiento({
     // Si está saliendo de COMPLETADO, confirmación + permiso
     if (t.estado === 'COMPLETADO' && nuevo !== 'COMPLETADO') {
       if (!permisos.puedeRevertirCompletado) {
-        alert('No tienes permisos para revertir una acción ya completada.')
+        toast.error('No tienes permisos para revertir una acción ya completada.')
         return
       }
       if (!confirm('¿Estás seguro de revertir esta acción? Ya estaba marcada como completada.')) {
@@ -949,7 +951,7 @@ function ModalEvolucion({
         })
         if (!r1.ok) {
           const e = await r1.json().catch(() => ({}))
-          alert(e.error ?? 'Error asignando doctor')
+          toast.error(e.error ?? 'Error asignando doctor')
           return
         }
       }
@@ -963,7 +965,7 @@ function ModalEvolucion({
         })
         if (!r2.ok) {
           const e = await r2.json().catch(() => ({}))
-          alert(e.error ?? 'Error al guardar evolución')
+          toast.error(e.error ?? 'Error al guardar evolución')
           return
         }
       }

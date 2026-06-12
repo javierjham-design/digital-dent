@@ -1,5 +1,7 @@
 'use client'
 
+import { toast } from '@/components/ui/Toaster'
+
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { ESTADO_PAGO_LABEL, METODO_PAGO_OPCIONES, type EstadoPago } from '@/lib/billing'
@@ -193,7 +195,7 @@ export function SuscripcionPanel({
     const res = await fetch(`/api/admin/clinicas/${data.id}/pagos/${pagoId}`, { method: 'DELETE' })
     if (!res.ok) {
       const j = await res.json().catch(() => ({}))
-      alert(`Error: ${j.error ?? res.status}`)
+      toast.error(`Error: ${j.error ?? res.status}`)
       return
     }
     router.refresh()

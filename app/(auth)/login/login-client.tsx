@@ -41,7 +41,13 @@ export function LoginClient({
       redirect: false,
     })
     if (res?.error) {
-      setError('Usuario o contraseña incorrectos.')
+      if (res.error.startsWith('RATE_LIMITED:')) {
+        const sec = parseInt(res.error.split(':')[1], 10) || 900
+        const min = Math.max(1, Math.ceil(sec / 60))
+        setError(`Demasiados intentos fallidos. Por seguridad, espera ${min} minuto${min > 1 ? 's' : ''} e intenta de nuevo.`)
+      } else {
+        setError('Usuario o contraseña incorrectos.')
+      }
       setLoading(false)
       return
     }

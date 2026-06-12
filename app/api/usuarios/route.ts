@@ -52,8 +52,8 @@ export async function POST(req: NextRequest) {
   // Email es opcional. Si viene, normalizamos a null si está vacío.
   const email = typeof body.email === 'string' && body.email.trim() ? body.email.trim().toLowerCase() : null
 
-  if (!password || typeof password !== 'string' || password.length < 6) {
-    return NextResponse.json({ error: 'Password debe tener al menos 6 caracteres' }, { status: 400 })
+  if (!password || typeof password !== 'string' || password.length < 8) {
+    return NextResponse.json({ error: 'Password debe tener al menos 8 caracteres' }, { status: 400 })
   }
 
   const roleFinal = role ?? 'doctor'

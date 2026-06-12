@@ -18,7 +18,13 @@ export function AdminLoginClient() {
 
     const res = await signIn('credentials', { email, password, redirect: false })
     if (res?.error) {
-      setError('Credenciales incorrectas.')
+      if (res.error.startsWith('RATE_LIMITED:')) {
+        const sec = parseInt(res.error.split(':')[1], 10) || 900
+        const min = Math.max(1, Math.ceil(sec / 60))
+        setError(`Demasiados intentos fallidos. Espera ${min} minuto${min > 1 ? 's' : ''} e intenta de nuevo.`)
+      } else {
+        setError('Credenciales incorrectas.')
+      }
       setLoading(false)
       return
     }

@@ -1,5 +1,7 @@
 'use client'
 
+import { toast } from '@/components/ui/Toaster'
+
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
@@ -119,7 +121,7 @@ export function PlanesClient({ planes }: { planes: Plan[] }) {
     const res = await fetch(`/api/admin/planes-suscripcion/${p.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const j = await res.json().catch(() => ({}))
-      alert(j.error ?? `Error ${res.status}`)
+      toast.error(j.error ?? `Error ${res.status}`)
       return
     }
     router.refresh()
@@ -133,7 +135,7 @@ export function PlanesClient({ planes }: { planes: Plan[] }) {
     })
     if (!res.ok) {
       const j = await res.json().catch(() => ({}))
-      alert(j.error ?? `Error ${res.status}`)
+      toast.error(j.error ?? `Error ${res.status}`)
       return
     }
     router.refresh()

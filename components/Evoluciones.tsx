@@ -1,5 +1,7 @@
 'use client'
 
+import { toast } from '@/components/ui/Toaster'
+
 import { useEffect, useState } from 'react'
 
 type Autor = { id: string; name: string | null; email: string | null; username: string | null }
@@ -44,7 +46,7 @@ export function Evoluciones({ pacienteId, currentUserId }: { pacienteId: string;
       cargar()
     } else {
       const e = await r.json().catch(() => ({}))
-      alert(e.error ?? 'Error al guardar')
+      toast.error(e.error ?? 'Error al guardar')
     }
   }
 
@@ -54,7 +56,7 @@ export function Evoluciones({ pacienteId, currentUserId }: { pacienteId: string;
     if (r.ok) cargar()
     else {
       const e = await r.json().catch(() => ({}))
-      alert(e.error ?? 'Error al eliminar')
+      toast.error(e.error ?? 'Error al eliminar')
     }
   }
 

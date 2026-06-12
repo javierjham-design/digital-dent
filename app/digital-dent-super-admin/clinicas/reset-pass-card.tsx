@@ -14,7 +14,7 @@ export function ResetAdminPasswordCard({ clinicaId }: { clinicaId: string }) {
   async function submit() {
     setError('')
     if (!usarDefault) {
-      if (nuevaPass.length < 6) return setError('Mínimo 6 caracteres')
+      if (nuevaPass.length < 8) return setError('Mínimo 8 caracteres')
       if (nuevaPass !== confirmaPass) return setError('Las contraseñas no coinciden')
     }
 
@@ -136,7 +136,7 @@ export function ResetAdminPasswordCard({ clinicaId }: { clinicaId: string }) {
                 type="text"
                 value={nuevaPass}
                 onChange={(e) => setNuevaPass(e.target.value)}
-                placeholder="Mínimo 6 caracteres"
+                placeholder="Mínimo 8 caracteres"
                 className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono"
               />
             </div>

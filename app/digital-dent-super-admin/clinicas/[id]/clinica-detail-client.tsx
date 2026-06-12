@@ -1,5 +1,7 @@
 'use client'
 
+import { toast } from '@/components/ui/Toaster'
+
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -83,7 +85,7 @@ export function ClinicaDetailClient({
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        alert(`Error: ${j.error ?? res.status}`)
+        toast.error(`Error: ${j.error ?? res.status}`)
         return
       }
       const updated = await res.json()
@@ -104,7 +106,7 @@ export function ClinicaDetailClient({
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        alert(`Error: ${j.error ?? res.status}`)
+        toast.error(`Error: ${j.error ?? res.status}`)
         return
       }
       const updated = await res.json()

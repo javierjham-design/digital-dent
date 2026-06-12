@@ -6,8 +6,8 @@
 
 ## Última actualización
 
-- **Fecha:** 2026-06-11
-- **Sesión:** Fase de maduración comercial pre-lanzamiento. Antes en esta misma sesión: PWA instalable (commit `315c964`).
+- **Fecha:** 2026-06-12
+- **Sesión:** Fase de maduración comercial pre-lanzamiento. Commits de la sesión: PWA (`315c964`), agenda+UX (`7d504a3`), y drag&drop + toasts + seguridad (último).
 
 ---
 
@@ -38,11 +38,18 @@ La plataforma (**Cláriva**, `app.clariva.cl` + subdominios por clínica) está 
 - `npx tsc --noEmit` limpio.
 - `npx next build` **completo y exitoso** en Windows (el bug intermitente de prerender `_not-found` no apareció).
 
+## Qué se hizo además (2026-06-12)
+
+5. **Drag & drop en agenda**: arrastrar cita = reagendar; estirar = cambiar duración. Backend valida; revert + toast si rechaza.
+6. **Toasts globales**: los 15 `alert()` de la plataforma convertidos a `toast.error`.
+7. **Hardening de seguridad** (ver `docs/SECURITY.md`): headers HTTP (HSTS/CSP/nosniff/etc.), rate limiting de login (5 fallos/15min por usuario, 30 por IP) y de API global (300/min/IP), sesiones JWT de 12 h, contraseñas mínimo 8 con letra y número, bcrypt cost 12.
+
 ## Qué quedó pendiente
 
-- **Drag & drop** para reagendar en el calendario semanal (FullCalendar `editable` + `eventDrop` → PATCH). Pedido implícito de fluidez; no se hizo para mantener el riesgo bajo.
-- **Toasts en el resto de módulos**: cobros, pacientes, presupuestos, usuarios aún usan `alert()`/reload en varios flujos.
-- **Super Admin**: la lista de clínicas ya tiene búsqueda/filtros; el dashboard general podría sumar accesos rápidos y gráfico de MRR histórico.
+- **2FA TOTP para super-admin** (la cuenta más valiosa de la plataforma).
+- **Sentry + monitoreo de uptime** (UptimeRobot u otro apuntando a app.clariva.cl).
+- **Verificar backups Postgres en Railway** (retención + prueba de restore).
+- **Super Admin**: el dashboard general podría sumar accesos rápidos y gráfico de MRR histórico.
 - **QA checklist** `docs/QA_CHECKLIST_LANZAMIENTO.md` sigue pendiente de ejecución por el usuario.
 - **Google OAuth verification** (para sacar la app de modo Testing) — trámite del usuario con Google.
 - Operacional: política de privacidad, términos, monitoreo de errores (Sentry), verificación de backups, casilla soporte@clariva.cl.

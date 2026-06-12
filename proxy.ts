@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import type { NextRequest } from 'next/server'
 import { getToken } from 'next-auth/jwt'
+import { rateLimit } from '@/lib/rate-limit'
 
 // APIs públicas en el sentido de "el middleware no las bloquea por sesión".
 // Cada endpoint hace su propia auth internamente (excepto el callback de
@@ -63,10 +64,28 @@ function resolveContext(host: string | null, path: string): Context {
   return { kind: 'clinica-subdomain', slug: sub }
 }
 
+function clientIp(request: NextRequest): string {
+  const xf = request.headers.get('x-forwarded-for') ?? ''
+  return xf.split(',')[0].trim() || 'unknown'
+}
+
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname
   const host = request.headers.get('host')
   const ctx = resolveContext(host, path)
+
+  // Rate limit global de API por IP: capa gruesa anti-abuso/scraping.
+  // 300 req/min es muy holgado para uso humano normal de la plataforma;
+  // el login además tiene su propio límite fino en lib/auth.ts.
+  if (path.startsWith('/api/')) {
+    const rl = rateLimit(`api:${clientIp(request)}`, { limit: 300, windowMs: 60_000 })
+    if (!rl.ok) {
+      return NextResponse.json(
+        { error: 'Demasiadas solicitudes. Intenta de nuevo en unos segundos.' },
+        { status: 429, headers: { 'Retry-After': String(rl.retryAfterSec) } },
+      )
+    }
+  }
 
   // APIs públicas: pasar siempre, inyectando slug si aplica.
   if (PUBLIC_API.some((p) => path.startsWith(p))) {

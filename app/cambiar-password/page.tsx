@@ -15,7 +15,8 @@ export default function CambiarPasswordPage() {
     e.preventDefault()
     setError('')
     if (nueva !== confirma) { setError('Las contraseñas no coinciden'); return }
-    if (nueva.length < 6) { setError('Mínimo 6 caracteres'); return }
+    if (nueva.length < 8) { setError('Mínimo 8 caracteres, con al menos una letra y un número'); return }
+    if (!/[a-zA-Z]/.test(nueva) || !/[0-9]/.test(nueva)) { setError('Debe incluir al menos una letra y un número'); return }
     if (nueva === current) { setError('La nueva contraseña debe ser distinta a la actual'); return }
 
     setLoading(true)
@@ -68,12 +69,12 @@ export default function CambiarPasswordPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Nueva contraseña</label>
-                <input type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} required minLength={6} autoComplete="new-password"
+                <input type="password" value={nueva} onChange={(e) => setNueva(e.target.value)} required minLength={8} autoComplete="new-password"
                   className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-slate-50" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Confirmar nueva contraseña</label>
-                <input type="password" value={confirma} onChange={(e) => setConfirma(e.target.value)} required minLength={6} autoComplete="new-password"
+                <input type="password" value={confirma} onChange={(e) => setConfirma(e.target.value)} required minLength={8} autoComplete="new-password"
                   className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-slate-50" />
               </div>
               {error && <div className="bg-red-50 border border-red-100 text-red-700 px-4 py-3 rounded-xl text-sm">{error}</div>}

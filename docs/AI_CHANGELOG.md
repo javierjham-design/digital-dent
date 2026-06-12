@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-06-12 — Drag & drop en agenda, toasts globales y hardening de seguridad
+
+**Solicitud:** Drag & drop para reagendar, toasts en el resto de módulos, y "seguridad cibernética robusta" pre-comercialización.
+
+**Archivos modificados:**
+- `app/(dashboard)/agenda/agenda-client.tsx` — FullCalendar con `editable`: arrastrar cita = reagendar, estirar borde = cambiar duración. El backend valida solapes/bloqueos; si rechaza, el evento vuelve a su lugar con toast de error. Bloqueos no arrastrables.
+- `components/Evoluciones.tsx`, `components/PlanesTratamiento.tsx`, `pacientes-client.tsx`, `ficha-client.tsx`, super-admin (`planes-client`, `suscripcion-panel`, `clinica-detail-client`) — 15 `alert()` convertidos a `toast.error`.
+- `next.config.ts` — Security headers globales: HSTS (2 años, subdominios, preload), X-Frame-Options DENY + CSP frame-ancestors, nosniff, Referrer-Policy, Permissions-Policy, sin X-Powered-By.
+- `lib/rate-limit.ts` (NUEVO) — Limitador en memoria con ventana deslizante (`rateLimit`, `peekLimit`, `registerFailure`, `resetLimit`). Edge-safe.
+- `lib/auth.ts` — Login con anti fuerza bruta: 5 fallos/15min por usuario + 30/15min por IP (solo fallos consumen cupo; éxito resetea). Sesiones JWT expiran a las 12 h.
+- `app/(auth)/login/login-client.tsx` + `app/digital-dent-admin-login/admin-login-client.tsx` — Mensaje claro de bloqueo temporal con minutos de espera.
+- `app/api/auth/cambiar-password/route.ts` — Política nueva: mínimo 8 caracteres con letra y número; rate limit 5/15min; bcrypt cost 12; rechaza reutilizar la actual.
+- `app/api/usuarios/*`, `app/api/admin/clinicas/[id]/reset-admin-password`, `app/cambiar-password/page.tsx`, `mi-cuenta-client.tsx`, `reset-pass-card.tsx` — Mínimo de contraseña subido de 6 a 8 en validaciones y UI.
+- `proxy.ts` — Rate limit global de API: 300 req/min por IP (429 + Retry-After).
+- `docs/SECURITY.md` (NUEVO) — Postura de seguridad completa, limitaciones conocidas, runbook de incidentes.
+
+**Riesgos / consideraciones:**
+- Rate limiting en memoria: efectivo con 1 instancia (configuración actual de Railway). Si se escala a réplicas, migrar a Redis (documentado en SECURITY.md).
+- Sesiones existentes emitidas antes del cambio conservan su expiración original (30 días NextAuth default) hasta re-login.
+- Contraseñas existentes de 6-7 caracteres siguen funcionando; la política aplica a cambios nuevos.
+
+**Pendientes derivados:**
+- 2FA TOTP para super-admin.
+- Sentry + UptimeRobot.
+- Verificar retención de backups Postgres en Railway.
+
+---
+
 ## 2026-06-11 — Fase de maduración comercial: agenda fluida, estados clínicos, anti doble-reserva, Inter + toasts
 
 **Solicitud:** Optimización general pre-lanzamiento: agenda más funcional para uso clínico real, consistencia visual premium (estilo Linear/Notion), estados de carga/error/éxito, sin romper lo existente.

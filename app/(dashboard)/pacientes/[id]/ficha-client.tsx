@@ -1,5 +1,7 @@
 'use client'
 
+import { toast } from '@/components/ui/Toaster'
+
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { formatRUT, formatDate, formatDateTime, calcularEdad, formatCLP } from '@/lib/utils'
@@ -238,7 +240,7 @@ function DatosPersonales({ paciente, setPaciente }: any) {
       })
       if (!res.ok) {
         const j = await res.json().catch(() => ({}))
-        alert(`Error: ${j.error ?? res.status}`)
+        toast.error(`Error: ${j.error ?? res.status}`)
         return
       }
       const updated = await res.json()
@@ -335,7 +337,7 @@ function Comentarios({ pacienteId, comentarios, onAdd }: { pacienteId: string; c
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ texto }),
       })
-      if (!res.ok) { alert('Error al guardar'); return }
+      if (!res.ok) { toast.error('Error al guardar'); return }
       const nuevo = await res.json()
       onAdd({ ...nuevo, createdAt: nuevo.createdAt })
       setTexto('')
