@@ -33,6 +33,7 @@ export async function GET(_req: NextRequest) {
         take: 1,
         select: { fechaPago: true, monto: true },
       },
+      extras: { where: { activo: true }, select: { montoMensual: true } },
     },
     orderBy: { createdAt: 'desc' },
   })
@@ -56,7 +57,8 @@ export async function GET(_req: NextRequest) {
     }, now)
     contadores[estado]++
 
-    const precio = precioMensualEfectivo({ plan: c.plan, precioAcordado: c.precioAcordado }, priceMap)
+    const montoExtras = c.extras.reduce((s, e) => s + e.montoMensual, 0)
+    const precio = precioMensualEfectivo({ plan: c.plan, precioAcordado: c.precioAcordado }, priceMap) + montoExtras
 
     // MRR / ARR cuentan solo clínicas pagadas y al día (no trial, no suspendidas, no atrasadas)
     if (estado === 'AL_DIA' && c.plan !== 'TRIAL') {

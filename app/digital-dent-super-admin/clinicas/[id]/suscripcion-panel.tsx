@@ -26,6 +26,7 @@ export type SuscripcionData = {
   cicloFacturacion: string | null
   precioAcordado: number | null
   precioMensual: number
+  montoExtras: number          // suma mensual de extras activos
   estadoPago: EstadoPago
   pagos: Pago[]
 }
@@ -76,7 +77,9 @@ export function SuscripcionPanel({
   const [trialForm, setTrialForm] = useState({ dias: 30, customFecha: '' })
 
   // --- form: registrar pago ---
-  const sugeridoMonto = data.cicloFacturacion === 'ANUAL' ? data.precioMensual * 12 : data.precioMensual
+  // El monto sugerido incluye plan + extras activos, multiplicado por el ciclo.
+  const mensualTotal = data.precioMensual + data.montoExtras
+  const sugeridoMonto = data.cicloFacturacion === 'ANUAL' ? mensualTotal * 12 : mensualTotal
   const [pagoForm, setPagoForm] = useState({
     montoStr: sugeridoMonto > 0 ? String(sugeridoMonto) : '',
     fechaPago: new Date().toISOString().slice(0, 10),
@@ -239,7 +242,12 @@ export function SuscripcionPanel({
           </div>
           <div>
             <p className="text-xs uppercase tracking-wider text-purple-300/70">Precio mensual</p>
-            <p className="text-2xl font-bold mt-1">{data.precioMensual > 0 ? fmtCLP(data.precioMensual) : 'Sin cobro'}</p>
+            <p className="text-2xl font-bold mt-1">{mensualTotal > 0 ? fmtCLP(mensualTotal) : 'Sin cobro'}</p>
+            {data.montoExtras > 0 && (
+              <p className="text-xs text-amber-300/90 mt-0.5">
+                plan {fmtCLP(data.precioMensual)} + extras {fmtCLP(data.montoExtras)}
+              </p>
+            )}
             {data.precioAcordado != null && (
               <p className="text-xs text-purple-300/70 mt-0.5">acordado (override)</p>
             )}

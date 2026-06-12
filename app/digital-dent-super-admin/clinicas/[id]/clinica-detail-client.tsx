@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { AccesoClinicaCard } from '../acceso-clinica'
 import { ResetAdminPasswordCard } from '../reset-pass-card'
 import { SuscripcionPanel } from './suscripcion-panel'
+import { ExtrasPanel, WhatsAppPanel, type Extra, type WhatsAppConfig } from './extras-whatsapp-panels'
 import type { EstadoPago } from '@/lib/billing'
 
 type Pago = {
@@ -28,6 +29,7 @@ type Clinica = {
   plan: string; activo: boolean
   trialHasta: string | null; createdAt: string; updatedAt: string
   precioMensual: number
+  montoExtras: number
   proximoCobro: string | null
   cicloFacturacion: string | null
   precioAcordado: number | null
@@ -60,11 +62,15 @@ export function ClinicaDetailClient({
   platformDomain,
   passwordPendiente,
   planesDisponibles,
+  extras,
+  whatsapp,
 }: {
   clinica: Clinica
   platformDomain: string | null
   passwordPendiente: boolean
   planesDisponibles: { id: string; nombre: string; precioMensual: number }[]
+  extras: Extra[]
+  whatsapp: WhatsAppConfig
 }) {
   const router = useRouter()
   const [c, setC] = useState(initial)
@@ -176,10 +182,17 @@ export function ClinicaDetailClient({
           cicloFacturacion: c.cicloFacturacion,
           precioAcordado: c.precioAcordado,
           precioMensual: c.precioMensual,
+          montoExtras: c.montoExtras,
           estadoPago: c.estadoPago,
           pagos: c.pagos,
         }}
       />
+
+      {/* SERVICIOS EXTRA (facturación adicional) */}
+      <ExtrasPanel clinicaId={c.id} extras={extras} />
+
+      {/* CONFIRMACIONES WHATSAPP (Twilio) */}
+      <WhatsAppPanel clinicaId={c.id} config={whatsapp} />
 
       {/* RESUMEN DE PACIENTES */}
       <section className="bg-slate-900 border border-slate-800 rounded-2xl p-6 mb-6">

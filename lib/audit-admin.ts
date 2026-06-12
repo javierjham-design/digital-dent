@@ -13,8 +13,12 @@ export type AdminAction =
   | 'CREAR_PLAN_SUSCRIPCION'
   | 'EDITAR_PLAN_SUSCRIPCION'
   | 'ELIMINAR_PLAN_SUSCRIPCION'
+  | 'CREAR_EXTRA'
+  | 'EDITAR_EXTRA'
+  | 'ELIMINAR_EXTRA'
+  | 'CONFIGURAR_WHATSAPP'
 
-export type AdminTargetType = 'CLINICA' | 'USUARIO' | 'PAGO' | 'PLAN_SUSCRIPCION'
+export type AdminTargetType = 'CLINICA' | 'USUARIO' | 'PAGO' | 'PLAN_SUSCRIPCION' | 'EXTRA_SUSCRIPCION'
 
 /**
  * Persiste una entrada en la bitácora del super-admin.

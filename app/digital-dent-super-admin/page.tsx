@@ -24,14 +24,21 @@ async function loadStats() {
     const priceMap: Record<string, number> = {}
     for (const p of planes) priceMap[p.id] = p.precioMensual
 
-    // MRR estimado: suma de precios mensuales de clínicas activas no-trial,
-    // respetando precioAcordado si está definido.
+    // MRR estimado: suma de precios mensuales de clínicas activas no-trial
+    // (respetando precioAcordado) + extras activos contratados.
     const clinicasPagantes = await prisma.clinica.findMany({
       where: { activo: true, plan: { not: 'TRIAL' } },
-      select: { plan: true, precioAcordado: true },
+      select: {
+        plan: true,
+        precioAcordado: true,
+        extras: { where: { activo: true }, select: { montoMensual: true } },
+      },
     })
     const mrrEstimado = clinicasPagantes.reduce(
-      (s, c) => s + (c.precioAcordado ?? priceMap[c.plan] ?? 0),
+      (s, c) =>
+        s +
+        (c.precioAcordado ?? priceMap[c.plan] ?? 0) +
+        c.extras.reduce((e, x) => e + x.montoMensual, 0),
       0,
     )
 

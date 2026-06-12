@@ -68,6 +68,36 @@ model Clinica {
   googleConnectedAt    DateTime?
   googleConnectedById  String?
   googleConnectedByName String?
+
+  // ─── Confirmaciones automáticas por WhatsApp (vía Twilio) ───────────────
+  // Servicio extra de pago, habilitado por el super-admin por clínica.
+  // El auth token de Twilio va cifrado (AES-256-GCM con ENCRYPTION_KEY).
+  waEnabled      Boolean @default(false)
+  waTwilioSid    String?   // Account SID o subcuenta de Twilio
+  waTwilioToken  String?   // Auth token, CIFRADO
+  waNumero       String?   // número emisor en formato E.164 (+56912345678)
+  waTemplateSid  String?   // Content SID de la plantilla aprobada (HX...)
+  waHorasAntes   Int     @default(24) // cuántas horas antes de la cita se envía
+
+  extras ExtraSuscripcion[]
+}
+
+// Cargo adicional recurrente sobre el plan de una clínica (ej: módulo de
+// confirmaciones WhatsApp, número adicional). Los extras ACTIVOS se suman al
+// precio mensual del plan en el MRR, el resumen y el monto sugerido de pago.
+model ExtraSuscripcion {
+  id           String   @id @default(cuid())
+  clinicaId    String
+  codigo       String   @default("OTRO") // WHATSAPP | OTRO (referencia interna)
+  nombre       String                    // "Confirmaciones WhatsApp"
+  montoMensual Float
+  activo       Boolean  @default(true)
+  notas        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  clinica      Clinica  @relation(fields: [clinicaId], references: [id])
+
+  @@index([clinicaId])
 }
 
 // Catálogo de planes de suscripción que la plataforma ofrece a las clínicas.
@@ -272,6 +302,10 @@ model Cita {
   googleEventId   String?
   googleSyncedAt  DateTime?
   googleSyncError String?
+  // SID del mensaje de WhatsApp de recordatorio enviado vía Twilio.
+  // null = todavía no se envió. Evita doble envío y permite correlacionar
+  // la respuesta del paciente con esta cita.
+  waMessageSid    String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
   clinica       Clinica?  @relation(fields: [clinicaId], references: [id])
@@ -281,6 +315,7 @@ model Cita {
   mensajes      MensajePaciente[]
 
   @@index([googleEventId])
+  @@index([waMessageSid])
 }
 
 model CitaLog {

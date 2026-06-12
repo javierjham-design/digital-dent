@@ -44,6 +44,12 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
     }),
   ])
 
+  const extras = await prisma.extraSuscripcion.findMany({
+    where: { clinicaId: id },
+    orderBy: { createdAt: 'asc' },
+  })
+  const montoExtras = extras.filter((e) => e.activo).reduce((s, e) => s + e.montoMensual, 0)
+
   const pacientesSinAgenda = totalPacientes - pacientesConAgenda
 
   // Storage placeholder: hasta que exista módulo de archivos (Fase 2)
@@ -78,6 +84,22 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
       platformDomain={platformDomain}
       passwordPendiente={passwordPendiente}
       planesDisponibles={planesDisponibles}
+      extras={extras.map((e) => ({
+        id: e.id,
+        codigo: e.codigo,
+        nombre: e.nombre,
+        montoMensual: e.montoMensual,
+        activo: e.activo,
+        notas: e.notas,
+      }))}
+      whatsapp={{
+        waEnabled: clinica.waEnabled,
+        waTwilioSid: clinica.waTwilioSid,
+        waNumero: clinica.waNumero,
+        waTemplateSid: clinica.waTemplateSid,
+        waHorasAntes: clinica.waHorasAntes,
+        tokenConfigurado: Boolean(clinica.waTwilioToken),
+      }}
       clinica={{
         id: clinica.id,
         slug: clinica.slug,
@@ -98,6 +120,7 @@ export default async function ClinicaDetailPage({ params }: { params: Promise<{ 
         createdAt: clinica.createdAt.toISOString(),
         updatedAt: clinica.updatedAt.toISOString(),
         precioMensual,
+        montoExtras,
         stats: {
           usuarios: totalUsuarios,
           pacientes: totalPacientes,

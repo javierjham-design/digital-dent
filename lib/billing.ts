@@ -44,6 +44,27 @@ export function precioPeriodo(c: ClinicaBillingInput, planPrices: PlanPriceMap):
   return c.cicloFacturacion === 'ANUAL' ? mensual * 12 : mensual
 }
 
+// ─── Extras (cargos adicionales recurrentes sobre el plan) ─────────────────
+
+export interface ExtraInput {
+  montoMensual: number
+  activo: boolean
+}
+
+/** Suma mensual de los extras ACTIVOS de una clínica. */
+export function montoExtrasMensual(extras: ExtraInput[]): number {
+  return extras.filter((e) => e.activo).reduce((s, e) => s + e.montoMensual, 0)
+}
+
+/** Plan (o precio acordado) + extras activos. Es lo que la clínica paga al mes. */
+export function precioMensualTotal(
+  c: Pick<ClinicaBillingInput, 'plan' | 'precioAcordado'>,
+  planPrices: PlanPriceMap,
+  extras: ExtraInput[],
+): number {
+  return precioMensualEfectivo(c, planPrices) + montoExtrasMensual(extras)
+}
+
 // Calcula el nuevo "proximoCobro" después de registrar un pago.
 // El pago "consume" un período (mes o año) a partir del actual `proximoCobro`
 // o del momento de pago si la cuenta venía atrasada / sin fecha.

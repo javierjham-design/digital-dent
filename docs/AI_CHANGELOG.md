@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-06-12 — Confirmaciones WhatsApp (Twilio) + extras facturables por clínica
+
+**Solicitud:** Automatizar envío/recepción de confirmaciones por WhatsApp vía Twilio (oficial). Como tiene costo por volumen, debe cobrarse como "extra" por clínica en el Super Admin e incluirse en la facturación mensual.
+
+**Archivos modificados:**
+- `prisma/schema.prisma` — NUEVO modelo `ExtraSuscripcion` (cargo recurrente por clínica: nombre, montoMensual, activo). `Clinica`: + `waEnabled`, `waTwilioSid`, `waTwilioToken` (cifrado AES-256-GCM), `waNumero`, `waTemplateSid`, `waHorasAntes`, relación `extras`. `Cita`: + `waMessageSid` (indexado, evita doble envío y correlaciona respuestas). **Todo aditivo, sin riesgo de datos.**
+- `lib/whatsapp.ts` (NUEVO) — Envío de plantilla Twilio Content API vía fetch (sin SDK): `enviarRecordatorioCita`, `enviarRecordatoriosPendientes` (cron), `procesarRespuestaEntrante` (confirma/cancela/reagenda + CitaLog), `validarFirmaTwilio` (HMAC-SHA1 de X-Twilio-Signature), `interpretarRespuesta`, `fonoAE164`.
+- `app/api/whatsapp/webhook/route.ts` (NUEVO) — Webhook de respuestas: resuelve clínica por número receptor, valida firma Twilio con el token de esa clínica, actualiza la cita y responde TwiML al paciente.
+- `app/api/whatsapp/recordatorios/route.ts` (NUEVO) — Disparo de envíos: header `x-cron-secret` (cron) o sesión admin (botón manual).
+- `app/api/admin/clinicas/[id]/extras/` + `[extraId]/` (NUEVOS) — CRUD de extras con auditoría.
+- `app/api/admin/clinicas/[id]/whatsapp/route.ts` (NUEVO) — GET/PUT config Twilio (token nunca se devuelve; solo se pisa si viene uno nuevo).
+- `lib/billing.ts` — `montoExtrasMensual()`, `precioMensualTotal()`.
+- Super Admin: dashboard y `suscripciones/resumen` suman extras activos al MRR/ARR; `suscripcion-panel` muestra "plan + extras" y sugiere el pago con extras; `extras-whatsapp-panels.tsx` (NUEVO) con los dos paneles en el detalle de clínica.
+- `proxy.ts` — `/api/whatsapp` en PUBLIC_API (firma Twilio + CRON_SECRET protegen).
+- `lib/audit-admin.ts` — acciones CREAR/EDITAR/ELIMINAR_EXTRA y CONFIGURAR_WHATSAPP.
+
+**Convención de plantilla Twilio:** variables {{1}} paciente, {{2}} clínica, {{3}} fecha, {{4}} hora; botones quick-reply Confirmar / Reagendar / Cancelar. Webhook entrante: `https://app.clariva.cl/api/whatsapp/webhook`.
+
+**Pendientes derivados:**
+- Configurar cron de Railway (cada hora) → POST `/api/whatsapp/recordatorios` con header `x-cron-secret`.
+- Piloto Digital Dent: agregar 2º número a su WABA, conectarlo a Twilio, crear la plantilla, cargar credenciales en el panel.
+
+---
+
 ## 2026-06-12 — Agenda semanal por profesional + vista diaria estilo planilla clínica
 
 **Solicitud:** (con capturas de Dentalink como referencia) La semanal con todos los doctores superpuestos era ilegible → dejar un solo profesional. La diaria → lista de trabajo con datos del paciente y cambio de estado inline.
