@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { getSessionUser } from '@/lib/auth'
+import { Toaster } from '@/components/ui/Toaster'
 import { SuperAdminTopBar } from './topbar'
 
 export default async function SuperAdminLayout({ children }: { children: React.ReactNode }) {
@@ -47,6 +48,7 @@ export default async function SuperAdminLayout({ children }: { children: React.R
       <main className="pt-[60px]">
         {children}
       </main>
+      <Toaster />
     </div>
   )
 }

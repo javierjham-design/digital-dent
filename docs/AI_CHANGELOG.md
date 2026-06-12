@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-06-11 — Fase de maduración comercial: agenda fluida, estados clínicos, anti doble-reserva, Inter + toasts
+
+**Solicitud:** Optimización general pre-lanzamiento: agenda más funcional para uso clínico real, consistencia visual premium (estilo Linear/Notion), estados de carga/error/éxito, sin romper lo existente.
+
+**Archivos modificados:**
+- `lib/cita-estados.ts` (NUEVO) — Fuente única de los 7 estados de cita (incluye `EN_ESPERA` y `EN_ATENCION`, label de PENDIENTE pasa a "Agendada"). `siguienteEstado()` define el flujo de recepción.
+- `lib/citas.ts` (NUEVO) — `findCitaSolapada()` + `mensajeSolape()`: detección de doble reserva (sobrecupos exentos; CANCELADA/NO_ASISTIO liberan horario).
+- `app/api/citas/route.ts` — POST valida solape contra otras citas activas (409 con mensaje claro).
+- `app/api/citas/[id]/route.ts` — PATCH: estados nuevos en whitelist, valida solape y bloqueos al reagendar/cambiar doctor, log automático "Reagendada de X a Y".
+- `app/(dashboard)/agenda/agenda-client.tsx` — Eliminados todos los `window.location.reload()` (ahora `router.refresh()` + toasts: no se pierden filtros/vista/scroll). Modal nuevo "Editar / Reagendar cita" (fecha, hora, duración, doctor, motivo, notas). Acción principal del flujo destacada en detalle (Confirmar→Llegó→Pasar al sillón→Finalizar) y quick-action por fila en vista Diaria. `saveCita` ahora maneja errores del API (antes los ignoraba). Búsqueda de paciente normaliza tildes. Emojis reemplazados por SVG.
+- `components/ui/Toaster.tsx` (NUEVO) — Sistema de toasts global sin dependencias (`toast.success/error/info`), montado en layout dashboard y super-admin.
+- `app/layout.tsx` + `app/globals.css` — Tipografía **Inter** vía next/font (toda la app), `tabular-nums` en tablas/montos, focus-visible consistente, `prefers-reduced-motion`.
+- `app/(dashboard)/dashboard-client.tsx`, `app/(dashboard)/pacientes/[id]/ficha-client.tsx`, `app/(dashboard)/reportes/reportes-client.tsx` — Estados de cita importados del módulo compartido (labels y colores consistentes; ficha ahora muestra label legible, no la constante).
+
+**Resumen de cambios:**
+La agenda pasa de "calendario genérico" a herramienta de recepción: flujo de estados clínicos completo con un clic, edición/reagendado sin salir de la vista, prevención de doble reserva en el backend y feedback inmediato con toasts. Base visual unificada con Inter y tokens.
+
+**Riesgos / consideraciones:**
+- `Cita.estado` es String en Prisma → estados nuevos son no-destructivos; datos históricos no cambian.
+- Citas que ya estaban solapadas ANTES de este cambio siguen existiendo (la validación es para escrituras nuevas).
+- `next/font` descarga Inter en build de Railway (si Google Fonts fallara, el build falla; riesgo bajo, Inter es estable).
+
+**Pendientes derivados:**
+- Drag & drop para reagendar directo en el calendario semanal (FullCalendar `editable`).
+- Aplicar toasts al resto de módulos que aún usan `alert()`.
+
+---
+
 ## Formato de cada entrada
 
 ```markdown

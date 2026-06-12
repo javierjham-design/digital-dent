@@ -337,8 +337,9 @@ function ModalFiltros({
               <Field label="Estado">
                 <select value={filtros.estado} onChange={(e) => upd('estado', e.target.value)} className="input">
                   <option value="">Todos</option>
-                  <option value="PENDIENTE">Pendiente</option>
+                  <option value="PENDIENTE">Agendada</option>
                   <option value="CONFIRMADA">Confirmada</option>
+                  <option value="EN_ESPERA">En espera</option>
                   <option value="EN_ATENCION">En atención</option>
                   <option value="ATENDIDA">Atendida</option>
                   <option value="CANCELADA">Cancelada</option>

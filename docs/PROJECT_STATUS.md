@@ -22,7 +22,7 @@ Próximo paso: **Fase 1B — Panel super-admin (`/admin`)** para que el dueño d
 | **Super-admin**   |   ✅   | Panel `/digital-dent-super-admin` para gestionar todas las clínicas.                 |
 | Login / Auth      |   ✅   | NextAuth + Credentials + JWT con `clinicaId`. Middleware permite `/registro` público. |
 | Pacientes (CRUD)  |   ✅   | Scope por clínica. RUT único POR clínica. Import/export Excel.                       |
-| Agenda            |   ✅   | FullCalendar, horarios por doctor, log de citas — todo scoped.                       |
+| Agenda            |   ✅   | FullCalendar + vistas Diaria/Diaria global. 7 estados clínicos con flujo de recepción (Agendada→Confirmada→En espera→En atención→Atendida). Editar/Reagendar. Anti doble-reserva en backend. Sin reloads (router.refresh + toasts). |
 | Prestaciones      |   ✅   | Catálogo propio por clínica. Plantilla con 764 ítems para nuevas clínicas.           |
 | Presupuestos      |   ✅   | Numeración correlativa **por clínica**. Vista imprimible con header dinámico.        |
 | Cobros            |   ✅   | Medios de pago propios. Numeración correlativa por clínica.                          |
@@ -35,6 +35,7 @@ Próximo paso: **Fase 1B — Panel super-admin (`/admin`)** para que el dueño d
 
 ## Cambios recientes
 
+- **2026-06-11:** Fase de maduración comercial: agenda con estados clínicos completos + editar/reagendar + anti doble-reserva, tipografía Inter global, sistema de toasts, estados consistentes en dashboard/ficha/reportes. PWA instalable (manifest + SW + banner). Ver `AI_CHANGELOG.md`.
 - **2026-05-13 (commit `e242eb9`):** Panel super-admin `/digital-dent-super-admin` (Fase 1B). Seed que crea user con `isPlatformAdmin` desde env vars. Dashboard global, listado de clínicas con filtros, detalle con editor y botón suspender. Rename a "Plataforma Dental" en login/registro.
 - **2026-05-13 (commits `e6d6de6` + `f919fcc`):** Multi-tenancy completa.
 - **2026-05-12 (commit `1694069`):** RUT de paciente opcional + dedupe contra DB.

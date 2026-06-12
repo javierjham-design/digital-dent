@@ -3,19 +3,16 @@
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
 import { formatRUT, formatDate, formatDateTime, calcularEdad, formatCLP } from '@/lib/utils'
+import { CITA_ESTADOS } from '@/lib/cita-estados'
 import { PlanesTratamiento } from '@/components/PlanesTratamiento'
 import { Evoluciones } from '@/components/Evoluciones'
 
 const TABS_PRINCIPALES = ['Datos personales', 'Ficha clínica', 'Planes de tratamiento', 'Evoluciones', 'Facturación y pagos', 'Recibir pago'] as const
 const SUBTABS_DATOS = ['Datos', 'Citas', 'Comentarios', 'Mensajes'] as const
 
-const ESTADO_CITA_COLORS: Record<string, string> = {
-  PENDIENTE: 'bg-amber-100 text-amber-700',
-  CONFIRMADA: 'bg-cyan-100 text-cyan-700',
-  ATENDIDA: 'bg-emerald-100 text-emerald-700',
-  CANCELADA: 'bg-red-100 text-red-700',
-  NO_ASISTIO: 'bg-slate-100 text-slate-600',
-}
+const ESTADO_CITA_COLORS: Record<string, string> = Object.fromEntries(
+  Object.entries(CITA_ESTADOS).map(([k, v]) => [k, v.badgeClass]),
+)
 
 const CATEGORIA_MSG: Record<string, string> = {
   CONFIRMACION_CITA: 'Confirmación de cita',
@@ -319,7 +316,7 @@ function CitasList({ citas }: { citas: any[] }) {
             <p className="text-sm font-medium text-slate-800">{formatDateTime(c.fecha)}</p>
             <p className="text-xs text-slate-500">{c.doctor?.name ?? c.doctor?.email} · {c.tipo ?? 'CONSULTA'}</p>
           </div>
-          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${ESTADO_CITA_COLORS[c.estado] ?? 'bg-slate-100 text-slate-600'}`}>{c.estado}</span>
+          <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${ESTADO_CITA_COLORS[c.estado] ?? 'bg-slate-100 text-slate-600'}`}>{CITA_ESTADOS[c.estado]?.label ?? c.estado}</span>
         </div>
       ))}
     </div>

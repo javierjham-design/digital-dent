@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getSessionUser } from '@/lib/auth'
 import { pushCita } from '@/lib/google-sync'
+import { findCitaSolapada, mensajeSolape } from '@/lib/citas'
 
 export async function GET(req: NextRequest) {
   const u = await getSessionUser()
@@ -58,6 +59,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       error: `El doctor tiene un bloqueo de agenda en ese horario${choca.motivo ? ` (${choca.motivo})` : ''}. Elige otro horario o elimina el bloqueo primero.`,
     }, { status: 409 })
+  }
+
+  // Prevención de doble reserva: en la agenda base un doctor no puede tener
+  // dos citas activas al mismo tiempo. Los sobrecupos sí pueden solaparse
+  // (es su razón de existir), por eso solo validamos cuando NO es sobrecupo.
+  if (!sobrecupo) {
+    const solapada = await findCitaSolapada({
+      clinicaId: u.clinicaId,
+      doctorId: body.doctorId,
+      inicio: fechaInicio,
+      fin: fechaFin,
+    })
+    if (solapada) {
+      return NextResponse.json({ error: mensajeSolape(solapada) }, { status: 409 })
+    }
   }
 
   const cita = await prisma.cita.create({

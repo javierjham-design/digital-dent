@@ -1,6 +1,13 @@
 import type { Metadata, Viewport } from 'next'
+import { Inter } from 'next/font/google'
 import './globals.css'
 import { Providers } from './providers'
+
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+})
 
 export const metadata: Metadata = {
   title: 'Cláriva · Gestión dental multi-clínica',
@@ -26,8 +33,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" className="h-full">
-      <body className="min-h-full">
+    <html lang="es" className={`h-full ${inter.variable}`}>
+      <body className="min-h-full font-sans antialiased">
         <Providers>{children}</Providers>
       </body>
     </html>

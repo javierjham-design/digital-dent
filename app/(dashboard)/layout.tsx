@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import { TopBar } from '@/components/TopBar'
 import { HelpWidget } from '@/components/HelpWidget'
 import { PWASetup } from '@/components/PWASetup'
+import { Toaster } from '@/components/ui/Toaster'
 import { getSessionUser } from '@/lib/auth'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -28,6 +29,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <HelpWidget />
       {/* Service worker + banner de instalación PWA. */}
       <PWASetup />
+      {/* Notificaciones de éxito/error globales. */}
+      <Toaster />
     </div>
   )
 }

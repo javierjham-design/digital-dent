@@ -2,22 +2,13 @@
 
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts'
 import { formatCLP, formatDateTime } from '@/lib/utils'
+import { CITA_ESTADOS, CITA_ESTADO_LABELS } from '@/lib/cita-estados'
 
-const ESTADO_COLORS: Record<string, string> = {
-  PENDIENTE: '#f59e0b',
-  CONFIRMADA: '#0891b2',
-  ATENDIDA: '#10b981',
-  CANCELADA: '#ef4444',
-  NO_ASISTIO: '#6b7280',
-}
+const ESTADO_COLORS: Record<string, string> = Object.fromEntries(
+  Object.entries(CITA_ESTADOS).map(([k, v]) => [k, v.color]),
+)
 
-const ESTADO_LABELS: Record<string, string> = {
-  PENDIENTE: 'Pendiente',
-  CONFIRMADA: 'Confirmada',
-  ATENDIDA: 'Atendida',
-  CANCELADA: 'Cancelada',
-  NO_ASISTIO: 'No asistió',
-}
+const ESTADO_LABELS = CITA_ESTADO_LABELS
 
 interface Props {
   stats: { totalPacientes: number; citasHoy: number; citasMes: number; ingresosMes: number }

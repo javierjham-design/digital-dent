@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState, useMemo } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import FullCalendar from '@fullcalendar/react'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import dayGridPlugin from '@fullcalendar/daygrid'
@@ -9,14 +10,10 @@ import interactionPlugin from '@fullcalendar/interaction'
 import esLocale from '@fullcalendar/core/locales/es'
 import type { EventClickArg } from '@fullcalendar/core'
 import { formatRUT, cn } from '@/lib/utils'
+import { CITA_ESTADOS, siguienteEstado } from '@/lib/cita-estados'
+import { toast } from '@/components/ui/Toaster'
 
-const ESTADO_CONFIG: Record<string, { label: string; color: string; bg: string; text: string }> = {
-  PENDIENTE:  { label: 'Pendiente',  color: '#f59e0b', bg: '#fef3c7', text: '#92400e' },
-  CONFIRMADA: { label: 'Confirmada', color: '#0891b2', bg: '#cffafe', text: '#155e75' },
-  ATENDIDA:   { label: 'Atendida',   color: '#10b981', bg: '#d1fae5', text: '#065f46' },
-  CANCELADA:  { label: 'Cancelada',  color: '#ef4444', bg: '#fee2e2', text: '#991b1b' },
-  NO_ASISTIO: { label: 'No asistió', color: '#6b7280', bg: '#f3f4f6', text: '#374151' },
-}
+const ESTADO_CONFIG = CITA_ESTADOS
 
 const MOTIVOS = [
   'Consulta diagnóstico', 'Control', 'Detartaje / Profilaxis',
@@ -123,6 +120,7 @@ function buildWAUrl(phone: string, message: string): string {
 }
 
 export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, isAdmin, currentUserId, config }: Props) {
+  const router = useRouter()
   const calRef = useRef<FullCalendar>(null)
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(Object.keys(ESTADO_CONFIG)))
   const [doctorFilter, setDoctorFilter] = useState('todos')
@@ -135,6 +133,20 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
   const [showHistorial,  setShowHistorial]  = useState(false)
   const [updating, setUpdating] = useState(false)
   const [saving,   setSaving]   = useState(false)
+
+  // Modal de edición / reagendado de cita
+  const [editCita, setEditCita] = useState<null | {
+    citaId: string
+    pacienteNombre: string
+    fecha: string      // yyyy-MM-dd
+    hora: string       // HH:mm
+    duracion: number
+    doctorId: string
+    tipo: string
+    notas: string
+  }>(null)
+  const [editError, setEditError] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
 
   // Bloqueo de agenda
   const [selectedBloqueo, setSelectedBloqueo] = useState<Bloqueo | null>(null)
@@ -252,7 +264,7 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
       .filter(b => doctorFilter === 'todos' || b.doctorId === doctorFilter)
       .map(b => ({
         id: `blq-${b.id}`,
-        title: `🚫 ${b.motivo || 'Bloqueo'}${doctorFilter === 'todos' ? ` · ${b.doctor}` : ''}`,
+        title: `Bloqueo: ${b.motivo || 'sin motivo'}${doctorFilter === 'todos' ? ` · ${b.doctor}` : ''}`,
         start: b.inicio, end: b.fin,
         backgroundColor: '#475569',
         borderColor: '#334155',
@@ -320,7 +332,8 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setBloqueoError(data.error ?? `Error ${res.status}`); return }
       setBloqueoForm(null)
-      window.location.reload()
+      toast.success('Horario bloqueado')
+      router.refresh()
     } finally { setSavingBloqueo(false) }
   }
 
@@ -329,11 +342,12 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
     const res = await fetch(`/api/bloqueos/${id}`, { method: 'DELETE' })
     if (!res.ok) {
       const d = await res.json().catch(() => ({}))
-      alert(d.error ?? 'No se pudo eliminar el bloqueo.')
+      toast.error(d.error ?? 'No se pudo eliminar el bloqueo.')
       return
     }
     setSelectedBloqueo(null)
-    window.location.reload()
+    toast.success('Bloqueo eliminado')
+    router.refresh()
   }
 
   function toggleEstado(estado: string) {
@@ -346,16 +360,69 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
 
   async function updateEstado(citaId: string, nuevoEstado: string) {
     setUpdating(true)
-    await fetch(`/api/citas/${citaId}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ estado: nuevoEstado }),
+    try {
+      const res = await fetch(`/api/citas/${citaId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ estado: nuevoEstado }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        toast.error(d.error ?? 'No se pudo cambiar el estado.')
+        return
+      }
+      toast.success(`Cita marcada como ${ESTADO_CONFIG[nuevoEstado]?.label.toLowerCase() ?? nuevoEstado}`)
+      setSelectedCita(null)
+      router.refresh()
+    } finally { setUpdating(false) }
+  }
+
+  function openEditCita(c: Cita) {
+    const d = new Date(c.start)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    setEditCita({
+      citaId: c.id,
+      pacienteNombre: c.pacienteNombre,
+      fecha: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+      hora: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      duracion: Math.round((new Date(c.end).getTime() - d.getTime()) / 60000),
+      doctorId: c.doctorId,
+      tipo: c.tipo === 'CONSULTA' ? '' : c.tipo,
+      notas: c.notas,
     })
-    setUpdating(false); setSelectedCita(null); window.location.reload()
+    setEditError('')
+    setSelectedCita(null)
+  }
+
+  async function saveEditCita(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editCita) return
+    setSavingEdit(true); setEditError('')
+    try {
+      const fechaISO = new Date(`${editCita.fecha}T${editCita.hora}`).toISOString()
+      const res = await fetch(`/api/citas/${editCita.citaId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fecha: fechaISO,
+          duracion: editCita.duracion,
+          doctorId: editCita.doctorId,
+          tipo: editCita.tipo || 'CONSULTA',
+          notas: editCita.notas || null,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setEditError(d.error ?? `Error ${res.status}`)
+        return
+      }
+      setEditCita(null)
+      toast.success('Cita actualizada')
+      router.refresh()
+    } finally { setSavingEdit(false) }
   }
 
   async function confirmarWA(cita: Cita) {
     if (!cita.pacienteTelefono) {
-      alert('Este paciente no tiene teléfono registrado. Agrega el teléfono en la ficha del paciente.')
+      toast.error('Este paciente no tiene teléfono registrado. Agrégalo en su ficha.')
       return
     }
     const msg = buildWAMessage(cita, config)
@@ -387,9 +454,14 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
             telefono: darCita.nuevo.telefono || null, prevision: darCita.nuevo.prevision || null,
           }),
         })
-        const p = await res.json(); pacienteId = p.id
+        const p = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          toast.error(p.error ?? 'No se pudo crear el paciente.')
+          return
+        }
+        pacienteId = p.id
       }
-      await fetch('/api/citas', {
+      const res = await fetch('/api/citas', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pacienteId, doctorId: darCita.doctorId,
@@ -398,7 +470,14 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
           sobrecupo: darCita.sobrecupo,
         }),
       })
-      setDarCita(null); window.location.reload()
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        toast.error(d.error ?? 'No se pudo agendar la cita.')
+        return
+      }
+      setDarCita(null)
+      toast.success(darCita.sobrecupo ? 'Sobrecupo agendado' : 'Cita agendada')
+      router.refresh()
     } finally { setSaving(false) }
   }
 
@@ -409,9 +488,11 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
 
   const searchResults = useMemo(() => {
     if (!darCita?.search || darCita.search.length < 2) return []
-    const q = darCita.search.toLowerCase()
+    // Normaliza tildes para que "Núñez" matchee con "nunez" y viceversa.
+    const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    const q = norm(darCita.search)
     return pacientes.filter(p =>
-      `${p.nombre} ${p.apellido}`.toLowerCase().includes(q) || (p.rut ?? '').toLowerCase().includes(q)
+      norm(`${p.nombre} ${p.apellido}`).includes(q) || (p.rut ?? '').toLowerCase().includes(q)
     ).slice(0, 6)
   }, [darCita?.search, pacientes])
 
@@ -1195,15 +1276,25 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
               </button>
             </div>
             <div className="p-6 space-y-4 overflow-y-auto">
-              {/* CTA: ir a la ficha del paciente */}
-              <Link
-                href={`/pacientes/${selectedCita.pacienteId}`}
-                className="w-full flex items-center justify-center gap-2 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 text-cyan-700 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                </svg>
-                Ver ficha del paciente
-              </Link>
+              {/* CTAs: ficha del paciente + editar/reagendar */}
+              <div className="grid grid-cols-2 gap-2">
+                <Link
+                  href={`/pacientes/${selectedCita.pacienteId}`}
+                  className="flex items-center justify-center gap-2 bg-cyan-50 hover:bg-cyan-100 border border-cyan-200 text-cyan-700 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+                  </svg>
+                  Ver ficha
+                </Link>
+                <button
+                  onClick={() => openEditCita(selectedCita)}
+                  className="flex items-center justify-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                  Editar / Reagendar
+                </button>
+              </div>
               <dl className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <dt className="text-slate-500">RUT</dt>
@@ -1255,6 +1346,24 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
 
               <div>
                 <p className="text-sm font-medium text-slate-700 mb-2">Cambiar estado:</p>
+                {/* Acción principal del flujo de recepción, destacada */}
+                {(() => {
+                  const next = siguienteEstado(selectedCita.estado)
+                  if (!next) return null
+                  const cfg = ESTADO_CONFIG[next.estado]
+                  return (
+                    <button
+                      onClick={() => updateEstado(selectedCita.id, next.estado)}
+                      disabled={updating}
+                      className="w-full mb-2 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                      style={{ backgroundColor: cfg.color }}>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                      </svg>
+                      {next.accion} ({cfg.label})
+                    </button>
+                  )
+                })()}
                 <div className="grid grid-cols-2 gap-2">
                   {Object.entries(ESTADO_CONFIG).map(([key, cfg]) => (
                     <button key={key} onClick={() => updateEstado(selectedCita.id, key)}
@@ -1340,6 +1449,90 @@ export function AgendaClient({ citas, doctors, pacientes, horarios, bloqueos, is
               </div>
 
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: Editar / Reagendar cita ── */}
+      {editCita && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">Editar cita</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{editCita.pacienteNombre}</p>
+              </div>
+              <button onClick={() => setEditCita(null)} className="text-slate-400 hover:text-slate-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <form onSubmit={saveEditCita} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Fecha *</label>
+                  <input type="date" required value={editCita.fecha}
+                    onChange={e => setEditCita(s => s ? { ...s, fecha: e.target.value } : s)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Hora *</label>
+                  <input type="time" required value={editCita.hora}
+                    onChange={e => setEditCita(s => s ? { ...s, hora: e.target.value } : s)}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Duración</label>
+                <div className="flex gap-2 flex-wrap">
+                  {ALL_DURACIONES.map(d => (
+                    <button key={d} type="button"
+                      onClick={() => setEditCita(s => s ? { ...s, duracion: d } : s)}
+                      className={cn('px-3 py-1.5 rounded-lg text-xs font-medium border-2 transition-all',
+                        editCita.duracion === d
+                          ? 'bg-cyan-600 border-cyan-600 text-white'
+                          : 'border-slate-200 text-slate-600 hover:border-cyan-300')}>
+                      {d} min
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Profesional</label>
+                <select value={editCita.doctorId}
+                  onChange={e => setEditCita(s => s ? { ...s, doctorId: e.target.value } : s)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                  {doctors.map(d => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Motivo</label>
+                <select value={editCita.tipo}
+                  onChange={e => setEditCita(s => s ? { ...s, tipo: e.target.value } : s)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                  <option value="">Consulta</option>
+                  {MOTIVOS.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Notas internas</label>
+                <input type="text" value={editCita.notas} placeholder="Comentario opcional…"
+                  onChange={e => setEditCita(s => s ? { ...s, notas: e.target.value } : s)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+              </div>
+              {editError && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl px-3 py-2 text-sm text-rose-700">{editError}</div>
+              )}
+              <div className="flex gap-3 pt-1">
+                <button type="button" onClick={() => setEditCita(null)}
+                  className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">
+                  Cancelar
+                </button>
+                <button type="submit" disabled={savingEdit}
+                  className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold transition-colors">
+                  {savingEdit ? 'Guardando…' : 'Guardar cambios'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1518,8 +1711,11 @@ function ListaDiaria({
                     <span className="font-mono text-[11px] text-slate-400">{formatTime(b.fin)}</span>
                   </div>
                   <button onClick={() => onBloqueoClick(b)} className="text-left min-w-0">
-                    <p className="text-sm font-semibold text-slate-700 truncate">
-                      <span className="mr-1">🚫</span>{b.motivo ?? 'Bloqueo'}
+                    <p className="text-sm font-semibold text-slate-700 truncate flex items-center gap-1.5">
+                      <svg className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" />
+                      </svg>
+                      {b.motivo ?? 'Bloqueo'}
                     </p>
                     {b.googleEventId && (
                       <p className="text-[11px] text-blue-500 mt-0.5">Importado de Google Calendar</p>
@@ -1549,10 +1745,18 @@ function ListaDiaria({
                   <span className="font-mono text-[11px] text-slate-400">{formatTime(c.end)}</span>
                 </div>
                 <button onClick={() => onCitaClick(c)} className="text-left min-w-0">
-                  <p className="text-sm font-semibold text-slate-900 truncate">
-                    {c.sobrecupo && <span className="text-amber-500 mr-1">⚠</span>}
-                    {c.confirmadoWA && <span className="text-emerald-500 mr-1">✓</span>}
-                    {c.pacienteNombre}
+                  <p className="text-sm font-semibold text-slate-900 truncate flex items-center gap-1">
+                    {c.sobrecupo && (
+                      <svg className="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="Sobrecupo">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5 19h14a2 2 0 001.84-2.75L13.74 4a2 2 0 00-3.48 0L3.16 16.25A2 2 0 005 19z" />
+                      </svg>
+                    )}
+                    {c.confirmadoWA && (
+                      <svg className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-label="Confirmada por WhatsApp">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                    <span className="truncate">{c.pacienteNombre}</span>
                   </p>
                   {(c.pacienteRut || c.pacienteTelefono) && (
                     <p className="text-[11px] text-slate-400 font-mono mt-0.5 truncate">
@@ -1572,12 +1776,19 @@ function ListaDiaria({
                     className="px-2.5 py-1.5 text-[11px] font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100">
                     Detalle
                   </button>
-                  {c.estado === 'PENDIENTE' && (
-                    <button onClick={() => onUpdateEstado(c.id, 'CONFIRMADA')}
-                      className="px-2.5 py-1.5 text-[11px] font-medium text-cyan-700 border border-cyan-200 bg-cyan-50 rounded-lg hover:bg-cyan-100">
-                      Confirmar
-                    </button>
-                  )}
+                  {(() => {
+                    const next = siguienteEstado(c.estado)
+                    if (!next) return null
+                    const nextCfg = estadoConfig[next.estado]
+                    return (
+                      <button onClick={() => onUpdateEstado(c.id, next.estado)}
+                        title={`Pasar a ${nextCfg?.label ?? next.estado}`}
+                        className="px-2.5 py-1.5 text-[11px] font-semibold rounded-lg border transition-colors whitespace-nowrap"
+                        style={{ color: nextCfg?.text, backgroundColor: nextCfg?.bg, borderColor: nextCfg?.color }}>
+                        {next.accion}
+                      </button>
+                    )
+                  })()}
                 </div>
               </div>
             )
@@ -1730,7 +1941,7 @@ function DiariaGlobal({
                       style={{ top, height: Math.max(height, 18), backgroundColor: '#475569' }}
                     >
                       <div className="text-[10px] font-bold text-slate-50 truncate leading-tight">
-                        🚫 {b.motivo ?? 'Bloqueo'}
+                        {b.motivo ?? 'Bloqueo'}
                       </div>
                       {height >= 36 && (
                         <div className="text-[9px] text-slate-300 truncate font-mono leading-tight">
