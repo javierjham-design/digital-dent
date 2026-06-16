@@ -49,18 +49,62 @@ Reglas de negocio: valida que paciente y doctor sean de la clínica; rechaza
 (`409`) si choca con un bloqueo de agenda o, salvo sobrecupo, si se solapa con
 otra cita activa del profesional.
 
+### `PATCH /api/v1/citas/:id`  *(editar / reagendar)*
+Body (todos opcionales): `{ "fecha", "duracion", "doctorId", "tipo", "notas", "sobrecupo" }`
+→ `CitaDTO`. Revalida solape/bloqueo si cambia horario/duración/doctor; loguea "Reagendada de X a Y".
+
+### `DELETE /api/v1/citas/:id`
+→ `{ ok: true }`. Borra la cita y sus logs.
+
 ### `PATCH /api/v1/citas/:id/estado`
 Body: `{ "estado": "CONFIRMADA" | "EN_ESPERA" | "EN_ATENCION" | "ATENDIDA" | "NO_ASISTIO" | "CANCELADA" | "PENDIENTE" }`
-→ `CitaDTO`. Registra el cambio en el historial de la cita.
+→ `CitaDTO`. Registra el cambio en el historial.
+
+## Equipo / Usuarios  *(scope clínica)*
+
+### `GET /api/v1/usuarios` → `UsuarioDTO[]`
+### `GET /api/v1/doctores` → `DoctorDTO[]` (rol doctor/médico, activos — para selectores de agenda)
+### `POST /api/v1/usuarios`  *(admin)*
+Body: `{ "name", "username", "password", "role?", "email?", "rut?", "especialidad?", "telefono?" }` → `201 UsuarioDTO`
+### `PATCH /api/v1/usuarios/:id`  *(self o admin)*
+Campos según rol: el usuario edita los propios (name/rut/especialidad/telefono); admin edita todo + permisos + `googleCalendarId`. `password` opcional (≥8). → `UsuarioDTO`
+
+## Horarios  *(scope clínica)*
+
+### `GET /api/v1/horarios?doctorId=` → `HorarioDTO[]`
+### `POST /api/v1/horarios`
+Body: `{ "doctorId", "days": DiaHorario[] }` (upsert por día). Solo doctores/médicos. → `HorarioDTO[]`
+
+## Bloqueos de agenda  *(scope clínica; doctor solo los propios, admin todos)*
+
+### `GET /api/v1/bloqueos?from=&to=&doctorId=` → `BloqueoDTO[]`
+### `POST /api/v1/bloqueos` → `201 BloqueoDTO`
+### `PATCH /api/v1/bloqueos/:id` → `BloqueoDTO`
+### `DELETE /api/v1/bloqueos/:id` → `{ ok: true }`
+
+## Prestaciones  *(scope clínica)*
+
+### `GET /api/v1/prestaciones` → `PrestacionDTO[]`
+### `POST /api/v1/prestaciones` → `201 PrestacionDTO`
+### `PATCH /api/v1/prestaciones/:id` → `PrestacionDTO`
+### `DELETE /api/v1/prestaciones/:id` → `{ ok: true }`
+
+## Configuración de la clínica  *(scope clínica)*
+
+### `GET /api/v1/clinica` → `ClinicaConfigDTO`
+### `PATCH /api/v1/clinica`  *(admin)* → `ClinicaConfigDTO`
 
 ---
 
-## Pendiente de portar (etapa 2)
+## Pendiente de portar (próximas tandas)
 
-Estos dominios del monolito aún no están expуestos en el backend nuevo:
-tratamientos, presupuestos, cobros, caja, liquidaciones, usuarios/equipo,
-horarios, configuración, super-admin (clínicas, planes, extras, leads),
-reportes, e integraciones (Google Calendar, WhatsApp/Twilio, demo).
+- **Clínico/financiero**: tratamientos, presupuestos, cobros, caja, liquidaciones, ficha clínica + odontograma, evoluciones, reportes.
+- **Super-admin**: clínicas, planes, extras, pagos de suscripción, leads/demos.
+- **Integraciones**: Google Calendar (push/sync), WhatsApp/Twilio, generación de demos.
 
-Convención al portarlos: `routes → controller (valida) → service (lógica) → prisma`,
-con DTOs en `/shared`, y `requireClinica` / `requireSuperAdmin` según corresponda.
+Los efectos hacia Google (push de citas/bloqueos, reset+sync de calendario al
+asignar `googleCalendarId`) están **diferidos** al portar el dominio de
+integraciones; por ahora el backend persiste los datos sin disparar Google.
+
+Convención al portar: `routes → controller (valida zod) → service (lógica) → prisma`,
+con DTOs en `/shared` y `requireClinica` / `requireAdmin` / `requireSuperAdmin` según corresponda.

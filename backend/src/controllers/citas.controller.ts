@@ -1,10 +1,11 @@
 import type { Request, Response } from 'express'
 import { clinicaId } from '@/middlewares/auth'
-import { cambiarEstadoCita, crearCita, listarCitas } from '@/services/citas.service'
-import { cambiarEstadoSchema, crearCitaSchema } from '@/validators/schemas'
+import { actorName } from '@/services/auth.service'
+import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas } from '@/services/citas.service'
+import { cambiarEstadoSchema, crearCitaSchema, editarCitaSchema } from '@/validators/schemas'
 
 function userName(req: Request): string {
-  return req.auth?.sub ? `usuario:${req.auth.sub}` : 'Sistema'
+  return req.auth ? actorName(req.auth) : 'Sistema'
 }
 
 export async function getCitas(req: Request, res: Response) {
@@ -16,6 +17,16 @@ export async function getCitas(req: Request, res: Response) {
 export async function postCita(req: Request, res: Response) {
   const input = crearCitaSchema.parse(req.body)
   res.status(201).json(await crearCita(clinicaId(req), userName(req), input))
+}
+
+export async function patchCita(req: Request, res: Response) {
+  const input = editarCitaSchema.parse(req.body)
+  res.json(await editarCita(clinicaId(req), req.params.id, userName(req), input))
+}
+
+export async function deleteCita(req: Request, res: Response) {
+  await eliminarCita(clinicaId(req), req.params.id)
+  res.json({ ok: true })
 }
 
 export async function patchEstado(req: Request, res: Response) {

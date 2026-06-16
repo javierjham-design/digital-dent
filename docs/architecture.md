@@ -80,7 +80,8 @@ Para resincronizar tras un cambio de schema: `cd backend && npm run prisma:sync`
 | Etapa | Descripción | Estado |
 |------|-------------|--------|
 | 1 | Monorepo + shared + backend (auth, pacientes, citas) + frontend (login, agenda, pacientes) | ✅ Hecho |
-| 2 | Portar el resto de dominios al backend: tratamientos, presupuestos, cobros, caja, liquidaciones, usuarios, horarios, configuración, super-admin, reportes, integraciones (Google, WhatsApp), demo | ⏳ Pendiente |
+| 2A | Backend: equipo/usuarios + doctores, horarios, bloqueos, prestaciones, configuración de clínica, citas editar/reagendar/eliminar | ✅ Hecho |
+| 2B | Backend: tratamientos, presupuestos, cobros, caja, liquidaciones, ficha clínica, reportes, super-admin, integraciones (Google, WhatsApp), demo | ⏳ Pendiente |
 | 3 | Migrar el resto de vistas del frontend (ficha clínica + odontograma, presupuestos, cobros, super-admin, configuración) | ⏳ Pendiente |
 | 4 | Paridad funcional + QA exhaustivo contra el monolito | ⏳ Pendiente |
 | 5 | **Cutover**: 2 servicios en Railway (backend + frontend), DNS, retirar el monolito | ⏳ Pendiente |

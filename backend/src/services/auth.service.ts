@@ -14,17 +14,26 @@ export interface JwtPayload {
   clinicaId: string | null
   role: string
   isPlatformAdmin: boolean
+  name: string | null
+  email: string | null
 }
 
-function sign(user: { id: string; clinicaId: string | null; role: string; isPlatformAdmin: boolean }): string {
+function sign(user: { id: string; clinicaId: string | null; role: string; isPlatformAdmin: boolean; name: string | null; email: string | null }): string {
   const payload: JwtPayload = {
     sub: user.id,
     clinicaId: user.clinicaId,
     role: user.role,
     isPlatformAdmin: user.isPlatformAdmin,
+    name: user.name,
+    email: user.email,
   }
   const options: jwt.SignOptions = { expiresIn: env.jwtExpiresIn as jwt.SignOptions['expiresIn'] }
   return jwt.sign(payload, env.jwtSecret, options)
+}
+
+// Nombre legible del actor para logs y campos "creado por".
+export function actorName(p: JwtPayload): string {
+  return p.name ?? p.email ?? 'Sistema'
 }
 
 export function verifyToken(token: string): JwtPayload {

@@ -70,6 +70,72 @@ export interface DoctorDTO {
   especialidad: string | null
 }
 
+export interface UsuarioDTO {
+  id: string
+  name: string | null
+  username: string | null
+  email: string | null
+  role: string
+  rut: string | null
+  especialidad: string | null
+  telefono: string | null
+  activo: boolean
+  puedeRecibirPagos?: boolean
+  puedeModificarPrecio?: boolean
+  puedeAplicarDescuento?: boolean
+  puedeRevertirCompletado?: boolean
+  puedeEditarPagos?: boolean
+  puedeGestionarLiquidaciones?: boolean
+  googleCalendarId?: string | null
+  createdAt: string
+}
+
+export interface HorarioDTO {
+  id: string
+  doctorId: string
+  diaSemana: number
+  horaInicio: string
+  horaFin: string
+  activo: boolean
+  recesoActivo: boolean
+  recesoInicio: string | null
+  recesoFin: string | null
+  sobrecupoActivo: boolean
+  sobrecupoInicio: string | null
+  sobrecupoFin: string | null
+}
+
+export interface BloqueoDTO {
+  id: string
+  doctorId: string
+  doctor: string | null
+  inicio: string
+  fin: string
+  motivo: string | null
+  createdByName: string | null
+}
+
+export interface PrestacionDTO {
+  id: string
+  nombre: string
+  descripcion: string | null
+  precio: number
+  duracion: number
+  categoria: string | null
+  activo: boolean
+}
+
+export interface ClinicaConfigDTO {
+  id: string
+  nombre: string
+  direccion: string
+  telefono: string
+  email: string
+  ciudad: string
+  mensajeWA: string
+  logoUrl: string | null
+}
+
 export interface ApiError {
   error: string
 }

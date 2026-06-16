@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-06-16 — [rama arch/split] Backend Etapa 2A: equipo, agenda, catálogo, config
+
+**Solicitud:** Continuar la Etapa 2 — portar más dominios al backend Express.
+
+**Dominios portados (en `backend/src`):**
+- `usuarios.service` — listar equipo, listar doctores (para selectores de agenda), crear (admin) y editar usuario (self/admin, con validación de username/email único, permisos, password ≥8, reset de syncToken al cambiar calendario).
+- `horarios.service` — listar y upsert de horarios por día (solo doctor/médico).
+- `bloqueos.service` — listar (doctor ve los suyos / admin todos), crear, editar, eliminar con reglas de permiso.
+- `catalogo.service` — prestaciones (CRUD) + configuración de la clínica (GET/PATCH).
+- `citas.service` — +editar/reagendar (revalida solape y bloqueo, loguea reagendado) y +eliminar.
+- Controllers + validators zod + rutas `/api/v1/{usuarios,doctores,horarios,bloqueos,prestaciones,clinica,citas}`.
+- JWT ahora incluye `name`/`email` (para logs y "creado por" sin queries extra); helper `actorName`.
+- DTOs nuevos en `/shared`: Usuario, Horario, Bloqueo, Prestacion, ClinicaConfig.
+
+**Diferido a 2B:** efectos hacia Google (push de citas/bloqueos, sync de calendario) — se portan con el dominio de integraciones. Por ahora el backend persiste sin disparar Google.
+
+**Verificación:** `npm run typecheck` OK; boot + health + protección 401 de rutas nuevas verificados. Monolito y `master` intactos. `docs/api.md` actualizado.
+
+---
+
 ## 2026-06-16 — [rama arch/split] Separación física frontend/backend — Etapa 1
 
 **Solicitud:** Refactorización estructural a arquitectura separada frontend (SPA) + backend (API REST), profesional y escalable, por etapas y sin romper producción.

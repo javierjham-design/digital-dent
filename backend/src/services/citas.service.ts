@@ -114,6 +114,78 @@ export async function crearCita(clinicaId: string, userName: string, input: Crea
   return toDTO(cita)
 }
 
+export interface EditarCitaInput {
+  fecha?: string; duracion?: number; doctorId?: string; tipo?: string; notas?: string | null; sobrecupo?: boolean
+}
+
+export async function editarCita(clinicaId: string, id: string, userName: string, input: EditarCitaInput): Promise<CitaDTO> {
+  const current = await prisma.cita.findFirst({
+    where: { id, clinicaId },
+    select: { fecha: true, duracion: true, doctorId: true, sobrecupo: true },
+  })
+  if (!current) throw notFound('Cita no encontrada')
+
+  const data: Record<string, unknown> = {}
+  if (input.fecha !== undefined) data.fecha = new Date(input.fecha)
+  if (input.duracion !== undefined) {
+    const n = Number(input.duracion)
+    if (!Number.isFinite(n) || n <= 0) throw badRequest('duracion inválida')
+    data.duracion = n
+  }
+  if (input.tipo !== undefined) data.tipo = input.tipo || null
+  if (input.notas !== undefined) data.notas = input.notas || null
+  if (input.sobrecupo !== undefined) data.sobrecupo = Boolean(input.sobrecupo)
+  if (input.doctorId !== undefined) {
+    const doctor = await prisma.user.findFirst({ where: { id: input.doctorId, clinicaId, activo: true }, select: { id: true } })
+    if (!doctor) throw badRequest('Doctor no existe en esta clínica')
+    data.doctorId = input.doctorId
+  }
+
+  // Revalidar solape/bloqueo si cambia horario, duración o doctor.
+  const cambiaHorario = data.fecha !== undefined || data.duracion !== undefined || data.doctorId !== undefined
+  if (cambiaHorario) {
+    const nuevaFecha = (data.fecha as Date) ?? current.fecha
+    const nuevaDur = (data.duracion as number) ?? current.duracion
+    const nuevoDoctor = (data.doctorId as string) ?? current.doctorId
+    const esSobrecupo = data.sobrecupo !== undefined ? (data.sobrecupo as boolean) : current.sobrecupo
+    const fin = new Date(nuevaFecha.getTime() + nuevaDur * 60000)
+
+    const bloqueo = await prisma.bloqueoAgenda.findFirst({
+      where: { clinicaId, doctorId: nuevoDoctor, inicio: { lt: fin }, fin: { gt: nuevaFecha } },
+      select: { motivo: true },
+    })
+    if (bloqueo) throw conflict(`El doctor tiene un bloqueo en ese horario${bloqueo.motivo ? ` (${bloqueo.motivo})` : ''}.`)
+
+    if (!esSobrecupo) {
+      const solapada = await findSolapada({ clinicaId, doctorId: nuevoDoctor, inicio: nuevaFecha, fin, excluir: id })
+      if (solapada) {
+        const hora = solapada.fecha.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+        throw conflict(`El profesional ya tiene una cita a las ${hora} (${solapada.paciente.nombre} ${solapada.paciente.apellido}).`)
+      }
+    }
+  }
+
+  const logs: { tipo: string; detalle: string; userName: string }[] = []
+  if (data.fecha !== undefined && (data.fecha as Date).getTime() !== current.fecha.getTime()) {
+    const fmt = (d: Date) => d.toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
+    logs.push({ tipo: 'ESTADO', detalle: `Reagendada de ${fmt(current.fecha)} a ${fmt(data.fecha as Date)}`, userName })
+  }
+
+  const cita = await prisma.cita.update({
+    where: { id },
+    data: { ...data, ...(logs.length > 0 ? { logs: { create: logs } } : {}) },
+    include: INCLUDE,
+  })
+  return toDTO(cita)
+}
+
+export async function eliminarCita(clinicaId: string, id: string): Promise<void> {
+  const existing = await prisma.cita.findFirst({ where: { id, clinicaId }, select: { id: true } })
+  if (!existing) throw notFound('Cita no encontrada')
+  await prisma.citaLog.deleteMany({ where: { citaId: id } })
+  await prisma.cita.delete({ where: { id } })
+}
+
 export async function cambiarEstadoCita(clinicaId: string, id: string, estado: string, userName: string): Promise<CitaDTO> {
   if (!CITA_ESTADOS_KEYS.includes(estado)) throw badRequest('Estado inválido')
   const current = await prisma.cita.findFirst({ where: { id, clinicaId }, select: { estado: true } })
