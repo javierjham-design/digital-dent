@@ -1,0 +1,9 @@
+{
+  "name": "@clariva/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tipos y constantes compartidos entre el frontend y el backend de Cláriva.",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}

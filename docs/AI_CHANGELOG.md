@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-06-16 — [rama arch/split] Separación física frontend/backend — Etapa 1
+
+**Solicitud:** Refactorización estructural a arquitectura separada frontend (SPA) + backend (API REST), profesional y escalable, por etapas y sin romper producción.
+
+**Decisión de arquitectura:** Se evaluó el split físico vs. capas dentro de Next. El usuario eligió el **split físico real** (Vite + Express). Para cumplir "migración segura por etapas sin romper lo que funciona", se construye el nuevo stack **en paralelo en la rama `arch/split-frontend-backend`**, dejando el monolito Next vivo en producción hasta el *cutover* (etapa 5). **No se toca `master`.**
+
+**Trabajo de la Etapa 1 (esta entrada):**
+- `shared/` (NUEVO) — DTOs y constantes de dominio (estados de cita) compartidos.
+- `backend/` (NUEVO) — Express + TS + Prisma. Config, prisma singleton, errores tipados (`AppError`), middlewares (async-handler, error, auth JWT, multi-tenant `requireClinica`/`requireSuperAdmin`/`requireAdmin`). Servicios de negocio portados: `auth` (login dual + JWT + rate-limit), `pacientes` (CRUD + RUT único + correlativo), `citas` (listar/crear con anti doble-reserva + cambio de estado con log). Controllers + validators (zod) + rutas `/api/v1/*`. Probado: `/health` y validación de login OK.
+- `frontend/` (NUEVO) — Vite + React 19 + TS + Tailwind 4. Cliente API tipado (`services/api.ts`), `useAuth` (contexto), `ProtectedRoute`, `DashboardLayout`, páginas Login/Agenda/Pacientes consumiendo el backend. Build verde.
+- `tsconfig.json` (monolito) — excluye `backend`, `frontend`, `shared` para no contaminar el build de Next.
+- `docs/architecture.md` + `docs/api.md` (NUEVOS) — arquitectura objetivo, reglas, plan de etapas y referencia de la API.
+
+**Verificación:** backend `typecheck` OK + boota; frontend `build` OK; **monolito `next build` sigue verde** (producción intacta).
+
+**Pendiente (etapas 2-5):** portar el resto de dominios y vistas, paridad + QA, y cutover (2 servicios en Railway). Hasta entonces, producción = monolito.
+
+---
+
 ## 2026-06-15 — Landing y demos multi-rubro (dental · médico · estética)
 
 **Solicitud:** Vender la plataforma a 3 segmentos. La landing debe adaptarse a cada uno y la demo debe sembrar datos propios de cada rubro.
