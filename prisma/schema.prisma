@@ -79,7 +79,33 @@ model Clinica {
   waTemplateSid  String?   // Content SID de la plantilla aprobada (HX...)
   waHorasAntes   Int     @default(24) // cuántas horas antes de la cita se envía
 
+  // ─── Demo autogenerada desde la landing ─────────────────────────────────
+  // Clínica creada por un prospecto para probar la plataforma. Tiene datos
+  // ficticios precargados y se elimina automáticamente al expirar.
+  esDemo       Boolean   @default(false)
+  demoExpiraEn DateTime?
+
   extras ExtraSuscripcion[]
+}
+
+// Prospecto capturado desde la landing (al generar una demo o por contacto).
+// Es el registro comercial: aunque la clínica demo se borre al expirar, el
+// lead queda para seguimiento del equipo de ventas.
+model Lead {
+  id            String   @id @default(cuid())
+  nombre        String
+  email         String
+  telefono      String?
+  nombreClinica String?
+  origen        String   @default("DEMO") // DEMO | CONTACTO
+  clinicaId     String?  // clínica demo generada (si aplica); puede quedar huérfano tras limpieza
+  clinicaSlug   String?
+  ip            String?
+  notas         String?
+  createdAt     DateTime @default(now())
+
+  @@index([email])
+  @@index([createdAt])
 }
 
 // Cargo adicional recurrente sobre el plan de una clínica (ej: módulo de

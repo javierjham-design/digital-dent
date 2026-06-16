@@ -5,6 +5,7 @@ import { ClinicasListClient } from './clinicas-list-client'
 
 export default async function ClinicasListPage() {
   const clinicas = await prisma.clinica.findMany({
+    where: { esDemo: false }, // las demos viven en "Leads / Demos"
     orderBy: { createdAt: 'desc' },
     include: {
       _count: {

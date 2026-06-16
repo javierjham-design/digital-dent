@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 const NAV = [
   { label: 'Dashboard',     href: '/digital-dent-super-admin' },
   { label: 'Clínicas',      href: '/digital-dent-super-admin/clinicas' },
+  { label: 'Leads / Demos', href: '/digital-dent-super-admin/leads' },
   { label: 'Suscripciones', href: '/digital-dent-super-admin/suscripciones' },
   { label: 'Planes',        href: '/digital-dent-super-admin/planes' },
 ]

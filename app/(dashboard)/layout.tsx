@@ -6,6 +6,7 @@ import { TopBar } from '@/components/TopBar'
 import { HelpWidget } from '@/components/HelpWidget'
 import { PWASetup } from '@/components/PWASetup'
 import { Toaster } from '@/components/ui/Toaster'
+import { DemoBanner } from '@/components/DemoBanner'
 import { getSessionUser } from '@/lib/auth'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -31,6 +32,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <PWASetup />
       {/* Notificaciones de éxito/error globales. */}
       <Toaster />
+      {/* Aviso de modo demo (solo clínicas generadas desde la landing). */}
+      {clinica.esDemo && <DemoBanner expira={clinica.demoExpiraEn?.toISOString() ?? null} />}
     </div>
   )
 }

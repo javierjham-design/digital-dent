@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-06-15 — Landing comercial + demo self-service con captura de leads
+
+**Solicitud:** Página web de venta de Cláriva (dinámica, precios desde la DB) con generación de "demo" self-service: cada demo crea una clínica sandbox con pacientes ficticios y captura los datos del prospecto como lead.
+
+**Archivos modificados:**
+- `prisma/schema.prisma` — NUEVO modelo `Lead` (nombre, email, telefono, nombreClinica, origen, clinicaId/Slug, ip). `Clinica`: + `esDemo`, `demoExpiraEn`. Aditivo.
+- `app/page.tsx` + `app/landing-client.tsx` (NUEVO) — Landing de venta: hero con "desde $X/mes" (mínimo plan pagado de la DB), funciones, cómo funciona, planes (toggle mensual/anual, leídos de PlanSuscripcion), testimonios placeholder, FAQ, CTA, footer. Modal de demo con auto-login.
+- `lib/demo-seed.ts` (NUEVO) — `seedDemoClinica`: 3 profesionales + horarios, 18 pacientes con RUT chileno válido (módulo 11), citas de la semana actual en varios estados, prestaciones, planes de tratamiento y cobros pagados.
+- `lib/demo-cleanup.ts` (NUEVO) — `borrarClinicaDemo`: borra en cascada respetando FKs; el Lead sobrevive (clinicaId→null).
+- `app/api/demo/route.ts` (NUEVO) — POST público rate-limited (3/h por IP, 2/día por email): crea clínica esDemo TRIAL (7 días), admin sin cambio forzado, Lead, y siembra datos. Devuelve credenciales para auto-login.
+- `app/api/demo/cleanup/route.ts` (NUEVO) — borra demos expiradas (x-cron-secret o super-admin).
+- `proxy.ts` — `/api/demo` en PUBLIC_API.
+- `app/digital-dent-super-admin/leads/page.tsx` (NUEVO) + link en topbar — vista de leads con estado de la demo.
+- Dashboard super-admin, clínicas list y `suscripciones/resumen` — excluyen `esDemo` de KPIs/MRR; KPI "Demos activas".
+- `components/DemoBanner.tsx` (NUEVO) — banner de modo demo dentro del dashboard (CTA Contratar por WhatsApp).
+
+**Pendientes derivados (manuales del usuario):**
+- Ajustar precios reales en super-admin → Planes (el "desde" del hero usa el menor plan pagado; hoy puede mostrar el valor actual de BASICO).
+- Reemplazar testimonios placeholder y el número de WhatsApp de ventas (en DemoBanner y CTA del dashboard, placeholder 56900000000).
+- Cron diario en Railway → POST `/api/demo/cleanup` con `x-cron-secret`.
+- Verificar que PLATFORM_DOMAIN siga sin configurarse (la demo redirige a `/c/<slug>/agenda`, modo path).
+
+---
+
 ## 2026-06-12 — Confirmaciones WhatsApp (Twilio) + extras facturables por clínica
 
 **Solicitud:** Automatizar envío/recepción de confirmaciones por WhatsApp vía Twilio (oficial). Como tiene costo por volumen, debe cobrarse como "extra" por clínica en el Super Admin e incluirse en la facturación mensual.

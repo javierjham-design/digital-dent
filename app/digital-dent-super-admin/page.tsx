@@ -6,18 +6,22 @@ import { getPlanes } from '@/lib/plans'
 
 async function loadStats() {
   try {
-    const [clinicas, activas, enTrial, suspendidas, total, planes] = await Promise.all([
+    // Las clínicas demo (generadas desde la landing) NO cuentan como negocio:
+    // se excluyen de los KPIs y del listado, y se cuentan aparte.
+    const [clinicas, activas, enTrial, suspendidas, total, demosActivas, planes] = await Promise.all([
       prisma.clinica.findMany({
+        where: { esDemo: false },
         orderBy: { createdAt: 'desc' },
         take: 5,
         include: {
           _count: { select: { users: true, pacientes: true } },
         },
       }),
-      prisma.clinica.count({ where: { activo: true, plan: { not: 'TRIAL' } } }),
-      prisma.clinica.count({ where: { activo: true, plan: 'TRIAL' } }),
-      prisma.clinica.count({ where: { activo: false } }),
-      prisma.clinica.count(),
+      prisma.clinica.count({ where: { activo: true, plan: { not: 'TRIAL' }, esDemo: false } }),
+      prisma.clinica.count({ where: { activo: true, plan: 'TRIAL', esDemo: false } }),
+      prisma.clinica.count({ where: { activo: false, esDemo: false } }),
+      prisma.clinica.count({ where: { esDemo: false } }),
+      prisma.clinica.count({ where: { esDemo: true } }),
       getPlanes(),
     ])
 
@@ -27,7 +31,7 @@ async function loadStats() {
     // MRR estimado: suma de precios mensuales de clínicas activas no-trial
     // (respetando precioAcordado) + extras activos contratados.
     const clinicasPagantes = await prisma.clinica.findMany({
-      where: { activo: true, plan: { not: 'TRIAL' } },
+      where: { activo: true, plan: { not: 'TRIAL' }, esDemo: false },
       select: {
         plan: true,
         precioAcordado: true,
@@ -42,7 +46,7 @@ async function loadStats() {
       0,
     )
 
-    return { ok: true as const, clinicas, activas, enTrial, suspendidas, total, mrrEstimado }
+    return { ok: true as const, clinicas, activas, enTrial, suspendidas, total, demosActivas, mrrEstimado }
   } catch (e: any) {
     console.error('[super-admin/dashboard] Error cargando stats:', e)
     return { ok: false as const, error: e?.message ?? String(e) }
@@ -67,16 +71,18 @@ export default async function SuperAdminDashboard() {
   const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 
   const kpis = [
-    { label: 'Clínicas activas', value: stats.activas,     tono: 'emerald' },
-    { label: 'En trial',         value: stats.enTrial,     tono: 'amber' },
-    { label: 'Suspendidas',      value: stats.suspendidas, tono: 'red' },
-    { label: 'Total clínicas',   value: stats.total,       tono: 'sky' },
+    { label: 'Clínicas activas', value: stats.activas,      tono: 'emerald' },
+    { label: 'En trial',         value: stats.enTrial,      tono: 'amber' },
+    { label: 'Suspendidas',      value: stats.suspendidas,  tono: 'red' },
+    { label: 'Demos activas',    value: stats.demosActivas, tono: 'cyan' },
+    { label: 'Total clínicas',   value: stats.total,        tono: 'sky' },
   ]
 
   const tonoBg: Record<string, string> = {
     emerald: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300',
     amber:   'bg-amber-500/10 border-amber-500/30 text-amber-300',
     red:     'bg-red-500/10 border-red-500/30 text-red-300',
+    cyan:    'bg-cyan-500/10 border-cyan-500/30 text-cyan-300',
     sky:     'bg-sky-500/10 border-sky-500/30 text-sky-300',
   }
 
@@ -87,7 +93,7 @@ export default async function SuperAdminDashboard() {
         <p className="text-slate-400 mt-1 text-sm">Vista general de todas las clínicas registradas en la plataforma.</p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
         {kpis.map((k) => (
           <div key={k.label} className={`rounded-2xl border p-5 ${tonoBg[k.tono]}`}>
             <p className="text-xs uppercase tracking-wider opacity-70">{k.label}</p>

@@ -17,6 +17,7 @@ export async function GET(_req: NextRequest) {
   for (const p of planes) priceMap[p.id] = p.precioMensual
 
   const clinicas = await prisma.clinica.findMany({
+    where: { esDemo: false }, // las demos no son negocio: fuera del resumen
     select: {
       id: true,
       slug: true,
