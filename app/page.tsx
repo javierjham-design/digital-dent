@@ -1,9 +1,17 @@
 export const dynamic = 'force-dynamic'
 
 import { getPlanes } from '@/lib/plans'
+import { getVertical } from '@/lib/verticales'
 import { LandingClient } from './landing-client'
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ rubro?: string }>
+}) {
+  const { rubro } = await searchParams
+  const verticalInicial = getVertical(rubro).id
+
   const planes = await getPlanes({ soloActivos: true })
 
   // Planes pagados ordenados por precio. El "desde" del hero usa el menor.
@@ -16,6 +24,7 @@ export default async function HomePage() {
   return (
     <LandingClient
       desde={desde}
+      verticalInicial={verticalInicial}
       planes={pagados.map((p) => ({
         id: p.id,
         nombre: p.nombre,

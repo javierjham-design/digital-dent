@@ -2,6 +2,13 @@ export const dynamic = 'force-dynamic'
 
 import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
+import { getVertical } from '@/lib/verticales'
+
+const RUBRO_BADGE: Record<string, string> = {
+  dental: 'bg-cyan-500/15 text-cyan-300',
+  medico: 'bg-blue-500/15 text-blue-300',
+  estetica: 'bg-fuchsia-500/15 text-fuchsia-300',
+}
 
 export default async function LeadsPage() {
   const [leads, demosActivas] = await Promise.all([
@@ -37,8 +44,8 @@ export default async function LeadsPage() {
               <thead>
                 <tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
                   <th className="text-left px-6 py-3">Contacto</th>
-                  <th className="text-left px-6 py-3">Clínica</th>
-                  <th className="text-left px-6 py-3">Origen</th>
+                  <th className="text-left px-6 py-3">Negocio</th>
+                  <th className="text-left px-6 py-3">Rubro</th>
                   <th className="text-left px-6 py-3">Demo</th>
                   <th className="text-right px-6 py-3">Fecha</th>
                 </tr>
@@ -62,7 +69,13 @@ export default async function LeadsPage() {
                       </td>
                       <td className="px-6 py-3 text-slate-300">{l.nombreClinica ?? '—'}</td>
                       <td className="px-6 py-3">
-                        <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-slate-800 text-slate-300">{l.origen}</span>
+                        {l.rubro ? (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${RUBRO_BADGE[l.rubro] ?? 'bg-slate-800 text-slate-300'}`}>
+                            {getVertical(l.rubro).nombreCorto}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600 text-xs">—</span>
+                        )}
                       </td>
                       <td className="px-6 py-3">
                         {!l.clinicaSlug ? (

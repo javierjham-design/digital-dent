@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs'
 import { prisma } from '@/lib/prisma'
+import { getVertical, type VerticalId } from '@/lib/verticales'
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Seed de una clínica DEMO
@@ -23,22 +24,7 @@ const APELLIDOS = [
   'Torres', 'Araya', 'Flores', 'Espinoza', 'Castillo', 'Tapia', 'Vásquez',
 ]
 const PREVISIONES = ['Fonasa B', 'Fonasa C', 'Fonasa D', 'Isapre', 'Particular']
-const MOTIVOS = [
-  'Consulta diagnóstico', 'Control', 'Detartaje / Profilaxis', 'Obturación',
-  'Endodoncia', 'Exodoncia', 'Ortodoncia', 'Blanqueamiento',
-]
 const ESTADOS = ['PENDIENTE', 'CONFIRMADA', 'EN_ESPERA', 'ATENDIDA', 'PENDIENTE', 'CONFIRMADA']
-
-const PRESTACIONES_DEMO = [
-  { nombre: 'Consulta de diagnóstico', precio: 25000, duracion: 30, categoria: 'Diagnóstico' },
-  { nombre: 'Destartraje y pulido', precio: 45000, duracion: 45, categoria: 'Prevención' },
-  { nombre: 'Obturación composite', precio: 38000, duracion: 45, categoria: 'Operatoria' },
-  { nombre: 'Endodoncia unirradicular', precio: 120000, duracion: 60, categoria: 'Endodoncia' },
-  { nombre: 'Exodoncia simple', precio: 35000, duracion: 30, categoria: 'Cirugía' },
-  { nombre: 'Blanqueamiento dental', precio: 150000, duracion: 60, categoria: 'Estética' },
-  { nombre: 'Corona metal-porcelana', precio: 230000, duracion: 60, categoria: 'Rehabilitación' },
-  { nombre: 'Radiografía periapical', precio: 12000, duracion: 15, categoria: 'Diagnóstico' },
-]
 
 function calcularDV(rutNum: number): string {
   let suma = 0
@@ -78,15 +64,13 @@ function lunesDeEstaSemana(): Date {
   return d
 }
 
-export async function seedDemoClinica(clinicaId: string): Promise<void> {
+export async function seedDemoClinica(clinicaId: string, vertical: VerticalId = 'dental'): Promise<void> {
+  const cfg = getVertical(vertical).seed
+  const MOTIVOS = cfg.motivos
   const passHash = await bcrypt.hash('demo-doctor-' + Math.random().toString(36).slice(2), 10)
 
-  // ── Profesionales ──────────────────────────────────────────────────────
-  const docsData = [
-    { name: 'Dra. Camila Reyes', especialidad: 'Odontología general' },
-    { name: 'Dr. Andrés Fuentes', especialidad: 'Endodoncia' },
-    { name: 'Dra. Paula Vergara', especialidad: 'Ortodoncia' },
-  ]
+  // ── Profesionales (según rubro) ──────────────────────────────────────────
+  const docsData = cfg.profesionales
   const doctores = []
   for (let i = 0; i < docsData.length; i++) {
     const u = await prisma.user.create({
@@ -131,9 +115,9 @@ export async function seedDemoClinica(clinicaId: string): Promise<void> {
     medios.push(await prisma.medioPago.create({ data: { clinicaId, ...m, activo: true } }))
   }
 
-  // ── Prestaciones ─────────────────────────────────────────────────────────
+  // ── Prestaciones (según rubro) ───────────────────────────────────────────
   const prestaciones = []
-  for (const p of PRESTACIONES_DEMO) {
+  for (const p of cfg.prestaciones) {
     prestaciones.push(await prisma.prestacion.create({ data: { clinicaId, ...p, activo: true } }))
   }
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { signIn } from 'next-auth/react'
+import { VERTICALES, VERTICAL_IDS, getVertical, type VerticalId } from '@/lib/verticales'
 
 type PlanLanding = {
   id: string
@@ -39,42 +40,35 @@ function Reveal({ children, className = '', delay = 0 }: { children: React.React
   )
 }
 
-const FEATURES = [
-  { t: 'Agenda inteligente', d: 'Vista semanal por profesional y diaria tipo planilla. Arrastra para reagendar, evita choques de horario y bloquea espacios.', icon: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' },
-  { t: 'Confirmación por WhatsApp', d: 'Recordatorios automáticos con botones. El paciente confirma o cancela y la cita se actualiza sola. Menos inasistencias.', icon: 'M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z' },
-  { t: 'Ficha clínica y odontograma', d: 'Historial completo, odontograma interactivo, alertas médicas y evoluciones por paciente.', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2' },
-  { t: 'Presupuestos profesionales', d: 'Arma presupuestos por sección, imprímelos con tu logo y conviértelos en tratamientos con un clic.', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-  { t: 'Cobros y caja', d: 'Registra cobros con medios de pago y comisiones, abre y cierra caja, y controla el flujo diario.', icon: 'M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z' },
-  { t: 'Liquidaciones de profesionales', d: 'Calcula honorarios por profesional, período y comisión. Cada doctor ve solo lo suyo.', icon: 'M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 19h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z' },
-  { t: 'Sincronización con Google', d: 'Conecta el calendario de Google de tu clínica: la agenda se mantiene en ambos lados.', icon: 'M21 12.1H3M16 6l-4-4-4 4M8 18l4 4 4-4' },
-  { t: 'Reportes y métricas', d: 'Ingresos, citas por estado, morosidad y rendimiento por profesional, en gráficos claros.', icon: 'M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
-  { t: 'App instalable y segura', d: 'Funciona como app en el celular o el computador. Datos cifrados, accesos por rol y respaldos en la nube.', icon: 'M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z' },
-]
+function buildPasos(termino: string, lugar: string) {
+  return [
+    { n: '1', t: `Crea tu ${lugar}`, d: 'En minutos tienes tu espacio con tu equipo, horarios y catálogo de prestaciones.' },
+    { n: '2', t: 'Carga tu agenda', d: `Agenda ${termino}, confirma por WhatsApp y lleva la ficha de cada uno.` },
+    { n: '3', t: 'Cobra y mide', d: 'Registra cobros, liquida a tu equipo y revisa tus números en tiempo real.' },
+  ]
+}
 
-const PASOS = [
-  { n: '1', t: 'Crea tu clínica', d: 'En minutos tienes tu espacio con tu equipo, horarios y catálogo de prestaciones.' },
-  { n: '2', t: 'Carga tu agenda', d: 'Agenda pacientes, confirma por WhatsApp y lleva la ficha clínica de cada uno.' },
-  { n: '3', t: 'Cobra y mide', d: 'Registra cobros, liquida a tus profesionales y revisa tus números en tiempo real.' },
-]
+function buildFaqs(termino: string, lugar: string) {
+  return [
+    { q: '¿Necesito instalar algo?', a: 'No. Cláriva funciona desde el navegador y también puedes instalarla como app en tu celular o computador con un toque. No requiere servidores ni mantención de tu parte.' },
+    { q: '¿Mis datos están seguros?', a: `Sí. Los datos viajan cifrados (HTTPS), las credenciales sensibles se guardan encriptadas, hay control de acceso por rol y respaldos automáticos en la nube. Cada ${lugar} está aislado de los demás.` },
+    { q: `¿Puedo migrar mis ${termino}?`, a: `Sí. Puedes importar tu base de ${termino} desde Excel y partir con todo cargado. Te acompañamos en el proceso.` },
+    { q: '¿Cómo funcionan las confirmaciones por WhatsApp?', a: `Es un servicio adicional. Configuramos el envío automático de recordatorios con botones de Confirmar, Reagendar o Cancelar; la respuesta del paciente actualiza la cita sola. Se cobra aparte según el volumen de tu ${lugar}.` },
+    { q: '¿Hay permanencia o contrato forzoso?', a: 'No hay permanencia. El plan es mensual y puedes cambiarlo o cancelarlo cuando quieras.' },
+  ]
+}
 
-const FAQS = [
-  { q: '¿Necesito instalar algo?', a: 'No. Cláriva funciona desde el navegador y también puedes instalarla como app en tu celular o computador con un toque. No requiere servidores ni mantención de tu parte.' },
-  { q: '¿Mis datos están seguros?', a: 'Sí. Los datos viajan cifrados (HTTPS), las credenciales sensibles se guardan encriptadas, hay control de acceso por rol y respaldos automáticos en la nube. Cada clínica está aislada de las demás.' },
-  { q: '¿Puedo migrar mis pacientes?', a: 'Sí. Puedes importar tu base de pacientes desde Excel y partir con todo cargado. Te acompañamos en el proceso.' },
-  { q: '¿Cómo funcionan las confirmaciones por WhatsApp?', a: 'Es un servicio adicional. Configuramos el envío automático de recordatorios con botones de Confirmar, Reagendar o Cancelar; la respuesta del paciente actualiza la cita sola. Se cobra aparte según el volumen de tu clínica.' },
-  { q: '¿Hay permanencia o contrato forzoso?', a: 'No hay permanencia. El plan es mensual y puedes cambiarlo o cancelarlo cuando quieras.' },
-]
-
-const TESTIMONIOS = [
-  { n: 'Dra. Carolina Méndez', r: 'Clínica dental, Temuco', t: 'Bajamos las inasistencias casi a la mitad con las confirmaciones automáticas. La recepción dejó de perder tiempo llamando uno por uno.' },
-  { n: 'Dr. Rodrigo Salas', r: 'Centro odontológico, Valdivia', t: 'Tener la agenda, las fichas y los cobros en un mismo lugar nos ordenó por completo. Las liquidaciones que antes me tomaban un día ahora salen solas.' },
-  { n: 'Javiera Torres', r: 'Administradora, Pucón', t: 'Lo instalamos en el celular y se siente como una app de verdad. Súper simple para todo el equipo, sin capacitaciones eternas.' },
-]
-
-export function LandingClient({ desde, planes }: { desde: number; planes: PlanLanding[] }) {
+export function LandingClient({ desde, planes, verticalInicial }: { desde: number; planes: PlanLanding[]; verticalInicial: VerticalId }) {
   const [anual, setAnual] = useState(false)
   const [faqAbierta, setFaqAbierta] = useState<number | null>(0)
   const [demoOpen, setDemoOpen] = useState(false)
+  const [rubro, setRubro] = useState<VerticalId>(verticalInicial)
+
+  const v = VERTICALES[rubro]
+  const FEATURES = v.features
+  const TESTIMONIOS = v.testimonios
+  const PASOS = buildPasos(v.terminoPaciente, v.terminoLugar)
+  const FAQS = buildFaqs(v.terminoPaciente, v.terminoLugar)
 
   return (
     <div className="min-h-screen bg-white text-slate-900 antialiased">
@@ -110,23 +104,32 @@ export function LandingClient({ desde, planes }: { desde: number; planes: PlanLa
         <div className="absolute top-40 -right-24 -z-10 w-80 h-80 bg-teal-200/30 rounded-full blur-3xl" />
         <div className="max-w-6xl mx-auto px-5 pt-16 pb-20 grid lg:grid-cols-2 gap-12 items-center">
           <div>
+            {/* Selector de rubro: el visitante se identifica y todo el copy se adapta */}
             <Reveal>
-              <span className="inline-flex items-center gap-2 px-3 py-1 bg-cyan-100 text-cyan-700 rounded-full text-xs font-semibold tracking-wide uppercase mb-5">
+              <div className="inline-flex bg-slate-100 rounded-xl p-1 mb-5">
+                {VERTICAL_IDS.map((id) => (
+                  <button key={id} onClick={() => setRubro(id)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition-all ${rubro === id
+                      ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                    {VERTICALES[id].nombreCorto}
+                  </button>
+                ))}
+              </div>
+            </Reveal>
+            <Reveal delay={40}>
+              <span className="flex items-center gap-2 w-fit px-3 py-1 bg-cyan-100 text-cyan-700 rounded-full text-xs font-semibold tracking-wide uppercase mb-5">
                 <span className="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse" />
-                Software dental · desde {fmtCLP(desde)}/mes
+                {v.badge} · desde {fmtCLP(desde)}/mes
               </span>
             </Reveal>
             <Reveal delay={60}>
               <h1 className="text-4xl sm:text-5xl font-bold leading-[1.1] tracking-tight">
-                La clínica dental que se{' '}
-                <span className="bg-gradient-to-r from-cyan-600 to-teal-600 bg-clip-text text-transparent">ordena sola</span>
+                {v.headlinePre}
+                <span className="bg-gradient-to-r from-cyan-600 to-teal-600 bg-clip-text text-transparent">{v.headlineHi}</span>
               </h1>
             </Reveal>
             <Reveal delay={120}>
-              <p className="text-lg text-slate-600 leading-relaxed mt-5 max-w-xl">
-                Agenda, fichas clínicas, presupuestos, cobros y liquidaciones en un solo lugar —
-                con confirmaciones automáticas por WhatsApp para que dejes de perder horas con inasistencias.
-              </p>
+              <p className="text-lg text-slate-600 leading-relaxed mt-5 max-w-xl">{v.subtitle}</p>
             </Reveal>
             <Reveal delay={180}>
               <div className="flex flex-col sm:flex-row gap-3 mt-8">
@@ -159,8 +162,8 @@ export function LandingClient({ desde, planes }: { desde: number; planes: PlanLa
       {/* ── FUNCIONES ── */}
       <section id="funciones" className="max-w-6xl mx-auto px-5 py-20">
         <Reveal className="text-center max-w-2xl mx-auto mb-14">
-          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Todo lo que tu clínica necesita</h2>
-          <p className="text-lg text-slate-600 mt-4">Una sola plataforma, pensada para el día a día de una clínica dental real.</p>
+          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Todo lo que tu {v.terminoLugar} necesita</h2>
+          <p className="text-lg text-slate-600 mt-4">Una sola plataforma, pensada para el día a día real de {v.nombreLargo.toLowerCase()}.</p>
         </Reveal>
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {FEATURES.map((f, i) => (
@@ -280,7 +283,7 @@ export function LandingClient({ desde, planes }: { desde: number; planes: PlanLa
       <section className="bg-slate-50 border-y border-slate-100">
         <div className="max-w-6xl mx-auto px-5 py-20">
           <Reveal className="text-center max-w-2xl mx-auto mb-14">
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Clínicas que ya se ordenaron</h2>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">Lo que dicen quienes ya lo usan</h2>
           </Reveal>
           <div className="grid md:grid-cols-3 gap-6">
             {TESTIMONIOS.map((t, i) => (
@@ -359,7 +362,7 @@ export function LandingClient({ desde, planes }: { desde: number; planes: PlanLa
         </div>
       </footer>
 
-      {demoOpen && <DemoModal onClose={() => setDemoOpen(false)} />}
+      {demoOpen && <DemoModal vertical={rubro} onClose={() => setDemoOpen(false)} />}
     </div>
   )
 }
@@ -407,7 +410,8 @@ function AgendaMockup() {
 }
 
 // ─── Modal de generación de demo ─────────────────────────────────────────────
-function DemoModal({ onClose }: { onClose: () => void }) {
+function DemoModal({ vertical, onClose }: { vertical: VerticalId; onClose: () => void }) {
+  const vc = getVertical(vertical)
   const [form, setForm] = useState({ nombre: '', email: '', telefono: '', nombreClinica: '' })
   const [estado, setEstado] = useState<'form' | 'creando' | 'listo' | 'error'>('form')
   const [error, setError] = useState('')
@@ -419,7 +423,7 @@ function DemoModal({ onClose }: { onClose: () => void }) {
     try {
       const res = await fetch('/api/demo', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, vertical }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -473,13 +477,13 @@ function DemoModal({ onClose }: { onClose: () => void }) {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <p className="text-sm text-slate-500 mb-5">Creamos una clínica de demostración con pacientes y citas de ejemplo. Entras al instante.</p>
+            <p className="text-sm text-slate-500 mb-5">Creamos un {vc.terminoLugar} de demostración con {vc.terminoPaciente} y citas de ejemplo. Entras al instante.</p>
 
             <div className="space-y-3">
-              <Field label="Tu nombre" value={form.nombre} onChange={(v) => setForm({ ...form, nombre: v })} placeholder="Dra. María Pérez" required />
-              <Field label="Email" type="email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} placeholder="maria@clinica.cl" required />
-              <Field label="Teléfono / WhatsApp" value={form.telefono} onChange={(v) => setForm({ ...form, telefono: v })} placeholder="+56 9 1234 5678" />
-              <Field label="Nombre de tu clínica" value={form.nombreClinica} onChange={(v) => setForm({ ...form, nombreClinica: v })} placeholder="Clínica Dental Sonríe" required />
+              <Field label="Tu nombre" value={form.nombre} onChange={(val) => setForm({ ...form, nombre: val })} placeholder="Dra. María Pérez" required />
+              <Field label="Email" type="email" value={form.email} onChange={(val) => setForm({ ...form, email: val })} placeholder="maria@correo.cl" required />
+              <Field label="Teléfono / WhatsApp" value={form.telefono} onChange={(val) => setForm({ ...form, telefono: val })} placeholder="+56 9 1234 5678" />
+              <Field label={`Nombre de tu ${vc.terminoLugar}`} value={form.nombreClinica} onChange={(val) => setForm({ ...form, nombreClinica: val })} placeholder={vc.ejemploNombre} required />
             </div>
 
             {error && <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mt-4">{error}</p>}

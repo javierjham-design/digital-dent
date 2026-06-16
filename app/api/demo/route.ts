@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { rateLimit } from '@/lib/rate-limit'
 import { seedDemoClinica } from '@/lib/demo-seed'
+import { getVertical } from '@/lib/verticales'
 import { RESERVED_SLUGS } from '@/app/api/admin/clinicas/route'
 import bcrypt from 'bcryptjs'
 
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
   const email = String(body.email ?? '').trim().toLowerCase()
   const telefono = String(body.telefono ?? '').trim()
   const nombreClinica = String(body.nombreClinica ?? '').trim()
+  const vertical = getVertical(body.vertical).id // valida; default 'dental'
 
   if (!nombre || !email || !nombreClinica) {
     return NextResponse.json({ error: 'Completa nombre, email y nombre de la clínica.' }, { status: 400 })
@@ -98,17 +100,17 @@ export async function POST(req: NextRequest) {
     await tx.lead.create({
       data: {
         nombre, email, telefono: telefono || null,
-        nombreClinica, origen: 'DEMO',
+        nombreClinica, origen: 'DEMO', rubro: vertical,
         clinicaId: c.id, clinicaSlug: slug, ip,
       },
     })
     return c
   })
 
-  // Poblar con datos ficticios. Si algo falla, la demo igual existe (vacía);
-  // por eso lo intentamos pero no rompemos la respuesta.
+  // Poblar con datos ficticios del rubro elegido. Si algo falla, la demo igual
+  // existe (vacía); por eso lo intentamos pero no rompemos la respuesta.
   try {
-    await seedDemoClinica(clinica.id)
+    await seedDemoClinica(clinica.id, vertical)
   } catch (e) {
     console.error('[demo] seed falló:', e)
   }

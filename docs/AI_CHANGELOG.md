@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-06-15 — Landing y demos multi-rubro (dental · médico · estética)
+
+**Solicitud:** Vender la plataforma a 3 segmentos. La landing debe adaptarse a cada uno y la demo debe sembrar datos propios de cada rubro.
+
+**Archivos modificados:**
+- `lib/verticales.ts` (NUEVO) — Fuente única de los 3 rubros: copy de landing (badge, titular, subtítulo, features, testimonios, terminología paciente/cliente, clínica/centro) + config de seed (profesionales, prestaciones y motivos por rubro). `getVertical()`, `esVertical()`.
+- `app/page.tsx` — Lee `?rubro=` (dental|medico|estetica) y pasa el vertical inicial (para campañas: `clariva.cl/?rubro=estetica`).
+- `app/landing-client.tsx` — Selector de rubro visible (3 pills); todo el copy (hero, features, pasos, FAQ, testimonios, formulario de demo) se adapta al rubro elegido en vivo. El modal envía el `vertical`.
+- `lib/demo-seed.ts` — `seedDemoClinica(clinicaId, vertical)`: profesionales, prestaciones y motivos del rubro. (Dental: odontología/endodoncia/orto; Médico: medicina general/pediatría/nutrición; Estética: cosmetología/dermatología/láser.)
+- `app/api/demo/route.ts` — Acepta y valida `vertical`, lo guarda en `Lead.rubro` y lo pasa al seed.
+- `prisma/schema.prisma` — `Lead.rubro` (aditivo).
+- `app/digital-dent-super-admin/leads/page.tsx` — Columna "Rubro" con badge por segmento.
+
+**Pendientes derivados:** los mismos de la entrada anterior (precios, testimonios reales, WhatsApp de ventas, cron de limpieza).
+
+---
+
 ## 2026-06-15 — Landing comercial + demo self-service con captura de leads
 
 **Solicitud:** Página web de venta de Cláriva (dinámica, precios desde la DB) con generación de "demo" self-service: cada demo crea una clínica sandbox con pacientes ficticios y captura los datos del prospecto como lead.

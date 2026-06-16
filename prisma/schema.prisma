@@ -98,6 +98,7 @@ model Lead {
   telefono      String?
   nombreClinica String?
   origen        String   @default("DEMO") // DEMO | CONTACTO
+  rubro         String?  // dental | medico | estetica (segmento de venta)
   clinicaId     String?  // clínica demo generada (si aplica); puede quedar huérfano tras limpieza
   clinicaSlug   String?
   ip            String?
