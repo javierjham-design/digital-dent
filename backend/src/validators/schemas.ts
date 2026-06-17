@@ -135,3 +135,61 @@ export const crearPresupuestoSchema = z.object({
     subtotal: z.number().nonnegative(),
   })).min(1, 'Agrega al menos un ítem'),
 })
+
+// ── Caja / Cobros / Liquidaciones ──
+export const crearCajaSchema = z.object({
+  nombre: z.string().min(1),
+  descripcion: z.string().optional(),
+  saldoInicial: z.number().optional(),
+  usuarioIds: z.array(z.string()).optional(),
+})
+
+export const abrirCajaSchema = z.object({
+  saldoApertura: z.union([z.number(), z.string(), z.null()]).optional(),
+})
+
+export const cerrarCajaSchema = z.object({
+  saldoReal: z.number(),
+  observaciones: z.string().optional(),
+})
+
+export const crearMovimientoSchema = z.object({
+  tipo: z.enum(['INGRESO', 'EGRESO']).optional(),
+  monto: z.number(),
+  descripcion: z.string().min(1),
+  categoria: z.string().optional(),
+  fecha: z.string().optional(),
+})
+
+export const motivoSchema = z.object({
+  motivo: z.string().min(4, 'Debes indicar un motivo (mínimo 4 caracteres).'),
+})
+
+export const crearCobroSchema = z.object({
+  pacienteId: z.string().min(1),
+  cajaId: z.string().min(1),
+  medioPagoId: z.string().optional(),
+  reciboUsuarioId: z.string().optional(),
+  fechaPago: z.string().optional(),
+  notas: z.string().optional(),
+  items: z.array(z.object({
+    tratamientoId: z.string().optional(),
+    descripcion: z.string().min(1),
+    monto: z.number(),
+  })).min(1, 'Agrega al menos un item.'),
+})
+
+export const crearContratoSchema = z.object({
+  doctorId: z.string().min(1),
+  tipo: z.enum(['PORCENTAJE', 'MONTO_FIJO']),
+  porcentaje: z.number().optional(),
+  montoFijo: z.number().optional(),
+  descripcion: z.string().optional(),
+  fechaInicio: z.string().optional(),
+  fechaFin: z.string().optional(),
+})
+
+export const crearLiquidacionSchema = z.object({
+  doctorId: z.string().min(1),
+  periodo: z.string().regex(/^\d{4}-\d{2}$/, 'periodo debe ser YYYY-MM'),
+})

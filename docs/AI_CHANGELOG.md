@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Backend Etapa 2B-2 (parte 2): flujo financiero
+
+**Portado** (el bloque más delicado — dinero):
+- `caja.service` + `lib/caja.ts` (copiado): cajas (CRUD, soft-delete, acceso por miembro/admin), sesiones (saldo sugerido, abrir con conteo declarado, cerrar transaccional con back-fill de huérfanos + arqueo/diferencia), movimientos (listar, crear manual con sesión abierta obligatoria, anular con permiso `puedeEditarPagos`).
+- `cobros.service`: listar, detalle, crear (permiso `puedeRecibirPagos`, exige caja con sesión abierta, transacción cobro + MovimientoCaja por el neto), editar (campos libres vs privilegiados), anular (transacción que también anula el movimiento), eliminar (solo admin).
+- `liquidaciones.service`: contratos (CRUD, un activo por doctor), liquidaciones (generar por período desde tratamientos COMPLETADOS no liquidados según contrato %/fijo, listar/detalle con scope por rol, cambiar estado).
+- Controllers + validators zod + rutas `/api/v1/{cajas,cobros,contratos,liquidaciones}`.
+
+Typecheck OK + smoke (auth en todas las rutas). master/monolito intactos.
+Con esto el backend cubre todo el flujo clínico-financiero del día a día.
+
+**Pendiente:** 2B-3 (reportes + super-admin) y 2B-4 (integraciones + demo).
+
+---
+
 ## 2026-06-17 — [rama arch/split] Backend Etapa 2B-2 (parte 1): presupuestos
 
 **Portado:** `presupuestos.service` + controller + rutas — listar (por paciente), detalle (con items + prestación + paciente), crear (numero correlativo por clínica, items), editar (estado/notas/vigencia/total con validación de estado).
