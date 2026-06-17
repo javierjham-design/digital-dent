@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Tenancy por subdominio (paridad con el monolito)
+
+Las clínicas entran por `<slug>.clariva.cl` (como el monolito); `super-admin.clariva.cl` = plataforma; `clariva.cl`/`www` = landing (se mantiene). **No se cambió la lógica de tenancy** (el `clinicaId` sigue en el JWT); el subdominio solo decide el slug del login.
+
+**Frontend:**
+- `lib/tenant.ts`: deriva la clínica del subdominio según `VITE_PLATFORM_DOMAIN`, replicando `extractSubdomain` y los subdominios reservados del monolito (`super-admin, www, admin, api, app, mail`).
+- `Login.tsx`: en `<slug>.clariva.cl` fija el slug (no editable, muestra la clínica) y pide solo usuario+contraseña; en `super-admin.clariva.cl` entra en modo plataforma; en apex/localhost (sin dominio) cae a **modo manual** (slug a mano + toggle) — fallback para dev.
+- Sesión aislada por clínica "gratis": `localStorage` es por-origen, así que cada subdominio tiene su token (igual que la cookie por subdominio del monolito).
+
+**Backend:**
+- CORS por **función de origen**: permite los `corsOrigins` explícitos **o** el apex y cualquier subdominio de `PLATFORM_DOMAIN` (cada clínica es un origin distinto). Sin Origin (curl/healthcheck) se permite.
+- `env.platformDomain` desde `PLATFORM_DOMAIN`.
+
+**Runbook (`cutover.md`):** modelo de subdominios — frontend en **wildcard `*.clariva.cl`**, `api` exacto al backend, `www`/apex intactos en la landing; nota de que la landing vive en el monolito (preservarla al retirarlo). `.env.example` de ambos con `PLATFORM_DOMAIN`/`VITE_PLATFORM_DOMAIN`.
+
+Verificación: backend typecheck + **58/58** (incluye CORS por subdominio: clínica/super-admin/apex permitidos, ajeno rechazado); frontend build verde; contrato 116/116.
+
+---
+
 ## 2026-06-17 — [rama arch/split] Etapa 5 (cutover): preparación de despliegue
 
 Preparación completa para el cutover a 2 servicios Railway (backend + frontend) sobre la misma DB. **La ejecución (crear servicios/env/dominios/DNS, retirar monolito) es manual** — runbook en `docs/cutover.md`. El monolito queda intacto.

@@ -9,6 +9,7 @@ let app: Express
 beforeAll(async () => {
   process.env.JWT_SECRET = 'test-secret'
   process.env.ENCRYPTION_KEY = 'test-encryption-key-1234567890'
+  process.env.PLATFORM_DOMAIN = 'clariva.cl'
   const { createApp } = await import('@/app')
   app = createApp()
 })
@@ -55,5 +56,22 @@ describe('rutas inexistentes → 404', () => {
   it('GET /api/v1/inexistente → 404', async () => {
     const res = await request(app).get('/api/v1/inexistente')
     expect(res.status).toBe(404)
+  })
+})
+
+describe('CORS por subdominio de la plataforma (PLATFORM_DOMAIN=clariva.cl)', () => {
+  it('permite el subdominio de una clínica', async () => {
+    const res = await request(app).get('/health').set('Origin', 'https://clinica-demo.clariva.cl')
+    expect(res.headers['access-control-allow-origin']).toBe('https://clinica-demo.clariva.cl')
+  })
+  it('permite super-admin y el apex', async () => {
+    const sa = await request(app).get('/health').set('Origin', 'https://super-admin.clariva.cl')
+    expect(sa.headers['access-control-allow-origin']).toBe('https://super-admin.clariva.cl')
+    const apex = await request(app).get('/health').set('Origin', 'https://clariva.cl')
+    expect(apex.headers['access-control-allow-origin']).toBe('https://clariva.cl')
+  })
+  it('rechaza un origen ajeno (no setea allow-origin)', async () => {
+    const res = await request(app).get('/health').set('Origin', 'https://evil.example.com')
+    expect(res.headers['access-control-allow-origin']).toBeUndefined()
   })
 })

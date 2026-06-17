@@ -19,11 +19,14 @@ export const env = {
   // Secreto para firmar los JWT que emite ESTE backend.
   jwtSecret: required('JWT_SECRET', process.env.NEXTAUTH_SECRET ?? 'dev-insecure-secret-change-me'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '12h',
-  // Orígenes permitidos para CORS (el frontend Vite).
+  // Orígenes permitidos para CORS (el frontend Vite + otros explícitos).
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  // Dominio de la plataforma (p.ej. "clariva.cl"). Si está definido, se permiten
+  // por CORS el apex y CUALQUIER subdominio (cada clínica vive en <slug>.dominio).
+  platformDomain: (process.env.PLATFORM_DOMAIN ?? '').toLowerCase().trim(),
   encryptionKey: process.env.ENCRYPTION_KEY ?? '',
   cronSecret: process.env.CRON_SECRET ?? '',
 }

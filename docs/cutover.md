@@ -13,11 +13,15 @@
 ## 0. Arquitectura objetivo
 
 ```
-                    ┌──────────────────────────┐
-   app.clariva.cl → │ Frontend SPA (Vite/React) │  (Railway, root dir: frontend/)
-                    │  sirve dist/ vía server.mjs│
-                    └─────────────┬──────────────┘
-                                  │  fetch  https://api.clariva.cl/api/v1  (Bearer JWT)
+  clariva.cl / www  →  LANDING promocional (se mantiene como está hoy; NO la sirve
+                       el frontend nuevo). El apex no lo toca el cutover.
+
+  <slug>.clariva.cl      ┐
+  super-admin.clariva.cl ┘→ ┌──────────────────────────┐   (Railway, root dir: frontend/)
+                            │ Frontend SPA (Vite/React) │   dominio wildcard *.clariva.cl
+                            │  sirve dist/ vía server.mjs│
+                            └─────────────┬──────────────┘
+                                  │ fetch https://api.clariva.cl/api/v1 (Bearer JWT)
                     ┌─────────────▼──────────────┐
    api.clariva.cl → │ Backend API (Express+tsx)  │  (Railway, root dir: backend/)
                     └─────────────┬──────────────┘
@@ -27,13 +31,16 @@
                     └────────────────────────────┘
 ```
 
-- Tenancy: el `clinicaId` viaja en el **JWT** (no por subdominio). El frontend es
-  de **dominio único**; la clínica se elige en el login (campo *código/slug*).
-- Token en `localStorage` + header `Authorization` (no cookies) → CORS cross-origin
-  funciona sin problemas de SameSite.
-
-> Si más adlante se quiere `clinica.clariva.cl` por clínica, es un wildcard DNS +
-> que la SPA lea el subdominio como slug. **Fuera de alcance de este cutover.**
+- **Tenancy por SUBDOMINIO, igual que el monolito**: `<slug>.clariva.cl` es la
+  clínica `<slug>`; `super-admin.clariva.cl` es la plataforma; `clariva.cl`/`www`
+  es la landing. La SPA deriva el slug del subdominio (`VITE_PLATFORM_DOMAIN`) y lo
+  fija en el login. El `clinicaId` real sigue viajando en el **JWT** (no se tocó la
+  lógica de tenancy).
+- Token en `localStorage` (no cookies) → como `localStorage` es **por-origen**, cada
+  subdominio aísla su sesión automáticamente (igual que el monolito por cookie de
+  subdominio). CORS cross-origin funciona sin problemas de SameSite.
+- Subdominios reservados (no-clínica), idénticos al monolito: `super-admin, www,
+  admin, api, app, mail`.
 
 ---
 
@@ -67,7 +74,8 @@
    | `JWT_SECRET` | **el mismo** `NEXTAUTH_SECRET` del monolito |
    | `ENCRYPTION_KEY` | **el mismo** del monolito |
    | `CRON_SECRET` | el mismo del monolito |
-   | `CORS_ORIGINS` | URL pública del frontend (se completa en el paso 3; al inicio puede ser la `*.up.railway.app` del frontend) |
+   | `PLATFORM_DOMAIN` | `clariva.cl` → CORS permite el apex y **todos** los subdominios (cada clínica es un origin distinto) |
+   | `CORS_ORIGINS` | orígenes extra puntuales; durante la validación, la `*.up.railway.app` del frontend |
    | `JWT_EXPIRES_IN` | `12h` |
    | `GOOGLE_OAUTH_CLIENT_ID/SECRET` | si se usa Google |
    | `GOOGLE_OAUTH_REDIRECT_URI` | `https://<dominio-backend>/api/v1/google/callback` |
@@ -94,10 +102,10 @@
    | Variable | Valor |
    |----------|-------|
    | `VITE_API_URL` | `https://<dominio-backend>/api/v1` (la URL pública del backend) |
+   | `VITE_PLATFORM_DOMAIN` | `clariva.cl` → la SPA deriva la clínica del subdominio. (Vacío en la `*.up.railway.app`: cae a modo manual y se escribe el slug.) |
 5. Networking → **Generate Domain** (`…-frontend.up.railway.app`).
-6. Volver al **backend** y poner `CORS_ORIGINS` = la URL pública del frontend
-   (ambas: la `*.up.railway.app` y, luego, `https://app.clariva.cl`, separadas por coma).
-   Redeploy del backend para que tome el cambio.
+6. Para validar antes del DNS: en el **backend**, agregar la `*.up.railway.app` del
+   frontend a `CORS_ORIGINS` (en el preview no aplica `PLATFORM_DOMAIN`). Redeploy.
 
 ---
 
@@ -120,31 +128,42 @@ Recorrer contra el frontend nuevo (`…-frontend.up.railway.app`):
 
 ---
 
-## 5. DNS y dominios propios
+## 5. DNS y dominios propios (modelo de subdominios)
 
-1. En Railway, agregar Custom Domains:
+Las clínicas entran por `<slug>.clariva.cl` → el frontend nuevo se sirve en un
+**dominio wildcard**. El apex y `www` siguen en la landing actual (no se tocan).
+
+1. En Railway, Custom Domains:
    - Backend → `api.clariva.cl`
-   - Frontend → `app.clariva.cl` (y/o `clariva.cl`)
-2. En el registrador/DNS de `clariva.cl`, crear los **CNAME** que Railway indique:
+   - Frontend → `*.clariva.cl` (wildcard) — cubre todas las clínicas y `super-admin`.
+2. En el DNS de `clariva.cl` (un registro **exacto gana sobre el wildcard**):
    ```
-   api    CNAME   <target que muestra Railway>
-   app    CNAME   <target que muestra Railway>
+   *      CNAME   <target del FRONTEND en Railway>     ← todas las clínicas + super-admin
+   api    CNAME   <target del BACKEND en Railway>      ← exacto, gana sobre *
+   www    (sin cambios)                                ← landing actual
+   @ / clariva.cl  (sin cambios)                       ← landing actual (apex)
    ```
-3. Esperar propagación + emisión de certificados TLS (Railway lo hace automático).
+   > Verificar que el registro de `www` y del apex **siguen apuntando a la landing**
+   > actual (no al wildcard). El wildcard `*` no afecta al apex; `www` se mantiene por
+   > su registro propio.
+3. Esperar propagación + emisión de TLS (Railway lo hace automático; el wildcard
+   requiere validación DNS del dominio, que Railway guía).
 4. Actualizar:
-   - Backend `CORS_ORIGINS` → incluir `https://app.clariva.cl` (y `https://clariva.cl`).
-   - Frontend `VITE_API_URL` → `https://api.clariva.cl/api/v1` y **rebuild**.
-   - Google `GOOGLE_OAUTH_REDIRECT_URI` + Google Cloud Console → dominio final.
-5. Repetir el smoke del paso 4 sobre los dominios definitivos.
+   - Backend: `PLATFORM_DOMAIN=clariva.cl` (ya permite todos los subdominios por CORS).
+   - Frontend: `VITE_API_URL=https://api.clariva.cl/api/v1` y `VITE_PLATFORM_DOMAIN=clariva.cl`, y **rebuild**.
+   - Google `GOOGLE_OAUTH_REDIRECT_URI` + Google Cloud Console → `https://api.clariva.cl/api/v1/google/callback`.
+5. Smoke sobre dominios definitivos: entrar a `https://<una-clinica>.clariva.cl` (login
+   con slug fijado por el subdominio) y a `https://super-admin.clariva.cl` (plataforma).
 
 ---
 
 ## 6. Switch de tráfico
 
-- El monolito vive hoy en el dominio de producción actual. El cutover real es
-  **apuntar el dominio que usan las clínicas al frontend nuevo**.
+- El cutover real es **mover el wildcard `*.clariva.cl` al frontend nuevo**. A partir
+  de ahí, cada `<slug>.clariva.cl` sirve la SPA.
+- La **landing** (`clariva.cl` / `www`) **no se mueve**: sigue donde está hoy.
 - Recomendado: mantener el monolito accesible en un dominio alterno
-  (`legacy.clariva.cl`) durante unos días por si hay que volver.
+  (`legacy.clariva.cl`) unos días por si hay que volver.
 
 ---
 
@@ -159,13 +178,24 @@ Recorrer contra el frontend nuevo (`…-frontend.up.railway.app`):
 
 ## 8. Retiro del monolito (solo cuando el nuevo stack esté estable)
 
+> ⚠️ **La landing de `clariva.cl` / `www` vive HOY en el monolito.** Si se retira el
+> monolito por completo, se cae la landing. Antes de retirarlo hay que decidir cómo
+> preservar la landing (las clínicas YA están servidas por el frontend nuevo):
+> - **Opción A (mínimo esfuerzo):** mantener el monolito desplegado **solo** para el
+>   apex/`www` (la landing), y dejar el wildcard `*` en el frontend nuevo. El monolito
+>   deja de servir clínicas pero sigue sirviendo la página promocional.
+> - **Opción B:** portar la landing a un sitio estático aparte y recién ahí apagar el
+>   monolito. (Trabajo adicional, fuera de este cutover.)
+
 - [ ] Confirmar varios días de operación sin incidencias en el stack nuevo.
+- [ ] Resolver la landing del apex (Opción A u B de arriba).
 - [ ] El backend pasa a ser **dueño del schema**: a partir de acá, los cambios de
       schema se hacen en `backend/prisma/schema.prisma` (sincronizado con
       `npm run prisma:sync`) y se aplican con `prisma db push` (mismo flujo que
       tenía el monolito). Documentar el cambio en `docs/AI_CHANGELOG.md`.
-- [ ] Pausar/eliminar el servicio del monolito en Railway.
-- [ ] (Opcional) archivar el código del monolito (carpetas `app/`, `proxy.ts`, etc.).
+- [ ] Apagar el rol de **app de clínica** del monolito (el wildcard ya apunta al
+      frontend nuevo). Mantener el monolito solo si sirve la landing (Opción A).
+- [ ] (Opcional) archivar el código del monolito una vez resuelta la landing.
 
 ---
 

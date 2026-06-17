@@ -1,13 +1,19 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
+import { getTenantContext } from '@/lib/tenant'
 
 export function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
-  const [modo, setModo] = useState<'clinica' | 'plataforma'>('clinica')
-  const [slug, setSlug] = useState('')
+  // La clínica se resuelve por subdominio (replica el monolito). En dev/apex el
+  // contexto es "manual" y se permite escribir el código y alternar a plataforma.
+  const ctx = useMemo(() => getTenantContext(), [])
+  const manual = ctx.modo === 'manual'
+
+  const [modo, setModo] = useState<'clinica' | 'plataforma'>(ctx.modo === 'plataforma' ? 'plataforma' : 'clinica')
+  const [slug, setSlug] = useState(ctx.slug ?? '')
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -27,6 +33,12 @@ export function Login() {
     }
   }
 
+  const subtitulo = modo === 'plataforma'
+    ? 'Acceso de administración de la plataforma.'
+    : ctx.modo === 'clinica'
+      ? 'Ingresa con tu usuario y contraseña.'
+      : 'Ingresa con las credenciales de tu clínica.'
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-cyan-50 px-4">
       <form onSubmit={submit} className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
@@ -35,11 +47,18 @@ export function Login() {
           <span className="text-lg font-bold tracking-tight">Cláriva</span>
         </div>
         <h1 className="text-xl font-bold text-slate-900 mb-1">Iniciar sesión</h1>
-        <p className="text-sm text-slate-500 mb-5">{modo === 'clinica' ? 'Ingresa con las credenciales de tu clínica.' : 'Acceso de administración de la plataforma.'}</p>
+        <p className="text-sm text-slate-500 mb-5">{subtitulo}</p>
+
+        {/* Clínica fijada por subdominio: se muestra, no se edita. */}
+        {ctx.modo === 'clinica' && (
+          <div className="mb-4 px-3 py-2 rounded-xl bg-cyan-50 border border-cyan-100 text-sm text-cyan-800">
+            Clínica: <span className="font-semibold">{ctx.slug}</span>
+          </div>
+        )}
 
         {modo === 'clinica' ? (
           <>
-            <Field label="Código de la clínica" value={slug} onChange={setSlug} placeholder="mi-clinica" />
+            {manual && <Field label="Código de la clínica" value={slug} onChange={setSlug} placeholder="mi-clinica" />}
             <Field label="Usuario" value={username} onChange={setUsername} placeholder="Administrador" />
           </>
         ) : (
@@ -58,10 +77,14 @@ export function Login() {
           {cargando ? 'Entrando…' : 'Entrar'}
         </button>
 
-        <button type="button" onClick={() => { setModo(modo === 'clinica' ? 'plataforma' : 'clinica'); setError('') }}
-          className="w-full mt-3 text-xs text-slate-400 hover:text-slate-600">
-          {modo === 'clinica' ? 'Soy administrador de la plataforma' : '← Volver al acceso de clínica'}
-        </button>
+        {/* El toggle a plataforma solo aplica en modo manual (dev/apex). Por
+            subdominio, super-admin.clariva.cl ya entra directo a plataforma. */}
+        {manual && (
+          <button type="button" onClick={() => { setModo(modo === 'clinica' ? 'plataforma' : 'clinica'); setError('') }}
+            className="w-full mt-3 text-xs text-slate-400 hover:text-slate-600">
+            {modo === 'clinica' ? 'Soy administrador de la plataforma' : '← Volver al acceso de clínica'}
+          </button>
+        )}
       </form>
     </div>
   )
