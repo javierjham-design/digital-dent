@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Frontend Etapa 3-4: cobros/caja + liquidaciones
+
+**Cobros (`/cobros`)**: selector de caja; estado de la sesión (ABIERTA/CERRADA/SIN_SESION) con abrir (conteo declarado + saldo sugerido) y cerrar (arqueo con diferencia); panel de resumen (apertura/ingresos/egresos/saldo esperado); registrar movimiento (egreso/ingreso); **recibir pago** (buscador de paciente + ítems + medio de pago); lista de movimientos de la sesión y de cobros recientes con anulación.
+
+**Liquidaciones (`/liquidaciones`)**: lista con estado editable inline (BORRADOR/APROBADA/PAGADA), generar por profesional + período, detalle con ítems y totales, y gestión de **contratos** (listar activos + crear porcentaje/monto fijo).
+
+Nav + router actualizados. Build del frontend verde. Solo queda 3-5 (super-admin) para paridad.
+
+---
+
 ## 2026-06-17 — [rama arch/split] Frontend Etapa 3-3: ficha clínica + odontograma
 
 **Backend (endpoints de lectura que faltaban):** `GET /citas?pacienteId=` (filtro), `PATCH /pacientes/:id` (editar datos, mismo set de campos que el monolito), `GET/PUT /pacientes/:id/ficha` (flags clínicos + odontograma).

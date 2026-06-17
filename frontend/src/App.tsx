@@ -9,6 +9,8 @@ import { FichaPaciente } from '@/pages/FichaPaciente'
 import { Equipo } from '@/pages/Equipo'
 import { Prestaciones } from '@/pages/Prestaciones'
 import { Configuracion } from '@/pages/Configuracion'
+import { Cobros } from '@/pages/Cobros'
+import { Liquidaciones } from '@/pages/Liquidaciones'
 
 export default function App() {
   return (
@@ -26,6 +28,8 @@ export default function App() {
             <Route path="/agenda" element={<Agenda />} />
             <Route path="/pacientes" element={<Pacientes />} />
             <Route path="/pacientes/:id" element={<FichaPaciente />} />
+            <Route path="/cobros" element={<Cobros />} />
+            <Route path="/liquidaciones" element={<Liquidaciones />} />
             <Route path="/prestaciones" element={<Prestaciones />} />
             <Route path="/equipo" element={<Equipo />} />
             <Route path="/configuracion" element={<Configuracion />} />
