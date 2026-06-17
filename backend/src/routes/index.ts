@@ -20,6 +20,7 @@ import * as reportes from '@/controllers/reportes.controller'
 import * as admin from '@/controllers/admin.controller'
 import * as demo from '@/controllers/demo.controller'
 import * as whatsapp from '@/controllers/whatsapp.controller'
+import * as googlec from '@/controllers/google.controller'
 import { requireSuperAdmin } from '@/middlewares/auth'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
@@ -38,6 +39,15 @@ apiRouter.post('/demo', asyncHandler(demo.postDemo))
 apiRouter.post('/demo/cleanup', asyncHandler(demo.postDemoCleanup))
 apiRouter.post('/whatsapp/webhook', asyncHandler(whatsapp.postWebhook))
 apiRouter.post('/whatsapp/recordatorios', asyncHandler(whatsapp.postRecordatorios))
+// Google: sync acepta cron-secret (sin sesión); callback es redirect público.
+apiRouter.get('/google/callback', asyncHandler(googlec.getCallback))
+apiRouter.post('/google/sync', asyncHandler(googlec.postSync))
+
+// ── Google Calendar (sesión de clínica) ──────────────────────────────────────
+apiRouter.get('/google/connect', clinica, asyncHandler(googlec.getConnect))
+apiRouter.post('/google/disconnect', clinica, asyncHandler(googlec.postDisconnect))
+apiRouter.get('/google/calendars', clinica, asyncHandler(googlec.getCalendars))
+apiRouter.post('/google/reconcile-bloqueos', clinica, asyncHandler(googlec.postReconcileBloqueos))
 
 // ── Pacientes ────────────────────────────────────────────────────────────────
 apiRouter.get('/pacientes', clinica, asyncHandler(getPacientes))

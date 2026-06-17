@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { CITA_ESTADOS_KEYS, CITA_ESTADO_LABELS, ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import type { CitaDTO } from '@shared/types'
+import { deleteCitaInGoogle, pushCita } from '@/lib/google-sync'
 
 type CitaRow = {
   id: string; pacienteId: string; doctorId: string; fecha: Date; duracion: number
@@ -111,6 +112,7 @@ export async function crearCita(clinicaId: string, userName: string, input: Crea
     },
     include: INCLUDE,
   })
+  pushCita(cita.id).catch(() => {}) // sync a Google best-effort
   return toDTO(cita)
 }
 
@@ -176,12 +178,14 @@ export async function editarCita(clinicaId: string, id: string, userName: string
     data: { ...data, ...(logs.length > 0 ? { logs: { create: logs } } : {}) },
     include: INCLUDE,
   })
+  pushCita(cita.id).catch(() => {}) // reflejar reagendado en Google
   return toDTO(cita)
 }
 
 export async function eliminarCita(clinicaId: string, id: string): Promise<void> {
   const existing = await prisma.cita.findFirst({ where: { id, clinicaId }, select: { id: true } })
   if (!existing) throw notFound('Cita no encontrada')
+  await deleteCitaInGoogle(id) // borrar en Google mientras tenemos el googleEventId
   await prisma.citaLog.deleteMany({ where: { citaId: id } })
   await prisma.cita.delete({ where: { id } })
 }
@@ -204,5 +208,8 @@ export async function cambiarEstadoCita(clinicaId: string, id: string, estado: s
     },
     include: INCLUDE,
   })
+  // Cancelada → borrar el evento en Google; cualquier otro estado → re-pushear.
+  if (estado === 'CANCELADA') deleteCitaInGoogle(cita.id).catch(() => {})
+  else pushCita(cita.id).catch(() => {})
   return toDTO(cita)
 }

@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import type { BloqueoDTO } from '@shared/types'
+import { deleteBloqueoInGoogle, pushBloqueo } from '@/lib/google-sync'
 
 type BloqueoRow = {
   id: string; doctorId: string; inicio: Date; fin: Date; motivo: string | null; createdByName: string | null
@@ -58,6 +59,7 @@ export async function crearBloqueo(actor: JwtPayload, input: { doctorId: string;
     data: { clinicaId, doctorId: input.doctorId, inicio, fin, motivo, createdById: actor.sub, createdByName: actorName(actor) },
     include: INCLUDE,
   })
+  pushBloqueo(bloqueo.id).catch(() => {})
   return toDTO(bloqueo)
 }
 
@@ -81,6 +83,7 @@ export async function actualizarBloqueo(actor: JwtPayload, id: string, body: { i
   if (body.motivo !== undefined) data.motivo = body.motivo?.trim() || null
 
   const bloqueo = await prisma.bloqueoAgenda.update({ where: { id }, data, include: INCLUDE })
+  pushBloqueo(bloqueo.id).catch(() => {})
   return toDTO(bloqueo)
 }
 
@@ -89,5 +92,6 @@ export async function eliminarBloqueo(actor: JwtPayload, id: string): Promise<vo
   const existing = await prisma.bloqueoAgenda.findFirst({ where: { id, clinicaId }, select: { id: true, doctorId: true } })
   if (!existing) throw notFound('Bloqueo no encontrado')
   if (actor.role !== 'admin' && existing.doctorId !== actor.sub) throw forbidden('No puedes eliminar bloqueos de otros usuarios.')
+  await deleteBloqueoInGoogle(id) // borrar en Google antes de perder el googleEventId
   await prisma.bloqueoAgenda.delete({ where: { id } })
 }

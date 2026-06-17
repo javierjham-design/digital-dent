@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Backend Etapa 2B-4: integraciones + demo (backend 100%)
+
+**2B-4a — WhatsApp + Demo:** libs `verticales`, `whatsapp`, `demo-seed`, `demo-cleanup` copiadas. `demo.service` (crear sandbox + lead + seed por rubro + auto-login con token; cleanup). Controllers públicos con auth interna: demo (rate-limited), demo/cleanup y whatsapp/recordatorios (cron-secret o admin), whatsapp/webhook (firma Twilio HMAC). `express.urlencoded` para el webhook.
+
+**2B-4b — Google Calendar:** `googleapis` agregado; libs `google.ts` y `google-sync.ts` copiadas (tipo OAuth2Client derivado de googleapis para evitar choque de versiones de google-auth-library). `google.controller`: connect (devuelve authUrl para el SPA), callback (redirect público validado por state firmado), disconnect, calendars, sync (cron o admin), reconcile-bloqueos. **Efectos diferidos cableados**: `pushCita`/`deleteCitaInGoogle` en crear/editar/cambiar-estado/eliminar cita; `pushBloqueo`/`deleteBloqueoInGoogle` en bloqueos.
+
+**Verificación:** typecheck OK; smoke (health, 401 en connect/sync, redirect correcto del callback). master/monolito intactos.
+
+**🎉 Backend 100% portado**: todas las rutas del monolito tienen equivalente en `/api/v1/*`. Próximo: Etapa 3 (migrar vistas del frontend) y Etapa 5 (cutover).
+
+---
+
 ## 2026-06-17 — [rama arch/split] Backend Etapa 2B-3b: super-admin
 
 **Portado** (`admin.service` + `admin.controller` + rutas `/api/v1/admin/*`, guard `requireSuperAdmin`):

@@ -84,8 +84,11 @@ Para resincronizar tras un cambio de schema: `cd backend && npm run prisma:sync`
 | 2B-1 | Backend: clínico (planes, tratamientos, secciones, evoluciones, odontograma, medios de pago) | ✅ Hecho |
 | 2B-2 | Backend: presupuestos, cobros, caja (sesiones/movimientos/cierre), contratos, liquidaciones | ✅ Hecho |
 | 2B-3 | Backend: reportes (7 XLSX) + super-admin (clínicas, plan/estado/trial, pagos, extras, WhatsApp, planes-suscripción, leads, resumen, stats) | ✅ Hecho |
-| 2B-4 | Backend: integraciones (Google, WhatsApp) + demo + efectos diferidos | ⏳ Pendiente |
+| 2B-4 | Backend: WhatsApp (webhook + recordatorios), Demo (crear + cleanup), Google Calendar (connect/callback/disconnect/calendars/sync/reconcile) + efectos diferidos (push a Google en citas/bloqueos) | ✅ Hecho |
 | 3 | Migrar el resto de vistas del frontend (ficha clínica + odontograma, presupuestos, cobros, super-admin, configuración) | ⏳ Pendiente |
+
+> **Backend 100% portado.** Todas las rutas del monolito (`/api/*`) tienen su
+> equivalente en `/api/v1/*`. Falta la Etapa 3 (frontend) y la 5 (cutover).
 | 4 | Paridad funcional + QA exhaustivo contra el monolito | ⏳ Pendiente |
 | 5 | **Cutover**: 2 servicios en Railway (backend + frontend), DNS, retirar el monolito | ⏳ Pendiente |
 
