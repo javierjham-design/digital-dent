@@ -12,6 +12,8 @@ import { Prestaciones } from '@/pages/Prestaciones'
 import { Configuracion } from '@/pages/Configuracion'
 import { Cobros } from '@/pages/Cobros'
 import { Liquidaciones } from '@/pages/Liquidaciones'
+import { Presupuestos } from '@/pages/Presupuestos'
+import { Reportes } from '@/pages/Reportes'
 import { AdminDashboard } from '@/pages/admin/Dashboard'
 import { AdminClinicas } from '@/pages/admin/Clinicas'
 import { AdminClinicaDetalle } from '@/pages/admin/ClinicaDetalle'
@@ -34,7 +36,9 @@ export default function App() {
             <Route path="/agenda" element={<Agenda />} />
             <Route path="/pacientes" element={<Pacientes />} />
             <Route path="/pacientes/:id" element={<FichaPaciente />} />
+            <Route path="/presupuestos" element={<Presupuestos />} />
             <Route path="/cobros" element={<Cobros />} />
+            <Route path="/reportes" element={<Reportes />} />
             <Route path="/liquidaciones" element={<Liquidaciones />} />
             <Route path="/prestaciones" element={<Prestaciones />} />
             <Route path="/equipo" element={<Equipo />} />

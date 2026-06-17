@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Paridad: cierre de gaps P1 (Presupuestos) + P2 (Reportes)
+
+Cierre de los 2 gaps de UI de severidad media detectados en la matriz de paridad. Veredicto del informe de QA pasa a **GO** (de GO condicional).
+
+- **`Presupuestos.tsx`** (`/presupuestos`): tabla de presupuestos (Nº, paciente, ítems, total, estado, fecha) con **estado editable inline** (PENDIENTE/APROBADO/RECHAZADO/COMPLETADO) y **modal de creación** (selector de paciente + agregar ítems de prestación con cantidad/precio/descuento, subtotal y total en vivo). Usa `presupuestosService` + `prestacionesService` + `pacientesService`.
+- **`Reportes.tsx`** (`/reportes`): los 7 reportes XLSX (pacientes, citas, cobros, tratamientos, liquidaciones, caja, morosos) con `descargarReporte` y filtro de **rango de fechas** (`desde`/`hasta`, aplica a los que lo soportan).
+- Nav del `DashboardLayout` + rutas en `App.tsx` actualizados.
+
+Build del frontend verde. Contrato FE↔BE sigue 111/111 (usan endpoints ya existentes). `parity-matrix.md` y `qa-report.md` actualizados. Rama respaldada en GitHub (`origin/arch/split-frontend-backend`).
+
+---
+
 ## 2026-06-17 — [rama arch/split] QA Etapa 4-5: informe de paridad + go/no-go (Etapa 4 COMPLETA)
 
 `docs/qa-report.md`: cierre de la Etapa 4. **Veredicto: GO condicional** al cutover — backend 100% portado y verificado en sus propiedades críticas (auth, aislamiento multi-tenant en runtime, doble reserva, facturación); condición = cerrar 2 gaps de UI media (Presupuestos, Reportes) y decidir E1/E2 antes de retirar el monolito. **70/70 tests automatizados verdes** (44 lógica pura + 11 smoke + 15 integración) + contrato FE↔BE 111/111 + typecheck/build. Documenta riesgos residuales (datos prod/staging, CORS, ownership de schema, bundle, secretos) y recomendación. `architecture.md` marca Etapa 4 completa.

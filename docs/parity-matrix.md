@@ -65,16 +65,18 @@
 | `usuarios` | `Equipo.tsx` | ✅ | |
 | `configuracion` | `Configuracion.tsx` | ✅ | |
 | (super-admin) | `admin/*` (5 vistas) | ✅ | |
-| **`presupuestos`** | — | ❌ **GAP** (servicio FE listo) | **Media** |
-| **`reportes`** | — | ❌ **GAP** (servicio FE listo) | **Media** |
+| `presupuestos` | `Presupuestos.tsx` | ✅ (cerrado 2026-06-17) | |
+| `reportes` | `Reportes.tsx` | ✅ (cerrado 2026-06-17) | |
 | `(dashboard)/` (home/KPIs) | — | ❌ (la SPA redirige a `/agenda`) | Baja |
 | `ayuda` | — | ❌ | Baja |
 
 ## C. Plan de remediación (paridad funcional)
 
-**Cerrar antes del cutover (severidad media):**
-- **P1 — Página Presupuestos** (SPA): lista + crear/editar, usando `presupuestosService` (ya existe).
-- **P2 — Página Reportes** (SPA): grilla de los 7 reportes XLSX con `descargarReporte` (ya existe) + filtros de fecha.
+**Cerrado antes del cutover (severidad media):**
+- ✅ **P1 — Página Presupuestos** (`Presupuestos.tsx`): lista con estado editable inline + modal de creación (paciente + ítems de prestación con cantidad/precio/descuento + total). Usa `presupuestosService`.
+- ✅ **P2 — Página Reportes** (`Reportes.tsx`): los 7 reportes XLSX con `descargarReporte` + filtro de rango de fechas (`desde`/`hasta`).
+
+**Pendiente de decisión (severidad media):**
 - **E1 — `cambiar-password`** (backend + UI): endpoint con verificación de pass actual, política (8+, letra+número) y rate-limit; UI mínima en Configuración o menú de perfil.
 - **E2 — `comentarios`** (backend + tab en ficha): si se confirma uso real.
 

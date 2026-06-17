@@ -6,11 +6,13 @@
 
 ## 1. Veredicto
 
-**GO condicional para el cutover (Etapa 5).** El backend está 100% portado y
-verificado en sus propiedades críticas (auth, aislamiento multi-tenant, doble
-reserva, facturación). La condición es cerrar **2 gaps de UI de severidad media**
-(páginas Presupuestos y Reportes) y decidir sobre `cambiar-password`/`comentarios`
-antes de retirar el monolito. Ninguno bloquea preparar la infraestructura.
+**GO para el cutover (Etapa 5).** El backend está 100% portado y verificado en sus
+propiedades críticas (auth, aislamiento multi-tenant, doble reserva, facturación).
+Los 2 gaps de UI de severidad media (**Presupuestos** y **Reportes**) ya se cerraron
+(2026-06-17). Quedan solo gaps de severidad baja y dos features de severidad media
+opcionales (`cambiar-password`, `comentarios`) que pueden diferirse a fast-follow o
+decidirse antes del switch. Recomendado: pase del checklist manual contra staging
+antes de retirar el monolito.
 
 ## 2. Qué se verificó (todo verde)
 
@@ -46,12 +48,12 @@ esta migración: **probada en runtime**, no solo por inspección.
 
 ## 5. Gaps y plan antes de retirar el monolito
 
-| ID | Gap | Severidad | Acción recomendada |
-|----|-----|-----------|--------------------|
-| P1 | Página Presupuestos (SPA) | Media | Cerrar antes del cutover (servicio FE listo). |
-| P2 | Página Reportes (SPA) | Media | Cerrar antes del cutover (servicio FE listo). |
-| E1 | `cambiar-password` (back+UI) | Media | Cerrar o decidir explícitamente diferir. |
-| E2 | `comentarios` administrativos | Media | Confirmar uso real; cerrar o diferir. |
+| ID | Gap | Severidad | Estado / acción |
+|----|-----|-----------|-----------------|
+| P1 | Página Presupuestos (SPA) | Media | ✅ Cerrado (2026-06-17). |
+| P2 | Página Reportes (SPA) | Media | ✅ Cerrado (2026-06-17). |
+| E1 | `cambiar-password` (back+UI) | Media | Pendiente: cerrar o decidir diferir. |
+| E2 | `comentarios` administrativos | Media | Pendiente: confirmar uso real; cerrar o diferir. |
 | E3–E5 | mensajes, resumen/KPIs, import/export, home, ayuda | Baja | Fast-follow post-cutover. |
 
 ## 6. Riesgos residuales para el cutover (Etapa 5)
