@@ -18,4 +18,19 @@ export default defineConfig({
       '/api': { target: 'http://localhost:4000', changeOrigin: true },
     },
   },
+  build: {
+    // Code-split: separa vendors grandes en chunks propios para que el bundle
+    // principal sea liviano y se cacheen aparte (cambian poco entre deploys).
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          fullcalendar: [
+            '@fullcalendar/core', '@fullcalendar/react',
+            '@fullcalendar/daygrid', '@fullcalendar/timegrid', '@fullcalendar/interaction',
+          ],
+        },
+      },
+    },
+  },
 })

@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Etapa 5 (cutover): preparación de despliegue
+
+Preparación completa para el cutover a 2 servicios Railway (backend + frontend) sobre la misma DB. **La ejecución (crear servicios/env/dominios/DNS, retirar monolito) es manual** — runbook en `docs/cutover.md`. El monolito queda intacto.
+
+**Backend deploy-ready:**
+- `backend/railway.json` (NIXPACKS, `npm start`, healthcheck `/health`, restart ON_FAILURE).
+- `package.json`: `tsx` y `prisma` movidos a `dependencies` (sobreviven a poda de devDeps con `NODE_ENV=production`); `postinstall`/`build` = `prisma generate`.
+- `app.ts`: `trust proxy` (IP real tras el proxy de Railway, para rate-limit por IP).
+- `.env.example` completo (incluye Google OAuth + nota de reusar `NEXTAUTH_SECRET`/`ENCRYPTION_KEY` del monolito).
+
+**Frontend deploy-ready:**
+- `frontend/server.mjs`: servidor estático Express que sirve `dist/` con **fallback SPA** y cache por tipo (assets hash inmutables, index sin cache). `express` añadido a `dependencies`. `start` = `node server.mjs`.
+- `frontend/railway.json` (healthcheck `/`).
+- **Code-split** en `vite.config.ts` (`manualChunks`: react / fullcalendar) → bundle principal 325 KB (antes 632), todos los chunks bajo el umbral; warning eliminado.
+- `.env.example`: `VITE_API_URL` (build-time → URL pública del backend).
+
+**Runbook `docs/cutover.md`:** arquitectura objetivo (app + api), pasos Railway por servicio (root dir, env, dominios), CORS, validación con `*.up.railway.app`, DNS (CNAME), switch de tráfico, **rollback** (re-apuntar dominio al monolito; misma DB, sin migración que revertir) y retiro del monolito + traspaso de ownership del schema.
+
+Verificación: backend typecheck + 55/55 tests verdes (con `trust proxy`); frontend build verde con code-split; `server.mjs` probado localmente (`/` y rutas SPA → 200, fallback OK). `architecture.md` marca 5-1..5-3 hechas, 5-4 manual.
+
+---
+
 ## 2026-06-17 — [rama arch/split] Paridad 100%: cierre de TODOS los gaps restantes (E1–E5 + Ayuda)
 
 Cierre del resto de gaps de la matriz. **Paridad funcional al 100%.**

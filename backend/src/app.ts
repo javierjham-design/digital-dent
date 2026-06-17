@@ -10,6 +10,9 @@ export function createApp() {
   const app = express()
 
   app.disable('x-powered-by')
+  // Detrás del proxy de Railway: confiar en X-Forwarded-* para obtener la IP
+  // real del cliente (rate-limit por IP, logs).
+  app.set('trust proxy', 1)
   app.use(helmet())
   app.use(cors({ origin: env.corsOrigins, credentials: true }))
   app.use(express.json({ limit: '1mb' }))

@@ -101,7 +101,10 @@ Para resincronizar tras un cambio de schema: `cd backend && npm run prisma:sync`
 | 4-4 | QA: contrato FE↔BE (`test:contract`) + checklist E2E (`docs/qa-checklist.md`) | ✅ Hecho |
 | 4-5 | QA: informe de paridad + go/no-go → `docs/qa-report.md` | ✅ Hecho |
 | **4** | **Paridad funcional + QA exhaustivo** (70/70 tests verdes; GO condicional) | ✅ **Hecho** |
-| 5 | **Cutover**: 2 servicios en Railway (backend + frontend), DNS, retirar el monolito | ⏳ Pendiente |
+| 5-1 | Backend deploy-ready (railway.json, postinstall prisma, tsx/prisma runtime, trust proxy, .env.example) | ✅ Hecho |
+| 5-2 | Frontend deploy-ready (server.mjs estático + fallback SPA, code-split, VITE_API_URL, railway.json) | ✅ Hecho |
+| 5-3 | Runbook de cutover (`docs/cutover.md`): Railway + DNS + validación + rollback + retiro monolito | ✅ Hecho |
+| 5-4 | **Ejecución del cutover** (crear servicios, env, dominios, DNS, retirar monolito) | ⏳ Manual (Railway + DNS) |
 
 > Hasta la etapa 5, **producción sigue en el monolito**. El nuevo stack se
 > desarrolla en paralelo sin afectar a las clínicas en uso.
