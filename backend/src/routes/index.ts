@@ -1,8 +1,13 @@
 import { Router } from 'express'
+import multer from 'multer'
 import { asyncHandler } from '@/middlewares/async-handler'
 import { requireAuth, requireClinica, requireAdmin } from '@/middlewares/auth'
-import { getMe, postLogin } from '@/controllers/auth.controller'
-import { getPacientes, getPaciente, postPaciente, patchPaciente, getFicha, putFicha } from '@/controllers/pacientes.controller'
+import { getMe, postLogin, postCambiarPassword } from '@/controllers/auth.controller'
+import {
+  getPacientes, getPaciente, postPaciente, patchPaciente, getFicha, putFicha,
+  getComentarios, postComentario, getMensajes, postMensaje, getResumen,
+  getExport, getTemplate, postImport,
+} from '@/controllers/pacientes.controller'
 import { getCitas, postCita, patchCita, deleteCita, patchEstado } from '@/controllers/citas.controller'
 import { getUsuarios, getDoctores, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
 import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo } from '@/controllers/agenda.controller'
@@ -30,9 +35,13 @@ export const apiRouter = Router()
 const clinica = [requireAuth, requireClinica]
 const adminClinica = [requireAuth, requireClinica, requireAdmin]
 
+// Subida de archivos en memoria (import de pacientes XLSX, máx 5MB).
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
+
 // ── Auth ───────────────────────────────────────────────────────────────────
 apiRouter.post('/auth/login', asyncHandler(postLogin))
 apiRouter.get('/auth/me', requireAuth, asyncHandler(getMe))
+apiRouter.post('/auth/cambiar-password', requireAuth, asyncHandler(postCambiarPassword))
 
 // ── Público: demo + webhook WhatsApp (auth interna propia) ───────────────────
 apiRouter.post('/demo', asyncHandler(demo.postDemo))
@@ -51,11 +60,20 @@ apiRouter.post('/google/reconcile-bloqueos', clinica, asyncHandler(googlec.postR
 
 // ── Pacientes ────────────────────────────────────────────────────────────────
 apiRouter.get('/pacientes', clinica, asyncHandler(getPacientes))
-apiRouter.get('/pacientes/:id', clinica, asyncHandler(getPaciente))
+// Rutas estáticas ANTES de /pacientes/:id (si no, ":id" captura export/template/import).
+apiRouter.get('/pacientes/export', clinica, asyncHandler(getExport))
+apiRouter.get('/pacientes/template', clinica, asyncHandler(getTemplate))
+apiRouter.post('/pacientes/import', adminClinica, upload.single('file'), asyncHandler(postImport))
 apiRouter.post('/pacientes', clinica, asyncHandler(postPaciente))
+apiRouter.get('/pacientes/:id', clinica, asyncHandler(getPaciente))
 apiRouter.patch('/pacientes/:id', clinica, asyncHandler(patchPaciente))
 apiRouter.get('/pacientes/:id/ficha', clinica, asyncHandler(getFicha))
 apiRouter.put('/pacientes/:id/ficha', clinica, asyncHandler(putFicha))
+apiRouter.get('/pacientes/:id/comentarios', clinica, asyncHandler(getComentarios))
+apiRouter.post('/pacientes/:id/comentarios', clinica, asyncHandler(postComentario))
+apiRouter.get('/pacientes/:id/mensajes', clinica, asyncHandler(getMensajes))
+apiRouter.post('/pacientes/:id/mensajes', clinica, asyncHandler(postMensaje))
+apiRouter.get('/pacientes/:id/resumen', clinica, asyncHandler(getResumen))
 
 // ── Citas / Agenda ───────────────────────────────────────────────────────────
 apiRouter.get('/citas', clinica, asyncHandler(getCitas))

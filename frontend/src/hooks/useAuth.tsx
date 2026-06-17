@@ -8,6 +8,7 @@ interface AuthContextValue {
   cargando: boolean
   login: (body: LoginRequest) => Promise<SessionUserDTO>
   logout: () => void
+  refrescar: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -35,8 +36,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null)
   }
 
+  const refrescar = async () => {
+    if (!tokenStore.get()) return
+    setUser(await authService.me())
+  }
+
   return (
-    <AuthContext.Provider value={{ user, cargando, login, logout }}>
+    <AuthContext.Provider value={{ user, cargando, login, logout, refrescar }}>
       {children}
     </AuthContext.Provider>
   )

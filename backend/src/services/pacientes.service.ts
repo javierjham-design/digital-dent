@@ -1,5 +1,7 @@
+import * as XLSX from 'xlsx'
 import { prisma } from '@/lib/prisma'
 import { badRequest, notFound } from '@/lib/errors'
+import { buildXlsx, formatRUT, isoDate } from '@/lib/excel'
 import type { PacienteDTO } from '@shared/types'
 
 function toDTO(p: {
@@ -125,4 +127,183 @@ export async function guardarFicha(clinicaId: string, pacienteId: string, body: 
     create: { pacienteId, clinicaId, ...data },
   })
   return ficha
+}
+
+async function assertPaciente(clinicaId: string, pacienteId: string) {
+  const p = await prisma.paciente.findFirst({ where: { id: pacienteId, clinicaId }, select: { id: true } })
+  if (!p) throw notFound('Paciente no encontrado')
+}
+
+// ── Comentarios administrativos ───────────────────────────────────────────────
+export async function listarComentarios(clinicaId: string, pacienteId: string) {
+  await assertPaciente(clinicaId, pacienteId)
+  return prisma.comentarioAdministrativo.findMany({ where: { pacienteId, clinicaId }, orderBy: { createdAt: 'desc' } })
+}
+
+export async function crearComentario(clinicaId: string, pacienteId: string, autor: { id: string; nombre: string }, texto: string) {
+  await assertPaciente(clinicaId, pacienteId)
+  if (!texto?.trim()) throw badRequest('Texto requerido')
+  return prisma.comentarioAdministrativo.create({
+    data: { clinicaId, pacienteId, autorNombre: autor.nombre, autorId: autor.id, texto: texto.trim() },
+  })
+}
+
+// ── Mensajes (historial de comunicaciones) ────────────────────────────────────
+export async function listarMensajes(clinicaId: string, pacienteId: string) {
+  await assertPaciente(clinicaId, pacienteId)
+  return prisma.mensajePaciente.findMany({ where: { pacienteId, clinicaId }, orderBy: { createdAt: 'desc' }, take: 200 })
+}
+
+export async function crearMensaje(clinicaId: string, pacienteId: string, body: Record<string, unknown>) {
+  await assertPaciente(clinicaId, pacienteId)
+  if (!body.tipo || !body.categoria) throw badRequest('tipo y categoria son requeridos')
+  return prisma.mensajePaciente.create({
+    data: {
+      clinicaId, pacienteId, citaId: body.citaId ? String(body.citaId) : null,
+      tipo: String(body.tipo), categoria: String(body.categoria),
+      asunto: body.asunto ? String(body.asunto) : null, cuerpo: body.cuerpo ? String(body.cuerpo) : null,
+      enviadoA: body.enviadoA ? String(body.enviadoA) : null, estado: body.estado ? String(body.estado) : 'ENVIADO',
+    },
+  })
+}
+
+// ── Resumen de KPIs del paciente ───────────────────────────────────────────────
+export async function resumenPaciente(clinicaId: string, id: string) {
+  const paciente = await prisma.paciente.findFirst({
+    where: { id, clinicaId },
+    include: {
+      fichaClinica: { select: { tratamientos: { select: { estado: true, precio: true } } } },
+      cobros: { select: { monto: true, estado: true } },
+      presupuestos: { select: { estado: true, vigencia: true } },
+    },
+  })
+  if (!paciente) throw notFound('Paciente no encontrado')
+  const tratamientos = paciente.fichaClinica?.tratamientos ?? []
+  const activos = tratamientos.filter((t) => t.estado === 'PLANIFICADO' || t.estado === 'EN_PROGRESO').length
+  const finalizados = tratamientos.filter((t) => t.estado === 'COMPLETADO').length
+  const expirados = paciente.presupuestos.filter((p) => p.vigencia && new Date(p.vigencia) < new Date() && p.estado !== 'APROBADO').length
+  const realizado = tratamientos.filter((t) => t.estado === 'COMPLETADO').reduce((s, t) => s + t.precio, 0)
+  const abonado = paciente.cobros.filter((c) => c.estado === 'PAGADO').reduce((s, c) => s + c.monto, 0)
+  return { tratamientosCount: tratamientos.length, activos, finalizados, expirados, realizado, abonado, saldo: Math.max(realizado - abonado, 0) }
+}
+
+// ── Export / Template / Import (XLSX) ──────────────────────────────────────────
+export async function exportarPacientes(clinicaId: string): Promise<Buffer> {
+  const pacientes = await prisma.paciente.findMany({ where: { clinicaId }, orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }] })
+  return buildXlsx(pacientes, [
+    { header: 'Nombres', width: 18, value: (p) => p.nombre },
+    { header: 'Apellidos', width: 22, value: (p) => p.apellido },
+    { header: 'Telefono', width: 18, value: (p) => p.telefono ?? '' },
+    { header: 'Dirección', width: 32, value: (p) => p.direccion ?? '' },
+    { header: 'Correo Electrónico', width: 28, value: (p) => p.email ?? '' },
+    { header: 'RUT', width: 14, value: (p) => formatRUT(p.rut) },
+    { header: 'Fecha de Nacimiento', width: 20, value: (p) => isoDate(p.fechaNacimiento) },
+    { header: 'Previsión', width: 14, value: (p) => p.prevision ?? '' },
+    { header: 'Género', width: 12, value: (p) => p.genero ?? '' },
+    { header: 'Activo', width: 8, value: (p) => (p.activo ? 'Sí' : 'No') },
+    { header: 'Creado', width: 12, value: (p) => isoDate(p.createdAt) },
+  ], 'Pacientes')
+}
+
+export function plantillaPacientes(): Buffer {
+  const ejemplo = [{
+    nombre: 'Juan', apellido: 'Pérez González', telefono: '+56 9 1234 5678',
+    direccion: 'Av. Alemania 123, Temuco', email: 'juan.perez@example.cl', rut: '12.345.678-9', nacimiento: '1990-05-15',
+  }]
+  return buildXlsx(ejemplo, [
+    { header: 'Nombres', width: 18, value: (r) => r.nombre },
+    { header: 'Apellidos', width: 22, value: (r) => r.apellido },
+    { header: 'Telefono', width: 18, value: (r) => r.telefono },
+    { header: 'Dirección', width: 32, value: (r) => r.direccion },
+    { header: 'Correo Electrónico', width: 28, value: (r) => r.email },
+    { header: 'RUT', width: 14, value: (r) => r.rut },
+    { header: 'Fecha de Nacimiento', width: 20, value: (r) => r.nacimiento },
+  ], 'Pacientes')
+}
+
+type Row = Record<string, unknown>
+function pickString(row: Row, keys: string[]): string {
+  for (const k of keys) { const v = row[k]; if (v == null) continue; const s = String(v).trim(); if (s) return s }
+  return ''
+}
+function normalizeRut(raw: string): string {
+  const clean = raw.replace(/[^0-9kK]/g, '').toUpperCase()
+  if (clean.length < 2) return ''
+  return `${clean.slice(0, -1)}-${clean.slice(-1)}`
+}
+function parseFecha(raw: unknown): Date | null {
+  if (raw == null || raw === '') return null
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    const p = XLSX.SSF.parse_date_code(raw)
+    if (p) return new Date(Date.UTC(p.y, p.m - 1, p.d))
+  }
+  if (raw instanceof Date && !isNaN(raw.getTime())) return new Date(Date.UTC(raw.getFullYear(), raw.getMonth(), raw.getDate()))
+  const s = String(raw).trim()
+  if (!s) return null
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
+  if (iso) return new Date(Date.UTC(+iso[1], +iso[2] - 1, +iso[3]))
+  const dmy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})/)
+  if (dmy) { let y = +dmy[3]; if (y < 100) y += y < 50 ? 2000 : 1900; return new Date(Date.UTC(y, +dmy[2] - 1, +dmy[1])) }
+  const fb = new Date(s)
+  return isNaN(fb.getTime()) ? null : fb
+}
+
+export async function importarPacientes(clinicaId: string, fileBuffer: Buffer) {
+  let rows: Row[]
+  try {
+    const wb = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true })
+    const sheetName = wb.SheetNames[0]
+    if (!sheetName) throw new Error('Archivo sin hojas')
+    rows = XLSX.utils.sheet_to_json<Row>(wb.Sheets[sheetName], { defval: '', raw: true })
+  } catch (e) {
+    throw badRequest(`No se pudo leer el archivo: ${e instanceof Error ? e.message : e}`)
+  }
+
+  const errores: { fila: number; motivo: string }[] = []
+  const validos: { clinicaId: string; rut: string | null; nombre: string; apellido: string; telefono: string | null; email: string | null; direccion: string | null; fechaNacimiento: Date | null }[] = []
+  const rutsEnArchivo = new Set<string>()
+
+  rows.forEach((row, idx) => {
+    const fila = idx + 2
+    const nombre = pickString(row, ['Nombres', 'Nombre', 'nombre', 'nombres'])
+    const apellido = pickString(row, ['Apellidos', 'Apellido', 'apellido', 'apellidos'])
+    const rutRaw = pickString(row, ['RUT', 'Rut', 'rut'])
+    const telefono = pickString(row, ['Telefono', 'Teléfono', 'telefono', 'teléfono'])
+    const direccion = pickString(row, ['Dirección', 'Direccion', 'direccion', 'dirección'])
+    const email = pickString(row, ['Correo Electrónico', 'Correo Electronico', 'Email', 'Correo', 'email', 'correo'])
+    const fechaRaw = row['Fecha de Nacimiento'] ?? row['Fecha Nacimiento'] ?? row['fecha de nacimiento'] ?? row['fechaNacimiento']
+
+    if (!nombre && !apellido && !rutRaw && !telefono && !email) return
+    if (!nombre) { errores.push({ fila, motivo: 'Falta Nombres' }); return }
+    if (!apellido) { errores.push({ fila, motivo: 'Falta Apellidos' }); return }
+
+    let rut: string | null = null
+    if (rutRaw) {
+      const norm = normalizeRut(rutRaw)
+      if (!norm) { errores.push({ fila, motivo: `RUT inválido: ${rutRaw}` }); return }
+      if (rutsEnArchivo.has(norm)) { errores.push({ fila, motivo: `RUT duplicado en el archivo: ${norm}` }); return }
+      rutsEnArchivo.add(norm)
+      rut = norm
+    }
+    validos.push({ clinicaId, rut, nombre, apellido, telefono: telefono || null, email: email || null, direccion: direccion || null, fechaNacimiento: parseFecha(fechaRaw) })
+  })
+
+  let duplicadosEnDB = 0
+  const rutsConsulta = validos.map((v) => v.rut).filter((r): r is string => r !== null)
+  if (rutsConsulta.length > 0) {
+    const existentes = await prisma.paciente.findMany({ where: { clinicaId, rut: { in: rutsConsulta } }, select: { rut: true } })
+    const setExistentes = new Set(existentes.map((e) => e.rut).filter((r): r is string => r !== null))
+    if (setExistentes.size > 0) {
+      const filtrados = validos.filter((v) => { if (v.rut && setExistentes.has(v.rut)) { duplicadosEnDB++; return false } return true })
+      validos.length = 0
+      validos.push(...filtrados)
+    }
+  }
+
+  let creados = 0
+  if (validos.length > 0) {
+    const result = await prisma.paciente.createMany({ data: validos, skipDuplicates: true })
+    creados = result.count
+  }
+  return { total: rows.length, creados, duplicados: duplicadosEnDB, sinRut: validos.filter((v) => v.rut === null).length, errores }
 }

@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
+import { CambiarPasswordModal } from '@/components/CambiarPasswordModal'
 
 const NAV = [
   { to: '/agenda', label: 'Agenda' },
@@ -11,10 +13,16 @@ const NAV = [
   { to: '/reportes', label: 'Reportes' },
   { to: '/equipo', label: 'Equipo' },
   { to: '/configuracion', label: 'Config.' },
+  { to: '/ayuda', label: 'Ayuda' },
 ]
 
 export function DashboardLayout() {
   const { user, logout } = useAuth()
+  const [cambiarPass, setCambiarPass] = useState(false)
+  // Si el admin reseteó la contraseña o es el primer ingreso, forzar el cambio.
+  const forzado = Boolean(user?.requirePasswordChange)
+  useEffect(() => { if (forzado) setCambiarPass(true) }, [forzado])
+
   if (user?.isPlatformAdmin) return <Navigate to="/plataforma" replace />
   return (
     <div className="min-h-screen">
@@ -33,13 +41,17 @@ export function DashboardLayout() {
           ))}
         </nav>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-slate-600 hidden sm:block">{user?.name ?? user?.email}</span>
+          <div className="hidden sm:flex flex-col items-end leading-tight">
+            <span className="text-sm text-slate-600">{user?.name ?? user?.email}</span>
+            <button onClick={() => setCambiarPass(true)} className="text-xs text-slate-400 hover:text-cyan-600">Cambiar contraseña</button>
+          </div>
           <button onClick={logout} className="text-sm text-slate-500 hover:text-rose-600">Salir</button>
         </div>
       </header>
       <main className="max-w-5xl mx-auto px-4 py-8">
         <Outlet />
       </main>
+      {cambiarPass && <CambiarPasswordModal forzado={forzado} onClose={() => setCambiarPass(false)} />}
     </div>
   )
 }

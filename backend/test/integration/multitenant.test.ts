@@ -105,6 +105,45 @@ describe('detección de doble reserva (solapamiento)', () => {
   })
 })
 
+describe('endpoints nuevos: aislamiento + cambio de contraseña', () => {
+  it('comentarios de un paciente de otra clínica → 404', async () => {
+    const r = await request(app).get(`/api/v1/pacientes/${B.paciente.id}/comentarios`).set('Authorization', `Bearer ${tokenA}`)
+    expect(r.status).toBe(404)
+  })
+  it('resumen propio → 200 con KPIs numéricos', async () => {
+    const r = await request(app).get(`/api/v1/pacientes/${A.paciente.id}/resumen`).set('Authorization', `Bearer ${tokenA}`)
+    expect(r.status).toBe(200)
+    expect(typeof r.body.saldo).toBe('number')
+  })
+  it('resumen de un paciente de otra clínica → 404', async () => {
+    const r = await request(app).get(`/api/v1/pacientes/${A.paciente.id}/resumen`).set('Authorization', `Bearer ${tokenB}`)
+    expect(r.status).toBe(404)
+  })
+  it('agregar comentario propio → 201 y aparece en el listado', async () => {
+    const c = await request(app).post(`/api/v1/pacientes/${A.paciente.id}/comentarios`).set('Authorization', `Bearer ${tokenA}`).send({ texto: 'Llamar para confirmar' })
+    expect(c.status).toBe(201)
+    const list = await request(app).get(`/api/v1/pacientes/${A.paciente.id}/comentarios`).set('Authorization', `Bearer ${tokenA}`)
+    expect(list.body.some((x: any) => x.texto === 'Llamar para confirmar')).toBe(true)
+  })
+  it('cambiar-password: contraseña actual incorrecta → 400', async () => {
+    const r = await request(app).post('/api/v1/auth/cambiar-password').set('Authorization', `Bearer ${tokenB}`).send({ currentPassword: 'incorrecta', newPassword: 'NuevaClave123' })
+    expect(r.status).toBe(400)
+  })
+  it('cambiar-password: política (corta) → 400', async () => {
+    const r = await request(app).post('/api/v1/auth/cambiar-password').set('Authorization', `Bearer ${tokenB}`).send({ currentPassword: PASSWORD, newPassword: 'corta' })
+    expect(r.status).toBe(400)
+  })
+  it('cambiar-password: cambia y permite login con la nueva (y se restaura)', async () => {
+    const nueva = 'NuevaClave123'
+    const ch = await request(app).post('/api/v1/auth/cambiar-password').set('Authorization', `Bearer ${tokenB}`).send({ currentPassword: PASSWORD, newPassword: nueva })
+    expect(ch.status).toBe(200)
+    expect((await login({ slug: B.clinica.slug, username: 'admin', password: nueva })).status).toBe(200)
+    // restaurar para no afectar otros tests
+    const t2 = (await login({ slug: B.clinica.slug, username: 'admin', password: nueva })).token!
+    await request(app).post('/api/v1/auth/cambiar-password').set('Authorization', `Bearer ${t2}`).send({ currentPassword: nueva, newPassword: PASSWORD })
+  })
+})
+
 describe('gating de roles', () => {
   it('un admin de clínica NO accede a endpoints de plataforma → 403', async () => {
     const r = await request(app).get('/api/v1/admin/stats').set('Authorization', `Bearer ${tokenA}`)

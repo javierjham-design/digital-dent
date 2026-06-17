@@ -14,4 +14,7 @@ export const authService = {
   logout() {
     tokenStore.clear()
   },
+  cambiarPassword(currentPassword: string, newPassword: string) {
+    return api.post<{ ok: true }>('/auth/cambiar-password', { currentPassword, newPassword })
+  },
 }

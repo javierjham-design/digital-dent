@@ -14,6 +14,7 @@ import { Cobros } from '@/pages/Cobros'
 import { Liquidaciones } from '@/pages/Liquidaciones'
 import { Presupuestos } from '@/pages/Presupuestos'
 import { Reportes } from '@/pages/Reportes'
+import { Ayuda } from '@/pages/Ayuda'
 import { AdminDashboard } from '@/pages/admin/Dashboard'
 import { AdminClinicas } from '@/pages/admin/Clinicas'
 import { AdminClinicaDetalle } from '@/pages/admin/ClinicaDetalle'
@@ -43,6 +44,7 @@ export default function App() {
             <Route path="/prestaciones" element={<Prestaciones />} />
             <Route path="/equipo" element={<Equipo />} />
             <Route path="/configuracion" element={<Configuracion />} />
+            <Route path="/ayuda" element={<Ayuda />} />
           </Route>
           <Route path="/plataforma" element={<SuperAdminLayout />}>
             <Route index element={<AdminDashboard />} />

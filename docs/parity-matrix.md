@@ -8,12 +8,14 @@
 
 ## Resumen ejecutivo
 
-- **Backend (API):** prácticamente 100% portado. 5 endpoints del monolito **sin
-  equivalente** en `/api/v1`, todos de severidad media/baja y **ninguno usado por
-  la SPA actual** (no hay features rotas, sí features ausentes).
-- **Frontend (UI):** 4 vistas del monolito **sin equivalente** SPA. Las dos de
-  severidad media (**Presupuestos**, **Reportes**) ya tienen el cliente de
-  servicio listo en el front — solo falta la página.
+> **Actualización 2026-06-17: paridad funcional al 100%.** Todos los gaps
+> detectados en la auditoría inicial fueron cerrados (ver §C). Lo que sigue es el
+> registro de la auditoría original y su resolución.
+
+- **Backend (API):** 100% portado. Los 5 endpoints que faltaban (cambiar-password,
+  comentarios, mensajes, resumen, import/export/template) ya están implementados.
+- **Frontend (UI):** todas las vistas portadas. Las que faltaban (Presupuestos,
+  Reportes, Ayuda) ya existen; "home" no era gap (el monolito solo redirige).
 - **Sin regresiones detectables por lectura de código.** Todo lo migrado tiene su
   contraparte funcional.
 
@@ -42,15 +44,15 @@
 | WhatsApp | `whatsapp/{webhook,recordatorios}` | idénticos | |
 | Demo | `demo`, `demo/cleanup` | idénticos | |
 
-### A.2 Gaps de endpoint (en el backend nuevo)
+### A.2 Gaps de endpoint — TODOS CERRADOS (2026-06-17)
 
-| # | Endpoint monolito | Modelo | ¿La SPA lo invoca? | Severidad | Recomendación |
-|---|-------------------|--------|--------------------|-----------|---------------|
-| E1 | `POST /auth/cambiar-password` | User | No (no hay UI) | **Media** | Cerrar antes de cutover: es self-service de seguridad (verifica pass actual + política + rate-limit). |
-| E2 | `GET/POST /pacientes/[id]/comentarios` | ComentarioAdministrativo | No | **Media** | Cerrar antes de cutover si la clínica usa comentarios administrativos. |
-| E3 | `GET/POST /pacientes/[id]/mensajes` | MensajePaciente | No | Baja | Diferible (historial de mensajes; lo alimenta el flujo WhatsApp). |
-| E4 | `GET /pacientes/[id]/resumen` | (KPIs derivados) | No | Baja | Diferible (KPIs de fila expandida; nice-to-have). |
-| E5 | `pacientes/{import,export,template}` | Paciente (CSV) | No | Baja | Diferible (carga/descarga masiva; conveniencia admin). |
+| # | Endpoint | Estado |
+|---|----------|--------|
+| E1 | `POST /auth/cambiar-password` | ✅ Backend (verifica pass actual + política 8+/letra+número + rate-limit) + UI (modal en header, con gate de cambio forzado por `requirePasswordChange`). |
+| E2 | `GET/POST /pacientes/:id/comentarios` | ✅ Backend + tab "Comentarios" en la ficha. |
+| E3 | `GET/POST /pacientes/:id/mensajes` | ✅ Backend + tab "Mensajes" (historial, solo lectura) en la ficha. |
+| E4 | `GET /pacientes/:id/resumen` | ✅ Backend + KPIs en el encabezado de la ficha. |
+| E5 | `GET /pacientes/{export,template}`, `POST /pacientes/import` | ✅ Backend (XLSX, import con multer + validación/dedup) + botones en Pacientes (import solo admin). |
 
 ## B. Páginas / vistas
 
@@ -67,22 +69,17 @@
 | (super-admin) | `admin/*` (5 vistas) | ✅ | |
 | `presupuestos` | `Presupuestos.tsx` | ✅ (cerrado 2026-06-17) | |
 | `reportes` | `Reportes.tsx` | ✅ (cerrado 2026-06-17) | |
-| `(dashboard)/` (home/KPIs) | — | ❌ (la SPA redirige a `/agenda`) | Baja |
-| `ayuda` | — | ❌ | Baja |
+| `(dashboard)/` (home) | — (catch-all → `/agenda`) | ✅ No es gap: el monolito **solo hace `redirect('/agenda')`**; la SPA replica ese comportamiento. | |
+| `ayuda` | `Ayuda.tsx` | ✅ (cerrado 2026-06-17; centro de ayuda con búsqueda + categorías, escrito para la UI de la SPA) | |
 
-## C. Plan de remediación (paridad funcional)
+## C. Plan de remediación — COMPLETADO (2026-06-17)
 
-**Cerrado antes del cutover (severidad media):**
-- ✅ **P1 — Página Presupuestos** (`Presupuestos.tsx`): lista con estado editable inline + modal de creación (paciente + ítems de prestación con cantidad/precio/descuento + total). Usa `presupuestosService`.
-- ✅ **P2 — Página Reportes** (`Reportes.tsx`): los 7 reportes XLSX con `descargarReporte` + filtro de rango de fechas (`desde`/`hasta`).
+**Todos los gaps cerrados.** Paridad funcional al 100%:
+- ✅ P1 Presupuestos, ✅ P2 Reportes (páginas SPA).
+- ✅ E1 cambiar-password, ✅ E2 comentarios, ✅ E3 mensajes, ✅ E4 resumen/KPIs, ✅ E5 import/export/template.
+- ✅ Ayuda (centro de ayuda de la SPA).
+- Home no era gap (el monolito solo redirige a `/agenda`).
 
-**Pendiente de decisión (severidad media):**
-- **E1 — `cambiar-password`** (backend + UI): endpoint con verificación de pass actual, política (8+, letra+número) y rate-limit; UI mínima en Configuración o menú de perfil.
-- **E2 — `comentarios`** (backend + tab en ficha): si se confirma uso real.
-
-**Diferibles (documentados, fast-follow post-cutover):**
-- E3 mensajes, E4 resumen/KPIs, E5 import/export/template, home de dashboard, ayuda.
-
-> Las fases 4-2 y 4-3 (tests automatizados) **no dependen** de cerrar estos gaps:
-> validan el backend ya portado (que es lo crítico para el cutover). El cierre de
-> gaps de UI corre en paralelo a la batería de pruebas.
+> Verificación: build del frontend verde · backend typecheck verde · 55/55 unit+smoke ·
+> 22/22 integración (incluye aislamiento multi-tenant de los endpoints nuevos) ·
+> contrato FE↔BE 116/116. **No quedan gaps pendientes para el cutover.**

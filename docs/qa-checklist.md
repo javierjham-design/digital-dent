@@ -73,7 +73,14 @@ cd frontend && npm run dev                      # http://localhost:5173
 - [ ] Configuración de la clínica: guardar nombre/contacto/plantilla WhatsApp.
 
 ### Reportes
-- [ ] Descargar cada XLSX (pacientes, citas, cobros, tratamientos, liquidaciones, caja, morosos) con auth. *(Requiere la página Reportes — ver gap P2 en parity-matrix.md.)*
+- [ ] Descargar cada XLSX (pacientes, citas, cobros, tratamientos, liquidaciones, caja, morosos) con auth, desde `/reportes`.
+
+### Otros (gaps cerrados)
+- [ ] Cambiar contraseña desde el header; primer ingreso fuerza el cambio.
+- [ ] Ficha: KPIs en el encabezado + tabs Comentarios y Mensajes.
+- [ ] Pacientes: Exportar XLSX, descargar Plantilla, Importar (solo admin) con resumen de resultado.
+- [ ] Presupuestos: crear con ítems y cambiar estado.
+- [ ] Ayuda (`/ayuda`): búsqueda y categorías.
 
 ### Super-admin (plataforma)
 - [ ] Dashboard: KPIs + MRR.
@@ -88,6 +95,5 @@ cd frontend && npm run dev                      # http://localhost:5173
 - [ ] Leads: listado de prospectos.
 - [ ] Planes de suscripción: crear / editar precio / activar-desactivar.
 
-## Gaps conocidos a tener presentes durante el QA
-- Presupuestos y Reportes **aún no tienen página** en el SPA (servicio FE listo) → ver `parity-matrix.md` §C.
-- Sin self-service de cambio de contraseña, comentarios administrativos, ni import/export de pacientes (diferibles).
+## Gaps conocidos
+- **Ninguno.** Paridad funcional al 100% (ver `parity-matrix.md` §C). Tech-debt no funcional: code-split del bundle del frontend (~630 KB por FullCalendar).

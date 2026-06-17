@@ -1,5 +1,7 @@
-import { api } from './api'
+import { api, tokenStore, ApiError } from './api'
 import type { BloqueoDTO, CitaDTO, HorarioDTO, PacienteDTO } from '@shared/types'
+
+const BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
 
 export const citasService = {
   listar: (from?: string, to?: string) => {
@@ -49,4 +51,47 @@ export const pacientesService = {
   ficha: (id: string) => api.get<{ ficha: FichaClinica | null; odontograma: DienteDTO[] }>(`/pacientes/${id}/ficha`),
   guardarFicha: (id: string, body: Record<string, unknown>) => api.put<FichaClinica>(`/pacientes/${id}/ficha`, body),
   citas: (id: string) => api.get<CitaDTO[]>(`/citas?pacienteId=${id}`),
+  resumen: (id: string) => api.get<ResumenPaciente>(`/pacientes/${id}/resumen`),
+  comentarios: (id: string) => api.get<ComentarioDTO[]>(`/pacientes/${id}/comentarios`),
+  agregarComentario: (id: string, texto: string) => api.post<ComentarioDTO>(`/pacientes/${id}/comentarios`, { texto }),
+  mensajes: (id: string) => api.get<MensajeDTO[]>(`/pacientes/${id}/mensajes`),
+}
+
+export interface ResumenPaciente { tratamientosCount: number; activos: number; finalizados: number; expirados: number; realizado: number; abonado: number; saldo: number }
+export interface ComentarioDTO { id: string; texto: string; autorNombre: string | null; createdAt: string }
+export interface MensajeDTO { id: string; tipo: string; categoria: string; asunto: string | null; cuerpo: string | null; enviadoA: string | null; estado: string; createdAt: string }
+
+export interface ImportResultado { total: number; creados: number; duplicados: number; sinRut: number; errores: { fila: number; motivo: string }[] }
+
+// Descargas/subidas que no pasan por el wrapper JSON (blob / multipart).
+export const pacientesIO = {
+  async exportar() { await descargar('/pacientes/export', `pacientes-${new Date().toISOString().slice(0, 10)}.xlsx`) },
+  async plantilla() { await descargar('/pacientes/template', 'plantilla-pacientes.xlsx') },
+  async importar(file: File): Promise<ImportResultado> {
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`${BASE}/pacientes/import`, {
+      method: 'POST',
+      headers: tokenStore.get() ? { Authorization: `Bearer ${tokenStore.get()}` } : {},
+      body: fd,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? `Error ${res.status}`)
+    return data as ImportResultado
+  },
+}
+
+async function descargar(path: string, filename: string) {
+  const token = tokenStore.get()
+  const res = await fetch(`${BASE}${path}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    throw new ApiError(res.status, (data as { error?: string }).error ?? `Error ${res.status}`)
+  }
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click(); a.remove()
+  URL.revokeObjectURL(url)
 }

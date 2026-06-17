@@ -8,11 +8,10 @@
 
 **GO para el cutover (Etapa 5).** El backend está 100% portado y verificado en sus
 propiedades críticas (auth, aislamiento multi-tenant, doble reserva, facturación).
-Los 2 gaps de UI de severidad media (**Presupuestos** y **Reportes**) ya se cerraron
-(2026-06-17). Quedan solo gaps de severidad baja y dos features de severidad media
-opcionales (`cambiar-password`, `comentarios`) que pueden diferirse a fast-follow o
-decidirse antes del switch. Recomendado: pase del checklist manual contra staging
-antes de retirar el monolito.
+**Paridad funcional al 100%: todos los gaps de la matriz fueron cerrados**
+(2026-06-17) — Presupuestos, Reportes, cambiar-password, comentarios, mensajes,
+resumen/KPIs, import/export/template y Ayuda. No quedan gaps pendientes.
+Recomendado: pase del checklist manual contra staging antes de retirar el monolito.
 
 ## 2. Qué se verificó (todo verde)
 
@@ -48,13 +47,18 @@ esta migración: **probada en runtime**, no solo por inspección.
 
 ## 5. Gaps y plan antes de retirar el monolito
 
-| ID | Gap | Severidad | Estado / acción |
-|----|-----|-----------|-----------------|
-| P1 | Página Presupuestos (SPA) | Media | ✅ Cerrado (2026-06-17). |
-| P2 | Página Reportes (SPA) | Media | ✅ Cerrado (2026-06-17). |
-| E1 | `cambiar-password` (back+UI) | Media | Pendiente: cerrar o decidir diferir. |
-| E2 | `comentarios` administrativos | Media | Pendiente: confirmar uso real; cerrar o diferir. |
-| E3–E5 | mensajes, resumen/KPIs, import/export, home, ayuda | Baja | Fast-follow post-cutover. |
+| ID | Gap | Estado |
+|----|-----|--------|
+| P1 | Página Presupuestos (SPA) | ✅ Cerrado. |
+| P2 | Página Reportes (SPA) | ✅ Cerrado. |
+| E1 | `cambiar-password` (back+UI) | ✅ Cerrado. |
+| E2 | `comentarios` administrativos | ✅ Cerrado. |
+| E3 | `mensajes` (historial) | ✅ Cerrado. |
+| E4 | `resumen`/KPIs del paciente | ✅ Cerrado. |
+| E5 | import/export/template pacientes | ✅ Cerrado. |
+| — | Ayuda | ✅ Cerrado. Home: no era gap (redirige a /agenda). |
+
+**No quedan gaps pendientes.** Tests: 55/55 unit+smoke · 22/22 integración · contrato 116/116.
 
 ## 6. Riesgos residuales para el cutover (Etapa 5)
 

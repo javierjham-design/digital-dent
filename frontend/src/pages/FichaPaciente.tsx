@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { CitaDTO, PacienteDTO, PrestacionDTO } from '@shared/types'
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
-import { pacientesService, type FichaClinica } from '@/services/clinica.service'
+import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO } from '@/services/clinica.service'
 import { planesService, tratamientosService, evolucionesService, odontogramaService } from '@/services/clinico.service'
 import { prestacionesService } from '@/services/catalogo.service'
 
-const TABS = ['Datos', 'Citas', 'Planes', 'Evoluciones', 'Odontograma'] as const
+const TABS = ['Datos', 'Citas', 'Planes', 'Evoluciones', 'Odontograma', 'Comentarios', 'Mensajes'] as const
 type Tab = typeof TABS[number]
 
 const DIENTE_ESTADOS = [
@@ -28,9 +28,11 @@ export function FichaPaciente() {
   const { id = '' } = useParams()
   const [tab, setTab] = useState<Tab>('Datos')
   const [paciente, setPaciente] = useState<PacienteDTO | null>(null)
+  const [resumen, setResumen] = useState<ResumenPaciente | null>(null)
   const [error, setError] = useState('')
 
   useEffect(() => { pacientesService.obtener(id).then(setPaciente).catch((e) => setError(e.message)) }, [id])
+  useEffect(() => { pacientesService.resumen(id).then(setResumen).catch(() => {}) }, [id])
 
   if (error) return <p className="text-rose-600 text-sm">{error}</p>
   if (!paciente) return <p className="text-slate-500 text-sm">Cargando…</p>
@@ -46,6 +48,15 @@ export function FichaPaciente() {
           {paciente.rut ?? 'Sin RUT'}{ed != null ? ` · ${ed} años` : ''}{paciente.prevision ? ` · ${paciente.prevision}` : ''}
           {paciente.telefono ? ` · ${paciente.telefono}` : ''}
         </p>
+        {resumen && (
+          <div className="flex flex-wrap gap-x-6 gap-y-1 mt-4 text-sm">
+            <KpiInline l="Tratamientos activos" v={String(resumen.activos)} />
+            <KpiInline l="Finalizados" v={String(resumen.finalizados)} />
+            <KpiInline l="Realizado" v={fmtCLP(resumen.realizado)} />
+            <KpiInline l="Abonado" v={fmtCLP(resumen.abonado)} />
+            <KpiInline l="Saldo" v={fmtCLP(resumen.saldo)} destacado={resumen.saldo > 0} />
+          </div>
+        )}
       </div>
 
       <div className="flex gap-1 border-b border-slate-200 mb-5 overflow-x-auto">
@@ -60,6 +71,72 @@ export function FichaPaciente() {
       {tab === 'Planes' && <PlanesTab pacienteId={id} />}
       {tab === 'Evoluciones' && <EvolucionesTab pacienteId={id} />}
       {tab === 'Odontograma' && <OdontogramaTab pacienteId={id} />}
+      {tab === 'Comentarios' && <ComentariosTab pacienteId={id} />}
+      {tab === 'Mensajes' && <MensajesTab pacienteId={id} />}
+    </div>
+  )
+}
+
+function KpiInline({ l, v, destacado }: { l: string; v: string; destacado?: boolean }) {
+  return (
+    <span className="flex flex-col">
+      <span className="text-[11px] uppercase tracking-wider text-cyan-200/80">{l}</span>
+      <span className={`font-semibold ${destacado ? 'text-amber-200' : 'text-white'}`}>{v}</span>
+    </span>
+  )
+}
+
+// ── Comentarios administrativos ──
+function ComentariosTab({ pacienteId }: { pacienteId: string }) {
+  const [comentarios, setComentarios] = useState<ComentarioDTO[]>([])
+  const [texto, setTexto] = useState('')
+  const [guardando, setGuardando] = useState(false)
+  const cargar = () => pacientesService.comentarios(pacienteId).then(setComentarios).catch(() => {})
+  useEffect(() => { cargar() }, [pacienteId])
+  async function agregar() {
+    if (!texto.trim()) return
+    setGuardando(true)
+    try { await pacientesService.agregarComentario(pacienteId, texto.trim()); setTexto(''); cargar() } finally { setGuardando(false) }
+  }
+  return (
+    <div>
+      <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
+        <textarea value={texto} onChange={(e) => setTexto(e.target.value)} rows={2} placeholder="Comentario administrativo (interno)…"
+          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        <button onClick={agregar} disabled={guardando || !texto.trim()} className="mt-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">Agregar</button>
+      </div>
+      <div className="space-y-3">
+        {comentarios.map((c) => (
+          <div key={c.id} className="bg-white rounded-2xl border border-slate-200 p-4">
+            <p className="text-sm text-slate-700 whitespace-pre-wrap">{c.texto}</p>
+            <p className="text-xs text-slate-400 mt-2">{c.autorNombre ?? 'Sistema'} · {new Date(c.createdAt).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+          </div>
+        ))}
+        {comentarios.length === 0 && <p className="text-sm text-slate-500">Sin comentarios.</p>}
+      </div>
+    </div>
+  )
+}
+
+// ── Historial de mensajes (solo lectura) ──
+function MensajesTab({ pacienteId }: { pacienteId: string }) {
+  const [mensajes, setMensajes] = useState<MensajeDTO[]>([])
+  const [cargando, setCargando] = useState(true)
+  useEffect(() => { pacientesService.mensajes(pacienteId).then(setMensajes).finally(() => setCargando(false)) }, [pacienteId])
+  if (cargando) return <p className="text-slate-500 text-sm">Cargando…</p>
+  if (mensajes.length === 0) return <p className="text-slate-500 text-sm">No hay mensajes registrados para este paciente.</p>
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+      {mensajes.map((m) => (
+        <div key={m.id} className="px-5 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-medium text-slate-800">{m.asunto || m.categoria}</p>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 whitespace-nowrap">{m.tipo} · {m.estado}</span>
+          </div>
+          {m.cuerpo && <p className="text-sm text-slate-600 mt-1 whitespace-pre-wrap">{m.cuerpo}</p>}
+          <p className="text-xs text-slate-400 mt-1">{m.enviadoA ? `${m.enviadoA} · ` : ''}{new Date(m.createdAt).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+        </div>
+      ))}
     </div>
   )
 }

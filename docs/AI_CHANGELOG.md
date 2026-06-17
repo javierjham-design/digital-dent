@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Paridad 100%: cierre de TODOS los gaps restantes (E1–E5 + Ayuda)
+
+Cierre del resto de gaps de la matriz. **Paridad funcional al 100%.**
+
+**Backend (nuevos endpoints):**
+- `POST /auth/cambiar-password` (E1): verifica contraseña actual, política (8+/letra+número), rate-limit 5/15min por usuario, marca `passwordChangedAt`.
+- `GET/POST /pacientes/:id/comentarios` (E2), `GET/POST /pacientes/:id/mensajes` (E3), `GET /pacientes/:id/resumen` (E4: KPIs tratamientos/montos/saldo) — todos tenant-scoped.
+- `GET /pacientes/export`, `GET /pacientes/template`, `POST /pacientes/import` (E5): XLSX. Import con **multer** (memoria, 5MB) + validación/normalización de RUT + dedup en archivo y DB. Rutas estáticas registradas **antes** de `/pacientes/:id`. Import gateado a admin.
+
+**Frontend:**
+- `CambiarPasswordModal` + enlace en el header + **gate de cambio forzado** cuando `requirePasswordChange` (primer ingreso / reset por admin). `useAuth` ahora expone `refrescar()`.
+- Ficha: encabezado con **KPIs** (resumen) + tabs **Comentarios** y **Mensajes**.
+- Pacientes: barra **Exportar / Plantilla / Importar** (import solo admin, con resumen de resultado y errores por fila).
+- **`Ayuda.tsx`** (`/ayuda`): centro de ayuda con búsqueda + categorías, escrito para la UI de la SPA (no copiado del monolito). Home no era gap (el monolito solo redirige a /agenda).
+- Servicios: `authService.cambiarPassword`, `pacientesService.{resumen,comentarios,agregarComentario,mensajes}`, `pacientesIO.{exportar,plantilla,importar}`.
+
+**Verificación:** frontend build verde · backend typecheck verde · **55/55** unit+smoke · **22/22** integración (incluye aislamiento multi-tenant de comentarios/resumen y flujo de cambio de contraseña) · contrato FE↔BE **116/116** (129 rutas). Dependencia nueva: `multer` (multipart). Docs `parity-matrix.md` y `qa-report.md` → paridad 100%, veredicto GO.
+
+---
+
 ## 2026-06-17 — [rama arch/split] Paridad: cierre de gaps P1 (Presupuestos) + P2 (Reportes)
 
 Cierre de los 2 gaps de UI de severidad media detectados en la matriz de paridad. Veredicto del informe de QA pasa a **GO** (de GO condicional).

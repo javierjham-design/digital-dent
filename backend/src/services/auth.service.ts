@@ -2,8 +2,8 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { prisma } from '@/lib/prisma'
 import { env } from '@/config/env'
-import { badRequest, tooMany, unauthorized } from '@/lib/errors'
-import { peekLimit, registerFailure, resetLimit } from '@/lib/rate-limit'
+import { badRequest, notFound, tooMany, unauthorized } from '@/lib/errors'
+import { peekLimit, rateLimit, registerFailure, resetLimit } from '@/lib/rate-limit'
 import type { LoginRequest, LoginResponse, SessionUserDTO } from '@shared/types'
 
 const LOGIN_LIMIT = { limit: 5, windowMs: 15 * 60_000 }
@@ -114,6 +114,36 @@ export async function login(body: LoginRequest, ip: string): Promise<LoginRespon
 }
 
 export const getSessionUser = toDTO
+
+// Política de contraseñas para contraseñas NUEVAS (idéntica al monolito).
+function validarPassword(pw: string): string | null {
+  if (pw.length < 8) return 'La nueva contraseña debe tener al menos 8 caracteres.'
+  if (!/[a-zA-Z]/.test(pw)) return 'La nueva contraseña debe incluir al menos una letra.'
+  if (!/[0-9]/.test(pw)) return 'La nueva contraseña debe incluir al menos un número.'
+  return null
+}
+
+// Cambio de contraseña self-service. Verifica la actual, aplica política y
+// limita la fuerza bruta a 5 intentos / 15 min por usuario. Marca
+// passwordChangedAt para limpiar el flag de "cambio requerido".
+export async function cambiarPassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
+  const rl = rateLimit(`pwchange:${userId}`, { limit: 5, windowMs: 15 * 60_000 })
+  if (!rl.ok) throw tooMany(`Demasiados intentos. Espera ${Math.ceil(rl.retryAfterSec / 60)} minutos.`)
+
+  if (!currentPassword || !newPassword) throw badRequest('Faltan campos')
+  const politicaError = validarPassword(newPassword)
+  if (politicaError) throw badRequest(politicaError)
+
+  const user = await prisma.user.findUnique({ where: { id: userId } })
+  if (!user) throw notFound('Usuario no existe')
+
+  const ok = await bcrypt.compare(currentPassword, user.password)
+  if (!ok) throw badRequest('La contraseña actual no es correcta')
+  if (currentPassword === newPassword) throw badRequest('La nueva contraseña debe ser distinta de la actual.')
+
+  const hash = await bcrypt.hash(newPassword, 12)
+  await prisma.user.update({ where: { id: userId }, data: { password: hash, passwordChangedAt: new Date() } })
+}
 
 // Emite un token para un usuario dado (sin contraseña). Lo usa el flujo de
 // demo para auto-loguear al administrador recién creado.

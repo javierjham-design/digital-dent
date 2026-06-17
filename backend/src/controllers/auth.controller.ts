@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { login, getSessionUser } from '@/services/auth.service'
+import { login, getSessionUser, cambiarPassword } from '@/services/auth.service'
 import { loginSchema } from '@/validators/schemas'
 
 function clientIp(req: Request): string {
@@ -16,4 +16,10 @@ export async function postLogin(req: Request, res: Response) {
 export async function getMe(req: Request, res: Response) {
   const user = await getSessionUser(req.auth!.sub)
   res.json({ user })
+}
+
+export async function postCambiarPassword(req: Request, res: Response) {
+  const { currentPassword, newPassword } = req.body ?? {}
+  await cambiarPassword(req.auth!.sub, String(currentPassword ?? ''), String(newPassword ?? ''))
+  res.json({ ok: true })
 }
