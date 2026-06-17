@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { asyncHandler } from '@/middlewares/async-handler'
 import { requireAuth, requireClinica, requireAdmin } from '@/middlewares/auth'
 import { getMe, postLogin } from '@/controllers/auth.controller'
-import { getPacientes, getPaciente, postPaciente } from '@/controllers/pacientes.controller'
+import { getPacientes, getPaciente, postPaciente, patchPaciente, getFicha, putFicha } from '@/controllers/pacientes.controller'
 import { getCitas, postCita, patchCita, deleteCita, patchEstado } from '@/controllers/citas.controller'
 import { getUsuarios, getDoctores, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
 import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo } from '@/controllers/agenda.controller'
@@ -53,6 +53,9 @@ apiRouter.post('/google/reconcile-bloqueos', clinica, asyncHandler(googlec.postR
 apiRouter.get('/pacientes', clinica, asyncHandler(getPacientes))
 apiRouter.get('/pacientes/:id', clinica, asyncHandler(getPaciente))
 apiRouter.post('/pacientes', clinica, asyncHandler(postPaciente))
+apiRouter.patch('/pacientes/:id', clinica, asyncHandler(patchPaciente))
+apiRouter.get('/pacientes/:id/ficha', clinica, asyncHandler(getFicha))
+apiRouter.put('/pacientes/:id/ficha', clinica, asyncHandler(putFicha))
 
 // ── Citas / Agenda ───────────────────────────────────────────────────────────
 apiRouter.get('/citas', clinica, asyncHandler(getCitas))

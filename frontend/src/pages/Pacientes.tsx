@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import type { PacienteDTO } from '@shared/types'
 import { pacientesService } from '@/services/clinica.service'
 
@@ -27,13 +28,13 @@ export function Pacientes() {
           <p className="px-5 py-10 text-center text-slate-500 text-sm">Sin pacientes.</p>
         ) : (
           pacientes.map((p) => (
-            <div key={p.id} className="flex items-center justify-between px-5 py-3">
+            <Link key={p.id} to={`/pacientes/${p.id}`} className="flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors">
               <div>
-                <p className="font-semibold text-slate-900">{p.nombre} {p.apellido}</p>
+                <p className="font-semibold text-cyan-800">{p.nombre} {p.apellido}</p>
                 <p className="text-xs text-slate-500 font-mono">{p.rut ?? 'Sin RUT'}{p.telefono ? ` · ${p.telefono}` : ''}</p>
               </div>
               {p.prevision && <span className="text-xs text-slate-500">{p.prevision}</span>}
-            </div>
+            </Link>
           ))
         )}
       </div>

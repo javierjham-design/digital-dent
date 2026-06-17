@@ -57,10 +57,11 @@ async function findSolapada(opts: {
   }) ?? null
 }
 
-export async function listarCitas(clinicaId: string, rango?: { from?: string; to?: string }): Promise<CitaDTO[]> {
+export async function listarCitas(clinicaId: string, rango?: { from?: string; to?: string; pacienteId?: string }): Promise<CitaDTO[]> {
   const citas = await prisma.cita.findMany({
     where: {
       clinicaId,
+      ...(rango?.pacienteId ? { pacienteId: rango.pacienteId } : {}),
       ...(rango?.from && rango?.to ? { fecha: { gte: new Date(rango.from), lte: new Date(rango.to) } } : {}),
     },
     include: INCLUDE,

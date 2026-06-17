@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Frontend Etapa 3-3: ficha clínica + odontograma
+
+**Backend (endpoints de lectura que faltaban):** `GET /citas?pacienteId=` (filtro), `PATCH /pacientes/:id` (editar datos, mismo set de campos que el monolito), `GET/PUT /pacientes/:id/ficha` (flags clínicos + odontograma).
+
+**Frontend — `FichaPaciente` (`/pacientes/:id`)** con header e historia por pestañas:
+- **Datos**: editar demográficos + flags clínicos (fumador/diabético/etc., alertas, medicamentos).
+- **Citas**: historial de citas del paciente (read-only con badge de estado).
+- **Planes**: crear plan, abrir detalle, agregar acciones (prestación + pieza), cambiar estado de cada tratamiento (PLANIFICADO/EN_PROGRESO/COMPLETADO).
+- **Evoluciones**: listar + agregar nota clínica.
+- **Odontograma**: arcadas FDI interactivas (32 piezas); click en pieza → selector de estado (Sano/Caries/Obturado/Corona/Endodoncia/Implante/Ausente) → upsert al backend; leyenda de colores.
+
+La lista de Pacientes ahora enlaza a la ficha. Builds verdes (frontend + backend). master intacto.
+
+---
+
 ## 2026-06-17 — [rama arch/split] Frontend Etapa 3-2: agenda completa
 
 **Agenda SPA** (FullCalendar instalado en el frontend): vista **semanal** (timeGridWeek de un profesional, business hours desde los horarios del doctor, drag&drop y resize → reagendar contra el backend con revert si choca) y vista **diaria** (lista con acción rápida de estado). Selector de profesional, filtros de estado con "Todos", navegación de fecha.

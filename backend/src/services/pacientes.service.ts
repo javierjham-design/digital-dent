@@ -68,3 +68,61 @@ export async function crearPaciente(clinicaId: string, input: CrearPacienteInput
   })
   return toDTO(p)
 }
+
+// Campos editables del paciente (mismo set que el monolito).
+const PACIENTE_FIELDS = [
+  'rut', 'otroDocId', 'nombre', 'apellido', 'nombreSocial', 'fechaNacimiento', 'genero', 'sexo',
+  'nacionalidad', 'migrante', 'puebloOriginario', 'telefono', 'telefonoFijo', 'email', 'direccion',
+  'ciudad', 'comuna', 'prevision', 'actividad', 'empleador', 'apoderado', 'rutApoderado', 'referencia',
+  'tipoPaciente', 'numeroInterno', 'alergias', 'antecedentes', 'observaciones', 'activo',
+]
+
+export async function actualizarPaciente(clinicaId: string, id: string, body: Record<string, unknown>): Promise<PacienteDTO> {
+  const data: Record<string, unknown> = {}
+  for (const k of PACIENTE_FIELDS) {
+    if (!(k in body)) continue
+    const v = body[k]
+    if (k === 'fechaNacimiento') data[k] = v ? new Date(String(v)) : null
+    else if (k === 'rut') data[k] = (v as string)?.trim() ? (v as string).trim() : null
+    else if (k === 'activo') data[k] = Boolean(v)
+    else if (typeof v === 'string') data[k] = v.trim() || null
+    else data[k] = v
+  }
+  const r = await prisma.paciente.updateMany({ where: { id, clinicaId }, data })
+  if (r.count === 0) throw notFound('Paciente no encontrado')
+  const p = await prisma.paciente.findUnique({ where: { id } })
+  return toDTO(p!)
+}
+
+// Ficha clínica (flags + odontograma) para la vista de ficha del SPA.
+export async function obtenerFicha(clinicaId: string, pacienteId: string) {
+  const paciente = await prisma.paciente.findFirst({ where: { id: pacienteId, clinicaId }, select: { id: true } })
+  if (!paciente) throw notFound('Paciente no encontrado')
+  const ficha = await prisma.fichaClinica.findUnique({
+    where: { pacienteId },
+    include: { odontograma: { select: { numero: true, cara: true, estado: true } } },
+  })
+  if (!ficha) return { ficha: null, odontograma: [] }
+  const { odontograma, ...flags } = ficha
+  return { ficha: flags, odontograma }
+}
+
+const FICHA_FLAGS = ['grupoSanguineo', 'fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia', 'medicamentos', 'notasClinicas', 'alertasMedicas', 'enfermedadesNotas']
+
+export async function guardarFicha(clinicaId: string, pacienteId: string, body: Record<string, unknown>) {
+  const paciente = await prisma.paciente.findFirst({ where: { id: pacienteId, clinicaId }, select: { id: true } })
+  if (!paciente) throw notFound('Paciente no encontrado')
+  const data: Record<string, unknown> = {}
+  for (const k of FICHA_FLAGS) {
+    if (!(k in body)) continue
+    const v = body[k]
+    if (['fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia'].includes(k)) data[k] = Boolean(v)
+    else data[k] = v ? String(v) : null
+  }
+  const ficha = await prisma.fichaClinica.upsert({
+    where: { pacienteId },
+    update: data,
+    create: { pacienteId, clinicaId, ...data },
+  })
+  return ficha
+}

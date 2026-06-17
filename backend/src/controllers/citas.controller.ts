@@ -11,7 +11,8 @@ function userName(req: Request): string {
 export async function getCitas(req: Request, res: Response) {
   const from = typeof req.query.from === 'string' ? req.query.from : undefined
   const to = typeof req.query.to === 'string' ? req.query.to : undefined
-  res.json(await listarCitas(clinicaId(req), { from, to }))
+  const pacienteId = typeof req.query.pacienteId === 'string' ? req.query.pacienteId : undefined
+  res.json(await listarCitas(clinicaId(req), { from, to, pacienteId }))
 }
 
 export async function postCita(req: Request, res: Response) {
