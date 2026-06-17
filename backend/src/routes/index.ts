@@ -16,6 +16,7 @@ import * as presupuestos from '@/controllers/presupuestos.controller'
 import * as caja from '@/controllers/caja.controller'
 import * as cobros from '@/controllers/cobros.controller'
 import * as liq from '@/controllers/liquidaciones.controller'
+import * as reportes from '@/controllers/reportes.controller'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
 export const apiRouter = Router()
@@ -137,3 +138,12 @@ apiRouter.get('/liquidaciones', clinica, asyncHandler(liq.getLiquidaciones))
 apiRouter.get('/liquidaciones/:id', clinica, asyncHandler(liq.getLiquidacion))
 apiRouter.post('/liquidaciones', clinica, asyncHandler(liq.postLiquidacion))
 apiRouter.patch('/liquidaciones/:id', clinica, asyncHandler(liq.patchLiquidacion))
+
+// ── Reportes (descargas XLSX) ────────────────────────────────────────────────
+apiRouter.get('/reportes/pacientes', clinica, asyncHandler(reportes.getPacientes))
+apiRouter.get('/reportes/citas', clinica, asyncHandler(reportes.getCitas))
+apiRouter.get('/reportes/cobros', clinica, asyncHandler(reportes.getCobros))
+apiRouter.get('/reportes/tratamientos', clinica, asyncHandler(reportes.getTratamientos))
+apiRouter.get('/reportes/liquidaciones', clinica, asyncHandler(reportes.getLiquidaciones))
+apiRouter.get('/reportes/caja', clinica, asyncHandler(reportes.getCaja))
+apiRouter.get('/reportes/morosos', clinica, asyncHandler(reportes.getMorosos))
