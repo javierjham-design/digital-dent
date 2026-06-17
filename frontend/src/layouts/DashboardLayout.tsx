@@ -1,4 +1,4 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 
 const NAV = [
@@ -13,6 +13,7 @@ const NAV = [
 
 export function DashboardLayout() {
   const { user, logout } = useAuth()
+  if (user?.isPlatformAdmin) return <Navigate to="/plataforma" replace />
   return (
     <div className="min-h-screen">
       <header className="h-14 bg-white border-b border-slate-100 flex items-center px-4 gap-4 sticky top-0 z-10">

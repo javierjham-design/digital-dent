@@ -6,8 +6,10 @@ import { ApiError } from '@/services/api'
 export function Login() {
   const { login } = useAuth()
   const navigate = useNavigate()
+  const [modo, setModo] = useState<'clinica' | 'plataforma'>('clinica')
   const [slug, setSlug] = useState('')
   const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [cargando, setCargando] = useState(false)
@@ -16,8 +18,8 @@ export function Login() {
     e.preventDefault()
     setCargando(true); setError('')
     try {
-      await login({ slug, username, password })
-      navigate('/agenda')
+      const u = modo === 'clinica' ? await login({ slug, username, password }) : await login({ email, password })
+      navigate(u.isPlatformAdmin ? '/plataforma' : '/agenda')
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'No se pudo iniciar sesión')
     } finally {
@@ -33,18 +35,16 @@ export function Login() {
           <span className="text-lg font-bold tracking-tight">Cláriva</span>
         </div>
         <h1 className="text-xl font-bold text-slate-900 mb-1">Iniciar sesión</h1>
-        <p className="text-sm text-slate-500 mb-6">Ingresa con las credenciales de tu clínica.</p>
+        <p className="text-sm text-slate-500 mb-5">{modo === 'clinica' ? 'Ingresa con las credenciales de tu clínica.' : 'Acceso de administración de la plataforma.'}</p>
 
-        <label className="block mb-3">
-          <span className="block text-sm font-medium text-slate-700 mb-1">Código de la clínica</span>
-          <input value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="mi-clinica" required
-            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-        </label>
-        <label className="block mb-3">
-          <span className="block text-sm font-medium text-slate-700 mb-1">Usuario</span>
-          <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Administrador" required
-            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-        </label>
+        {modo === 'clinica' ? (
+          <>
+            <Field label="Código de la clínica" value={slug} onChange={setSlug} placeholder="mi-clinica" />
+            <Field label="Usuario" value={username} onChange={setUsername} placeholder="Administrador" />
+          </>
+        ) : (
+          <Field label="Email" type="email" value={email} onChange={setEmail} placeholder="admin@clariva.cl" />
+        )}
         <label className="block mb-4">
           <span className="block text-sm font-medium text-slate-700 mb-1">Contraseña</span>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required autoComplete="current-password"
@@ -57,7 +57,22 @@ export function Login() {
           className="w-full py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white font-semibold rounded-xl transition-colors">
           {cargando ? 'Entrando…' : 'Entrar'}
         </button>
+
+        <button type="button" onClick={() => { setModo(modo === 'clinica' ? 'plataforma' : 'clinica'); setError('') }}
+          className="w-full mt-3 text-xs text-slate-400 hover:text-slate-600">
+          {modo === 'clinica' ? 'Soy administrador de la plataforma' : '← Volver al acceso de clínica'}
+        </button>
       </form>
     </div>
+  )
+}
+
+function Field({ label, value, onChange, placeholder, type = 'text' }: { label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }) {
+  return (
+    <label className="block mb-3">
+      <span className="block text-sm font-medium text-slate-700 mb-1">{label}</span>
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} required
+        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+    </label>
   )
 }

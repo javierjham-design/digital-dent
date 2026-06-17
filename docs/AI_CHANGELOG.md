@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Frontend Etapa 3-5: super-admin (Etapa 3 COMPLETA)
+
+Cierre del frontend de la plataforma. Login dual y panel de administración global.
+
+**Login (`/login`)**: modo dual — acceso de clínica (slug + usuario) o de plataforma (email). Tras autenticar, redirección por rol: `isPlatformAdmin` → `/plataforma`, resto → `/agenda`. `DashboardLayout` también redirige a `/plataforma` si el usuario es admin de plataforma (evita que un super-admin caiga en la UI de clínica).
+
+**SuperAdminLayout** (tema oscuro, guardado por `isPlatformAdmin`): nav Dashboard / Clínicas / Leads / Planes. Rutas `/plataforma/*` en `App.tsx`.
+
+**Dashboard (`/plataforma`)**: KPIs (activas / en trial / suspendidas / demos / total) + tarjeta de **MRR**, desde `GET /admin/stats`.
+
+**Clínicas (`/plataforma/clinicas`)**: KPIs de cartera + MRR y tabla con estado de pago (Al día / Atrasado / Trial / Suspendido) desde `GET /admin/suscripciones/resumen`. Modal **Nueva clínica** (`POST /admin/clinicas`) que muestra las credenciales generadas una sola vez.
+
+**Detalle de clínica (`/plataforma/clinicas/:id`)** — gestión completa: cambiar **plan/ciclo/precio acordado/próximo cobro**, **suspender/reactivar** + notas internas, **extender trial**, **restablecer contraseña** del administrador (muestra la temporal), **pagos** de suscripción (registrar/listar/eliminar), **extras facturables** (crear/pausar/eliminar) y **configuración WhatsApp/Twilio** (SID, número E.164, template, horas, token cifrado opcional).
+
+**Leads (`/plataforma/leads`)**: prospectos capturados desde la landing/demo. **Planes (`/plataforma/planes`)**: alta + edición inline de precio + activar/desactivar.
+
+`adminService` ya tenía todos los métodos (3-1). Build del frontend verde (sólo persiste el warning conocido de tamaño de bundle por FullCalendar → code-split pendiente). **Etapa 3 completa: frontend 100% portado.** master intacto.
+
+---
+
 ## 2026-06-17 — [rama arch/split] Frontend Etapa 3-4: cobros/caja + liquidaciones
 
 **Cobros (`/cobros`)**: selector de caja; estado de la sesión (ABIERTA/CERRADA/SIN_SESION) con abrir (conteo declarado + saldo sugerido) y cerrar (arqueo con diferencia); panel de resumen (apertura/ingresos/egresos/saldo esperado); registrar movimiento (egreso/ingreso); **recibir pago** (buscador de paciente + ítems + medio de pago); lista de movimientos de la sesión y de cobros recientes con anulación.

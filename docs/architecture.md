@@ -85,10 +85,16 @@ Para resincronizar tras un cambio de schema: `cd backend && npm run prisma:sync`
 | 2B-2 | Backend: presupuestos, cobros, caja (sesiones/movimientos/cierre), contratos, liquidaciones | ✅ Hecho |
 | 2B-3 | Backend: reportes (7 XLSX) + super-admin (clínicas, plan/estado/trial, pagos, extras, WhatsApp, planes-suscripción, leads, resumen, stats) | ✅ Hecho |
 | 2B-4 | Backend: WhatsApp (webhook + recordatorios), Demo (crear + cleanup), Google Calendar (connect/callback/disconnect/calendars/sync/reconcile) + efectos diferidos (push a Google en citas/bloqueos) | ✅ Hecho |
-| 3 | Migrar el resto de vistas del frontend (ficha clínica + odontograma, presupuestos, cobros, super-admin, configuración) | ⏳ Pendiente |
+| 3-1 | Frontend: capa de servicios API tipada + Equipo, Prestaciones, Configuración | ✅ Hecho |
+| 3-2 | Frontend: agenda completa (FullCalendar semanal + lista diaria, crear/detalle/bloqueo, drag&drop, estados) | ✅ Hecho |
+| 3-3 | Frontend: ficha clínica (datos, citas, planes, evoluciones) + odontograma FDI | ✅ Hecho |
+| 3-4 | Frontend: cobros + caja (sesiones/movimientos) + liquidaciones + contratos | ✅ Hecho |
+| 3-5 | Frontend: super-admin (dashboard/MRR, clínicas + detalle [plan, estado, trial, password, pagos, extras, WhatsApp], leads, planes-suscripción) + login dual con redirección por rol | ✅ Hecho |
+| **3** | **Migrar el resto de vistas del frontend** | ✅ **Hecho** |
 
-> **Backend 100% portado.** Todas las rutas del monolito (`/api/*`) tienen su
-> equivalente en `/api/v1/*`. Falta la Etapa 3 (frontend) y la 5 (cutover).
+> **Backend 100% portado** y **frontend 100% portado** (Etapa 3 completa). Todas
+> las rutas del monolito (`/api/*`) tienen su equivalente en `/api/v1/*` y todas
+> las vistas tienen su equivalente SPA. Falta la Etapa 4 (QA) y la 5 (cutover).
 | 4 | Paridad funcional + QA exhaustivo contra el monolito | ⏳ Pendiente |
 | 5 | **Cutover**: 2 servicios en Railway (backend + frontend), DNS, retirar el monolito | ⏳ Pendiente |
 
