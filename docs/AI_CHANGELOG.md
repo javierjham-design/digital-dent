@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Frontend Etapa 3-2: agenda completa
+
+**Agenda SPA** (FullCalendar instalado en el frontend): vista **semanal** (timeGridWeek de un profesional, business hours desde los horarios del doctor, drag&drop y resize → reagendar contra el backend con revert si choca) y vista **diaria** (lista con acción rápida de estado). Selector de profesional, filtros de estado con "Todos", navegación de fecha.
+
+**Modales**: crear cita (paciente existente con buscador o paciente nuevo + profesional + motivo + duración + sobrecupo), detalle de cita (flujo de estados con acción siguiente destacada, grilla de estados, link WhatsApp, eliminar), detalle/crear bloqueo. Avisos transitorios in-page.
+
+Servicios extendidos: `citas.editar/eliminar`, `bloqueosService`, `horariosLectura`. Build del frontend verde.
+
+---
+
 ## 2026-06-17 — [rama arch/split] Frontend Etapa 3-1: capa de servicios + Equipo/Prestaciones/Config
 
 **Capa de servicios API del SPA** (`frontend/src/services/`): equipo (usuarios, doctores, horarios), catálogo (prestaciones, medios de pago, clínica), clínico (planes, secciones, tratamientos, evoluciones, odontograma, presupuestos), caja (cobros, cajas, sesiones, movimientos, liquidaciones, contratos), reportes (descarga XLSX autenticada vía blob), admin (super-admin). Toda la superficie del backend queda consumible de forma tipada.
