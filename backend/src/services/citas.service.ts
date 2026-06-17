@@ -3,6 +3,7 @@ import { badRequest, conflict, notFound } from '@/lib/errors'
 import { CITA_ESTADOS_KEYS, CITA_ESTADO_LABELS, ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import type { CitaDTO } from '@shared/types'
 import { deleteCitaInGoogle, pushCita } from '@/lib/google-sync'
+import { addMinutes, intervalsOverlap } from '@/lib/overlap'
 
 type CitaRow = {
   id: string; pacienteId: string; doctorId: string; fecha: Date; duracion: number
@@ -51,10 +52,9 @@ async function findSolapada(opts: {
     },
     select: { id: true, fecha: true, duracion: true, paciente: { select: { nombre: true, apellido: true } } },
   })
-  return candidatas.find((c) => {
-    const cFin = new Date(c.fecha.getTime() + c.duracion * 60000)
-    return c.fecha < opts.fin && cFin > opts.inicio
-  }) ?? null
+  return candidatas.find((c) =>
+    intervalsOverlap(c.fecha, addMinutes(c.fecha, c.duracion), opts.inicio, opts.fin),
+  ) ?? null
 }
 
 export async function listarCitas(clinicaId: string, rango?: { from?: string; to?: string; pacienteId?: string }): Promise<CitaDTO[]> {

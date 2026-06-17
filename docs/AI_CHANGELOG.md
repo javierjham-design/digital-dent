@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] QA Etapa 4-1 + 4-2: matriz de paridad + arnés de pruebas
+
+**4-1 — Matriz de paridad** (`docs/parity-matrix.md`): auditoría de contrato monolito vs nuevo stack. Backend ~100% portado; 5 endpoints sin equivalente (todos sin uso en la SPA: `cambiar-password`, `comentarios`, `mensajes`, `[id]/resumen`, import/export) y 4 vistas sin portar (Presupuestos y Reportes ya tienen el cliente FE listo; home y ayuda son menores). Plan de remediación por severidad.
+
+**4-2 — Arnés de pruebas (Vitest) + lógica pura + smoke, sin DB:**
+- Helper puro nuevo `lib/overlap.ts` (`intervalsOverlap` half-open + `addMinutes`); `citas.service` refactorizado para usarlo (de-duplica la regla de doble reserva que compartían cita y bloqueo).
+- `test/billing.test.ts` — estado de pago, precio efectivo/período, extras, MRR, `calcularProximoCobro` (al día/atrasado/anual), días para cobro.
+- `test/overlap.test.ts` — solapamiento de intervalos (bordes half-open, contención, simetría).
+- `test/cita-estados.test.ts` — catálogo + máquina de estados + fallback.
+- `test/crypto.test.ts` — AES-256-GCM roundtrip, IV aleatorio, detección de adulteración (authTag), unicode, helpers nullable.
+- `test/smoke.test.ts` (supertest, sin DB) — `/health`, headers de seguridad (helmet, sin x-powered-by), 401 en rutas protegidas y super-admin, 401 con JWT inválido, 404 en rutas desconocidas. Verifica además que **todo el grafo de imports del backend ensambla**.
+
+Scripts: `npm test` (lógica pura + smoke), `npm run test:integration` (reservado para 4-3). **55/55 verdes.** Typecheck del backend verde. master intacto.
+
+---
+
 ## 2026-06-17 — [rama arch/split] Frontend Etapa 3-5: super-admin (Etapa 3 COMPLETA)
 
 Cierre del frontend de la plataforma. Login dual y panel de administración global.
