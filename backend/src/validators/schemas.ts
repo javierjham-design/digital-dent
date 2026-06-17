@@ -123,3 +123,15 @@ export const upsertDienteSchema = z.object({
   numero: z.number().int(),
   estado: z.string(),
 })
+
+export const crearPresupuestoSchema = z.object({
+  pacienteId: z.string().min(1),
+  total: z.number().nonnegative(),
+  items: z.array(z.object({
+    prestacionId: z.string().min(1),
+    cantidad: z.number().int().positive(),
+    precioUnitario: z.number().nonnegative(),
+    descuento: z.number().optional(),
+    subtotal: z.number().nonnegative(),
+  })).min(1, 'Agrega al menos un ítem'),
+})

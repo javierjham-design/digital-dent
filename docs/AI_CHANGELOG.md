@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Backend Etapa 2B-2 (parte 1): presupuestos
+
+**Portado:** `presupuestos.service` + controller + rutas — listar (por paciente), detalle (con items + prestación + paciente), crear (numero correlativo por clínica, items), editar (estado/notas/vigencia/total con validación de estado).
+
+**Pendiente 2B-2 (parte 2):** cobros + caja (sesiones, movimientos, abrir/cerrar, arqueo, `lib/caja.ts`) + liquidaciones. Es un bloque interdependiente (cobro exige sesión de caja abierta y genera MovimientoCaja); se porta en una sub-tanda enfocada para no introducir errores.
+
+Typecheck OK. master/monolito intactos.
+
+---
+
 ## 2026-06-17 — [rama arch/split] Backend Etapa 2B-1: dominio clínico
 
 **Portado al backend** (`tratamientos.service` + `clinico.controller` + rutas):

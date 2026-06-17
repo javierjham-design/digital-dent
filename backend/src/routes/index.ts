@@ -12,6 +12,7 @@ import {
   getClinica, patchClinica,
 } from '@/controllers/catalogo.controller'
 import * as clinico from '@/controllers/clinico.controller'
+import * as presupuestos from '@/controllers/presupuestos.controller'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
 export const apiRouter = Router()
@@ -92,3 +93,9 @@ apiRouter.delete('/evoluciones/:id', clinica, asyncHandler(clinico.deleteEvoluci
 
 // ── Clínico: odontograma ─────────────────────────────────────────────────────
 apiRouter.post('/odontograma', clinica, asyncHandler(clinico.postDiente))
+
+// ── Presupuestos ─────────────────────────────────────────────────────────────
+apiRouter.get('/presupuestos', clinica, asyncHandler(presupuestos.getPresupuestos))
+apiRouter.get('/presupuestos/:id', clinica, asyncHandler(presupuestos.getPresupuesto))
+apiRouter.post('/presupuestos', clinica, asyncHandler(presupuestos.postPresupuesto))
+apiRouter.patch('/presupuestos/:id', clinica, asyncHandler(presupuestos.patchPresupuesto))
