@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
+    "test:contract": "node ../scripts/contract-check.mjs",
     "prisma:generate": "prisma generate",
     "prisma:sync": "node -e \"require('fs').copyFileSync('../prisma/schema.prisma','prisma/schema.prisma')\" && prisma generate"
   },

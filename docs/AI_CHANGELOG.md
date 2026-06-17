@@ -5,6 +5,14 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] QA Etapa 4-4: contrato FE↔BE + checklist E2E
+
+**Verificador de contrato** (`scripts/contract-check.mjs`, `npm run test:contract`): parsea las llamadas `api.*` de los service clients del frontend y las rutas `apiRouter.*` del backend, normaliza paths (`${...}`/`:param` → `:x`, sin query) y comprueba que **toda llamada del front tenga ruta en el back**. Resultado: **111/111 llamadas mapeadas** (120 rutas BE). Incluye los 7 reportes XLSX (que usan fetch directo). Detecta drift sin levantar nada.
+
+**Checklist de QA E2E** (`docs/qa-checklist.md`): parte automática (resumen de las suites verdes) + puesta en marcha local + flujos manuales por módulo (auth/ruteo, agenda, ficha+odontograma, cobros/caja, liquidaciones, catálogo, reportes, super-admin) con recordatorio de los gaps conocidos (Presupuestos/Reportes sin página).
+
+---
+
 ## 2026-06-17 — [rama arch/split] QA Etapa 4-3: tests de integración (multi-tenant + auth)
 
 DB de prueba **SQLite efímera** (el schema no usa features Postgres-only), con el cliente Prisma redirigido **solo bajo el config de integración** (alias `@prisma/client` → cliente sqlite generado en `prisma/.test-client`). **Producción intacta** y **nunca toca la DB de Railway**.
