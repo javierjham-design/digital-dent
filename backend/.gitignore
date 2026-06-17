@@ -3,3 +3,9 @@ dist/
 .env
 .env.local
 *.log
+
+# Artefactos de tests de integración (DB sqlite + cliente Prisma derivado)
+prisma/.test-client/
+prisma/test.db
+prisma/test.db-journal
+prisma/schema.test.prisma

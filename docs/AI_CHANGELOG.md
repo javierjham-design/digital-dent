@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] QA Etapa 4-3: tests de integración (multi-tenant + auth)
+
+DB de prueba **SQLite efímera** (el schema no usa features Postgres-only), con el cliente Prisma redirigido **solo bajo el config de integración** (alias `@prisma/client` → cliente sqlite generado en `prisma/.test-client`). **Producción intacta** y **nunca toca la DB de Railway**.
+
+- `test/integration/globalSetup.ts` deriva el schema sqlite del real (`gen-schema.mjs`), genera el cliente y hace `db push --force-reset`.
+- `seed.ts`: 2 clínicas aisladas (A/B) + super-admin + planes base.
+- `multitenant.test.ts` (supertest, stack completo HTTP→middleware→service→Prisma): **15 tests verdes**.
+  - **Login dual**: clínica (slug+usuario) y plataforma (email); contraseña incorrecta y usuario inexistente → 401.
+  - **Aislamiento multi-tenant**: `GET /pacientes` no cruza clínicas; `GET/PATCH /pacientes/:id` de otra clínica → 404 (y verifica que el registro ajeno queda intacto); agendar con paciente/doctor de otra clínica → 404; `GET /citas` no cruza.
+  - **Doble reserva**: segunda cita solapada del mismo doctor → 409; con `sobrecupo` se permite.
+  - **Gating de roles**: admin de clínica → `/admin/*` 403; super-admin → `/admin/stats` 200; super-admin → rutas de clínica 400/403.
+
+Scripts: `npm run test:integration`. Nota: `ensureDefaultPlans()` usa `createMany({skipDuplicates})` (no soportado en sqlite) → el seed inserta los planes para que salga temprano; es un detalle solo-test (prod usa Postgres). Artefactos (`.test-client`, `test.db`, `schema.test.prisma`) gitignoreados.
+
+---
+
 ## 2026-06-17 — [rama arch/split] QA Etapa 4-1 + 4-2: matriz de paridad + arnés de pruebas
 
 **4-1 — Matriz de paridad** (`docs/parity-matrix.md`): auditoría de contrato monolito vs nuevo stack. Backend ~100% portado; 5 endpoints sin equivalente (todos sin uso en la SPA: `cambiar-password`, `comentarios`, `mensajes`, `[id]/resumen`, import/export) y 4 vistas sin portar (Presupuestos y Reportes ya tienen el cliente FE listo; home y ayuda son menores). Plan de remediación por severidad.
