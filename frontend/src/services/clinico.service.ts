@@ -1,0 +1,42 @@
+import { api } from './api'
+
+// Las respuestas clínicas son árboles de Prisma serializados; las tipamos de
+// forma laxa acá y las pantallas (tandas siguientes) afinan según necesiten.
+export const planesService = {
+  listar: (pacienteId: string) => api.get<unknown[]>(`/planes-tratamiento?pacienteId=${pacienteId}`),
+  obtener: (id: string) => api.get<unknown>(`/planes-tratamiento/${id}`),
+  crear: (input: { pacienteId: string; nombre?: string; notas?: string; doctorTitularId?: string }) =>
+    api.post<unknown>('/planes-tratamiento', input),
+  actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/planes-tratamiento/${id}`, patch),
+  eliminar: (id: string) => api.del<{ ok: true }>(`/planes-tratamiento/${id}`),
+  crearSeccion: (planId: string, input: Record<string, unknown>) => api.post<unknown>(`/planes-tratamiento/${planId}/secciones`, input),
+}
+
+export const seccionesService = {
+  actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/secciones-plan/${id}`, patch),
+  eliminar: (id: string) => api.del<{ ok: true }>(`/secciones-plan/${id}`),
+}
+
+export const tratamientosService = {
+  crear: (input: Record<string, unknown>) => api.post<unknown[]>('/tratamientos', input),
+  actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/tratamientos/${id}`, patch),
+  eliminar: (id: string) => api.del<{ ok: true }>(`/tratamientos/${id}`),
+}
+
+export const evolucionesService = {
+  listar: (pacienteId: string) => api.get<unknown[]>(`/evoluciones?pacienteId=${pacienteId}`),
+  crear: (input: { pacienteId: string; tratamientoId?: string; texto: string }) => api.post<unknown>('/evoluciones', input),
+  eliminar: (id: string) => api.del<{ ok: true }>(`/evoluciones/${id}`),
+}
+
+export const odontogramaService = {
+  upsertDiente: (input: { pacienteId?: string; fichaId?: string; numero: number; estado: string }) =>
+    api.post<unknown>('/odontograma', input),
+}
+
+export const presupuestosService = {
+  listar: (pacienteId?: string) => api.get<unknown[]>(`/presupuestos${pacienteId ? `?pacienteId=${pacienteId}` : ''}`),
+  obtener: (id: string) => api.get<unknown>(`/presupuestos/${id}`),
+  crear: (input: Record<string, unknown>) => api.post<unknown>('/presupuestos', input),
+  actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/presupuestos/${id}`, patch),
+}

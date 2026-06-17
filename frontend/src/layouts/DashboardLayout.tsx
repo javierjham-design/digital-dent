@@ -4,6 +4,9 @@ import { useAuth } from '@/hooks/useAuth'
 const NAV = [
   { to: '/agenda', label: 'Agenda' },
   { to: '/pacientes', label: 'Pacientes' },
+  { to: '/prestaciones', label: 'Prestaciones' },
+  { to: '/equipo', label: 'Equipo' },
+  { to: '/configuracion', label: 'Config.' },
 ]
 
 export function DashboardLayout() {

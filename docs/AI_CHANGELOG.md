@@ -5,6 +5,16 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Frontend Etapa 3-1: capa de servicios + Equipo/Prestaciones/Config
+
+**Capa de servicios API del SPA** (`frontend/src/services/`): equipo (usuarios, doctores, horarios), catálogo (prestaciones, medios de pago, clínica), clínico (planes, secciones, tratamientos, evoluciones, odontograma, presupuestos), caja (cobros, cajas, sesiones, movimientos, liquidaciones, contratos), reportes (descarga XLSX autenticada vía blob), admin (super-admin). Toda la superficie del backend queda consumible de forma tipada.
+
+**Pantallas nuevas**: Equipo (listar/crear/activar usuarios), Prestaciones (catálogo agrupado por categoría, crear/eliminar), Configuración (datos de la clínica + plantilla WhatsApp). Nav y router actualizados.
+
+Build del frontend verde. **Pendiente Etapa 3**: agenda completa (3-2), ficha clínica + odontograma (3-3), cobros/caja/liquidaciones (3-4), super-admin (3-5).
+
+---
+
 ## 2026-06-17 — [rama arch/split] Backend Etapa 2B-4: integraciones + demo (backend 100%)
 
 **2B-4a — WhatsApp + Demo:** libs `verticales`, `whatsapp`, `demo-seed`, `demo-cleanup` copiadas. `demo.service` (crear sandbox + lead + seed por rubro + auto-login con token; cleanup). Controllers públicos con auth interna: demo (rate-limited), demo/cleanup y whatsapp/recordatorios (cron-secret o admin), whatsapp/webhook (firma Twilio HMAC). `express.urlencoded` para el webhook.
