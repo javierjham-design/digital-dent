@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Backend Etapa 2B-3b: super-admin
+
+**Portado** (`admin.service` + `admin.controller` + rutas `/api/v1/admin/*`, guard `requireSuperAdmin`):
+- Clínicas: listar (excluye demos, con _count), detalle, crear (slug único, copia catálogo de la plantilla digital-dent, genera admin + password aleatoria), editar, cambiar plan (con cálculo de próximo cobro), estado (suspender/reactivar), extender trial, reset de contraseña admin.
+- Pagos de suscripción: listar, registrar (recalcula próximo cobro, reactiva, trial→básico, tope $20M), eliminar (recalcula).
+- Extras facturables: CRUD.
+- Configuración WhatsApp por clínica: GET/PUT (token cifrado).
+- Planes de suscripción: CRUD (no borra si hay clínicas usándolo).
+- Resumen de suscripciones (MRR/ARR + extras, excluye demos), stats del dashboard, leads.
+- Libs portadas: `billing.ts`, `plans.ts` (copiadas, agnósticas), `audit-admin.ts` (adaptada: recibe ip/userAgent del request Express). Auditoría de todas las acciones sensibles.
+
+Typecheck OK + smoke (401 en rutas admin). master/monolito intactos.
+**Con 2B-3 el backend cubre clínico + financiero + reportes + super-admin.** Pendiente: 2B-4 (integraciones Google/WhatsApp + demo).
+
+---
+
 ## 2026-06-17 — [rama arch/split] Backend Etapa 2B-2 (parte 2): flujo financiero
 
 **Portado** (el bloque más delicado — dinero):

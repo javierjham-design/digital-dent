@@ -83,7 +83,7 @@ Para resincronizar tras un cambio de schema: `cd backend && npm run prisma:sync`
 | 2A | Backend: equipo/usuarios + doctores, horarios, bloqueos, prestaciones, configuración de clínica, citas editar/reagendar/eliminar | ✅ Hecho |
 | 2B-1 | Backend: clínico (planes, tratamientos, secciones, evoluciones, odontograma, medios de pago) | ✅ Hecho |
 | 2B-2 | Backend: presupuestos, cobros, caja (sesiones/movimientos/cierre), contratos, liquidaciones | ✅ Hecho |
-| 2B-3 | Backend: reportes + super-admin (clínicas, planes, extras, pagos, leads) | ⏳ Pendiente |
+| 2B-3 | Backend: reportes (7 XLSX) + super-admin (clínicas, plan/estado/trial, pagos, extras, WhatsApp, planes-suscripción, leads, resumen, stats) | ✅ Hecho |
 | 2B-4 | Backend: integraciones (Google, WhatsApp) + demo + efectos diferidos | ⏳ Pendiente |
 | 3 | Migrar el resto de vistas del frontend (ficha clínica + odontograma, presupuestos, cobros, super-admin, configuración) | ⏳ Pendiente |
 | 4 | Paridad funcional + QA exhaustivo contra el monolito | ⏳ Pendiente |

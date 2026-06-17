@@ -17,6 +17,8 @@ import * as caja from '@/controllers/caja.controller'
 import * as cobros from '@/controllers/cobros.controller'
 import * as liq from '@/controllers/liquidaciones.controller'
 import * as reportes from '@/controllers/reportes.controller'
+import * as admin from '@/controllers/admin.controller'
+import { requireSuperAdmin } from '@/middlewares/auth'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
 export const apiRouter = Router()
@@ -138,6 +140,38 @@ apiRouter.get('/liquidaciones', clinica, asyncHandler(liq.getLiquidaciones))
 apiRouter.get('/liquidaciones/:id', clinica, asyncHandler(liq.getLiquidacion))
 apiRouter.post('/liquidaciones', clinica, asyncHandler(liq.postLiquidacion))
 apiRouter.patch('/liquidaciones/:id', clinica, asyncHandler(liq.patchLiquidacion))
+
+// ── SUPER-ADMIN (gestión de la plataforma) ───────────────────────────────────
+const sa = [requireAuth, requireSuperAdmin]
+apiRouter.get('/admin/stats', sa, asyncHandler(admin.getStats))
+apiRouter.get('/admin/suscripciones/resumen', sa, asyncHandler(admin.getResumen))
+apiRouter.get('/admin/leads', sa, asyncHandler(admin.getLeads))
+// Clínicas
+apiRouter.get('/admin/clinicas', sa, asyncHandler(admin.getClinicas))
+apiRouter.post('/admin/clinicas', sa, asyncHandler(admin.postClinica))
+apiRouter.get('/admin/clinicas/:id', sa, asyncHandler(admin.getClinica))
+apiRouter.patch('/admin/clinicas/:id', sa, asyncHandler(admin.patchClinica))
+apiRouter.post('/admin/clinicas/:id/cambiar-plan', sa, asyncHandler(admin.postCambiarPlan))
+apiRouter.post('/admin/clinicas/:id/estado', sa, asyncHandler(admin.postEstado))
+apiRouter.post('/admin/clinicas/:id/extender-trial', sa, asyncHandler(admin.postExtenderTrial))
+apiRouter.post('/admin/clinicas/:id/reset-admin-password', sa, asyncHandler(admin.postResetPassword))
+// Pagos
+apiRouter.get('/admin/clinicas/:id/pagos', sa, asyncHandler(admin.getPagos))
+apiRouter.post('/admin/clinicas/:id/pagos', sa, asyncHandler(admin.postPago))
+apiRouter.delete('/admin/clinicas/:id/pagos/:pagoId', sa, asyncHandler(admin.deletePago))
+// Extras
+apiRouter.get('/admin/clinicas/:id/extras', sa, asyncHandler(admin.getExtras))
+apiRouter.post('/admin/clinicas/:id/extras', sa, asyncHandler(admin.postExtra))
+apiRouter.patch('/admin/clinicas/:id/extras/:extraId', sa, asyncHandler(admin.patchExtra))
+apiRouter.delete('/admin/clinicas/:id/extras/:extraId', sa, asyncHandler(admin.deleteExtra))
+// WhatsApp config
+apiRouter.get('/admin/clinicas/:id/whatsapp', sa, asyncHandler(admin.getWhatsapp))
+apiRouter.put('/admin/clinicas/:id/whatsapp', sa, asyncHandler(admin.putWhatsapp))
+// Planes de suscripción
+apiRouter.get('/admin/planes-suscripcion', sa, asyncHandler(admin.getPlanes))
+apiRouter.post('/admin/planes-suscripcion', sa, asyncHandler(admin.postPlan))
+apiRouter.patch('/admin/planes-suscripcion/:id', sa, asyncHandler(admin.patchPlan))
+apiRouter.delete('/admin/planes-suscripcion/:id', sa, asyncHandler(admin.deletePlan))
 
 // ── Reportes (descargas XLSX) ────────────────────────────────────────────────
 apiRouter.get('/reportes/pacientes', clinica, asyncHandler(reportes.getPacientes))
