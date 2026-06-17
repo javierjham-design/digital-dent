@@ -3,6 +3,7 @@ import { clinicaId } from '@/middlewares/auth'
 import {
   actualizarClinica, actualizarPrestacion, crearPrestacion,
   eliminarPrestacion, listarPrestaciones, obtenerClinica,
+  listarMediosPago, crearMedioPago, actualizarMedioPago, eliminarMedioPago,
 } from '@/services/catalogo.service'
 import { crearPrestacionSchema } from '@/validators/schemas'
 
@@ -22,6 +23,21 @@ export async function patchPrestacion(req: Request, res: Response) {
 
 export async function deletePrestacion(req: Request, res: Response) {
   await eliminarPrestacion(clinicaId(req), req.params.id)
+  res.json({ ok: true })
+}
+
+// ── Medios de pago ──
+export async function getMediosPago(req: Request, res: Response) {
+  res.json(await listarMediosPago(clinicaId(req)))
+}
+export async function postMedioPago(req: Request, res: Response) {
+  res.status(201).json(await crearMedioPago(clinicaId(req), req.body ?? {}))
+}
+export async function patchMedioPago(req: Request, res: Response) {
+  res.json(await actualizarMedioPago(clinicaId(req), req.params.id, req.body ?? {}))
+}
+export async function deleteMedioPago(req: Request, res: Response) {
+  await eliminarMedioPago(clinicaId(req), req.params.id)
   res.json({ ok: true })
 }
 

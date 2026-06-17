@@ -82,3 +82,44 @@ export const crearPrestacionSchema = z.object({
   descripcion: z.string().nullish(),
   duracion: z.number().int().positive().optional(),
 })
+
+export const crearPlanSchema = z.object({
+  pacienteId: z.string().min(1),
+  nombre: z.string().optional(),
+  notas: z.string().optional(),
+  fechaInicio: z.string().optional(),
+  doctorTitularId: z.string().optional(),
+})
+
+export const crearSeccionSchema = z.object({
+  titulo: z.string().optional(),
+  fechaTentativa: z.string().optional(),
+  diasDesdeAnterior: z.number().int().optional(),
+  notas: z.string().optional(),
+})
+
+export const crearTratamientoSchema = z.object({
+  pacienteId: z.string().min(1),
+  prestacionId: z.string().min(1),
+  piezas: z.array(z.number().int()).optional(),
+  zona: z.string().optional(),
+  cara: z.string().optional(),
+  precio: z.number().optional(),
+  notas: z.string().optional(),
+  planId: z.string().optional(),
+  seccionId: z.string().optional(),
+  descuento: z.number().optional(),
+})
+
+export const crearEvolucionSchema = z.object({
+  pacienteId: z.string().min(1),
+  tratamientoId: z.string().optional(),
+  texto: z.string().min(1),
+})
+
+export const upsertDienteSchema = z.object({
+  pacienteId: z.string().optional(),
+  fichaId: z.string().optional(),
+  numero: z.number().int(),
+  estado: z.string(),
+})

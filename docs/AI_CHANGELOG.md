@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] Backend Etapa 2B-1: dominio clínico
+
+**Portado al backend** (`tratamientos.service` + `clinico.controller` + rutas):
+- Planes de tratamiento: listar (por paciente), crear, detalle (árbol con secciones + tratamientos + cobroItems), editar, eliminar.
+- Secciones de plan: crear (orden auto), editar, eliminar.
+- Tratamientos (acciones): crear (soporta múltiples piezas, hereda doctor titular del plan, respeta permisos de precio/descuento), editar (permiso para revertir COMPLETADO, precio, descuento), eliminar.
+- Evoluciones: listar, crear, eliminar (autor o admin).
+- Odontograma: upsert de diente (auto-crea ficha clínica si falta).
+- Medios de pago (en `catalogo.service`): CRUD.
+- Permisos finos (precio/descuento/revertir) se leen frescos vía `getSessionUser` (no del JWT), igual que el monolito.
+
+Validators zod nuevos. Rutas `/api/v1/{planes-tratamiento,secciones-plan,tratamientos,evoluciones,odontograma,medios-pago}`. Typecheck OK + smoke (auth/404 correctos). master/monolito intactos.
+
+---
+
 ## 2026-06-16 — [rama arch/split] Backend Etapa 2A: equipo, agenda, catálogo, config
 
 **Solicitud:** Continuar la Etapa 2 — portar más dominios al backend Express.

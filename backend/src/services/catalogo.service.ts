@@ -64,6 +64,35 @@ export async function obtenerClinica(clinicaId: string): Promise<ClinicaConfigDT
   return clinicaDTO(c)
 }
 
+// ─── Medios de pago ──────────────────────────────────────────────────────────
+
+export async function listarMediosPago(clinicaId: string) {
+  return prisma.medioPago.findMany({ where: { clinicaId }, orderBy: { nombre: 'asc' } })
+}
+
+export async function crearMedioPago(clinicaId: string, body: { nombre: string; comision?: number }) {
+  const nombre = (body.nombre ?? '').trim()
+  if (!nombre) throw badRequest('nombre requerido')
+  const comision = body.comision != null ? Number(body.comision) : 0
+  if (!Number.isFinite(comision) || comision < 0 || comision > 100) throw badRequest('comision debe estar entre 0 y 100')
+  return prisma.medioPago.create({ data: { clinicaId, nombre, comision } })
+}
+
+export async function actualizarMedioPago(clinicaId: string, id: string, body: Record<string, unknown>) {
+  const existing = await prisma.medioPago.findFirst({ where: { id, clinicaId }, select: { id: true } })
+  if (!existing) throw notFound('Medio de pago no encontrado')
+  const data: Record<string, unknown> = {}
+  if (body.nombre !== undefined) data.nombre = String(body.nombre)
+  if (body.comision !== undefined) data.comision = Number(body.comision)
+  if (body.activo !== undefined) data.activo = Boolean(body.activo)
+  return prisma.medioPago.update({ where: { id }, data })
+}
+
+export async function eliminarMedioPago(clinicaId: string, id: string) {
+  const r = await prisma.medioPago.deleteMany({ where: { id, clinicaId } })
+  if (r.count === 0) throw notFound('Medio de pago no encontrado')
+}
+
 export async function actualizarClinica(clinicaId: string, body: Record<string, unknown>): Promise<ClinicaConfigDTO> {
   const data: Record<string, unknown> = {}
   if (body.nombre !== undefined) data.nombre = String(body.nombre)
