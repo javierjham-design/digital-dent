@@ -95,7 +95,12 @@ Para resincronizar tras un cambio de schema: `cd backend && npm run prisma:sync`
 > **Backend 100% portado** y **frontend 100% portado** (Etapa 3 completa). Todas
 > las rutas del monolito (`/api/*`) tienen su equivalente en `/api/v1/*` y todas
 > las vistas tienen su equivalente SPA. Falta la Etapa 4 (QA) y la 5 (cutover).
-| 4 | Paridad funcional + QA exhaustivo contra el monolito | ⏳ Pendiente |
+| 4-1 | QA: matriz de paridad (endpoints + páginas) → `docs/parity-matrix.md` | ✅ Hecho |
+| 4-2 | QA: arnés Vitest + lógica pura (billing/overlap/estados/crypto) + smoke HTTP sin DB | ✅ Hecho |
+| 4-3 | QA: integración con DB sqlite efímera (multi-tenant + auth + doble reserva) | ✅ Hecho |
+| 4-4 | QA: contrato FE↔BE (`test:contract`) + checklist E2E (`docs/qa-checklist.md`) | ✅ Hecho |
+| 4-5 | QA: informe de paridad + go/no-go → `docs/qa-report.md` | ✅ Hecho |
+| **4** | **Paridad funcional + QA exhaustivo** (70/70 tests verdes; GO condicional) | ✅ **Hecho** |
 | 5 | **Cutover**: 2 servicios en Railway (backend + frontend), DNS, retirar el monolito | ⏳ Pendiente |
 
 > Hasta la etapa 5, **producción sigue en el monolito**. El nuevo stack se

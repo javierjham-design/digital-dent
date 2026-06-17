@@ -5,6 +5,12 @@
 
 ---
 
+## 2026-06-17 — [rama arch/split] QA Etapa 4-5: informe de paridad + go/no-go (Etapa 4 COMPLETA)
+
+`docs/qa-report.md`: cierre de la Etapa 4. **Veredicto: GO condicional** al cutover — backend 100% portado y verificado en sus propiedades críticas (auth, aislamiento multi-tenant en runtime, doble reserva, facturación); condición = cerrar 2 gaps de UI media (Presupuestos, Reportes) y decidir E1/E2 antes de retirar el monolito. **70/70 tests automatizados verdes** (44 lógica pura + 11 smoke + 15 integración) + contrato FE↔BE 111/111 + typecheck/build. Documenta riesgos residuales (datos prod/staging, CORS, ownership de schema, bundle, secretos) y recomendación. `architecture.md` marca Etapa 4 completa.
+
+---
+
 ## 2026-06-17 — [rama arch/split] QA Etapa 4-4: contrato FE↔BE + checklist E2E
 
 **Verificador de contrato** (`scripts/contract-check.mjs`, `npm run test:contract`): parsea las llamadas `api.*` de los service clients del frontend y las rutas `apiRouter.*` del backend, normaliza paths (`${...}`/`:param` → `:x`, sin query) y comprueba que **toda llamada del front tenga ruta en el back**. Resultado: **111/111 llamadas mapeadas** (120 rutas BE). Incluye los 7 reportes XLSX (que usan fetch directo). Detecta drift sin levantar nada.
