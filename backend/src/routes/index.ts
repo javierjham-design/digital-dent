@@ -18,6 +18,8 @@ import * as cobros from '@/controllers/cobros.controller'
 import * as liq from '@/controllers/liquidaciones.controller'
 import * as reportes from '@/controllers/reportes.controller'
 import * as admin from '@/controllers/admin.controller'
+import * as demo from '@/controllers/demo.controller'
+import * as whatsapp from '@/controllers/whatsapp.controller'
 import { requireSuperAdmin } from '@/middlewares/auth'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
@@ -30,6 +32,12 @@ const adminClinica = [requireAuth, requireClinica, requireAdmin]
 // ── Auth ───────────────────────────────────────────────────────────────────
 apiRouter.post('/auth/login', asyncHandler(postLogin))
 apiRouter.get('/auth/me', requireAuth, asyncHandler(getMe))
+
+// ── Público: demo + webhook WhatsApp (auth interna propia) ───────────────────
+apiRouter.post('/demo', asyncHandler(demo.postDemo))
+apiRouter.post('/demo/cleanup', asyncHandler(demo.postDemoCleanup))
+apiRouter.post('/whatsapp/webhook', asyncHandler(whatsapp.postWebhook))
+apiRouter.post('/whatsapp/recordatorios', asyncHandler(whatsapp.postRecordatorios))
 
 // ── Pacientes ────────────────────────────────────────────────────────────────
 apiRouter.get('/pacientes', clinica, asyncHandler(getPacientes))

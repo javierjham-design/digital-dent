@@ -114,3 +114,11 @@ export async function login(body: LoginRequest, ip: string): Promise<LoginRespon
 }
 
 export const getSessionUser = toDTO
+
+// Emite un token para un usuario dado (sin contraseña). Lo usa el flujo de
+// demo para auto-loguear al administrador recién creado.
+export async function issueTokenForUserId(userId: string): Promise<LoginResponse> {
+  const u = await prisma.user.findUnique({ where: { id: userId } })
+  if (!u) throw unauthorized()
+  return { token: sign(u), user: await toDTO(u.id) }
+}

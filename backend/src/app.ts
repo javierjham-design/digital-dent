@@ -13,6 +13,8 @@ export function createApp() {
   app.use(helmet())
   app.use(cors({ origin: env.corsOrigins, credentials: true }))
   app.use(express.json({ limit: '1mb' }))
+  // Twilio postea el webhook como application/x-www-form-urlencoded.
+  app.use(express.urlencoded({ extended: false }))
   app.use(cookieParser())
 
   // Healthcheck para Railway / monitoreo.
