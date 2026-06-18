@@ -5,6 +5,18 @@
 
 ---
 
+## 2026-06-18 — [rama arch/split] Cutover: cron, smoke post-deploy y fix de redirect Google
+
+Preparativos finales para ejecutar el cutover.
+
+- **Tareas programadas (cron)** documentadas en `cutover.md` (§2.5): recordatorios WhatsApp, sync Google y limpieza de demos — todas vía `POST` con header `x-cron-secret`. Hay que recrearlas (Railway Cron o scheduler externo) apuntando al backend nuevo.
+- **`scripts/smoke-deploy.mjs`** (`npm run smoke:deploy`): valida los 3 servicios en vivo (health, `/planes` público, 401 sin token, CORS por subdominio, web y SPA sirviendo con fallback). Para correr tras cada deploy; referenciado en la validación del runbook.
+- **Fix subdominios**: el callback de Google (`google.controller`) ahora redirige al **subdominio de la clínica** (`<slug>.dominio/configuracion`) usando el `slug` del state firmado, en vez de un origen único. Coherente con la tenancy por subdominio.
+
+Verificación: backend typecheck + 58/58.
+
+---
+
 ## 2026-06-18 — [rama arch/split] Sitio web separado (`web/`): landing + campañas
 
 Se separa el **sitio web/marketing** de la plataforma en un tercer servicio

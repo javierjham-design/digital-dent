@@ -93,6 +93,28 @@ misma base de datos. El monolito se puede **retirar por completo** tras el cutov
 
 ---
 
+## 2.5 Tareas programadas (cron)
+
+El monolito ejecutaba tareas periódicas que hay que **recrear** apuntando al
+backend nuevo. Todas se autentican con el header `x-cron-secret: <CRON_SECRET>`.
+Usar Railway Cron (un servicio con schedule) o un scheduler externo (cron-job.org,
+GitHub Actions) que haga el `POST`:
+
+| Tarea | Endpoint | Frecuencia sugerida |
+|-------|----------|---------------------|
+| Recordatorios WhatsApp | `POST https://api.clariva.cl/api/v1/whatsapp/recordatorios` | cada 15–30 min |
+| Sync Google Calendar | `POST https://api.clariva.cl/api/v1/google/sync` | cada 15 min |
+| Limpieza de demos expiradas | `POST https://api.clariva.cl/api/v1/demo/cleanup` | diaria |
+
+Ejemplo de invocación:
+```
+curl -X POST https://api.clariva.cl/api/v1/whatsapp/recordatorios \
+     -H "x-cron-secret: $CRON_SECRET"
+```
+
+> Si hoy no usas WhatsApp ni Google, basta con la limpieza de demos. Activa las
+> otras cuando habilites esas integraciones.
+
 ## 3. Servicio FRONTEND (app)
 
 1. Railway → **New Service → GitHub repo** (mismo repo).
@@ -143,6 +165,15 @@ Recorrer contra el frontend nuevo (`…-frontend.up.railway.app`):
 > Checklist completo en `docs/qa-checklist.md`. Idealmente hacer este pase contra
 > una **DB de staging**; si es contra producción, en horario de bajo uso (las
 > operaciones son las normales, no destructivas).
+
+**Smoke automático** de los 3 servicios (health, planes públicos, 401 sin token,
+CORS por subdominio, web y SPA sirviendo): correr tras cada despliegue:
+```
+API_URL=https://api.clariva.cl WEB_URL=https://clariva.cl \
+APP_URL=https://demo.clariva.cl PLATFORM_DOMAIN=clariva.cl \
+npm --prefix backend run smoke:deploy
+```
+(Antes del DNS, usar las URLs `*.up.railway.app`.)
 
 ---
 

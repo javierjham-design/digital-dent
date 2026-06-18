@@ -12,6 +12,13 @@ import { findMatchingPaciente, syncAllMappedUsers, syncCalendar } from '@/lib/go
 
 const FRONTEND_URL = (env.corsOrigins[0] ?? 'https://app.clariva.cl').replace(/\/$/, '')
 
+// Base del frontend de la clínica que inició el flujo. Con dominio de plataforma
+// configurado, cada clínica vive en su subdominio (<slug>.dominio); si no, cae al
+// FRONTEND_URL (dev / origen único).
+function clinicaFrontendBase(slug?: string): string {
+  return env.platformDomain && slug ? `https://${slug}.${env.platformDomain}` : FRONTEND_URL
+}
+
 // GET /api/v1/google/connect → devuelve { authUrl } (el SPA navega a esa URL).
 // Solo admin de la clínica.
 export async function getConnect(req: Request, res: Response) {
@@ -28,13 +35,17 @@ export async function getCallback(req: Request, res: Response) {
   const code = req.query.code as string | undefined
   const stateRaw = req.query.state as string | undefined
   const error = req.query.error as string | undefined
-  const dest = (estado: string, extra = '') => `${FRONTEND_URL}/configuracion?google=${estado}${extra}`
+  // Base de redirección: arranca genérica y, al validar el state, pasa a ser el
+  // subdominio de la clínica que originó el flujo.
+  let redirectBase = clinicaFrontendBase()
+  const dest = (estado: string, extra = '') => `${redirectBase}/configuracion?google=${estado}${extra}`
 
   if (error) return res.redirect(dest('error', `&reason=${encodeURIComponent(error)}`))
   if (!code || !stateRaw) return res.redirect(dest('error', '&reason=missing_params'))
 
   const state = verifyOAuthState(stateRaw)
   if (!state) return res.redirect(dest('error', '&reason=invalid_state'))
+  redirectBase = clinicaFrontendBase(state.slug)
 
   const [clinica, user] = await Promise.all([
     prisma.clinica.findUnique({ where: { id: state.clinicaId }, select: { id: true, slug: true, activo: true } }),
