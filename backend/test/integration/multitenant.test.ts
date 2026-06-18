@@ -144,6 +144,17 @@ describe('endpoints nuevos: aislamiento + cambio de contraseña', () => {
   })
 })
 
+describe('catálogo público de planes (landing)', () => {
+  it('GET /planes sin token → 200 con planes activos', async () => {
+    const r = await request(app).get('/api/v1/planes')
+    expect(r.status).toBe(200)
+    expect(Array.isArray(r.body.planes)).toBe(true)
+    expect(r.body.planes.length).toBeGreaterThan(0)
+    // shape público: nada de campos internos sensibles
+    expect(r.body.planes[0]).toHaveProperty('precioMensual')
+  })
+})
+
 describe('gating de roles', () => {
   it('un admin de clínica NO accede a endpoints de plataforma → 403', async () => {
     const r = await request(app).get('/api/v1/admin/stats').set('Authorization', `Bearer ${tokenA}`)

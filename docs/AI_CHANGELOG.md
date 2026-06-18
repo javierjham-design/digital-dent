@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-06-18 — [rama arch/split] Sitio web separado (`web/`): landing + campañas
+
+Se separa el **sitio web/marketing** de la plataforma en un tercer servicio
+independiente, para poder crear landing pages sin tocar la app. Tras esto el
+monolito se puede retirar por completo.
+
+**Nuevo paquete `web/`** (Vite + React + Tailwind + react-router, mismo stack que el frontend; sin FullCalendar):
+- Landing principal portada del monolito (multi-rubro dental/médico/estética, hero, funciones, planes, testimonios, FAQ, CTA) en `src/pages/Landing.tsx` + `src/lib/verticales.ts` (sin la parte `seed`).
+- **Precios dinámicos** desde la API pública; **demo** vía `POST /api/v1/demo`. Tras crear la demo, redirige a `https://<slug>.clariva.cl/agenda#token=…` para **auto-login cross-subdominio** (la SPA lee el `#token`). Si no hay dominio (dev), muestra credenciales.
+- "Iniciar sesión" → `https://app.<dominio>` (SPA en modo manual).
+- **Landing pages de campaña** data-driven: `src/landings/registry.ts` + plantilla `CampaignLanding.tsx`. Agregar una landing = una entrada en el registro → se publica en `clariva.cl/<slug>` (incluida `landing-1` de ejemplo).
+- `server.mjs` (estático + fallback SPA), `railway.json`, `.env.example` (`VITE_API_URL`, `VITE_PLATFORM_DOMAIN`).
+
+**Backend:** endpoint **público** `GET /planes` (`public.controller.ts`) con planes activos para la landing (sin auth).
+
+**Frontend (SPA):** `useAuth` lee `#token=` de la URL al iniciar (handoff de sesión desde la demo, cross-origin) y limpia el hash.
+
+**Runbook (`cutover.md`):** ahora **3 servicios** — web (apex/`www`/campañas), frontend SPA (wildcard `*.clariva.cl`), backend (`api`). DNS del apex vía ALIAS/ANAME. El monolito queda **totalmente retirable**.
+
+Verificación: web build verde (269 KB) · frontend build verde · backend typecheck + **58/58** unit+smoke + **23/23** integración (incluye `GET /planes` público) · contrato 116/116 (130 rutas).
+
+---
+
 ## 2026-06-17 — [rama arch/split] Tenancy por subdominio (paridad con el monolito)
 
 Las clínicas entran por `<slug>.clariva.cl` (como el monolito); `super-admin.clariva.cl` = plataforma; `clariva.cl`/`www` = landing (se mantiene). **No se cambió la lógica de tenancy** (el `clinicaId` sigue en el JWT); el subdominio solo decide el slug del login.

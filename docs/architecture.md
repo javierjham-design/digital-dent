@@ -36,15 +36,25 @@ dental-platform/
 │       ├── routes/         define endpoints y los protege
 │       └── validators/     esquemas zod
 │
-└── frontend/                         ← SPA (nuevo)
+├── frontend/                         ← SPA de clínicas (nuevo)
+│   └── src/
+│       ├── services/       cliente API tipado (único punto de fetch)
+│       ├── hooks/          useAuth (contexto de sesión)
+│       ├── layouts/        DashboardLayout
+│       ├── pages/          Login, Agenda, Pacientes…
+│       ├── components/     ProtectedRoute…
+│       └── styles/
+│
+└── web/                              ← Sitio web / marketing (nuevo, independiente)
     └── src/
-        ├── services/       cliente API tipado (único punto de fetch)
-        ├── hooks/          useAuth (contexto de sesión)
-        ├── layouts/        DashboardLayout
-        ├── pages/          Login, Agenda, Pacientes…
-        ├── components/     ProtectedRoute…
-        └── styles/
+        ├── pages/          Landing (multi-rubro), CampaignLanding
+        ├── landings/       registry.ts (landing pages de campaña → /<slug>)
+        └── lib/            verticales (copy por rubro), api (planes/demo públicos)
 ```
+
+**Despliegue (3 servicios + 1 DB):** `web` en el apex `clariva.cl` (landing +
+campañas), `frontend` en el wildcard `*.clariva.cl` (clínicas por subdominio +
+super-admin), `backend` en `api.clariva.cl`. Ver `docs/cutover.md`.
 
 ## Reglas de la arquitectura
 

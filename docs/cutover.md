@@ -12,22 +12,25 @@
 
 ## 0. Arquitectura objetivo
 
-```
-  clariva.cl / www  →  LANDING promocional (se mantiene como está hoy; NO la sirve
-                       el frontend nuevo). El apex no lo toca el cutover.
+**3 servicios** en Railway (mismo repo, distinto *root directory*), todos sobre la
+misma base de datos. El monolito se puede **retirar por completo** tras el cutover.
 
-  <slug>.clariva.cl      ┐
-  super-admin.clariva.cl ┘→ ┌──────────────────────────┐   (Railway, root dir: frontend/)
-                            │ Frontend SPA (Vite/React) │   dominio wildcard *.clariva.cl
-                            │  sirve dist/ vía server.mjs│
-                            └─────────────┬──────────────┘
+```
+  clariva.cl / www  →  ┌──────────────────────────┐  WEB / marketing (Railway, root: web/)
+  clariva.cl/landing-1 │ Sitio web (Vite/React)    │  landing + landing pages de campaña
+                       └────────────┬──────────────┘
+                                    │ fetch público: GET /planes, POST /demo
+  <slug>.clariva.cl      ┐          │  (demo → redirige a <slug>.clariva.cl/#token=…)
+  super-admin.clariva.cl ┘→ ┌───────▼──────────────────┐  Frontend SPA (Railway, root: frontend/)
+                            │ App de clínicas (SPA)     │  dominio wildcard *.clariva.cl
+                            └─────────────┬─────────────┘
                                   │ fetch https://api.clariva.cl/api/v1 (Bearer JWT)
                     ┌─────────────▼──────────────┐
    api.clariva.cl → │ Backend API (Express+tsx)  │  (Railway, root dir: backend/)
                     └─────────────┬──────────────┘
                                   │ Prisma
                     ┌─────────────▼──────────────┐
-                    │  PostgreSQL (Railway)       │  ← la MISMA que usa el monolito
+                    │  PostgreSQL (Railway)       │  ← la MISMA base de datos
                     └────────────────────────────┘
 ```
 
@@ -109,6 +112,21 @@
 
 ---
 
+## 3.5 Servicio WEB (landing + campañas)
+
+1. Railway → **New Service → GitHub repo** (mismo repo). Root Directory = `dental-platform/web`.
+2. Build/Start: cubiertos por `web/railway.json` (NIXPACKS, `npm start` → `server.mjs`,
+   healthcheck `/`). Igual que el frontend: **no setear `NODE_ENV=production`** (el build
+   usa devDependencies; `express` está en `dependencies`).
+3. **Variables** (build-time):
+   | Variable | Valor |
+   |----------|-------|
+   | `VITE_API_URL` | `https://api.clariva.cl/api/v1` (precios públicos + crear demo) |
+   | `VITE_PLATFORM_DOMAIN` | `clariva.cl` (enlaces a `app.` y a `<slug>.` con handoff de demo) |
+4. Networking → **Generate Domain** para validar; luego dominios propios `clariva.cl` + `www`.
+5. Landing pages de campaña: se publican en `clariva.cl/<slug>` agregando entradas a
+   `web/src/landings/registry.ts` (ej. `clariva.cl/landing-1`). No requiere config extra.
+
 ## 4. Validación (con dominios `*.up.railway.app`, antes de DNS)
 
 Recorrer contra el frontend nuevo (`…-frontend.up.railway.app`):
@@ -136,16 +154,17 @@ Las clínicas entran por `<slug>.clariva.cl` → el frontend nuevo se sirve en u
 1. En Railway, Custom Domains:
    - Backend → `api.clariva.cl`
    - Frontend → `*.clariva.cl` (wildcard) — cubre todas las clínicas y `super-admin`.
+   - Web → `clariva.cl` (apex) y `www.clariva.cl`.
 2. En el DNS de `clariva.cl` (un registro **exacto gana sobre el wildcard**):
    ```
-   *      CNAME   <target del FRONTEND en Railway>     ← todas las clínicas + super-admin
-   api    CNAME   <target del BACKEND en Railway>      ← exacto, gana sobre *
-   www    (sin cambios)                                ← landing actual
-   @ / clariva.cl  (sin cambios)                       ← landing actual (apex)
+   @ / clariva.cl  ALIAS/ANAME/A  <target del WEB en Railway>   ← landing (apex)
+   www    CNAME   <target del WEB en Railway>      ← landing
+   api    CNAME   <target del BACKEND en Railway>  ← exacto, gana sobre *
+   *      CNAME   <target del FRONTEND en Railway> ← clínicas + super-admin
    ```
-   > Verificar que el registro de `www` y del apex **siguen apuntando a la landing**
-   > actual (no al wildcard). El wildcard `*` no afecta al apex; `www` se mantiene por
-   > su registro propio.
+   > El apex (`@`) suele requerir ALIAS/ANAME (o A) según el proveedor de DNS, porque
+   > CNAME en el apex no está permitido en DNS clásico. Railway indica el target.
+   > Las landing pages de campaña viven en `clariva.cl/landing-1` (mismo servicio web).
 3. Esperar propagación + emisión de TLS (Railway lo hace automático; el wildcard
    requiere validación DNS del dominio, que Railway guía).
 4. Actualizar:
@@ -159,11 +178,10 @@ Las clínicas entran por `<slug>.clariva.cl` → el frontend nuevo se sirve en u
 
 ## 6. Switch de tráfico
 
-- El cutover real es **mover el wildcard `*.clariva.cl` al frontend nuevo**. A partir
-  de ahí, cada `<slug>.clariva.cl` sirve la SPA.
-- La **landing** (`clariva.cl` / `www`) **no se mueve**: sigue donde está hoy.
+- El cutover mueve los 3 dominios al stack nuevo: el apex/`www` al **web**, el
+  wildcard `*.clariva.cl` al **frontend** (clínicas), y `api` al **backend**.
 - Recomendado: mantener el monolito accesible en un dominio alterno
-  (`legacy.clariva.cl`) unos días por si hay que volver.
+  (`legacy.clariva.cl`) unos días por si hay que volver (rollback = reapuntar DNS).
 
 ---
 
@@ -178,24 +196,17 @@ Las clínicas entran por `<slug>.clariva.cl` → el frontend nuevo se sirve en u
 
 ## 8. Retiro del monolito (solo cuando el nuevo stack esté estable)
 
-> ⚠️ **La landing de `clariva.cl` / `www` vive HOY en el monolito.** Si se retira el
-> monolito por completo, se cae la landing. Antes de retirarlo hay que decidir cómo
-> preservar la landing (las clínicas YA están servidas por el frontend nuevo):
-> - **Opción A (mínimo esfuerzo):** mantener el monolito desplegado **solo** para el
->   apex/`www` (la landing), y dejar el wildcard `*` en el frontend nuevo. El monolito
->   deja de servir clínicas pero sigue sirviendo la página promocional.
-> - **Opción B:** portar la landing a un sitio estático aparte y recién ahí apagar el
->   monolito. (Trabajo adicional, fuera de este cutover.)
+> La landing ya está portada al **servicio web** (apex/`www`/campañas), así que el
+> monolito **se puede retirar por completo** una vez estable el stack nuevo.
 
-- [ ] Confirmar varios días de operación sin incidencias en el stack nuevo.
-- [ ] Resolver la landing del apex (Opción A u B de arriba).
+- [ ] Confirmar varios días de operación sin incidencias en los 3 servicios nuevos.
 - [ ] El backend pasa a ser **dueño del schema**: a partir de acá, los cambios de
       schema se hacen en `backend/prisma/schema.prisma` (sincronizado con
       `npm run prisma:sync`) y se aplican con `prisma db push` (mismo flujo que
       tenía el monolito). Documentar el cambio en `docs/AI_CHANGELOG.md`.
-- [ ] Apagar el rol de **app de clínica** del monolito (el wildcard ya apunta al
-      frontend nuevo). Mantener el monolito solo si sirve la landing (Opción A).
-- [ ] (Opcional) archivar el código del monolito una vez resuelta la landing.
+- [ ] Pausar/eliminar el servicio del **monolito** en Railway (los 3 dominios ya
+      apuntan al stack nuevo).
+- [ ] (Opcional) archivar el código del monolito (`app/`, `proxy.ts`, etc.).
 
 ---
 

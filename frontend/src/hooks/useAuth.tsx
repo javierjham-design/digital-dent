@@ -18,6 +18,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [cargando, setCargando] = useState(true)
 
   useEffect(() => {
+    // Handoff de sesión desde la landing/demo: si llega ?#token=<jwt> en la URL
+    // (otro origen no puede compartir localStorage), lo guardamos y limpiamos.
+    const hash = window.location.hash
+    const m = hash.match(/[#&]token=([^&]+)/)
+    if (m) {
+      tokenStore.set(decodeURIComponent(m[1]))
+      history.replaceState(null, '', window.location.pathname + window.location.search)
+    }
     if (!tokenStore.get()) { setCargando(false); return }
     authService.me()
       .then(setUser)

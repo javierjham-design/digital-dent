@@ -26,6 +26,7 @@ import * as admin from '@/controllers/admin.controller'
 import * as demo from '@/controllers/demo.controller'
 import * as whatsapp from '@/controllers/whatsapp.controller'
 import * as googlec from '@/controllers/google.controller'
+import { getPlanesPublicos } from '@/controllers/public.controller'
 import { requireSuperAdmin } from '@/middlewares/auth'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
@@ -42,6 +43,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 *
 apiRouter.post('/auth/login', asyncHandler(postLogin))
 apiRouter.get('/auth/me', requireAuth, asyncHandler(getMe))
 apiRouter.post('/auth/cambiar-password', requireAuth, asyncHandler(postCambiarPassword))
+
+// ── Público: catálogo de planes para la landing ──────────────────────────────
+apiRouter.get('/planes', asyncHandler(getPlanesPublicos))
 
 // ── Público: demo + webhook WhatsApp (auth interna propia) ───────────────────
 apiRouter.post('/demo', asyncHandler(demo.postDemo))
