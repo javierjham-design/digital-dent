@@ -1,0 +1,10 @@
+{
+  "name": "@clariva/cron",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Jobs de cron de Cláriva: invocan los endpoints periódicos del backend con x-cron-secret.",
+  "scripts": {
+    "start": "node run.mjs"
+  }
+}

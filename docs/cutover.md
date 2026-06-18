@@ -114,6 +114,9 @@ curl -X POST https://api.clariva.cl/api/v1/whatsapp/recordatorios \
 
 > Si hoy no usas WhatsApp ni Google, basta con la limpieza de demos. Activa las
 > otras cuando habilites esas integraciones.
+>
+> **Forma lista para usar:** paquete `cron/` (un servicio Railway por job) +
+> opción **Docker** por servicio → ver `docs/deploy-extras.md`.
 
 ## 3. Servicio FRONTEND (app)
 

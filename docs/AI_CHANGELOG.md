@@ -5,7 +5,14 @@
 
 ---
 
-## 2026-06-18 — [rama arch/split] Cutover: cron, smoke post-deploy y fix de redirect Google
+## 2026-06-18 — [rama arch/split] Cutover: Dockerfiles por servicio + paquete cron
+
+Dos extras de despliegue listos (opcionales; NIXPACKS sigue siendo el default):
+- **Dockerfiles** `backend/`, `frontend/`, `web/` (multi-stage para los estáticos). Contexto de build = raíz del repo (backend/frontend importan `../shared`); `VITE_*` como build args. `.dockerignore` en la raíz.
+- **Paquete `cron/`**: `run.mjs` hace POST al backend según `JOB` (`cleanup`/`recordatorios`/`sync`) con `x-cron-secret`; `railway.json` con `cronSchedule` + `restartPolicyType: NEVER`. Un servicio Railway por job.
+- **`docs/deploy-extras.md`**: cómo usar Docker (Root Directory = raíz + Dockerfile Path) y cómo configurar los servicios cron (vars + schedules sugeridos). Enlazado desde `cutover.md`.
+
+Scripts `cron/run.mjs` y `scripts/smoke-deploy.mjs` verificados con `node --check`.
 
 Preparativos finales para ejecutar el cutover.
 

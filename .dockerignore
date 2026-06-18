@@ -1,0 +1,10 @@
+**/node_modules
+**/dist
+**/.git
+**/*.log
+**/.env
+**/.env.local
+backend/prisma/.test-client
+backend/prisma/test.db
+backend/prisma/test.db-journal
+backend/prisma/schema.test.prisma
