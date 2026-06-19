@@ -39,7 +39,6 @@ export const apiRouter = Router()
 // (resuelve req.tenant). A medida que se convierten los dominios, sus rutas
 // pasan de `clinica` a `tenant`.
 const clinica = [requireAuth, requireClinica]
-const adminClinica = [requireAuth, requireClinica, requireAdmin]
 const tenant = [requireAuth, requireTenant]
 const adminTenant = [requireAuth, requireTenant, requireAdmin]
 
@@ -157,27 +156,27 @@ apiRouter.post('/presupuestos', tenant, asyncHandler(presupuestos.postPresupuest
 apiRouter.patch('/presupuestos/:id', tenant, asyncHandler(presupuestos.patchPresupuesto))
 
 // ── Cajas (sesiones, movimientos) ────────────────────────────────────────────
-apiRouter.get('/cajas', clinica, asyncHandler(caja.getCajas))
-apiRouter.post('/cajas', adminClinica, asyncHandler(caja.postCaja))
-apiRouter.get('/cajas/:id', clinica, asyncHandler(caja.getCaja))
-apiRouter.patch('/cajas/:id', adminClinica, asyncHandler(caja.patchCaja))
-apiRouter.delete('/cajas/:id', adminClinica, asyncHandler(caja.deleteCaja))
-apiRouter.get('/cajas/:id/abrir', clinica, asyncHandler(caja.getSaldoSugerido))
-apiRouter.post('/cajas/:id/abrir', clinica, asyncHandler(caja.postAbrir))
-apiRouter.post('/cajas/:id/cerrar', clinica, asyncHandler(caja.postCerrar))
-apiRouter.get('/cajas/:id/sesiones', clinica, asyncHandler(caja.getSesiones))
-apiRouter.get('/cajas/:id/sesiones/:sesionId', clinica, asyncHandler(caja.getSesion))
-apiRouter.get('/cajas/:id/movimientos', clinica, asyncHandler(caja.getMovimientos))
-apiRouter.post('/cajas/:id/movimientos', clinica, asyncHandler(caja.postMovimiento))
-apiRouter.post('/cajas/:id/movimientos/:movId/anular', clinica, asyncHandler(caja.postAnularMovimiento))
+apiRouter.get('/cajas', tenant, asyncHandler(caja.getCajas))
+apiRouter.post('/cajas', adminTenant, asyncHandler(caja.postCaja))
+apiRouter.get('/cajas/:id', tenant, asyncHandler(caja.getCaja))
+apiRouter.patch('/cajas/:id', adminTenant, asyncHandler(caja.patchCaja))
+apiRouter.delete('/cajas/:id', adminTenant, asyncHandler(caja.deleteCaja))
+apiRouter.get('/cajas/:id/abrir', tenant, asyncHandler(caja.getSaldoSugerido))
+apiRouter.post('/cajas/:id/abrir', tenant, asyncHandler(caja.postAbrir))
+apiRouter.post('/cajas/:id/cerrar', tenant, asyncHandler(caja.postCerrar))
+apiRouter.get('/cajas/:id/sesiones', tenant, asyncHandler(caja.getSesiones))
+apiRouter.get('/cajas/:id/sesiones/:sesionId', tenant, asyncHandler(caja.getSesion))
+apiRouter.get('/cajas/:id/movimientos', tenant, asyncHandler(caja.getMovimientos))
+apiRouter.post('/cajas/:id/movimientos', tenant, asyncHandler(caja.postMovimiento))
+apiRouter.post('/cajas/:id/movimientos/:movId/anular', tenant, asyncHandler(caja.postAnularMovimiento))
 
 // ── Cobros ───────────────────────────────────────────────────────────────────
-apiRouter.get('/cobros', clinica, asyncHandler(cobros.getCobros))
-apiRouter.get('/cobros/:id', clinica, asyncHandler(cobros.getCobro))
-apiRouter.post('/cobros', clinica, asyncHandler(cobros.postCobro))
-apiRouter.patch('/cobros/:id', clinica, asyncHandler(cobros.patchCobro))
-apiRouter.post('/cobros/:id/anular', clinica, asyncHandler(cobros.postAnularCobro))
-apiRouter.delete('/cobros/:id', clinica, asyncHandler(cobros.deleteCobro))
+apiRouter.get('/cobros', tenant, asyncHandler(cobros.getCobros))
+apiRouter.get('/cobros/:id', tenant, asyncHandler(cobros.getCobro))
+apiRouter.post('/cobros', tenant, asyncHandler(cobros.postCobro))
+apiRouter.patch('/cobros/:id', tenant, asyncHandler(cobros.patchCobro))
+apiRouter.post('/cobros/:id/anular', tenant, asyncHandler(cobros.postAnularCobro))
+apiRouter.delete('/cobros/:id', tenant, asyncHandler(cobros.deleteCobro))
 
 // ── Contratos ────────────────────────────────────────────────────────────────
 apiRouter.get('/contratos', clinica, asyncHandler(liq.getContratos))

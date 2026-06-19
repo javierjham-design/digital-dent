@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import {
@@ -12,11 +12,8 @@ const CAJA_INCLUDE = {
 } as const
 
 // Verifica acceso a una caja: admin ve todas; el resto solo las asignadas.
-async function cajaConAcceso(clinicaId: string, cajaId: string, actor: JwtPayload) {
-  const caja = await prisma.caja.findFirst({
-    where: { id: cajaId, clinicaId },
-    include: { usuarios: { select: { userId: true } } },
-  })
+async function cajaConAcceso(db: TenantClient, cajaId: string, actor: JwtPayload) {
+  const caja = await db.caja.findUnique({ where: { id: cajaId }, include: { usuarios: { select: { userId: true } } } })
   if (!caja) throw notFound('Caja no encontrada')
   const isAdmin = actor.role === 'admin'
   if (!isAdmin && !caja.usuarios.some((cu) => cu.userId === actor.sub)) {
@@ -27,31 +24,30 @@ async function cajaConAcceso(clinicaId: string, cajaId: string, actor: JwtPayloa
 
 // ── Cajas ────────────────────────────────────────────────────────────────────
 
-export async function listarCajas(actor: JwtPayload) {
-  const clinicaId = actor.clinicaId!
+export async function listarCajas(db: TenantClient, actor: JwtPayload) {
   const where = actor.role === 'admin'
-    ? { clinicaId, activo: true }
-    : { clinicaId, activo: true, usuarios: { some: { userId: actor.sub } } }
-  return prisma.caja.findMany({ where, include: CAJA_INCLUDE, orderBy: { nombre: 'asc' } })
+    ? { activo: true }
+    : { activo: true, usuarios: { some: { userId: actor.sub } } }
+  return db.caja.findMany({ where, include: CAJA_INCLUDE, orderBy: { nombre: 'asc' } })
 }
 
-export async function obtenerCaja(actor: JwtPayload, id: string) {
-  await cajaConAcceso(actor.clinicaId!, id, actor)
-  return prisma.caja.findUnique({ where: { id }, include: CAJA_INCLUDE })
+export async function obtenerCaja(db: TenantClient, actor: JwtPayload, id: string) {
+  await cajaConAcceso(db, id, actor)
+  return db.caja.findUnique({ where: { id }, include: CAJA_INCLUDE })
 }
 
-export async function crearCaja(clinicaId: string, body: { nombre: string; descripcion?: string; saldoInicial?: number; usuarioIds?: string[] }) {
+export async function crearCaja(db: TenantClient, body: { nombre: string; descripcion?: string; saldoInicial?: number; usuarioIds?: string[] }) {
   const nombre = (body.nombre ?? '').trim()
   if (!nombre) throw badRequest('Falta el nombre')
   const usuarioIds = Array.isArray(body.usuarioIds) ? body.usuarioIds : []
   if (usuarioIds.length > 0) {
-    const count = await prisma.user.count({ where: { id: { in: usuarioIds }, clinicaId } })
+    const count = await db.user.count({ where: { id: { in: usuarioIds } } })
     if (count !== usuarioIds.length) throw badRequest('Usuarios inválidos')
   }
   try {
-    return await prisma.caja.create({
+    return await db.caja.create({
       data: {
-        clinicaId, nombre, descripcion: body.descripcion ? String(body.descripcion) : null,
+        nombre, descripcion: body.descripcion ? String(body.descripcion) : null,
         saldoInicial: Number(body.saldoInicial) || 0,
         usuarios: { create: usuarioIds.map((userId) => ({ userId })) },
       },
@@ -64,8 +60,8 @@ export async function crearCaja(clinicaId: string, body: { nombre: string; descr
   }
 }
 
-export async function actualizarCaja(clinicaId: string, id: string, body: Record<string, unknown>) {
-  const existing = await prisma.caja.findFirst({ where: { id, clinicaId }, select: { id: true } })
+export async function actualizarCaja(db: TenantClient, id: string, body: Record<string, unknown>) {
+  const existing = await db.caja.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Caja no encontrada')
   const data: Record<string, unknown> = {}
   if (body.nombre !== undefined) data.nombre = String(body.nombre).trim()
@@ -80,59 +76,57 @@ export async function actualizarCaja(clinicaId: string, id: string, body: Record
   if (Array.isArray(body.usuarioIds)) {
     const usuarioIds = body.usuarioIds as string[]
     if (usuarioIds.length > 0) {
-      const count = await prisma.user.count({ where: { id: { in: usuarioIds }, clinicaId } })
+      const count = await db.user.count({ where: { id: { in: usuarioIds } } })
       if (count !== usuarioIds.length) throw badRequest('Usuarios inválidos')
     }
-    await prisma.cajaUsuario.deleteMany({ where: { cajaId: id } })
+    await db.cajaUsuario.deleteMany({ where: { cajaId: id } })
     if (usuarioIds.length > 0) {
-      await prisma.cajaUsuario.createMany({ data: usuarioIds.map((userId) => ({ cajaId: id, userId })) })
+      await db.cajaUsuario.createMany({ data: usuarioIds.map((userId) => ({ cajaId: id, userId })) })
     }
   }
-  return prisma.caja.update({ where: { id }, data, include: CAJA_INCLUDE })
+  return db.caja.update({ where: { id }, data, include: CAJA_INCLUDE })
 }
 
-export async function eliminarCaja(clinicaId: string, id: string) {
-  const existing = await prisma.caja.findFirst({ where: { id, clinicaId }, select: { id: true } })
+export async function eliminarCaja(db: TenantClient, id: string) {
+  const existing = await db.caja.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Caja no encontrada')
-  await prisma.caja.update({ where: { id }, data: { activo: false } }) // soft delete (hay historial)
+  await db.caja.update({ where: { id }, data: { activo: false } }) // soft delete (hay historial)
 }
 
 // ── Sesiones ─────────────────────────────────────────────────────────────────
 
-export async function saldoSugerido(actor: JwtPayload, cajaId: string) {
-  await cajaConAcceso(actor.clinicaId!, cajaId, actor)
-  return { saldoSugerido: await calcularSaldoSugerido(cajaId) }
+export async function saldoSugerido(db: TenantClient, actor: JwtPayload, cajaId: string) {
+  await cajaConAcceso(db, cajaId, actor)
+  return { saldoSugerido: await calcularSaldoSugerido(db, cajaId) }
 }
 
-export async function abrirSesion(actor: JwtPayload, cajaId: string, saldoAperturaRaw: unknown) {
-  const caja = await cajaConAcceso(actor.clinicaId!, cajaId, actor)
+export async function abrirSesion(db: TenantClient, actor: JwtPayload, cajaId: string, saldoAperturaRaw: unknown) {
+  const caja = await cajaConAcceso(db, cajaId, actor)
   if (!caja.activo) throw conflict('La caja está inactiva.')
-  if (await getSesionAbierta(cajaId)) throw conflict('Ya hay una sesión abierta en esta caja.')
+  if (await getSesionAbierta(db, cajaId)) throw conflict('Ya hay una sesión abierta en esta caja.')
 
   let saldoApertura: number
   if (saldoAperturaRaw === undefined || saldoAperturaRaw === null || saldoAperturaRaw === '') {
-    saldoApertura = await calcularSaldoSugerido(cajaId)
+    saldoApertura = await calcularSaldoSugerido(db, cajaId)
   } else {
     saldoApertura = Number(saldoAperturaRaw)
   }
   if (!Number.isFinite(saldoApertura) || saldoApertura < 0) throw badRequest('El saldo de apertura es inválido.')
 
-  return abrirSesionCore({
-    cajaId, clinicaId: actor.clinicaId!, userId: actor.sub, userNombre: actorName(actor), saldoApertura,
-  })
+  return abrirSesionCore(db, { cajaId, userId: actor.sub, userNombre: actorName(actor), saldoApertura })
 }
 
-export async function cerrarSesion(actor: JwtPayload, cajaId: string, body: { saldoReal: unknown; observaciones?: string }) {
-  await cajaConAcceso(actor.clinicaId!, cajaId, actor)
+export async function cerrarSesion(db: TenantClient, actor: JwtPayload, cajaId: string, body: { saldoReal: unknown; observaciones?: string }) {
+  await cajaConAcceso(db, cajaId, actor)
   const saldoReal = Number(body.saldoReal)
   if (!Number.isFinite(saldoReal) || saldoReal < 0) throw badRequest('El conteo real es inválido.')
   const observaciones = body.observaciones?.trim() || null
 
-  const sesion = await getSesionAbierta(cajaId)
+  const sesion = await getSesionAbierta(db, cajaId)
   if (!sesion) throw conflict('Esta caja no tiene una sesión abierta para cerrar.')
 
   const cerradaAt = new Date()
-  return prisma.$transaction(async (tx) => {
+  return db.$transaction(async (tx) => {
     await tx.movimientoCaja.updateMany({
       where: { cajaId, sesionCajaId: null, fecha: { gte: sesion.abiertaAt, lte: cerradaAt } },
       data: { sesionCajaId: sesion.id },
@@ -154,18 +148,17 @@ export async function cerrarSesion(actor: JwtPayload, cajaId: string, body: { sa
   })
 }
 
-export async function listarSesiones(actor: JwtPayload, cajaId: string) {
-  await cajaConAcceso(actor.clinicaId!, cajaId, actor)
-  return prisma.sesionCaja.findMany({ where: { cajaId }, orderBy: { abiertaAt: 'desc' }, take: 50 })
+export async function listarSesiones(db: TenantClient, actor: JwtPayload, cajaId: string) {
+  await cajaConAcceso(db, cajaId, actor)
+  return db.sesionCaja.findMany({ where: { cajaId }, orderBy: { abiertaAt: 'desc' }, take: 50 })
 }
 
-export async function detalleSesion(actor: JwtPayload, cajaId: string, sesionId: string) {
-  const clinicaId = actor.clinicaId!
-  await cajaConAcceso(clinicaId, cajaId, actor)
-  const sesion = await prisma.sesionCaja.findFirst({ where: { id: sesionId, cajaId, clinicaId } })
+export async function detalleSesion(db: TenantClient, actor: JwtPayload, cajaId: string, sesionId: string) {
+  await cajaConAcceso(db, cajaId, actor)
+  const sesion = await db.sesionCaja.findFirst({ where: { id: sesionId, cajaId } })
   if (!sesion) throw notFound('Sesión no encontrada')
   const hasta = sesion.cerradaAt ?? new Date()
-  const movimientos = await prisma.movimientoCaja.findMany({
+  const movimientos = await db.movimientoCaja.findMany({
     where: { cajaId, OR: [{ sesionCajaId: sesionId }, { sesionCajaId: null, fecha: { gte: sesion.abiertaAt, lte: hasta } }] },
     include: {
       user: { select: { id: true, name: true, email: true } },
@@ -179,18 +172,17 @@ export async function detalleSesion(actor: JwtPayload, cajaId: string, sesionId:
     },
     orderBy: { fecha: 'desc' },
   })
-  const resumen = await calcularResumenSesion(sesionId)
+  const resumen = await calcularResumenSesion(db, sesionId)
   return { sesion, movimientos, resumen }
 }
 
 // ── Movimientos ──────────────────────────────────────────────────────────────
 
-export async function listarMovimientos(actor: JwtPayload, cajaId: string, rango: { from?: string; to?: string }) {
-  const clinicaId = actor.clinicaId!
-  await cajaConAcceso(clinicaId, cajaId, actor)
-  return prisma.movimientoCaja.findMany({
+export async function listarMovimientos(db: TenantClient, actor: JwtPayload, cajaId: string, rango: { from?: string; to?: string }) {
+  await cajaConAcceso(db, cajaId, actor)
+  return db.movimientoCaja.findMany({
     where: {
-      cajaId, clinicaId,
+      cajaId,
       ...(rango.from && rango.to ? { fecha: { gte: new Date(rango.from), lte: new Date(rango.to + 'T23:59:59') } } : {}),
     },
     include: {
@@ -201,9 +193,8 @@ export async function listarMovimientos(actor: JwtPayload, cajaId: string, rango
   })
 }
 
-export async function crearMovimiento(actor: JwtPayload, cajaId: string, body: Record<string, unknown>) {
-  const clinicaId = actor.clinicaId!
-  const caja = await cajaConAcceso(clinicaId, cajaId, actor)
+export async function crearMovimiento(db: TenantClient, actor: JwtPayload, cajaId: string, body: Record<string, unknown>) {
+  const caja = await cajaConAcceso(db, cajaId, actor)
   if (!caja.activo) throw forbidden('No tienes acceso a esta caja')
 
   const tipo = body.tipo === 'INGRESO' ? 'INGRESO' : 'EGRESO'
@@ -217,29 +208,26 @@ export async function crearMovimiento(actor: JwtPayload, cajaId: string, body: R
     : (tipo === 'EGRESO' ? 'OTRO' : null)
   const fecha = body.fecha ? new Date(String(body.fecha)) : new Date()
 
-  const sesion = await getSesionAbierta(cajaId)
+  const sesion = await getSesionAbierta(db, cajaId)
   if (!sesion) throw conflict('La caja no tiene una sesión abierta. Abre la caja antes de registrar movimientos.')
 
-  return prisma.movimientoCaja.create({
-    data: { clinicaId, cajaId, sesionCajaId: sesion.id, tipo, monto, descripcion, categoria, fecha, userId: actor.sub },
+  return db.movimientoCaja.create({
+    data: { cajaId, sesionCajaId: sesion.id, tipo, monto, descripcion, categoria, fecha, userId: actor.sub },
     include: { user: { select: { id: true, name: true, email: true } } },
   })
 }
 
-export async function anularMovimiento(actor: JwtPayload, cajaId: string, movId: string, motivo: string) {
-  const clinicaId = actor.clinicaId!
-  const mov = await prisma.movimientoCaja.findFirst({
-    where: { id: movId, cajaId, clinicaId }, select: { id: true, anulado: true, cobroId: true },
-  })
+export async function anularMovimiento(db: TenantClient, actor: JwtPayload, cajaId: string, movId: string, motivo: string) {
+  const mov = await db.movimientoCaja.findFirst({ where: { id: movId, cajaId }, select: { id: true, anulado: true, cobroId: true } })
   if (!mov) throw notFound('Movimiento no encontrado')
   if (mov.anulado) throw badRequest('El movimiento ya está anulado')
   if (mov.cobroId) throw badRequest('Este movimiento proviene de un cobro. Anula el cobro desde Cobros.')
 
-  const me = await prisma.user.findUnique({ where: { id: actor.sub }, select: { role: true, puedeEditarPagos: true } })
+  const me = await db.user.findUnique({ where: { id: actor.sub }, select: { role: true, puedeEditarPagos: true } })
   if (!(me?.role === 'admin' || me?.puedeEditarPagos)) throw forbidden('No tienes permiso para anular movimientos.')
   if ((motivo ?? '').trim().length < 4) throw badRequest('Debes indicar un motivo (mínimo 4 caracteres).')
 
-  return prisma.movimientoCaja.update({
+  return db.movimientoCaja.update({
     where: { id: movId },
     data: { anulado: true, motivoAnulacion: motivo.trim(), anuladoAt: new Date(), anuladoPorId: actor.sub, anuladoPorNombre: actorName(actor) },
   })
