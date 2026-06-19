@@ -99,15 +99,15 @@ apiRouter.get('/doctores', tenant, asyncHandler(getDoctores))
 apiRouter.post('/usuarios', adminTenant, asyncHandler(postUsuario))
 apiRouter.patch('/usuarios/:id', tenant, asyncHandler(patchUsuario)) // self o admin (validado en service)
 
-// ── Horarios ─────────────────────────────────────────────────────────────────
-apiRouter.get('/horarios', clinica, asyncHandler(getHorarios))
-apiRouter.post('/horarios', clinica, asyncHandler(postHorarios))
+// ── Horarios (convertido a database-per-tenant) ──────────────────────────────
+apiRouter.get('/horarios', tenant, asyncHandler(getHorarios))
+apiRouter.post('/horarios', tenant, asyncHandler(postHorarios))
 
-// ── Bloqueos de agenda ───────────────────────────────────────────────────────
-apiRouter.get('/bloqueos', clinica, asyncHandler(getBloqueos))
-apiRouter.post('/bloqueos', clinica, asyncHandler(postBloqueo))
-apiRouter.patch('/bloqueos/:id', clinica, asyncHandler(patchBloqueo))
-apiRouter.delete('/bloqueos/:id', clinica, asyncHandler(deleteBloqueo))
+// ── Bloqueos de agenda (convertido a database-per-tenant) ────────────────────
+apiRouter.get('/bloqueos', tenant, asyncHandler(getBloqueos))
+apiRouter.post('/bloqueos', tenant, asyncHandler(postBloqueo))
+apiRouter.patch('/bloqueos/:id', tenant, asyncHandler(patchBloqueo))
+apiRouter.delete('/bloqueos/:id', tenant, asyncHandler(deleteBloqueo))
 
 // ── Prestaciones (convertido a database-per-tenant) ──────────────────────────
 apiRouter.get('/prestaciones', tenant, asyncHandler(getPrestaciones))

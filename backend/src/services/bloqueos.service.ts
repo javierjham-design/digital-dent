@@ -1,8 +1,9 @@
-import { prisma } from '@/lib/prisma'
+import type { TenantClient } from '@/db/tenant'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import type { BloqueoDTO } from '@shared/types'
-import { deleteBloqueoInGoogle, pushBloqueo } from '@/lib/google-sync'
+
+// NOTA: la sincronización con Google se reconectará al convertir google-sync.
 
 type BloqueoRow = {
   id: string; doctorId: string; inicio: Date; fin: Date; motivo: string | null; createdByName: string | null
@@ -19,10 +20,9 @@ function toDTO(b: BloqueoRow): BloqueoDTO {
 
 const INCLUDE = { doctor: { select: { name: true, email: true } } } as const
 
-export async function listarBloqueos(actor: JwtPayload, filtros: { from?: string; to?: string; doctorId?: string }): Promise<BloqueoDTO[]> {
-  const clinicaId = actor.clinicaId!
+export async function listarBloqueos(db: TenantClient, actor: JwtPayload, filtros: { from?: string; to?: string; doctorId?: string }): Promise<BloqueoDTO[]> {
   const isAdmin = actor.role === 'admin'
-  const where: Record<string, unknown> = { clinicaId }
+  const where: Record<string, unknown> = {}
   if (filtros.doctorId) where.doctorId = filtros.doctorId
   else if (!isAdmin) where.doctorId = actor.sub
 
@@ -35,12 +35,11 @@ export async function listarBloqueos(actor: JwtPayload, filtros: { from?: string
     ]
   }
 
-  const bloqueos = await prisma.bloqueoAgenda.findMany({ where, include: INCLUDE, orderBy: { inicio: 'asc' } })
+  const bloqueos = await db.bloqueoAgenda.findMany({ where, include: INCLUDE, orderBy: { inicio: 'asc' } })
   return bloqueos.map(toDTO)
 }
 
-export async function crearBloqueo(actor: JwtPayload, input: { doctorId: string; inicio: string; fin: string; motivo?: string }): Promise<BloqueoDTO> {
-  const clinicaId = actor.clinicaId!
+export async function crearBloqueo(db: TenantClient, actor: JwtPayload, input: { doctorId: string; inicio: string; fin: string; motivo?: string }): Promise<BloqueoDTO> {
   if (!input.doctorId) throw badRequest('Doctor requerido')
   const isAdmin = actor.role === 'admin'
   if (!isAdmin && input.doctorId !== actor.sub) throw forbidden('Solo puedes bloquear tu propio horario.')
@@ -51,21 +50,19 @@ export async function crearBloqueo(actor: JwtPayload, input: { doctorId: string;
   if (Number.isNaN(fin.getTime())) throw badRequest('Fecha de fin inválida.')
   if (fin <= inicio) throw badRequest('La fecha de fin debe ser posterior al inicio.')
 
-  const doctor = await prisma.user.findFirst({ where: { id: input.doctorId, clinicaId }, select: { id: true } })
+  const doctor = await db.user.findUnique({ where: { id: input.doctorId }, select: { id: true } })
   if (!doctor) throw notFound('Doctor no encontrado.')
 
   const motivo = input.motivo?.trim() || null
-  const bloqueo = await prisma.bloqueoAgenda.create({
-    data: { clinicaId, doctorId: input.doctorId, inicio, fin, motivo, createdById: actor.sub, createdByName: actorName(actor) },
+  const bloqueo = await db.bloqueoAgenda.create({
+    data: { doctorId: input.doctorId, inicio, fin, motivo, createdById: actor.sub, createdByName: actorName(actor) },
     include: INCLUDE,
   })
-  pushBloqueo(bloqueo.id).catch(() => {})
   return toDTO(bloqueo)
 }
 
-export async function actualizarBloqueo(actor: JwtPayload, id: string, body: { inicio?: string; fin?: string; motivo?: string }): Promise<BloqueoDTO> {
-  const clinicaId = actor.clinicaId!
-  const existing = await prisma.bloqueoAgenda.findFirst({ where: { id, clinicaId }, select: { id: true, doctorId: true } })
+export async function actualizarBloqueo(db: TenantClient, actor: JwtPayload, id: string, body: { inicio?: string; fin?: string; motivo?: string }): Promise<BloqueoDTO> {
+  const existing = await db.bloqueoAgenda.findUnique({ where: { id }, select: { id: true, doctorId: true } })
   if (!existing) throw notFound('Bloqueo no encontrado')
   if (actor.role !== 'admin' && existing.doctorId !== actor.sub) throw forbidden('No puedes editar bloqueos de otros usuarios.')
 
@@ -82,16 +79,13 @@ export async function actualizarBloqueo(actor: JwtPayload, id: string, body: { i
   }
   if (body.motivo !== undefined) data.motivo = body.motivo?.trim() || null
 
-  const bloqueo = await prisma.bloqueoAgenda.update({ where: { id }, data, include: INCLUDE })
-  pushBloqueo(bloqueo.id).catch(() => {})
+  const bloqueo = await db.bloqueoAgenda.update({ where: { id }, data, include: INCLUDE })
   return toDTO(bloqueo)
 }
 
-export async function eliminarBloqueo(actor: JwtPayload, id: string): Promise<void> {
-  const clinicaId = actor.clinicaId!
-  const existing = await prisma.bloqueoAgenda.findFirst({ where: { id, clinicaId }, select: { id: true, doctorId: true } })
+export async function eliminarBloqueo(db: TenantClient, actor: JwtPayload, id: string): Promise<void> {
+  const existing = await db.bloqueoAgenda.findUnique({ where: { id }, select: { id: true, doctorId: true } })
   if (!existing) throw notFound('Bloqueo no encontrado')
   if (actor.role !== 'admin' && existing.doctorId !== actor.sub) throw forbidden('No puedes eliminar bloqueos de otros usuarios.')
-  await deleteBloqueoInGoogle(id) // borrar en Google antes de perder el googleEventId
-  await prisma.bloqueoAgenda.delete({ where: { id } })
+  await db.bloqueoAgenda.delete({ where: { id } })
 }
