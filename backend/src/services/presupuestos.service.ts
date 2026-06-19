@@ -1,19 +1,19 @@
-import { prisma } from '@/lib/prisma'
+import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 
 const ESTADOS = ['PENDIENTE', 'APROBADO', 'RECHAZADO', 'COMPLETADO']
 
-export async function listarPresupuestos(clinicaId: string, pacienteId?: string) {
-  return prisma.presupuesto.findMany({
-    where: { clinicaId, ...(pacienteId ? { pacienteId } : {}) },
+export async function listarPresupuestos(db: TenantClient, pacienteId?: string) {
+  return db.presupuesto.findMany({
+    where: { ...(pacienteId ? { pacienteId } : {}) },
     orderBy: { numero: 'desc' },
     include: { _count: { select: { items: true } } },
   })
 }
 
-export async function obtenerPresupuesto(clinicaId: string, id: string) {
-  const p = await prisma.presupuesto.findFirst({
-    where: { id, clinicaId },
+export async function obtenerPresupuesto(db: TenantClient, id: string) {
+  const p = await db.presupuesto.findUnique({
+    where: { id },
     include: {
       paciente: { select: { id: true, nombre: true, apellido: true, rut: true } },
       items: { include: { prestacion: { select: { id: true, nombre: true, categoria: true } } } },
@@ -27,17 +27,17 @@ export interface ItemPresupuestoInput {
   prestacionId: string; cantidad: number; precioUnitario: number; descuento?: number; subtotal: number
 }
 
-export async function crearPresupuesto(clinicaId: string, body: { pacienteId: string; total: number; items: ItemPresupuestoInput[] }) {
-  const paciente = await prisma.paciente.findFirst({ where: { id: body.pacienteId, clinicaId }, select: { id: true } })
+export async function crearPresupuesto(db: TenantClient, body: { pacienteId: string; total: number; items: ItemPresupuestoInput[] }) {
+  const paciente = await db.paciente.findUnique({ where: { id: body.pacienteId }, select: { id: true } })
   if (!paciente) throw notFound('Paciente no encontrado')
   if (!Array.isArray(body.items) || body.items.length === 0) throw badRequest('Agrega al menos un ítem al presupuesto')
 
-  const last = await prisma.presupuesto.findFirst({ where: { clinicaId }, orderBy: { numero: 'desc' }, select: { numero: true } })
+  const last = await db.presupuesto.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
   const numero = (last?.numero ?? 0) + 1
 
-  return prisma.presupuesto.create({
+  return db.presupuesto.create({
     data: {
-      clinicaId, pacienteId: body.pacienteId, numero, total: Number(body.total),
+      pacienteId: body.pacienteId, numero, total: Number(body.total),
       items: {
         create: body.items.map((it) => ({
           prestacionId: it.prestacionId,
@@ -52,8 +52,8 @@ export async function crearPresupuesto(clinicaId: string, body: { pacienteId: st
   })
 }
 
-export async function actualizarPresupuesto(clinicaId: string, id: string, body: Record<string, unknown>) {
-  const existing = await prisma.presupuesto.findFirst({ where: { id, clinicaId }, select: { id: true } })
+export async function actualizarPresupuesto(db: TenantClient, id: string, body: Record<string, unknown>) {
+  const existing = await db.presupuesto.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Presupuesto no encontrado')
 
   const data: Record<string, unknown> = {}
@@ -68,5 +68,5 @@ export async function actualizarPresupuesto(clinicaId: string, id: string, body:
     if (!Number.isFinite(n) || n < 0) throw badRequest('total inválido')
     data.total = n
   }
-  return prisma.presupuesto.update({ where: { id }, data })
+  return db.presupuesto.update({ where: { id }, data })
 }

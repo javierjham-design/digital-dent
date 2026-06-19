@@ -151,10 +151,10 @@ apiRouter.delete('/evoluciones/:id', tenant, asyncHandler(clinico.deleteEvolucio
 apiRouter.post('/odontograma', tenant, asyncHandler(clinico.postDiente))
 
 // ── Presupuestos ─────────────────────────────────────────────────────────────
-apiRouter.get('/presupuestos', clinica, asyncHandler(presupuestos.getPresupuestos))
-apiRouter.get('/presupuestos/:id', clinica, asyncHandler(presupuestos.getPresupuesto))
-apiRouter.post('/presupuestos', clinica, asyncHandler(presupuestos.postPresupuesto))
-apiRouter.patch('/presupuestos/:id', clinica, asyncHandler(presupuestos.patchPresupuesto))
+apiRouter.get('/presupuestos', tenant, asyncHandler(presupuestos.getPresupuestos))
+apiRouter.get('/presupuestos/:id', tenant, asyncHandler(presupuestos.getPresupuesto))
+apiRouter.post('/presupuestos', tenant, asyncHandler(presupuestos.postPresupuesto))
+apiRouter.patch('/presupuestos/:id', tenant, asyncHandler(presupuestos.patchPresupuesto))
 
 // ── Cajas (sesiones, movimientos) ────────────────────────────────────────────
 apiRouter.get('/cajas', clinica, asyncHandler(caja.getCajas))
