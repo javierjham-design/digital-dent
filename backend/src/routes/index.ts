@@ -2,6 +2,7 @@ import { Router } from 'express'
 import multer from 'multer'
 import { asyncHandler } from '@/middlewares/async-handler'
 import { requireAuth, requireClinica, requireAdmin } from '@/middlewares/auth'
+import { requireTenant } from '@/middlewares/tenant'
 import { getMe, postLogin, postCambiarPassword } from '@/controllers/auth.controller'
 import {
   getPacientes, getPaciente, postPaciente, patchPaciente, getFicha, putFicha,
@@ -33,8 +34,14 @@ import { requireSuperAdmin } from '@/middlewares/auth'
 export const apiRouter = Router()
 
 // Middlewares reutilizables para rutas con scope de clínica.
+// `clinica`/`adminClinica`: modelo viejo (DB compartida) — quedan en los dominios
+// aún no convertidos. `tenant`/`adminTenant`: modelo database-per-tenant
+// (resuelve req.tenant). A medida que se convierten los dominios, sus rutas
+// pasan de `clinica` a `tenant`.
 const clinica = [requireAuth, requireClinica]
 const adminClinica = [requireAuth, requireClinica, requireAdmin]
+const tenant = [requireAuth, requireTenant]
+const adminTenant = [requireAuth, requireTenant, requireAdmin]
 
 // Subida de archivos en memoria (import de pacientes XLSX, máx 5MB).
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
@@ -62,22 +69,22 @@ apiRouter.post('/google/disconnect', clinica, asyncHandler(googlec.postDisconnec
 apiRouter.get('/google/calendars', clinica, asyncHandler(googlec.getCalendars))
 apiRouter.post('/google/reconcile-bloqueos', clinica, asyncHandler(googlec.postReconcileBloqueos))
 
-// ── Pacientes ────────────────────────────────────────────────────────────────
-apiRouter.get('/pacientes', clinica, asyncHandler(getPacientes))
+// ── Pacientes (convertido a database-per-tenant) ─────────────────────────────
+apiRouter.get('/pacientes', tenant, asyncHandler(getPacientes))
 // Rutas estáticas ANTES de /pacientes/:id (si no, ":id" captura export/template/import).
-apiRouter.get('/pacientes/export', clinica, asyncHandler(getExport))
-apiRouter.get('/pacientes/template', clinica, asyncHandler(getTemplate))
-apiRouter.post('/pacientes/import', adminClinica, upload.single('file'), asyncHandler(postImport))
-apiRouter.post('/pacientes', clinica, asyncHandler(postPaciente))
-apiRouter.get('/pacientes/:id', clinica, asyncHandler(getPaciente))
-apiRouter.patch('/pacientes/:id', clinica, asyncHandler(patchPaciente))
-apiRouter.get('/pacientes/:id/ficha', clinica, asyncHandler(getFicha))
-apiRouter.put('/pacientes/:id/ficha', clinica, asyncHandler(putFicha))
-apiRouter.get('/pacientes/:id/comentarios', clinica, asyncHandler(getComentarios))
-apiRouter.post('/pacientes/:id/comentarios', clinica, asyncHandler(postComentario))
-apiRouter.get('/pacientes/:id/mensajes', clinica, asyncHandler(getMensajes))
-apiRouter.post('/pacientes/:id/mensajes', clinica, asyncHandler(postMensaje))
-apiRouter.get('/pacientes/:id/resumen', clinica, asyncHandler(getResumen))
+apiRouter.get('/pacientes/export', tenant, asyncHandler(getExport))
+apiRouter.get('/pacientes/template', tenant, asyncHandler(getTemplate))
+apiRouter.post('/pacientes/import', adminTenant, upload.single('file'), asyncHandler(postImport))
+apiRouter.post('/pacientes', tenant, asyncHandler(postPaciente))
+apiRouter.get('/pacientes/:id', tenant, asyncHandler(getPaciente))
+apiRouter.patch('/pacientes/:id', tenant, asyncHandler(patchPaciente))
+apiRouter.get('/pacientes/:id/ficha', tenant, asyncHandler(getFicha))
+apiRouter.put('/pacientes/:id/ficha', tenant, asyncHandler(putFicha))
+apiRouter.get('/pacientes/:id/comentarios', tenant, asyncHandler(getComentarios))
+apiRouter.post('/pacientes/:id/comentarios', tenant, asyncHandler(postComentario))
+apiRouter.get('/pacientes/:id/mensajes', tenant, asyncHandler(getMensajes))
+apiRouter.post('/pacientes/:id/mensajes', tenant, asyncHandler(postMensaje))
+apiRouter.get('/pacientes/:id/resumen', tenant, asyncHandler(getResumen))
 
 // ── Citas / Agenda ───────────────────────────────────────────────────────────
 apiRouter.get('/citas', clinica, asyncHandler(getCitas))

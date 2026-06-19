@@ -1,8 +1,11 @@
 import * as XLSX from 'xlsx'
-import { prisma } from '@/lib/prisma'
+import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { buildXlsx, formatRUT, isoDate } from '@/lib/excel'
 import type { PacienteDTO } from '@shared/types'
+
+// Database-per-tenant: cada función recibe el cliente de la base de la clínica
+// (req.tenant). Ya no hay clinicaId — la base ES la clínica.
 
 function toDTO(p: {
   id: string; numero: number | null; rut: string | null; nombre: string; apellido: string
@@ -18,12 +21,8 @@ function toDTO(p: {
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
-export async function listarPacientes(clinicaId: string, q?: string): Promise<PacienteDTO[]> {
-  const pacientes = await prisma.paciente.findMany({
-    where: { clinicaId, activo: true },
-    orderBy: { nombre: 'asc' },
-    take: 500,
-  })
+export async function listarPacientes(db: TenantClient, q?: string): Promise<PacienteDTO[]> {
+  const pacientes = await db.paciente.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' }, take: 500 })
   const dtos = pacientes.map(toDTO)
   if (!q || q.trim().length < 2) return dtos
   const needle = norm(q.trim())
@@ -32,9 +31,9 @@ export async function listarPacientes(clinicaId: string, q?: string): Promise<Pa
   )
 }
 
-export async function obtenerPaciente(clinicaId: string, id: string): Promise<PacienteDTO> {
-  const p = await prisma.paciente.findFirst({ where: { id, clinicaId } })
-  if (!p) throw notFound('Paciente no existe en esta clínica')
+export async function obtenerPaciente(db: TenantClient, id: string): Promise<PacienteDTO> {
+  const p = await db.paciente.findUnique({ where: { id } })
+  if (!p) throw notFound('Paciente no encontrado')
   return toDTO(p)
 }
 
@@ -43,21 +42,15 @@ export interface CrearPacienteInput {
   telefono?: string | null; email?: string | null; prevision?: string | null
 }
 
-export async function crearPaciente(clinicaId: string, input: CrearPacienteInput): Promise<PacienteDTO> {
-  if (!input.nombre?.trim() || !input.apellido?.trim()) {
-    throw badRequest('Nombre y apellido son obligatorios')
-  }
-  // RUT único por clínica (si viene).
+export async function crearPaciente(db: TenantClient, input: CrearPacienteInput): Promise<PacienteDTO> {
+  if (!input.nombre?.trim() || !input.apellido?.trim()) throw badRequest('Nombre y apellido son obligatorios')
   if (input.rut) {
-    const dup = await prisma.paciente.findFirst({ where: { clinicaId, rut: input.rut }, select: { id: true } })
+    const dup = await db.paciente.findFirst({ where: { rut: input.rut }, select: { id: true } })
     if (dup) throw badRequest('Ya existe un paciente con ese RUT en la clínica')
   }
-  const ultimo = await prisma.paciente.findFirst({
-    where: { clinicaId }, orderBy: { numero: 'desc' }, select: { numero: true },
-  })
-  const p = await prisma.paciente.create({
+  const ultimo = await db.paciente.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
+  const p = await db.paciente.create({
     data: {
-      clinicaId,
       numero: (ultimo?.numero ?? 0) + 1,
       nombre: input.nombre.trim(),
       apellido: input.apellido.trim(),
@@ -71,7 +64,6 @@ export async function crearPaciente(clinicaId: string, input: CrearPacienteInput
   return toDTO(p)
 }
 
-// Campos editables del paciente (mismo set que el monolito).
 const PACIENTE_FIELDS = [
   'rut', 'otroDocId', 'nombre', 'apellido', 'nombreSocial', 'fechaNacimiento', 'genero', 'sexo',
   'nacionalidad', 'migrante', 'puebloOriginario', 'telefono', 'telefonoFijo', 'email', 'direccion',
@@ -79,7 +71,9 @@ const PACIENTE_FIELDS = [
   'tipoPaciente', 'numeroInterno', 'alergias', 'antecedentes', 'observaciones', 'activo',
 ]
 
-export async function actualizarPaciente(clinicaId: string, id: string, body: Record<string, unknown>): Promise<PacienteDTO> {
+export async function actualizarPaciente(db: TenantClient, id: string, body: Record<string, unknown>): Promise<PacienteDTO> {
+  const existe = await db.paciente.findUnique({ where: { id }, select: { id: true } })
+  if (!existe) throw notFound('Paciente no encontrado')
   const data: Record<string, unknown> = {}
   for (const k of PACIENTE_FIELDS) {
     if (!(k in body)) continue
@@ -90,17 +84,15 @@ export async function actualizarPaciente(clinicaId: string, id: string, body: Re
     else if (typeof v === 'string') data[k] = v.trim() || null
     else data[k] = v
   }
-  const r = await prisma.paciente.updateMany({ where: { id, clinicaId }, data })
-  if (r.count === 0) throw notFound('Paciente no encontrado')
-  const p = await prisma.paciente.findUnique({ where: { id } })
-  return toDTO(p!)
+  const p = await db.paciente.update({ where: { id }, data })
+  return toDTO(p)
 }
 
-// Ficha clínica (flags + odontograma) para la vista de ficha del SPA.
-export async function obtenerFicha(clinicaId: string, pacienteId: string) {
-  const paciente = await prisma.paciente.findFirst({ where: { id: pacienteId, clinicaId }, select: { id: true } })
+// Ficha clínica (flags + odontograma).
+export async function obtenerFicha(db: TenantClient, pacienteId: string) {
+  const paciente = await db.paciente.findUnique({ where: { id: pacienteId }, select: { id: true } })
   if (!paciente) throw notFound('Paciente no encontrado')
-  const ficha = await prisma.fichaClinica.findUnique({
+  const ficha = await db.fichaClinica.findUnique({
     where: { pacienteId },
     include: { odontograma: { select: { numero: true, cara: true, estado: true } } },
   })
@@ -111,8 +103,8 @@ export async function obtenerFicha(clinicaId: string, pacienteId: string) {
 
 const FICHA_FLAGS = ['grupoSanguineo', 'fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia', 'medicamentos', 'notasClinicas', 'alertasMedicas', 'enfermedadesNotas']
 
-export async function guardarFicha(clinicaId: string, pacienteId: string, body: Record<string, unknown>) {
-  const paciente = await prisma.paciente.findFirst({ where: { id: pacienteId, clinicaId }, select: { id: true } })
+export async function guardarFicha(db: TenantClient, pacienteId: string, body: Record<string, unknown>) {
+  const paciente = await db.paciente.findUnique({ where: { id: pacienteId }, select: { id: true } })
   if (!paciente) throw notFound('Paciente no encontrado')
   const data: Record<string, unknown> = {}
   for (const k of FICHA_FLAGS) {
@@ -121,45 +113,40 @@ export async function guardarFicha(clinicaId: string, pacienteId: string, body: 
     if (['fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia'].includes(k)) data[k] = Boolean(v)
     else data[k] = v ? String(v) : null
   }
-  const ficha = await prisma.fichaClinica.upsert({
-    where: { pacienteId },
-    update: data,
-    create: { pacienteId, clinicaId, ...data },
-  })
-  return ficha
+  return db.fichaClinica.upsert({ where: { pacienteId }, update: data, create: { pacienteId, ...data } })
 }
 
-async function assertPaciente(clinicaId: string, pacienteId: string) {
-  const p = await prisma.paciente.findFirst({ where: { id: pacienteId, clinicaId }, select: { id: true } })
+async function assertPaciente(db: TenantClient, pacienteId: string) {
+  const p = await db.paciente.findUnique({ where: { id: pacienteId }, select: { id: true } })
   if (!p) throw notFound('Paciente no encontrado')
 }
 
 // ── Comentarios administrativos ───────────────────────────────────────────────
-export async function listarComentarios(clinicaId: string, pacienteId: string) {
-  await assertPaciente(clinicaId, pacienteId)
-  return prisma.comentarioAdministrativo.findMany({ where: { pacienteId, clinicaId }, orderBy: { createdAt: 'desc' } })
+export async function listarComentarios(db: TenantClient, pacienteId: string) {
+  await assertPaciente(db, pacienteId)
+  return db.comentarioAdministrativo.findMany({ where: { pacienteId }, orderBy: { createdAt: 'desc' } })
 }
 
-export async function crearComentario(clinicaId: string, pacienteId: string, autor: { id: string; nombre: string }, texto: string) {
-  await assertPaciente(clinicaId, pacienteId)
+export async function crearComentario(db: TenantClient, pacienteId: string, autor: { id: string; nombre: string }, texto: string) {
+  await assertPaciente(db, pacienteId)
   if (!texto?.trim()) throw badRequest('Texto requerido')
-  return prisma.comentarioAdministrativo.create({
-    data: { clinicaId, pacienteId, autorNombre: autor.nombre, autorId: autor.id, texto: texto.trim() },
+  return db.comentarioAdministrativo.create({
+    data: { pacienteId, autorNombre: autor.nombre, autorId: autor.id, texto: texto.trim() },
   })
 }
 
 // ── Mensajes (historial de comunicaciones) ────────────────────────────────────
-export async function listarMensajes(clinicaId: string, pacienteId: string) {
-  await assertPaciente(clinicaId, pacienteId)
-  return prisma.mensajePaciente.findMany({ where: { pacienteId, clinicaId }, orderBy: { createdAt: 'desc' }, take: 200 })
+export async function listarMensajes(db: TenantClient, pacienteId: string) {
+  await assertPaciente(db, pacienteId)
+  return db.mensajePaciente.findMany({ where: { pacienteId }, orderBy: { createdAt: 'desc' }, take: 200 })
 }
 
-export async function crearMensaje(clinicaId: string, pacienteId: string, body: Record<string, unknown>) {
-  await assertPaciente(clinicaId, pacienteId)
+export async function crearMensaje(db: TenantClient, pacienteId: string, body: Record<string, unknown>) {
+  await assertPaciente(db, pacienteId)
   if (!body.tipo || !body.categoria) throw badRequest('tipo y categoria son requeridos')
-  return prisma.mensajePaciente.create({
+  return db.mensajePaciente.create({
     data: {
-      clinicaId, pacienteId, citaId: body.citaId ? String(body.citaId) : null,
+      pacienteId, citaId: body.citaId ? String(body.citaId) : null,
       tipo: String(body.tipo), categoria: String(body.categoria),
       asunto: body.asunto ? String(body.asunto) : null, cuerpo: body.cuerpo ? String(body.cuerpo) : null,
       enviadoA: body.enviadoA ? String(body.enviadoA) : null, estado: body.estado ? String(body.estado) : 'ENVIADO',
@@ -168,9 +155,9 @@ export async function crearMensaje(clinicaId: string, pacienteId: string, body: 
 }
 
 // ── Resumen de KPIs del paciente ───────────────────────────────────────────────
-export async function resumenPaciente(clinicaId: string, id: string) {
-  const paciente = await prisma.paciente.findFirst({
-    where: { id, clinicaId },
+export async function resumenPaciente(db: TenantClient, id: string) {
+  const paciente = await db.paciente.findUnique({
+    where: { id },
     include: {
       fichaClinica: { select: { tratamientos: { select: { estado: true, precio: true } } } },
       cobros: { select: { monto: true, estado: true } },
@@ -188,8 +175,8 @@ export async function resumenPaciente(clinicaId: string, id: string) {
 }
 
 // ── Export / Template / Import (XLSX) ──────────────────────────────────────────
-export async function exportarPacientes(clinicaId: string): Promise<Buffer> {
-  const pacientes = await prisma.paciente.findMany({ where: { clinicaId }, orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }] })
+export async function exportarPacientes(db: TenantClient): Promise<Buffer> {
+  const pacientes = await db.paciente.findMany({ orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }] })
   return buildXlsx(pacientes, [
     { header: 'Nombres', width: 18, value: (p) => p.nombre },
     { header: 'Apellidos', width: 22, value: (p) => p.apellido },
@@ -248,7 +235,7 @@ function parseFecha(raw: unknown): Date | null {
   return isNaN(fb.getTime()) ? null : fb
 }
 
-export async function importarPacientes(clinicaId: string, fileBuffer: Buffer) {
+export async function importarPacientes(db: TenantClient, fileBuffer: Buffer) {
   let rows: Row[]
   try {
     const wb = XLSX.read(fileBuffer, { type: 'buffer', cellDates: true })
@@ -260,7 +247,7 @@ export async function importarPacientes(clinicaId: string, fileBuffer: Buffer) {
   }
 
   const errores: { fila: number; motivo: string }[] = []
-  const validos: { clinicaId: string; rut: string | null; nombre: string; apellido: string; telefono: string | null; email: string | null; direccion: string | null; fechaNacimiento: Date | null }[] = []
+  const validos: { rut: string | null; nombre: string; apellido: string; telefono: string | null; email: string | null; direccion: string | null; fechaNacimiento: Date | null }[] = []
   const rutsEnArchivo = new Set<string>()
 
   rows.forEach((row, idx) => {
@@ -285,13 +272,13 @@ export async function importarPacientes(clinicaId: string, fileBuffer: Buffer) {
       rutsEnArchivo.add(norm)
       rut = norm
     }
-    validos.push({ clinicaId, rut, nombre, apellido, telefono: telefono || null, email: email || null, direccion: direccion || null, fechaNacimiento: parseFecha(fechaRaw) })
+    validos.push({ rut, nombre, apellido, telefono: telefono || null, email: email || null, direccion: direccion || null, fechaNacimiento: parseFecha(fechaRaw) })
   })
 
   let duplicadosEnDB = 0
   const rutsConsulta = validos.map((v) => v.rut).filter((r): r is string => r !== null)
   if (rutsConsulta.length > 0) {
-    const existentes = await prisma.paciente.findMany({ where: { clinicaId, rut: { in: rutsConsulta } }, select: { rut: true } })
+    const existentes = await db.paciente.findMany({ where: { rut: { in: rutsConsulta } }, select: { rut: true } })
     const setExistentes = new Set(existentes.map((e) => e.rut).filter((r): r is string => r !== null))
     if (setExistentes.size > 0) {
       const filtrados = validos.filter((v) => { if (v.rut && setExistentes.has(v.rut)) { duplicadosEnDB++; return false } return true })
@@ -302,7 +289,7 @@ export async function importarPacientes(clinicaId: string, fileBuffer: Buffer) {
 
   let creados = 0
   if (validos.length > 0) {
-    const result = await prisma.paciente.createMany({ data: validos, skipDuplicates: true })
+    const result = await db.paciente.createMany({ data: validos, skipDuplicates: true })
     creados = result.count
   }
   return { total: rows.length, creados, duplicados: duplicadosEnDB, sinRut: validos.filter((v) => v.rut === null).length, errores }
