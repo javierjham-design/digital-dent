@@ -5,7 +5,16 @@
 
 ---
 
-## 2026-06-19 — [rama arch/split] DB-por-clínica F1+F2: schemas split + capa de conexión
+## 2026-06-19 — [rama arch/split] DB-por-clínica F3 (cimientos): provisión automática + middleware de tenant
+
+Sigue aditivo y no disruptivo (backend actual verde, 64/64). El backend **crea la base de cada clínica automáticamente** (la credencial de `TENANT_DB_SERVER_URL` debe poder `CREATE DATABASE`).
+
+- **`prisma/tenant/init.sql`**: DDL completo del schema tenant (generado con `prisma migrate diff`), para provisionar bases nuevas sin depender del CLI de Prisma en runtime.
+- **`lib/provision.ts`**: `dbNameForSlug` (nombre determinístico y Postgres-válido), `createTenantDatabase` (CREATE DATABASE idempotente), `applyTenantSchema` (ejecuta init.sql sobre la base nueva), `dropTenantDatabase` (corta conexiones + DROP, para limpieza de demos), `provisionTenant` (crea + aplica), `pingTenantServer`. Validación estricta del nombre de base (anti-inyección en identificador).
+- **`middlewares/tenant.ts`**: `requireTenant` resuelve la clínica del JWT (control-plane, con cache + TTL) → adjunta `req.tenant` (cliente Prisma de esa base) y `req.clinica`. `tenantDb(req)` accesor; `invalidateClinicaCache`. Reemplazará a `requireClinica`.
+- `types/express.d.ts`: `req.tenant` + `req.clinica`. Test `provision.test.ts` (6) de la lógica de nombres.
+
+Pendiente F4 (corte real): refactor de auth (admins de plataforma en control / staff en tenant) y de todos los services de clínica al cliente por-request; wiring de `requireTenant`; provisión enganchada en crearClinica/crearDemo.
 
 Inicio de la re-arquitectura a **base de datos física por clínica** (decisión registrada en memoria). Cambios **aditivos y no disruptivos**: el backend actual (DB compartida + clinicaId) sigue intacto y verde hasta completar el corte en F4.
 
