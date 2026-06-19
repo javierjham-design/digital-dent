@@ -126,29 +126,29 @@ apiRouter.get('/clinica', tenant, asyncHandler(getClinica))
 apiRouter.patch('/clinica', adminTenant, asyncHandler(patchClinica))
 
 // ── Clínico: planes de tratamiento ───────────────────────────────────────────
-apiRouter.get('/planes-tratamiento', clinica, asyncHandler(clinico.getPlanes))
-apiRouter.post('/planes-tratamiento', clinica, asyncHandler(clinico.postPlan))
-apiRouter.get('/planes-tratamiento/:id', clinica, asyncHandler(clinico.getPlan))
-apiRouter.patch('/planes-tratamiento/:id', clinica, asyncHandler(clinico.patchPlan))
-apiRouter.delete('/planes-tratamiento/:id', clinica, asyncHandler(clinico.deletePlan))
-apiRouter.post('/planes-tratamiento/:id/secciones', clinica, asyncHandler(clinico.postSeccion))
+apiRouter.get('/planes-tratamiento', tenant, asyncHandler(clinico.getPlanes))
+apiRouter.post('/planes-tratamiento', tenant, asyncHandler(clinico.postPlan))
+apiRouter.get('/planes-tratamiento/:id', tenant, asyncHandler(clinico.getPlan))
+apiRouter.patch('/planes-tratamiento/:id', tenant, asyncHandler(clinico.patchPlan))
+apiRouter.delete('/planes-tratamiento/:id', tenant, asyncHandler(clinico.deletePlan))
+apiRouter.post('/planes-tratamiento/:id/secciones', tenant, asyncHandler(clinico.postSeccion))
 
 // ── Clínico: secciones ───────────────────────────────────────────────────────
-apiRouter.patch('/secciones-plan/:id', clinica, asyncHandler(clinico.patchSeccion))
-apiRouter.delete('/secciones-plan/:id', clinica, asyncHandler(clinico.deleteSeccion))
+apiRouter.patch('/secciones-plan/:id', tenant, asyncHandler(clinico.patchSeccion))
+apiRouter.delete('/secciones-plan/:id', tenant, asyncHandler(clinico.deleteSeccion))
 
 // ── Clínico: tratamientos (acciones) ─────────────────────────────────────────
-apiRouter.post('/tratamientos', clinica, asyncHandler(clinico.postTratamiento))
-apiRouter.patch('/tratamientos/:id', clinica, asyncHandler(clinico.patchTratamiento))
-apiRouter.delete('/tratamientos/:id', clinica, asyncHandler(clinico.deleteTratamiento))
+apiRouter.post('/tratamientos', tenant, asyncHandler(clinico.postTratamiento))
+apiRouter.patch('/tratamientos/:id', tenant, asyncHandler(clinico.patchTratamiento))
+apiRouter.delete('/tratamientos/:id', tenant, asyncHandler(clinico.deleteTratamiento))
 
 // ── Clínico: evoluciones ─────────────────────────────────────────────────────
-apiRouter.get('/evoluciones', clinica, asyncHandler(clinico.getEvoluciones))
-apiRouter.post('/evoluciones', clinica, asyncHandler(clinico.postEvolucion))
-apiRouter.delete('/evoluciones/:id', clinica, asyncHandler(clinico.deleteEvolucion))
+apiRouter.get('/evoluciones', tenant, asyncHandler(clinico.getEvoluciones))
+apiRouter.post('/evoluciones', tenant, asyncHandler(clinico.postEvolucion))
+apiRouter.delete('/evoluciones/:id', tenant, asyncHandler(clinico.deleteEvolucion))
 
 // ── Clínico: odontograma ─────────────────────────────────────────────────────
-apiRouter.post('/odontograma', clinica, asyncHandler(clinico.postDiente))
+apiRouter.post('/odontograma', tenant, asyncHandler(clinico.postDiente))
 
 // ── Presupuestos ─────────────────────────────────────────────────────────────
 apiRouter.get('/presupuestos', clinica, asyncHandler(presupuestos.getPresupuestos))
@@ -227,7 +227,7 @@ apiRouter.delete('/admin/planes-suscripcion/:id', sa, asyncHandler(admin.deleteP
 apiRouter.get('/reportes/pacientes', clinica, asyncHandler(reportes.getPacientes))
 apiRouter.get('/reportes/citas', clinica, asyncHandler(reportes.getCitas))
 apiRouter.get('/reportes/cobros', clinica, asyncHandler(reportes.getCobros))
-apiRouter.get('/reportes/tratamientos', clinica, asyncHandler(reportes.getTratamientos))
+apiRouter.get('/reportes/tratamientos', tenant, asyncHandler(reportes.getTratamientos))
 apiRouter.get('/reportes/liquidaciones', clinica, asyncHandler(reportes.getLiquidaciones))
 apiRouter.get('/reportes/caja', clinica, asyncHandler(reportes.getCaja))
 apiRouter.get('/reportes/morosos', clinica, asyncHandler(reportes.getMorosos))
