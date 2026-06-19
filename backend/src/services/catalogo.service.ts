@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import type { ClinicaConfigDTO, PrestacionDTO } from '@shared/types'
 
@@ -11,18 +11,16 @@ function prestacionDTO(p: {
   return p
 }
 
-export async function listarPrestaciones(clinicaId: string): Promise<PrestacionDTO[]> {
-  const prestaciones = await prisma.prestacion.findMany({
-    where: { clinicaId }, orderBy: [{ categoria: 'asc' }, { nombre: 'asc' }],
-  })
+export async function listarPrestaciones(db: TenantClient): Promise<PrestacionDTO[]> {
+  const prestaciones = await db.prestacion.findMany({ orderBy: [{ categoria: 'asc' }, { nombre: 'asc' }] })
   return prestaciones.map(prestacionDTO)
 }
 
-export async function crearPrestacion(clinicaId: string, input: { nombre: string; categoria?: string | null; precio: number; descripcion?: string | null; duracion?: number }): Promise<PrestacionDTO> {
+export async function crearPrestacion(db: TenantClient, input: { nombre: string; categoria?: string | null; precio: number; descripcion?: string | null; duracion?: number }): Promise<PrestacionDTO> {
   if (!input.nombre?.trim() || input.precio == null) throw badRequest('Faltan campos requeridos')
-  const p = await prisma.prestacion.create({
+  const p = await db.prestacion.create({
     data: {
-      clinicaId, nombre: input.nombre.trim(), categoria: input.categoria || null,
+      nombre: input.nombre.trim(), categoria: input.categoria || null,
       precio: Number(input.precio), descripcion: input.descripcion || null,
       duracion: input.duracion ?? 30, activo: true,
     },
@@ -30,8 +28,8 @@ export async function crearPrestacion(clinicaId: string, input: { nombre: string
   return prestacionDTO(p)
 }
 
-export async function actualizarPrestacion(clinicaId: string, id: string, body: Record<string, unknown>): Promise<PrestacionDTO> {
-  const existing = await prisma.prestacion.findFirst({ where: { id, clinicaId }, select: { id: true } })
+export async function actualizarPrestacion(db: TenantClient, id: string, body: Record<string, unknown>): Promise<PrestacionDTO> {
+  const existing = await db.prestacion.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Prestación no encontrada')
   const data: Record<string, unknown> = {}
   if (body.nombre !== undefined) data.nombre = String(body.nombre)
@@ -40,60 +38,32 @@ export async function actualizarPrestacion(clinicaId: string, id: string, body: 
   if (body.descripcion !== undefined) data.descripcion = body.descripcion || null
   if (body.duracion !== undefined) data.duracion = Number(body.duracion)
   if (body.activo !== undefined) data.activo = Boolean(body.activo)
-  const p = await prisma.prestacion.update({ where: { id }, data })
+  const p = await db.prestacion.update({ where: { id }, data })
   return prestacionDTO(p)
 }
 
-export async function eliminarPrestacion(clinicaId: string, id: string): Promise<void> {
-  const r = await prisma.prestacion.deleteMany({ where: { id, clinicaId } })
-  if (r.count === 0) throw notFound('Prestación no encontrada')
+export async function eliminarPrestacion(db: TenantClient, id: string): Promise<void> {
+  const existing = await db.prestacion.findUnique({ where: { id }, select: { id: true } })
+  if (!existing) throw notFound('Prestación no encontrada')
+  await db.prestacion.delete({ where: { id } })
 }
 
-// ─── Configuración de la clínica ─────────────────────────────────────────────
+// ─── Configuración de la clínica (singleton en la base del tenant) ───────────
 
 function clinicaDTO(c: {
-  id: string; nombre: string; direccion: string; telefono: string
+  nombre: string; direccion: string; telefono: string
   email: string; ciudad: string; mensajeWA: string; logoUrl: string | null
 }): ClinicaConfigDTO {
-  return c
+  return { id: 'singleton', nombre: c.nombre, direccion: c.direccion, telefono: c.telefono, email: c.email, ciudad: c.ciudad, mensajeWA: c.mensajeWA, logoUrl: c.logoUrl }
 }
 
-export async function obtenerClinica(clinicaId: string): Promise<ClinicaConfigDTO> {
-  const c = await prisma.clinica.findUnique({ where: { id: clinicaId } })
-  if (!c) throw notFound('Clínica no encontrada')
+export async function obtenerClinica(db: TenantClient): Promise<ClinicaConfigDTO> {
+  const c = await db.configuracion.findUnique({ where: { id: 'singleton' } })
+  if (!c) throw notFound('Configuración no encontrada')
   return clinicaDTO(c)
 }
 
-// ─── Medios de pago ──────────────────────────────────────────────────────────
-
-export async function listarMediosPago(clinicaId: string) {
-  return prisma.medioPago.findMany({ where: { clinicaId }, orderBy: { nombre: 'asc' } })
-}
-
-export async function crearMedioPago(clinicaId: string, body: { nombre: string; comision?: number }) {
-  const nombre = (body.nombre ?? '').trim()
-  if (!nombre) throw badRequest('nombre requerido')
-  const comision = body.comision != null ? Number(body.comision) : 0
-  if (!Number.isFinite(comision) || comision < 0 || comision > 100) throw badRequest('comision debe estar entre 0 y 100')
-  return prisma.medioPago.create({ data: { clinicaId, nombre, comision } })
-}
-
-export async function actualizarMedioPago(clinicaId: string, id: string, body: Record<string, unknown>) {
-  const existing = await prisma.medioPago.findFirst({ where: { id, clinicaId }, select: { id: true } })
-  if (!existing) throw notFound('Medio de pago no encontrado')
-  const data: Record<string, unknown> = {}
-  if (body.nombre !== undefined) data.nombre = String(body.nombre)
-  if (body.comision !== undefined) data.comision = Number(body.comision)
-  if (body.activo !== undefined) data.activo = Boolean(body.activo)
-  return prisma.medioPago.update({ where: { id }, data })
-}
-
-export async function eliminarMedioPago(clinicaId: string, id: string) {
-  const r = await prisma.medioPago.deleteMany({ where: { id, clinicaId } })
-  if (r.count === 0) throw notFound('Medio de pago no encontrado')
-}
-
-export async function actualizarClinica(clinicaId: string, body: Record<string, unknown>): Promise<ClinicaConfigDTO> {
+export async function actualizarClinica(db: TenantClient, body: Record<string, unknown>): Promise<ClinicaConfigDTO> {
   const data: Record<string, unknown> = {}
   if (body.nombre !== undefined) data.nombre = String(body.nombre)
   if (body.direccion !== undefined) data.direccion = String(body.direccion)
@@ -102,6 +72,36 @@ export async function actualizarClinica(clinicaId: string, body: Record<string, 
   if (body.ciudad !== undefined) data.ciudad = String(body.ciudad)
   if (body.mensajeWA !== undefined) data.mensajeWA = String(body.mensajeWA)
   if (body.logoUrl !== undefined) data.logoUrl = body.logoUrl || null
-  const c = await prisma.clinica.update({ where: { id: clinicaId }, data })
+  const c = await db.configuracion.upsert({ where: { id: 'singleton' }, update: data, create: { id: 'singleton', ...data } })
   return clinicaDTO(c)
+}
+
+// ─── Medios de pago ──────────────────────────────────────────────────────────
+
+export async function listarMediosPago(db: TenantClient) {
+  return db.medioPago.findMany({ orderBy: { nombre: 'asc' } })
+}
+
+export async function crearMedioPago(db: TenantClient, body: { nombre: string; comision?: number }) {
+  const nombre = (body.nombre ?? '').trim()
+  if (!nombre) throw badRequest('nombre requerido')
+  const comision = body.comision != null ? Number(body.comision) : 0
+  if (!Number.isFinite(comision) || comision < 0 || comision > 100) throw badRequest('comision debe estar entre 0 y 100')
+  return db.medioPago.create({ data: { nombre, comision } })
+}
+
+export async function actualizarMedioPago(db: TenantClient, id: string, body: Record<string, unknown>) {
+  const existing = await db.medioPago.findUnique({ where: { id }, select: { id: true } })
+  if (!existing) throw notFound('Medio de pago no encontrado')
+  const data: Record<string, unknown> = {}
+  if (body.nombre !== undefined) data.nombre = String(body.nombre)
+  if (body.comision !== undefined) data.comision = Number(body.comision)
+  if (body.activo !== undefined) data.activo = Boolean(body.activo)
+  return db.medioPago.update({ where: { id }, data })
+}
+
+export async function eliminarMedioPago(db: TenantClient, id: string) {
+  const existing = await db.medioPago.findUnique({ where: { id }, select: { id: true } })
+  if (!existing) throw notFound('Medio de pago no encontrado')
+  await db.medioPago.delete({ where: { id } })
 }

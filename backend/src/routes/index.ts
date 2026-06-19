@@ -93,11 +93,11 @@ apiRouter.patch('/citas/:id', tenant, asyncHandler(patchCita))
 apiRouter.delete('/citas/:id', tenant, asyncHandler(deleteCita))
 apiRouter.patch('/citas/:id/estado', tenant, asyncHandler(patchEstado))
 
-// ── Equipo / Usuarios ────────────────────────────────────────────────────────
-apiRouter.get('/usuarios', clinica, asyncHandler(getUsuarios))
-apiRouter.get('/doctores', clinica, asyncHandler(getDoctores))
-apiRouter.post('/usuarios', adminClinica, asyncHandler(postUsuario))
-apiRouter.patch('/usuarios/:id', clinica, asyncHandler(patchUsuario)) // self o admin (validado en service)
+// ── Equipo / Usuarios (convertido a database-per-tenant) ─────────────────────
+apiRouter.get('/usuarios', tenant, asyncHandler(getUsuarios))
+apiRouter.get('/doctores', tenant, asyncHandler(getDoctores))
+apiRouter.post('/usuarios', adminTenant, asyncHandler(postUsuario))
+apiRouter.patch('/usuarios/:id', tenant, asyncHandler(patchUsuario)) // self o admin (validado en service)
 
 // ── Horarios ─────────────────────────────────────────────────────────────────
 apiRouter.get('/horarios', clinica, asyncHandler(getHorarios))
@@ -109,21 +109,21 @@ apiRouter.post('/bloqueos', clinica, asyncHandler(postBloqueo))
 apiRouter.patch('/bloqueos/:id', clinica, asyncHandler(patchBloqueo))
 apiRouter.delete('/bloqueos/:id', clinica, asyncHandler(deleteBloqueo))
 
-// ── Prestaciones ─────────────────────────────────────────────────────────────
-apiRouter.get('/prestaciones', clinica, asyncHandler(getPrestaciones))
-apiRouter.post('/prestaciones', clinica, asyncHandler(postPrestacion))
-apiRouter.patch('/prestaciones/:id', clinica, asyncHandler(patchPrestacion))
-apiRouter.delete('/prestaciones/:id', clinica, asyncHandler(deletePrestacion))
+// ── Prestaciones (convertido a database-per-tenant) ──────────────────────────
+apiRouter.get('/prestaciones', tenant, asyncHandler(getPrestaciones))
+apiRouter.post('/prestaciones', tenant, asyncHandler(postPrestacion))
+apiRouter.patch('/prestaciones/:id', tenant, asyncHandler(patchPrestacion))
+apiRouter.delete('/prestaciones/:id', tenant, asyncHandler(deletePrestacion))
 
-// ── Medios de pago ───────────────────────────────────────────────────────────
-apiRouter.get('/medios-pago', clinica, asyncHandler(getMediosPago))
-apiRouter.post('/medios-pago', clinica, asyncHandler(postMedioPago))
-apiRouter.patch('/medios-pago/:id', clinica, asyncHandler(patchMedioPago))
-apiRouter.delete('/medios-pago/:id', clinica, asyncHandler(deleteMedioPago))
+// ── Medios de pago (convertido a database-per-tenant) ────────────────────────
+apiRouter.get('/medios-pago', tenant, asyncHandler(getMediosPago))
+apiRouter.post('/medios-pago', tenant, asyncHandler(postMedioPago))
+apiRouter.patch('/medios-pago/:id', tenant, asyncHandler(patchMedioPago))
+apiRouter.delete('/medios-pago/:id', tenant, asyncHandler(deleteMedioPago))
 
-// ── Configuración de la clínica ──────────────────────────────────────────────
-apiRouter.get('/clinica', clinica, asyncHandler(getClinica))
-apiRouter.patch('/clinica', adminClinica, asyncHandler(patchClinica))
+// ── Configuración de la clínica (convertido a database-per-tenant) ───────────
+apiRouter.get('/clinica', tenant, asyncHandler(getClinica))
+apiRouter.patch('/clinica', adminTenant, asyncHandler(patchClinica))
 
 // ── Clínico: planes de tratamiento ───────────────────────────────────────────
 apiRouter.get('/planes-tratamiento', clinica, asyncHandler(clinico.getPlanes))

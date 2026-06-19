@@ -1,5 +1,5 @@
 import bcrypt from 'bcryptjs'
-import { prisma } from '@/lib/prisma'
+import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
 import type { DoctorDTO, UsuarioDTO } from '@shared/types'
@@ -26,20 +26,17 @@ function toDTO(u: {
   return { ...u, createdAt: u.createdAt.toISOString() }
 }
 
-export async function listarUsuarios(clinicaId: string): Promise<UsuarioDTO[]> {
-  const usuarios = await prisma.user.findMany({
-    where: { clinicaId }, orderBy: { name: 'asc' }, select: SELECT,
-  })
+export async function listarUsuarios(db: TenantClient): Promise<UsuarioDTO[]> {
+  const usuarios = await db.user.findMany({ orderBy: { name: 'asc' }, select: SELECT })
   return usuarios.map(toDTO)
 }
 
-export async function listarDoctores(clinicaId: string): Promise<DoctorDTO[]> {
-  const docs = await prisma.user.findMany({
-    where: { clinicaId, role: { in: ROLES_CON_AGENDA }, activo: true },
+export async function listarDoctores(db: TenantClient): Promise<DoctorDTO[]> {
+  return db.user.findMany({
+    where: { role: { in: ROLES_CON_AGENDA }, activo: true },
     orderBy: { name: 'asc' },
     select: { id: true, name: true, email: true, especialidad: true },
   })
-  return docs
 }
 
 export interface CrearUsuarioInput {
@@ -47,7 +44,7 @@ export interface CrearUsuarioInput {
   email?: string | null; rut?: string | null; especialidad?: string | null; telefono?: string | null
 }
 
-export async function crearUsuario(clinicaId: string, input: CrearUsuarioInput): Promise<UsuarioDTO> {
+export async function crearUsuario(db: TenantClient, input: CrearUsuarioInput): Promise<UsuarioDTO> {
   if (!input.name?.trim()) throw badRequest('Falta el nombre')
 
   const username = (input.username ?? '').trim().toLowerCase()
@@ -55,7 +52,6 @@ export async function crearUsuario(clinicaId: string, input: CrearUsuarioInput):
   if (!USERNAME_RE.test(username)) {
     throw badRequest('El nombre de usuario solo puede tener letras, números, puntos, guiones y guiones bajos (2 a 31 caracteres, sin espacios ni acentos).')
   }
-
   if (!input.password || input.password.length < 8) throw badRequest('Password debe tener al menos 8 caracteres')
 
   const role = input.role ?? 'doctor'
@@ -63,19 +59,19 @@ export async function crearUsuario(clinicaId: string, input: CrearUsuarioInput):
 
   const email = input.email && input.email.trim() ? input.email.trim().toLowerCase() : null
 
-  const dupUser = await prisma.user.findFirst({ where: { clinicaId, username }, select: { id: true } })
+  const dupUser = await db.user.findFirst({ where: { username }, select: { id: true } })
   if (dupUser) throw conflict(`Ya existe un usuario "${username}" en esta clínica`)
   if (email) {
-    const dupEmail = await prisma.user.findUnique({ where: { email }, select: { id: true } })
+    const dupEmail = await db.user.findUnique({ where: { email }, select: { id: true } })
     if (dupEmail) throw conflict('Ya existe un usuario con ese email')
   }
 
-  const usuario = await prisma.user.create({
+  const usuario = await db.user.create({
     data: {
-      clinicaId, name: input.name.trim(), username, email,
+      name: input.name.trim(), username, email,
       password: await bcrypt.hash(input.password, 10),
       role, rut: input.rut || null, especialidad: input.especialidad || null,
-      telefono: input.telefono || null, isPlatformAdmin: false,
+      telefono: input.telefono || null,
     },
     select: SELECT,
   })
@@ -89,9 +85,8 @@ const CAMPOS_ADMIN = [
   'puedeEditarPagos', 'puedeGestionarLiquidaciones', 'googleCalendarId',
 ]
 
-export async function actualizarUsuario(actor: JwtPayload, targetId: string, body: Record<string, unknown>): Promise<UsuarioDTO> {
-  const clinicaId = actor.clinicaId!
-  const existing = await prisma.user.findFirst({ where: { id: targetId, clinicaId }, select: { id: true } })
+export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, targetId: string, body: Record<string, unknown>): Promise<UsuarioDTO> {
+  const existing = await db.user.findUnique({ where: { id: targetId }, select: { id: true } })
   if (!existing) throw notFound('Usuario no encontrado')
 
   const editandoOtro = actor.sub !== targetId
@@ -112,7 +107,7 @@ export async function actualizarUsuario(actor: JwtPayload, targetId: string, bod
     if (!data.username) throw badRequest('El nombre de usuario no puede quedar vacío')
     const username = String(data.username).trim().toLowerCase()
     if (!USERNAME_RE.test(username)) throw badRequest('Nombre de usuario inválido (2 a 31 caracteres, sin espacios ni acentos).')
-    const otro = await prisma.user.findFirst({ where: { clinicaId, username, NOT: { id: targetId } }, select: { id: true } })
+    const otro = await db.user.findFirst({ where: { username, NOT: { id: targetId } }, select: { id: true } })
     if (otro) throw conflict(`Ya existe otro usuario "${username}" en esta clínica`)
     data.username = username
   }
@@ -121,7 +116,7 @@ export async function actualizarUsuario(actor: JwtPayload, targetId: string, bod
     if (!data.email) data.email = null
     else {
       const email = String(data.email).trim().toLowerCase()
-      const otro = await prisma.user.findUnique({ where: { email }, select: { id: true } })
+      const otro = await db.user.findUnique({ where: { email }, select: { id: true } })
       if (otro && otro.id !== targetId) throw conflict('Ya existe otro usuario con ese email')
       data.email = email
     }
@@ -133,17 +128,15 @@ export async function actualizarUsuario(actor: JwtPayload, targetId: string, bod
     data.passwordChangedAt = new Date()
   }
 
-  // Cambio de calendario: reset de syncToken (el push a Google se hará en el
-  // dominio de integraciones cuando se porte; acá solo se persiste el dato).
   if (data.googleCalendarId !== undefined) {
     data.googleSyncToken = null
     data.googleSyncedAt = null
   }
 
-  const usuario = await prisma.user.update({ where: { id: targetId }, data, select: SELECT })
+  const usuario = await db.user.update({ where: { id: targetId }, data, select: SELECT })
 
   if ('role' in data && !ROLES_CON_AGENDA.includes(String(data.role))) {
-    await prisma.horarioDoctor.deleteMany({ where: { doctorId: targetId } })
+    await db.horarioDoctor.deleteMany({ where: { doctorId: targetId } })
   }
   return toDTO(usuario)
 }
