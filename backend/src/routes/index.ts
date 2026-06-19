@@ -86,12 +86,12 @@ apiRouter.get('/pacientes/:id/mensajes', tenant, asyncHandler(getMensajes))
 apiRouter.post('/pacientes/:id/mensajes', tenant, asyncHandler(postMensaje))
 apiRouter.get('/pacientes/:id/resumen', tenant, asyncHandler(getResumen))
 
-// ── Citas / Agenda ───────────────────────────────────────────────────────────
-apiRouter.get('/citas', clinica, asyncHandler(getCitas))
-apiRouter.post('/citas', clinica, asyncHandler(postCita))
-apiRouter.patch('/citas/:id', clinica, asyncHandler(patchCita))
-apiRouter.delete('/citas/:id', clinica, asyncHandler(deleteCita))
-apiRouter.patch('/citas/:id/estado', clinica, asyncHandler(patchEstado))
+// ── Citas / Agenda (convertido a database-per-tenant) ────────────────────────
+apiRouter.get('/citas', tenant, asyncHandler(getCitas))
+apiRouter.post('/citas', tenant, asyncHandler(postCita))
+apiRouter.patch('/citas/:id', tenant, asyncHandler(patchCita))
+apiRouter.delete('/citas/:id', tenant, asyncHandler(deleteCita))
+apiRouter.patch('/citas/:id/estado', tenant, asyncHandler(patchEstado))
 
 // ── Equipo / Usuarios ────────────────────────────────────────────────────────
 apiRouter.get('/usuarios', clinica, asyncHandler(getUsuarios))
