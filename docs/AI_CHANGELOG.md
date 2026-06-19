@@ -16,6 +16,8 @@ Sigue aditivo y no disruptivo (backend actual verde, 64/64). El backend **crea l
 
 Pendiente F4 (corte real): refactor de auth (admins de plataforma en control / staff en tenant) y de todos los services de clínica al cliente por-request; wiring de `requireTenant`; provisión enganchada en crearClinica/crearDemo.
 
+**Puente F3→F4 (aditivo, 67/67):** `lib/tenant-seed.ts` (siembra Configuracion + admin en la base nueva) y `services/clinicas-registry.service.ts` (`crearClinicaConProvision`: slug único → dbName → provisión de la base → seed → registro en control-plane, con rollback `dropTenantDatabase` si falla). Test `clinicas-registry` (slugify). Listos para que el controller admin de F4 los use.
+
 Inicio de la re-arquitectura a **base de datos física por clínica** (decisión registrada en memoria). Cambios **aditivos y no disruptivos**: el backend actual (DB compartida + clinicaId) sigue intacto y verde hasta completar el corte en F4.
 
 - **F1 — Dos schemas Prisma:**
