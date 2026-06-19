@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
-import { prisma } from '@/lib/prisma'
+import { control } from '@/db/control'
+import { tenantClient } from '@/db/tenant'
 import { env } from '@/config/env'
 import { badRequest, notFound, tooMany, unauthorized } from '@/lib/errors'
 import { peekLimit, rateLimit, registerFailure, resetLimit } from '@/lib/rate-limit'
@@ -9,29 +10,24 @@ import type { LoginRequest, LoginResponse, SessionUserDTO } from '@shared/types'
 const LOGIN_LIMIT = { limit: 5, windowMs: 15 * 60_000 }
 const LOGIN_IP_LIMIT = { limit: 30, windowMs: 15 * 60_000 }
 
+// clinicaId = id de la clínica en el CONTROL-PLANE (null para super-admins).
+// slug = subdominio de la clínica. sub = id del usuario (tenant) o del admin
+// de plataforma (control).
 export interface JwtPayload {
   sub: string
   clinicaId: string | null
+  slug: string | null
   role: string
   isPlatformAdmin: boolean
   name: string | null
   email: string | null
 }
 
-function sign(user: { id: string; clinicaId: string | null; role: string; isPlatformAdmin: boolean; name: string | null; email: string | null }): string {
-  const payload: JwtPayload = {
-    sub: user.id,
-    clinicaId: user.clinicaId,
-    role: user.role,
-    isPlatformAdmin: user.isPlatformAdmin,
-    name: user.name,
-    email: user.email,
-  }
+function sign(payload: JwtPayload): string {
   const options: jwt.SignOptions = { expiresIn: env.jwtExpiresIn as jwt.SignOptions['expiresIn'] }
   return jwt.sign(payload, env.jwtSecret, options)
 }
 
-// Nombre legible del actor para logs y campos "creado por".
 export function actorName(p: JwtPayload): string {
   return p.name ?? p.email ?? 'Sistema'
 }
@@ -44,17 +40,16 @@ export function verifyToken(token: string): JwtPayload {
   }
 }
 
-async function toDTO(userId: string): Promise<SessionUserDTO> {
-  const u = await prisma.user.findUnique({ where: { id: userId } })
-  if (!u) throw unauthorized()
+// DTO de un usuario de clínica (vive en la base del tenant).
+type TenantUserRow = {
+  id: string; name: string | null; email: string | null; role: string; passwordChangedAt: Date | null
+  puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean
+  puedeEditarPagos: boolean; puedeGestionarLiquidaciones: boolean
+}
+function tenantUserDTO(u: TenantUserRow, clinicaId: string): SessionUserDTO {
   const isAdmin = u.role === 'admin'
   return {
-    id: u.id,
-    name: u.name,
-    email: u.email,
-    role: u.role,
-    clinicaId: u.clinicaId,
-    isPlatformAdmin: u.isPlatformAdmin,
+    id: u.id, name: u.name, email: u.email, role: u.role, clinicaId, isPlatformAdmin: false,
     requirePasswordChange: u.passwordChangedAt === null,
     permisos: {
       puedeModificarPrecio: isAdmin || u.puedeModificarPrecio,
@@ -66,9 +61,35 @@ async function toDTO(userId: string): Promise<SessionUserDTO> {
   }
 }
 
-// Login dual (igual semántica que el monolito): slug+username (clínica) o
-// email (super-admin / legacy). Anti fuerza bruta: solo los fallos consumen
-// cupo; un login correcto resetea el contador.
+function platformAdminDTO(a: { id: string; name: string | null; email: string; passwordChangedAt: Date | null }): SessionUserDTO {
+  return {
+    id: a.id, name: a.name, email: a.email, role: 'admin', clinicaId: null, isPlatformAdmin: true,
+    requirePasswordChange: a.passwordChangedAt === null,
+    permisos: {
+      puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
+      puedeEditarPagos: true, puedeGestionarLiquidaciones: true,
+    },
+  }
+}
+
+// Devuelve el SessionUser a partir del payload del JWT (rehidrata desde la base
+// correcta: control-plane para plataforma, tenant para clínica).
+export async function getSessionUser(payload: JwtPayload): Promise<SessionUserDTO> {
+  if (payload.isPlatformAdmin) {
+    const a = await control.platformAdmin.findUnique({ where: { id: payload.sub } })
+    if (!a || !a.activo) throw unauthorized()
+    return platformAdminDTO(a)
+  }
+  if (!payload.clinicaId) throw unauthorized()
+  const clinica = await control.clinica.findUnique({ where: { id: payload.clinicaId }, select: { dbName: true } })
+  if (!clinica) throw unauthorized()
+  const u = await tenantClient(clinica.dbName).user.findUnique({ where: { id: payload.sub } })
+  if (!u || !u.activo) throw unauthorized()
+  return tenantUserDTO(u, payload.clinicaId)
+}
+
+// Login dual: clínica (slug+username contra su tenant) o plataforma (email
+// contra el control-plane). Anti fuerza bruta: solo los fallos consumen cupo.
 export async function login(body: LoginRequest, ip: string): Promise<LoginResponse> {
   if (!body?.password) throw badRequest('Falta la contraseña')
 
@@ -83,39 +104,52 @@ export async function login(body: LoginRequest, ip: string): Promise<LoginRespon
     const retry = Math.max(idCheck.retryAfterSec, ipCheck.retryAfterSec)
     throw tooMany(`Demasiados intentos. Espera ${Math.ceil(retry / 60)} minutos.`)
   }
-
-  const fail = () => {
-    registerFailure(idKey)
-    registerFailure(ipKey)
+  const fail = (): never => {
+    registerFailure(idKey); registerFailure(ipKey)
     throw unauthorized('Usuario o contraseña incorrectos')
   }
 
-  let user: Awaited<ReturnType<typeof prisma.user.findFirst>> = null
-
+  // ── Clínica: slug + username contra la base del tenant ──
   if (body.slug && body.username) {
-    const clinica = await prisma.clinica.findUnique({ where: { slug: body.slug } })
+    const clinica = await control.clinica.findUnique({ where: { slug: body.slug } })
     if (!clinica || !clinica.activo) return fail()
-    user = await prisma.user.findFirst({
-      where: { clinicaId: clinica.id, username: body.username, activo: true },
-    })
-  } else if (body.email) {
-    user = await prisma.user.findUnique({ where: { email: body.email } })
-    if (user && !user.activo) user = null
-  } else {
-    throw badRequest('Credenciales incompletas')
+    const db = tenantClient(clinica.dbName)
+    const user = await db.user.findFirst({ where: { username: body.username, activo: true } })
+    if (!user) return fail()
+    const valid = await bcrypt.compare(body.password, user.password)
+    if (!valid) return fail()
+    resetLimit(idKey)
+    const payload: JwtPayload = { sub: user.id, clinicaId: clinica.id, slug: clinica.slug, role: user.role, isPlatformAdmin: false, name: user.name, email: user.email }
+    return { token: sign(payload), user: tenantUserDTO(user, clinica.id) }
   }
 
-  if (!user) return fail()
-  const valid = await bcrypt.compare(body.password, user.password)
-  if (!valid) return fail()
+  // ── Plataforma: email contra el control-plane ──
+  if (body.email) {
+    const admin = await control.platformAdmin.findUnique({ where: { email: body.email.toLowerCase() } })
+    if (!admin || !admin.activo) return fail()
+    const valid = await bcrypt.compare(body.password, admin.password)
+    if (!valid) return fail()
+    resetLimit(idKey)
+    const payload: JwtPayload = { sub: admin.id, clinicaId: null, slug: null, role: 'admin', isPlatformAdmin: true, name: admin.name, email: admin.email }
+    return { token: sign(payload), user: platformAdminDTO(admin) }
+  }
 
-  resetLimit(idKey)
-  return { token: sign(user), user: await toDTO(user.id) }
+  throw badRequest('Credenciales incompletas')
 }
 
-export const getSessionUser = toDTO
+// Emite un token para un usuario de una clínica recién creada (flujo demo:
+// auto-login del prospecto). clinica viene del control-plane.
+export async function issueTokenForTenantUser(
+  clinica: { id: string; slug: string; dbName: string },
+  userId: string,
+): Promise<LoginResponse> {
+  const u = await tenantClient(clinica.dbName).user.findUnique({ where: { id: userId } })
+  if (!u) throw unauthorized()
+  const payload: JwtPayload = { sub: u.id, clinicaId: clinica.id, slug: clinica.slug, role: u.role, isPlatformAdmin: false, name: u.name, email: u.email }
+  return { token: sign(payload), user: tenantUserDTO(u, clinica.id) }
+}
 
-// Política de contraseñas para contraseñas NUEVAS (idéntica al monolito).
+// Política de contraseñas (idéntica al monolito).
 function validarPassword(pw: string): string | null {
   if (pw.length < 8) return 'La nueva contraseña debe tener al menos 8 caracteres.'
   if (!/[a-zA-Z]/.test(pw)) return 'La nueva contraseña debe incluir al menos una letra.'
@@ -123,32 +157,30 @@ function validarPassword(pw: string): string | null {
   return null
 }
 
-// Cambio de contraseña self-service. Verifica la actual, aplica política y
-// limita la fuerza bruta a 5 intentos / 15 min por usuario. Marca
-// passwordChangedAt para limpiar el flag de "cambio requerido".
-export async function cambiarPassword(userId: string, currentPassword: string, newPassword: string): Promise<void> {
-  const rl = rateLimit(`pwchange:${userId}`, { limit: 5, windowMs: 15 * 60_000 })
+// Cambio de contraseña self-service (clínica → tenant; plataforma → control).
+export async function cambiarPassword(payload: JwtPayload, currentPassword: string, newPassword: string): Promise<void> {
+  const rl = rateLimit(`pwchange:${payload.sub}`, { limit: 5, windowMs: 15 * 60_000 })
   if (!rl.ok) throw tooMany(`Demasiados intentos. Espera ${Math.ceil(rl.retryAfterSec / 60)} minutos.`)
-
   if (!currentPassword || !newPassword) throw badRequest('Faltan campos')
   const politicaError = validarPassword(newPassword)
   if (politicaError) throw badRequest(politicaError)
 
-  const user = await prisma.user.findUnique({ where: { id: userId } })
-  if (!user) throw notFound('Usuario no existe')
+  if (payload.isPlatformAdmin) {
+    const a = await control.platformAdmin.findUnique({ where: { id: payload.sub } })
+    if (!a) throw notFound('Usuario no existe')
+    if (!(await bcrypt.compare(currentPassword, a.password))) throw badRequest('La contraseña actual no es correcta')
+    if (currentPassword === newPassword) throw badRequest('La nueva contraseña debe ser distinta de la actual.')
+    await control.platformAdmin.update({ where: { id: a.id }, data: { password: await bcrypt.hash(newPassword, 12), passwordChangedAt: new Date() } })
+    return
+  }
 
-  const ok = await bcrypt.compare(currentPassword, user.password)
-  if (!ok) throw badRequest('La contraseña actual no es correcta')
+  if (!payload.clinicaId) throw unauthorized()
+  const clinica = await control.clinica.findUnique({ where: { id: payload.clinicaId }, select: { dbName: true } })
+  if (!clinica) throw unauthorized()
+  const db = tenantClient(clinica.dbName)
+  const u = await db.user.findUnique({ where: { id: payload.sub } })
+  if (!u) throw notFound('Usuario no existe')
+  if (!(await bcrypt.compare(currentPassword, u.password))) throw badRequest('La contraseña actual no es correcta')
   if (currentPassword === newPassword) throw badRequest('La nueva contraseña debe ser distinta de la actual.')
-
-  const hash = await bcrypt.hash(newPassword, 12)
-  await prisma.user.update({ where: { id: userId }, data: { password: hash, passwordChangedAt: new Date() } })
-}
-
-// Emite un token para un usuario dado (sin contraseña). Lo usa el flujo de
-// demo para auto-loguear al administrador recién creado.
-export async function issueTokenForUserId(userId: string): Promise<LoginResponse> {
-  const u = await prisma.user.findUnique({ where: { id: userId } })
-  if (!u) throw unauthorized()
-  return { token: sign(u), user: await toDTO(u.id) }
+  await db.user.update({ where: { id: u.id }, data: { password: await bcrypt.hash(newPassword, 12), passwordChangedAt: new Date() } })
 }

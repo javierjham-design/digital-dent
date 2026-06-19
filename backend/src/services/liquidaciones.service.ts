@@ -1,14 +1,14 @@
 import { prisma } from '@/lib/prisma'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
-import { getSessionUser, type JwtPayload } from '@/services/auth.service'
+import type { JwtPayload } from '@/services/auth.service'
 
 const ESTADOS_LIQ = ['BORRADOR', 'APROBADA', 'PAGADA']
 const TIPOS_CONTRATO = ['PORCENTAJE', 'MONTO_FIJO']
 
 async function puedeGestionar(actor: JwtPayload): Promise<boolean> {
   if (actor.role === 'admin') return true
-  const me = await getSessionUser(actor.sub)
-  return me.permisos.puedeGestionarLiquidaciones
+  const me = await prisma.user.findUnique({ where: { id: actor.sub }, select: { puedeGestionarLiquidaciones: true } })
+  return Boolean(me?.puedeGestionarLiquidaciones)
 }
 
 // ── Contratos ────────────────────────────────────────────────────────────────

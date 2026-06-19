@@ -18,6 +18,12 @@ Pendiente F4 (corte real): refactor de auth (admins de plataforma en control / s
 
 **Puente F3→F4 (aditivo, 67/67):** `lib/tenant-seed.ts` (siembra Configuracion + admin en la base nueva) y `services/clinicas-registry.service.ts` (`crearClinicaConProvision`: slug único → dbName → provisión de la base → seed → registro en control-plane, con rollback `dropTenantDatabase` si falla). Test `clinicas-registry` (slugify). Listos para que el controller admin de F4 los use.
 
+**F4 (en curso) — auth + demo al modelo control/tenant (67/67, `npm test` verde):**
+- `auth.service` reescrito: login dual (clínica → su base tenant resuelta por slug en el control-plane; plataforma → `PlatformAdmin`), `getSessionUser(payload)` rehidrata desde la base correcta, `cambiarPassword` por contexto, `issueTokenForTenantUser` (auto-login de demo). JWT ahora lleva `slug`; `clinicaId` = id en el control-plane.
+- `demo.service` convertido: cada demo **provisiona su propia base** + seed (admin + prestaciones del rubro + pacientes de muestra vía `seedDemoTenant`) + registra clínica/lead en el control-plane + emite token; `limpiarDemosExpiradas` borra la base física + el registro.
+- `tratamientos`/`liquidaciones` (aún sin convertir) leen permisos del prisma compartido (helper local) para no acoplarse a medias al nuevo auth.
+- **Pendiente del corte:** convertir los services de datos de clínica (pacientes, citas, caja, cobros, etc.) al cliente por-request, cablear `requireTenant` en las rutas, y enganchar `crearClinicaConProvision` en el admin. Hasta entonces las rutas de datos de clínica no son runtime-coherentes (no desplegar).
+
 Inicio de la re-arquitectura a **base de datos física por clínica** (decisión registrada en memoria). Cambios **aditivos y no disruptivos**: el backend actual (DB compartida + clinicaId) sigue intacto y verde hasta completar el corte en F4.
 
 - **F1 — Dos schemas Prisma:**

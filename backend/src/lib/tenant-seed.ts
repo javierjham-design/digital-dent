@@ -1,7 +1,9 @@
 // Siembra inicial de la base de una clínica recién provisionada: su
 // Configuracion (perfil) y el usuario administrador. Datos clínicos ricos
-// (demo) se siembran aparte en el flujo de demo.
+// (demo) se siembran aparte con seedDemoTenant.
+import bcrypt from 'bcryptjs'
 import { tenantClient } from '@/db/tenant'
+import { getVertical } from '@/lib/verticales'
 
 export interface PerfilClinica {
   nombre: string
@@ -55,4 +57,38 @@ export async function seedTenantBasics(dbName: string, perfil: PerfilClinica, ad
     },
   })
   return { adminId: user.id }
+}
+
+const PACIENTES_DEMO = [
+  { nombre: 'Cristina', apellido: 'Riffo', telefono: '+56 9 9111 2233' },
+  { nombre: 'Juan', apellido: 'Muñoz', telefono: '+56 9 9222 3344' },
+  { nombre: 'Sara', apellido: 'Catalán', telefono: '+56 9 9333 4455' },
+  { nombre: 'Carlos', apellido: 'Vega', telefono: '+56 9 9444 5566' },
+  { nombre: 'José', apellido: 'Vidal', telefono: '+56 9 9555 6677' },
+]
+
+// Datos de muestra para una clínica DEMO según su rubro: catálogo de
+// prestaciones, profesionales (doctores) y algunos pacientes de ejemplo.
+export async function seedDemoTenant(dbName: string, verticalId: string): Promise<void> {
+  const v = getVertical(verticalId)
+  const db = tenantClient(dbName)
+
+  await db.prestacion.createMany({
+    data: v.seed.prestaciones.map((p) => ({ nombre: p.nombre, precio: p.precio, duracion: p.duracion, categoria: p.categoria, activo: true })),
+  })
+
+  const hash = await bcrypt.hash('Demo' + Math.random().toString(36).slice(2, 10), 10)
+  let i = 0
+  for (const prof of v.seed.profesionales) {
+    i++
+    await db.user.create({
+      data: { name: prof.name, username: `doctor-${i}`, email: null, password: hash, role: 'doctor', especialidad: prof.especialidad, activo: true, passwordChangedAt: new Date() },
+    })
+  }
+
+  let n = 0
+  for (const p of PACIENTES_DEMO) {
+    n++
+    await db.paciente.create({ data: { numero: n, nombre: p.nombre, apellido: p.apellido, telefono: p.telefono, activo: true } })
+  }
 }

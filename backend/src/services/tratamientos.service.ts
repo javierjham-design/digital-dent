@@ -1,6 +1,23 @@
 import { prisma } from '@/lib/prisma'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
-import { getSessionUser, type JwtPayload } from '@/services/auth.service'
+import type { JwtPayload } from '@/services/auth.service'
+
+// Permisos efectivos del actor (modelo actual: usuario en la base compartida).
+// Se reemplazará al convertir este service al cliente de tenant.
+async function actorPermisos(actorId: string) {
+  const u = await prisma.user.findUnique({
+    where: { id: actorId },
+    select: { role: true, puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true },
+  })
+  const isAdmin = u?.role === 'admin'
+  return {
+    permisos: {
+      puedeModificarPrecio: isAdmin || Boolean(u?.puedeModificarPrecio),
+      puedeAplicarDescuento: isAdmin || Boolean(u?.puedeAplicarDescuento),
+      puedeRevertirCompletado: isAdmin || Boolean(u?.puedeRevertirCompletado),
+    },
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Dominio clínico: planes de tratamiento, secciones, tratamientos (acciones),
@@ -128,7 +145,7 @@ export async function crearTratamiento(clinicaId: string, actorId: string, body:
   const prestacion = await prisma.prestacion.findFirst({ where: { id: body.prestacionId, clinicaId }, select: { id: true, precio: true } })
   if (!prestacion) throw notFound('Prestación no encontrada')
 
-  const me = await getSessionUser(actorId)
+  const me = await actorPermisos(actorId)
   const precioFinal = me.permisos.puedeModificarPrecio ? Number(body.precio) : prestacion.precio
   const descuentoFinal = me.permisos.puedeAplicarDescuento && typeof body.descuento === 'number'
     ? Math.max(0, Math.min(100, body.descuento)) : 0
@@ -169,7 +186,7 @@ export async function actualizarTratamiento(clinicaId: string, actorId: string, 
   const existing = await prisma.tratamiento.findFirst({ where: { id, clinicaId }, select: { id: true, estado: true } })
   if (!existing) throw notFound('Tratamiento no encontrado')
 
-  const me = await getSessionUser(actorId)
+  const me = await actorPermisos(actorId)
   const data: Record<string, unknown> = {}
 
   if (typeof body.estado === 'string') {

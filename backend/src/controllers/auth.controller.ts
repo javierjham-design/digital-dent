@@ -14,12 +14,12 @@ export async function postLogin(req: Request, res: Response) {
 }
 
 export async function getMe(req: Request, res: Response) {
-  const user = await getSessionUser(req.auth!.sub)
+  const user = await getSessionUser(req.auth!)
   res.json({ user })
 }
 
 export async function postCambiarPassword(req: Request, res: Response) {
   const { currentPassword, newPassword } = req.body ?? {}
-  await cambiarPassword(req.auth!.sub, String(currentPassword ?? ''), String(newPassword ?? ''))
+  await cambiarPassword(req.auth!, String(currentPassword ?? ''), String(newPassword ?? ''))
   res.json({ ok: true })
 }
