@@ -5,7 +5,18 @@
 
 ---
 
-## 2026-06-18 — [rama arch/split] Cutover: Dockerfiles por servicio + paquete cron
+## 2026-06-19 — [rama arch/split] DB-por-clínica F1+F2: schemas split + capa de conexión
+
+Inicio de la re-arquitectura a **base de datos física por clínica** (decisión registrada en memoria). Cambios **aditivos y no disruptivos**: el backend actual (DB compartida + clinicaId) sigue intacto y verde hasta completar el corte en F4.
+
+- **F1 — Dos schemas Prisma:**
+  - `prisma/control/schema.prisma` → cliente `prisma/generated/control`: Clinica (registro, con `dbName` único), PlanSuscripcion, Lead, PagoSuscripcion, ExtraSuscripcion, **PlatformAdmin** (super-admins, login por email), AuditLogAdmin. Datasource `CONTROL_DATABASE_URL`.
+  - `prisma/tenant/schema.prisma` → cliente `prisma/generated/tenant`: TODOS los modelos operativos **sin `clinicaId`** (cada base = una clínica) + `Configuracion` singleton con perfil + WhatsApp + tokens Google. Datasource `TENANT_DATABASE_URL` (dinámica en runtime).
+- **F2 — Capa de conexión:** `src/db/control.ts` (singleton del control-plane) y `src/db/tenant.ts` (factory + cache de PrismaClient por `dbName`, URL construida desde `TENANT_DB_SERVER_URL`). Env nuevas: `CONTROL_DATABASE_URL`, `TENANT_DB_SERVER_URL` (con fallback a `DATABASE_URL`).
+- Scripts `prisma:generate:control/tenant/all`; `build`/`postinstall` generan los 3 clientes (el viejo sigue para no romper). `prisma/generated/` gitignoreado. `prisma generate` funciona sin env (no rompe el build en Railway).
+- Fix menor de test: `hookTimeout` en `vitest.config.ts` (el smoke arranca toda la app; expiraba bajo carga paralela).
+
+Verificación: backend typecheck + **58/58** verdes. Pendiente F3–F7 (provisión, refactor de services, migration runner, tests de aislamiento físico, migración de datos).
 
 Dos extras de despliegue listos (opcionales; NIXPACKS sigue siendo el default):
 - **Dockerfiles** `backend/`, `frontend/`, `web/` (multi-stage para los estáticos). Contexto de build = raíz del repo (backend/frontend importan `../shared`); `VITE_*` como build args. `.dockerignore` en la raíz.

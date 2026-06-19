@@ -7,8 +7,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
-    "build": "prisma generate",
-    "postinstall": "prisma generate",
+    "build": "npm run prisma:generate:all",
+    "postinstall": "npm run prisma:generate:all",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -16,6 +16,9 @@
     "test:contract": "node ../scripts/contract-check.mjs",
     "smoke:deploy": "node ../scripts/smoke-deploy.mjs",
     "prisma:generate": "prisma generate",
+    "prisma:generate:control": "prisma generate --schema prisma/control/schema.prisma",
+    "prisma:generate:tenant": "prisma generate --schema prisma/tenant/schema.prisma",
+    "prisma:generate:all": "prisma generate && npm run prisma:generate:control && npm run prisma:generate:tenant",
     "prisma:sync": "node -e \"require('fs').copyFileSync('../prisma/schema.prisma','prisma/schema.prisma')\" && prisma generate"
   },
   "dependencies": {

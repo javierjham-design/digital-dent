@@ -1,0 +1,544 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  TENANT (1 base de datos por clínica — aislamiento físico)
+//  Contiene TODOS los datos operativos de una clínica: equipo, pacientes,
+//  agenda, fichas clínicas, presupuestos, cobros, caja, liquidaciones y su
+//  configuración/integraciones. Como cada base ES una clínica, los modelos NO
+//  llevan clinicaId. El backend abre la base correcta según el subdominio.
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/tenant"
+}
+
+datasource db {
+  provider = "postgresql"
+  // URL dinámica: en runtime se pasa la de cada clínica; este env es solo para
+  // los comandos de Prisma CLI (generate / db push sobre una base concreta).
+  url      = env("TENANT_DATABASE_URL")
+}
+
+// Perfil + integraciones de la clínica (singleton por base).
+model Configuracion {
+  id        String  @id @default("singleton")
+  nombre    String  @default("Mi clínica")
+  rut       String?
+  direccion String  @default("")
+  ciudad    String  @default("Temuco")
+  telefono  String  @default("")
+  email     String  @default("")
+  logoUrl   String?
+  mensajeWA String  @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
+
+  // WhatsApp (Twilio). El auth token va cifrado (AES-256-GCM).
+  waEnabled     Boolean @default(false)
+  waTwilioSid   String?
+  waTwilioToken String?
+  waNumero      String?
+  waTemplateSid String?
+  waHorasAntes  Int     @default(24)
+
+  // Google Calendar (una cuenta por clínica). Tokens cifrados.
+  googleRefreshToken    String?
+  googleAccessToken     String?
+  googleTokenExpiresAt  DateTime?
+  googleAccountEmail    String?
+  googleConnectedAt     DateTime?
+  googleConnectedById   String?
+  googleConnectedByName String?
+
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  username      String?   @unique
+  password      String
+  role          String    @default("staff") // admin | doctor | staff
+  rut           String?   @unique
+  especialidad  String?
+  telefono      String?
+  activo        Boolean   @default(true)
+  passwordChangedAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  puedeRecibirPagos           Boolean @default(false)
+  puedeModificarPrecio        Boolean @default(false)
+  puedeAplicarDescuento       Boolean @default(false)
+  puedeRevertirCompletado     Boolean @default(false)
+  puedeEditarPagos            Boolean @default(false)
+  puedeGestionarLiquidaciones Boolean @default(false)
+
+  // Mapeo a un calendario de Google (dentro de la cuenta de la clínica).
+  googleCalendarId String?
+  googleSyncToken  String?
+  googleSyncedAt   DateTime?
+
+  citas              Cita[]            @relation("DoctorCitas")
+  tratamientos       Tratamiento[]     @relation("DoctorTratamientos")
+  contratos          Contrato[]
+  liquidaciones      Liquidacion[]
+  horarios           HorarioDoctor[]
+  cobrosRecibidos    Cobro[]           @relation("CobroUsuario")
+  evolucionesCreadas Evolucion[]       @relation("AutorEvolucion")
+  planesTitulares    PlanTratamiento[] @relation("DoctorTitularPlanes")
+  cajas              CajaUsuario[]
+  movimientosCaja    MovimientoCaja[]  @relation("MovimientoUsuario")
+  bloqueosAgenda     BloqueoAgenda[]   @relation("DoctorBloqueos")
+}
+
+model Paciente {
+  id               String    @id @default(cuid())
+  numero           Int?      @unique
+  rut              String?   @unique
+  otroDocId        String?
+  nombre           String
+  apellido         String
+  nombreSocial     String?
+  fechaNacimiento  DateTime?
+  genero           String?
+  sexo             String?
+  nacionalidad     String?
+  migrante         String?
+  puebloOriginario String?
+  telefono         String?
+  telefonoFijo     String?
+  email            String?
+  direccion        String?
+  ciudad           String?
+  comuna           String?
+  prevision        String?
+  actividad        String?
+  empleador        String?
+  apoderado        String?
+  rutApoderado     String?
+  referencia       String?
+  tipoPaciente     String?
+  numeroInterno    String?
+  alergias         String?
+  antecedentes     String?
+  observaciones    String?
+  activo           Boolean   @default(true)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  citas            Cita[]
+  fichaClinica     FichaClinica?
+  presupuestos     Presupuesto[]
+  planes           PlanTratamiento[]
+  evoluciones      Evolucion[]
+  cobros           Cobro[]
+  comentariosAdmin ComentarioAdministrativo[]
+  mensajes         MensajePaciente[]
+}
+
+model ComentarioAdministrativo {
+  id          String   @id @default(cuid())
+  pacienteId  String
+  autorNombre String
+  autorId     String?
+  texto       String
+  createdAt   DateTime @default(now())
+  paciente    Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+}
+
+model MensajePaciente {
+  id         String   @id @default(cuid())
+  pacienteId String
+  citaId     String?
+  tipo       String
+  categoria  String
+  asunto     String?
+  cuerpo     String?
+  enviadoA   String?
+  estado     String   @default("ENVIADO")
+  createdAt  DateTime @default(now())
+  paciente   Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+  cita       Cita?    @relation(fields: [citaId], references: [id])
+}
+
+model Cita {
+  id           String   @id @default(cuid())
+  pacienteId   String
+  doctorId     String
+  fecha        DateTime
+  duracion     Int      @default(30)
+  estado       String   @default("PENDIENTE")
+  tipo         String?
+  notas        String?
+  sala         String?
+  sobrecupo    Boolean  @default(false)
+  confirmadoWA Boolean  @default(false)
+  googleEventId   String?
+  googleSyncedAt  DateTime?
+  googleSyncError String?
+  waMessageSid    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  paciente     Paciente @relation(fields: [pacienteId], references: [id])
+  doctor       User     @relation("DoctorCitas", fields: [doctorId], references: [id])
+  logs         CitaLog[]
+  mensajes     MensajePaciente[]
+
+  @@index([googleEventId])
+  @@index([waMessageSid])
+  @@index([doctorId, fecha])
+}
+
+model CitaLog {
+  id        String   @id @default(cuid())
+  citaId    String
+  tipo      String
+  detalle   String
+  userName  String   @default("Sistema")
+  createdAt DateTime @default(now())
+  cita      Cita     @relation(fields: [citaId], references: [id], onDelete: Cascade)
+}
+
+model FichaClinica {
+  id                String        @id @default(cuid())
+  pacienteId        String        @unique
+  grupoSanguineo    String?
+  fumador           Boolean       @default(false)
+  embarazada        Boolean       @default(false)
+  diabetico         Boolean       @default(false)
+  hipertenso        Boolean       @default(false)
+  cardiopatia       Boolean       @default(false)
+  medicamentos      String?
+  notasClinicas     String?
+  alertasMedicas    String?
+  enfermedadesNotas String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  paciente          Paciente      @relation(fields: [pacienteId], references: [id])
+  tratamientos      Tratamiento[]
+  odontograma       Diente[]
+}
+
+model Diente {
+  id     String       @id @default(cuid())
+  fichaId String
+  numero Int
+  cara   String?
+  estado String       @default("SANO")
+  color  String?
+  notas  String?
+  ficha  FichaClinica @relation(fields: [fichaId], references: [id])
+
+  @@unique([fichaId, numero, cara])
+}
+
+model Prestacion {
+  id               String            @id @default(cuid())
+  nombre           String
+  descripcion      String?
+  precio           Float
+  duracion         Int               @default(30)
+  categoria        String?
+  activo           Boolean           @default(true)
+  tratamientos     Tratamiento[]
+  itemsPresupuesto ItemPresupuesto[]
+}
+
+model Tratamiento {
+  id              String           @id @default(cuid())
+  fichaId         String
+  planId          String?
+  seccionId       String?
+  prestacionId    String
+  doctorId        String?
+  diente          Int?
+  cara            String?
+  estado          String           @default("PLANIFICADO")
+  precio          Float
+  descuento       Float            @default(0)
+  notas           String?
+  fecha           DateTime         @default(now())
+  fechaCompletado DateTime?
+  ficha           FichaClinica     @relation(fields: [fichaId], references: [id])
+  plan            PlanTratamiento? @relation(fields: [planId], references: [id], onDelete: SetNull)
+  seccion         SeccionPlan?     @relation(fields: [seccionId], references: [id], onDelete: SetNull)
+  prestacion      Prestacion       @relation(fields: [prestacionId], references: [id])
+  doctor          User?            @relation("DoctorTratamientos", fields: [doctorId], references: [id])
+  liquidacionItems LiquidacionItem[]
+  cobroItems      CobroItem[]
+  evoluciones     Evolucion[]
+}
+
+model PlanTratamiento {
+  id              String        @id @default(cuid())
+  pacienteId      String
+  doctorTitularId String?
+  nombre          String        @default("Plan de tratamiento")
+  estado          String        @default("ACTIVO")
+  notas           String?
+  fechaInicio     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  paciente        Paciente      @relation(fields: [pacienteId], references: [id])
+  doctorTitular   User?         @relation("DoctorTitularPlanes", fields: [doctorTitularId], references: [id])
+  secciones       SeccionPlan[]
+  tratamientos    Tratamiento[]
+}
+
+model SeccionPlan {
+  id                String          @id @default(cuid())
+  planId            String
+  titulo            String          @default("Sección")
+  orden             Int             @default(0)
+  fechaTentativa    DateTime?
+  diasDesdeAnterior Int?
+  notas             String?
+  plan              PlanTratamiento @relation(fields: [planId], references: [id], onDelete: Cascade)
+  tratamientos      Tratamiento[]
+}
+
+model Evolucion {
+  id            String       @id @default(cuid())
+  pacienteId    String
+  tratamientoId String?
+  autorId       String?
+  texto         String
+  createdAt     DateTime     @default(now())
+  paciente      Paciente     @relation(fields: [pacienteId], references: [id])
+  tratamiento   Tratamiento? @relation(fields: [tratamientoId], references: [id], onDelete: SetNull)
+  autor         User?        @relation("AutorEvolucion", fields: [autorId], references: [id])
+}
+
+model Presupuesto {
+  id         String            @id @default(cuid())
+  pacienteId String
+  numero     Int               @unique
+  estado     String            @default("PENDIENTE")
+  total      Float             @default(0)
+  notas      String?
+  vigencia   DateTime?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+  paciente   Paciente          @relation(fields: [pacienteId], references: [id])
+  items      ItemPresupuesto[]
+}
+
+model ItemPresupuesto {
+  id             String      @id @default(cuid())
+  presupuestoId  String
+  prestacionId   String
+  diente         Int?
+  cantidad       Int         @default(1)
+  precioUnitario Float
+  descuento      Float       @default(0)
+  subtotal       Float
+  presupuesto    Presupuesto @relation(fields: [presupuestoId], references: [id])
+  prestacion     Prestacion  @relation(fields: [prestacionId], references: [id])
+}
+
+model MedioPago {
+  id       String  @id @default(cuid())
+  nombre   String
+  comision Float   @default(0)
+  activo   Boolean @default(true)
+  cobros   Cobro[]
+}
+
+model Cobro {
+  id               String     @id @default(cuid())
+  pacienteId       String
+  numero           Int        @unique
+  concepto         String
+  monto            Float
+  montoNeto        Float?
+  comisionMonto    Float?
+  estado           String     @default("PENDIENTE")
+  medioPagoId      String?
+  metodoPago       String?
+  reciboUsuarioId  String?
+  cajaId           String?
+  fechaPago        DateTime?
+  notas            String?
+  anulado          Boolean    @default(false)
+  motivoAnulacion  String?
+  anuladoAt        DateTime?
+  anuladoPorId     String?
+  anuladoPorNombre String?
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+  paciente         Paciente   @relation(fields: [pacienteId], references: [id])
+  medioPago        MedioPago? @relation(fields: [medioPagoId], references: [id])
+  reciboUsuario    User?      @relation("CobroUsuario", fields: [reciboUsuarioId], references: [id])
+  caja             Caja?      @relation(fields: [cajaId], references: [id])
+  items            CobroItem[]
+  movimientos      MovimientoCaja[]
+}
+
+model Caja {
+  id           String       @id @default(cuid())
+  nombre       String       @unique
+  descripcion  String?
+  saldoInicial Float        @default(0)
+  activo       Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  usuarios     CajaUsuario[]
+  movimientos  MovimientoCaja[]
+  cobros       Cobro[]
+  sesiones     SesionCaja[]
+}
+
+model SesionCaja {
+  id               String    @id @default(cuid())
+  cajaId           String
+  estado           String    @default("ABIERTA")
+  saldoApertura    Float     @default(0)
+  abiertaPorId     String
+  abiertaPorNombre String?
+  abiertaAt        DateTime  @default(now())
+  cerradaPorId     String?
+  cerradaPorNombre String?
+  cerradaAt        DateTime?
+  saldoEsperado    Float?
+  saldoReal        Float?
+  diferencia       Float?
+  totalIngresos    Float?
+  totalEgresos     Float?
+  observaciones    String?
+  createdAt        DateTime  @default(now())
+  caja             Caja      @relation(fields: [cajaId], references: [id])
+  movimientos      MovimientoCaja[]
+
+  @@index([cajaId, estado])
+  @@index([cajaId, abiertaAt])
+}
+
+model CajaUsuario {
+  cajaId String
+  userId String
+  caja   Caja @relation(fields: [cajaId], references: [id], onDelete: Cascade)
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([cajaId, userId])
+}
+
+model MovimientoCaja {
+  id               String      @id @default(cuid())
+  cajaId           String
+  sesionCajaId     String?
+  tipo             String
+  monto            Float
+  descripcion      String
+  categoria        String?
+  fecha            DateTime    @default(now())
+  cobroId          String?
+  userId           String
+  anulado          Boolean     @default(false)
+  motivoAnulacion  String?
+  anuladoAt        DateTime?
+  anuladoPorId     String?
+  anuladoPorNombre String?
+  createdAt        DateTime    @default(now())
+  caja             Caja        @relation(fields: [cajaId], references: [id])
+  cobro            Cobro?      @relation(fields: [cobroId], references: [id])
+  user             User        @relation("MovimientoUsuario", fields: [userId], references: [id])
+  sesion           SesionCaja? @relation(fields: [sesionCajaId], references: [id])
+
+  @@index([cajaId, fecha])
+  @@index([sesionCajaId])
+}
+
+model CobroItem {
+  id            String       @id @default(cuid())
+  cobroId       String
+  tratamientoId String?
+  descripcion   String
+  monto         Float
+  cobro         Cobro        @relation(fields: [cobroId], references: [id], onDelete: Cascade)
+  tratamiento   Tratamiento? @relation(fields: [tratamientoId], references: [id])
+}
+
+model Contrato {
+  id            String        @id @default(cuid())
+  doctorId      String
+  tipo          String
+  porcentaje    Float?
+  montoFijo     Float?
+  descripcion   String?
+  fechaInicio   DateTime      @default(now())
+  fechaFin      DateTime?
+  activo        Boolean       @default(true)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  doctor        User          @relation(fields: [doctorId], references: [id])
+  liquidaciones Liquidacion[]
+}
+
+model Liquidacion {
+  id             String            @id @default(cuid())
+  doctorId       String
+  contratoId     String
+  periodo        String
+  totalBruto     Float             @default(0)
+  totalLiquidado Float             @default(0)
+  estado         String            @default("BORRADOR")
+  notas          String?
+  fechaPago      DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  doctor         User              @relation(fields: [doctorId], references: [id])
+  contrato       Contrato          @relation(fields: [contratoId], references: [id])
+  items          LiquidacionItem[]
+}
+
+model LiquidacionItem {
+  id                 String      @id @default(cuid())
+  liquidacionId      String
+  tratamientoId      String
+  prestacionNombre   String
+  pacienteNombre     String
+  diente             String?
+  fechaCompletado    DateTime
+  precioTratamiento  Float
+  porcentajeAplicado Float?
+  montoFijoAplicado  Float?
+  montoLiquidado     Float
+  liquidacion        Liquidacion @relation(fields: [liquidacionId], references: [id])
+  tratamiento        Tratamiento @relation(fields: [tratamientoId], references: [id])
+}
+
+model HorarioDoctor {
+  id              String  @id @default(cuid())
+  doctorId        String
+  diaSemana       Int
+  horaInicio      String
+  horaFin         String
+  activo          Boolean @default(true)
+  recesoActivo    Boolean @default(false)
+  recesoInicio    String?
+  recesoFin       String?
+  sobrecupoActivo Boolean @default(false)
+  sobrecupoInicio String?
+  sobrecupoFin    String?
+  doctor          User    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@unique([doctorId, diaSemana])
+}
+
+model BloqueoAgenda {
+  id            String   @id @default(cuid())
+  doctorId      String
+  inicio        DateTime
+  fin           DateTime
+  motivo        String?
+  createdById   String?
+  createdByName String?
+  googleEventId   String?
+  googleSyncedAt  DateTime?
+  googleSyncError String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  doctor        User     @relation("DoctorBloqueos", fields: [doctorId], references: [id], onDelete: Cascade)
+
+  @@index([doctorId, inicio])
+  @@index([googleEventId])
+}

@@ -4,6 +4,9 @@ dist/
 .env.local
 *.log
 
+# Clientes Prisma generados (control-plane + tenant). Se regeneran en install.
+prisma/generated/
+
 # Artefactos de tests de integración (DB sqlite + cliente Prisma derivado)
 prisma/.test-client/
 prisma/test.db

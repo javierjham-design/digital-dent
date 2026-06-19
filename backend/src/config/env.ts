@@ -16,6 +16,14 @@ export const env = {
   // El backend comparte la misma base de datos que el monolito durante la
   // migración (single source of truth). DATABASE_URL ya existe en Railway.
   databaseUrl: required('DATABASE_URL', 'postgresql://localhost:5432/clariva'),
+
+  // ── Database-per-tenant ──────────────────────────────────────────────────
+  // Control-plane: registro de clínicas, planes, leads, facturación, admins.
+  controlDatabaseUrl: process.env.CONTROL_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgresql://localhost:5432/clariva_control',
+  // Servidor Postgres donde viven las bases de los tenants. La URL de cada
+  // clínica se construye cambiando el nombre de la base por su `dbName`.
+  // Debe tener permisos para CREATE DATABASE (provisión de clínicas).
+  tenantDbServerUrl: process.env.TENANT_DB_SERVER_URL ?? process.env.DATABASE_URL ?? 'postgresql://localhost:5432/postgres',
   // Secreto para firmar los JWT que emite ESTE backend.
   jwtSecret: required('JWT_SECRET', process.env.NEXTAUTH_SECRET ?? 'dev-insecure-secret-change-me'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '12h',

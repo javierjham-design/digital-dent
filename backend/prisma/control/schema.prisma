@@ -1,0 +1,153 @@
+// ─────────────────────────────────────────────────────────────────────────────
+//  CONTROL-PLANE (1 base compartida)
+//  Capa de negocio del SaaS: qué clínicas existen, su suscripción/facturación,
+//  leads, administradores de la plataforma y auditoría. NO contiene datos
+//  clínicos ni operativos de las clínicas — eso vive en la base de cada tenant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/control"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("CONTROL_DATABASE_URL")
+}
+
+// Registro de clínicas. `dbName` apunta a la base de datos física e
+// independiente de esa clínica (database-per-tenant). El backend la resuelve
+// por subdominio y abre la conexión correspondiente.
+model Clinica {
+  id    String @id @default(cuid())
+  slug  String @unique
+  dbName String @unique               // nombre de la base de datos del tenant
+
+  nombre String                       // copia para mostrar en el super-admin
+  rut    String? @unique
+  email  String  @default("")         // contacto comercial (registro)
+  telefono String @default("")
+
+  plan       String   @default("TRIAL")
+  activo     Boolean  @default(true)
+  trialHasta DateTime?
+
+  // Facturación de la suscripción (gestionado por super-admin).
+  cicloFacturacion String    @default("MENSUAL") // MENSUAL | ANUAL
+  precioAcordado   Float?
+  proximoCobro     DateTime?
+  notasInternas    String?
+
+  // Demo autogenerada desde la landing (se elimina al expirar).
+  esDemo       Boolean   @default(false)
+  demoExpiraEn DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pagosSuscripcion PagoSuscripcion[]
+  extras           ExtraSuscripcion[]
+
+  @@index([esDemo])
+  @@index([activo, plan])
+}
+
+// Prospecto capturado desde la landing/demo. Queda para ventas aunque la
+// clínica demo se borre al expirar.
+model Lead {
+  id            String   @id @default(cuid())
+  nombre        String
+  email         String
+  telefono      String?
+  nombreClinica String?
+  origen        String   @default("DEMO") // DEMO | CONTACTO
+  rubro         String?  // dental | medico | estetica
+  clinicaId     String?
+  clinicaSlug   String?
+  ip            String?
+  notas         String?
+  createdAt     DateTime @default(now())
+
+  @@index([email])
+  @@index([createdAt])
+}
+
+// Cargo adicional recurrente sobre el plan de una clínica.
+model ExtraSuscripcion {
+  id           String   @id @default(cuid())
+  clinicaId    String
+  codigo       String   @default("OTRO")
+  nombre       String
+  montoMensual Float
+  activo       Boolean  @default(true)
+  notas        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  clinica      Clinica  @relation(fields: [clinicaId], references: [id], onDelete: Cascade)
+
+  @@index([clinicaId])
+}
+
+// Catálogo de planes de suscripción de la plataforma.
+model PlanSuscripcion {
+  id              String   @id
+  nombre          String
+  descripcion     String?
+  precioMensual   Float    @default(0)
+  precioAnual     Float?
+  caracteristicas String   @default("[]") // JSON string[]
+  destacado       Boolean  @default(false)
+  orden           Int      @default(0)
+  activo          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// Pago de suscripción recibido desde una clínica (registro manual).
+model PagoSuscripcion {
+  id            String   @id @default(cuid())
+  clinicaId     String
+  fechaPago     DateTime @default(now())
+  monto         Float
+  periodoDesde  DateTime
+  periodoHasta  DateTime
+  metodoPago    String   // TRANSFERENCIA | WEBPAY | EFECTIVO | OTRO
+  comprobante   String?
+  notas         String?
+  registradoPor String?
+  createdAt     DateTime @default(now())
+  clinica       Clinica  @relation(fields: [clinicaId], references: [id], onDelete: Cascade)
+
+  @@index([clinicaId, fechaPago])
+}
+
+// Administradores de la PLATAFORMA (super-admins). Login por email. No están
+// atados a ninguna clínica; viven solo en el control-plane.
+model PlatformAdmin {
+  id                String    @id @default(cuid())
+  name              String?
+  email             String    @unique
+  password          String
+  activo            Boolean   @default(true)
+  passwordChangedAt DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+// Bitácora de acciones sensibles del super-admin.
+model AuditLogAdmin {
+  id         String   @id @default(cuid())
+  actorId    String
+  actorEmail String
+  action     String
+  targetType String
+  targetId   String?
+  details    String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId])
+  @@index([action, createdAt])
+}

@@ -16,5 +16,9 @@ export default defineConfig({
     // Por defecto solo lógica pura (sin DB). Los tests de integración viven en
     // test/integration/ y se corren aparte con npm run test:integration.
     exclude: ['node_modules/**', 'test/integration/**'],
+    // El smoke arranca toda la app (incluye googleapis, pesado); damos margen
+    // al hook de arranque para que no expire bajo carga paralela.
+    hookTimeout: 30_000,
+    testTimeout: 20_000,
   },
 })
