@@ -1,35 +1,34 @@
-import { prisma } from '@/lib/prisma'
+import type { TenantClient } from '@/db/tenant'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
 
 const ESTADOS_LIQ = ['BORRADOR', 'APROBADA', 'PAGADA']
 const TIPOS_CONTRATO = ['PORCENTAJE', 'MONTO_FIJO']
 
-async function puedeGestionar(actor: JwtPayload): Promise<boolean> {
+async function puedeGestionar(db: TenantClient, actor: JwtPayload): Promise<boolean> {
   if (actor.role === 'admin') return true
-  const me = await prisma.user.findUnique({ where: { id: actor.sub }, select: { puedeGestionarLiquidaciones: true } })
+  const me = await db.user.findUnique({ where: { id: actor.sub }, select: { puedeGestionarLiquidaciones: true } })
   return Boolean(me?.puedeGestionarLiquidaciones)
 }
 
 // ── Contratos ────────────────────────────────────────────────────────────────
 
-export async function listarContratos(clinicaId: string) {
-  return prisma.contrato.findMany({
-    where: { clinicaId },
+export async function listarContratos(db: TenantClient) {
+  return db.contrato.findMany({
     include: { doctor: { select: { id: true, name: true, email: true, especialidad: true } } },
     orderBy: { createdAt: 'desc' },
   })
 }
 
-export async function crearContrato(clinicaId: string, body: { doctorId: string; tipo: string; porcentaje?: number; montoFijo?: number; descripcion?: string; fechaInicio?: string; fechaFin?: string }) {
+export async function crearContrato(db: TenantClient, body: { doctorId: string; tipo: string; porcentaje?: number; montoFijo?: number; descripcion?: string; fechaInicio?: string; fechaFin?: string }) {
   if (!TIPOS_CONTRATO.includes(body.tipo)) throw badRequest(`tipo inválido. Use: ${TIPOS_CONTRATO.join(', ')}`)
-  const doctor = await prisma.user.findFirst({ where: { id: body.doctorId, clinicaId }, select: { id: true } })
+  const doctor = await db.user.findUnique({ where: { id: body.doctorId }, select: { id: true } })
   if (!doctor) throw notFound('Doctor no encontrado')
   // Solo un contrato activo por doctor: desactiva los previos.
-  await prisma.contrato.updateMany({ where: { doctorId: body.doctorId, clinicaId, activo: true }, data: { activo: false } })
-  return prisma.contrato.create({
+  await db.contrato.updateMany({ where: { doctorId: body.doctorId, activo: true }, data: { activo: false } })
+  return db.contrato.create({
     data: {
-      clinicaId, doctorId: body.doctorId, tipo: body.tipo,
+      doctorId: body.doctorId, tipo: body.tipo,
       porcentaje: body.porcentaje != null ? Number(body.porcentaje) : null,
       montoFijo: body.montoFijo != null ? Number(body.montoFijo) : null,
       descripcion: body.descripcion || null,
@@ -41,8 +40,8 @@ export async function crearContrato(clinicaId: string, body: { doctorId: string;
   })
 }
 
-export async function actualizarContrato(clinicaId: string, id: string, body: Record<string, unknown>) {
-  const existing = await prisma.contrato.findFirst({ where: { id, clinicaId }, select: { id: true } })
+export async function actualizarContrato(db: TenantClient, id: string, body: Record<string, unknown>) {
+  const existing = await db.contrato.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Contrato no encontrado')
   const data: Record<string, unknown> = {}
   if (body.tipo !== undefined) {
@@ -61,13 +60,13 @@ export async function actualizarContrato(clinicaId: string, id: string, body: Re
   if (body.fechaInicio !== undefined) data.fechaInicio = new Date(String(body.fechaInicio))
   if (body.fechaFin !== undefined) data.fechaFin = body.fechaFin ? new Date(String(body.fechaFin)) : null
   if (body.activo !== undefined) data.activo = Boolean(body.activo)
-  return prisma.contrato.update({ where: { id }, data })
+  return db.contrato.update({ where: { id }, data })
 }
 
-export async function eliminarContrato(clinicaId: string, id: string) {
-  const existing = await prisma.contrato.findFirst({ where: { id, clinicaId }, select: { id: true } })
+export async function eliminarContrato(db: TenantClient, id: string) {
+  const existing = await db.contrato.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Contrato no encontrado')
-  await prisma.contrato.update({ where: { id }, data: { activo: false } })
+  await db.contrato.update({ where: { id }, data: { activo: false } })
 }
 
 // ── Liquidaciones ────────────────────────────────────────────────────────────
@@ -78,18 +77,16 @@ const LIQ_LIST_INCLUDE = {
   _count: { select: { items: true } },
 } as const
 
-export async function listarLiquidaciones(actor: JwtPayload) {
-  const clinicaId = actor.clinicaId!
-  const canManage = await puedeGestionar(actor)
-  const where = canManage ? { clinicaId } : { clinicaId, doctorId: actor.sub }
-  return prisma.liquidacion.findMany({ where, include: LIQ_LIST_INCLUDE, orderBy: [{ periodo: 'desc' }, { createdAt: 'desc' }] })
+export async function listarLiquidaciones(db: TenantClient, actor: JwtPayload) {
+  const canManage = await puedeGestionar(db, actor)
+  const where = canManage ? {} : { doctorId: actor.sub }
+  return db.liquidacion.findMany({ where, include: LIQ_LIST_INCLUDE, orderBy: [{ periodo: 'desc' }, { createdAt: 'desc' }] })
 }
 
-export async function obtenerLiquidacion(actor: JwtPayload, id: string) {
-  const clinicaId = actor.clinicaId!
-  const canManage = await puedeGestionar(actor)
-  const liq = await prisma.liquidacion.findFirst({
-    where: canManage ? { id, clinicaId } : { id, clinicaId, doctorId: actor.sub },
+export async function obtenerLiquidacion(db: TenantClient, actor: JwtPayload, id: string) {
+  const canManage = await puedeGestionar(db, actor)
+  const liq = await db.liquidacion.findFirst({
+    where: canManage ? { id } : { id, doctorId: actor.sub },
     include: {
       doctor: { select: { id: true, name: true, email: true, rut: true, especialidad: true } },
       contrato: true,
@@ -100,11 +97,10 @@ export async function obtenerLiquidacion(actor: JwtPayload, id: string) {
   return liq
 }
 
-export async function crearLiquidacion(actor: JwtPayload, body: { doctorId: string; periodo: string }) {
-  const clinicaId = actor.clinicaId!
-  if (!(await puedeGestionar(actor))) throw forbidden('No tienes permiso para generar liquidaciones.')
+export async function crearLiquidacion(db: TenantClient, actor: JwtPayload, body: { doctorId: string; periodo: string }) {
+  if (!(await puedeGestionar(db, actor))) throw forbidden('No tienes permiso para generar liquidaciones.')
 
-  const contrato = await prisma.contrato.findFirst({ where: { doctorId: body.doctorId, clinicaId, activo: true } })
+  const contrato = await db.contrato.findFirst({ where: { doctorId: body.doctorId, activo: true } })
   if (!contrato) throw badRequest('El doctor no tiene contrato activo')
 
   const [year, month] = body.periodo.split('-').map(Number)
@@ -112,8 +108,8 @@ export async function crearLiquidacion(actor: JwtPayload, body: { doctorId: stri
   const inicio = new Date(year, month - 1, 1)
   const fin = new Date(year, month, 0, 23, 59, 59)
 
-  const tratamientos = await prisma.tratamiento.findMany({
-    where: { clinicaId, doctorId: body.doctorId, estado: 'COMPLETADO', fechaCompletado: { gte: inicio, lte: fin }, liquidacionItems: { none: {} } },
+  const tratamientos = await db.tratamiento.findMany({
+    where: { doctorId: body.doctorId, estado: 'COMPLETADO', fechaCompletado: { gte: inicio, lte: fin }, liquidacionItems: { none: {} } },
     include: { prestacion: true, ficha: { include: { paciente: true } } },
   })
   if (tratamientos.length === 0) throw badRequest('No hay tratamientos completados en este período sin liquidar')
@@ -133,16 +129,15 @@ export async function crearLiquidacion(actor: JwtPayload, body: { doctorId: stri
   const totalBruto = tratamientos.reduce((s, t) => s + t.precio, 0)
   const totalLiquidado = items.reduce((s, i) => s + i.montoLiquidado, 0)
 
-  return prisma.liquidacion.create({
-    data: { clinicaId, doctorId: body.doctorId, contratoId: contrato.id, periodo: body.periodo, totalBruto, totalLiquidado, items: { create: items } },
+  return db.liquidacion.create({
+    data: { doctorId: body.doctorId, contratoId: contrato.id, periodo: body.periodo, totalBruto, totalLiquidado, items: { create: items } },
     include: { ...LIQ_LIST_INCLUDE, items: true },
   })
 }
 
-export async function actualizarLiquidacion(actor: JwtPayload, id: string, body: Record<string, unknown>) {
-  const clinicaId = actor.clinicaId!
-  if (!(await puedeGestionar(actor))) throw forbidden('No tienes permiso para gestionar liquidaciones.')
-  const existing = await prisma.liquidacion.findFirst({ where: { id, clinicaId }, select: { id: true } })
+export async function actualizarLiquidacion(db: TenantClient, actor: JwtPayload, id: string, body: Record<string, unknown>) {
+  if (!(await puedeGestionar(db, actor))) throw forbidden('No tienes permiso para gestionar liquidaciones.')
+  const existing = await db.liquidacion.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Liquidación no encontrada')
 
   const data: Record<string, unknown> = {}
@@ -152,5 +147,5 @@ export async function actualizarLiquidacion(actor: JwtPayload, id: string, body:
   }
   if (body.notas !== undefined) data.notas = body.notas ? String(body.notas) : null
   if (body.fechaPago !== undefined) data.fechaPago = body.fechaPago ? new Date(String(body.fechaPago)) : null
-  return prisma.liquidacion.update({ where: { id }, data, include: LIQ_LIST_INCLUDE })
+  return db.liquidacion.update({ where: { id }, data, include: LIQ_LIST_INCLUDE })
 }

@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { clinicaId } from '@/middlewares/auth'
+import { tenantDb } from '@/middlewares/tenant'
 import * as svc from '@/services/reportes.service'
 import type { ReporteResult } from '@/services/reportes.service'
 
@@ -13,10 +13,10 @@ function enviarXlsx(res: Response, { buffer, filenameBase }: ReporteResult) {
 
 const q = (req: Request) => req.query as Record<string, string | undefined>
 
-export async function getPacientes(req: Request, res: Response) { enviarXlsx(res, await svc.reportePacientes(clinicaId(req), q(req))) }
-export async function getCitas(req: Request, res: Response) { enviarXlsx(res, await svc.reporteCitas(clinicaId(req), q(req))) }
-export async function getCobros(req: Request, res: Response) { enviarXlsx(res, await svc.reporteCobros(clinicaId(req), q(req))) }
-export async function getTratamientos(req: Request, res: Response) { enviarXlsx(res, await svc.reporteTratamientos(clinicaId(req), q(req))) }
-export async function getLiquidaciones(req: Request, res: Response) { enviarXlsx(res, await svc.reporteLiquidaciones(clinicaId(req), q(req))) }
-export async function getCaja(req: Request, res: Response) { enviarXlsx(res, await svc.reporteCaja(clinicaId(req), q(req))) }
-export async function getMorosos(req: Request, res: Response) { enviarXlsx(res, await svc.reporteMorosos(clinicaId(req), q(req))) }
+export async function getPacientes(req: Request, res: Response) { enviarXlsx(res, await svc.reportePacientes(tenantDb(req), q(req))) }
+export async function getCitas(req: Request, res: Response) { enviarXlsx(res, await svc.reporteCitas(tenantDb(req), q(req))) }
+export async function getCobros(req: Request, res: Response) { enviarXlsx(res, await svc.reporteCobros(tenantDb(req), q(req))) }
+export async function getTratamientos(req: Request, res: Response) { enviarXlsx(res, await svc.reporteTratamientos(tenantDb(req), q(req))) }
+export async function getLiquidaciones(req: Request, res: Response) { enviarXlsx(res, await svc.reporteLiquidaciones(tenantDb(req), q(req))) }
+export async function getCaja(req: Request, res: Response) { enviarXlsx(res, await svc.reporteCaja(tenantDb(req), q(req))) }
+export async function getMorosos(req: Request, res: Response) { enviarXlsx(res, await svc.reporteMorosos(tenantDb(req), q(req))) }

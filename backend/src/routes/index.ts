@@ -179,16 +179,16 @@ apiRouter.post('/cobros/:id/anular', tenant, asyncHandler(cobros.postAnularCobro
 apiRouter.delete('/cobros/:id', tenant, asyncHandler(cobros.deleteCobro))
 
 // ── Contratos ────────────────────────────────────────────────────────────────
-apiRouter.get('/contratos', clinica, asyncHandler(liq.getContratos))
-apiRouter.post('/contratos', clinica, asyncHandler(liq.postContrato))
-apiRouter.patch('/contratos/:id', clinica, asyncHandler(liq.patchContrato))
-apiRouter.delete('/contratos/:id', clinica, asyncHandler(liq.deleteContrato))
+apiRouter.get('/contratos', tenant, asyncHandler(liq.getContratos))
+apiRouter.post('/contratos', tenant, asyncHandler(liq.postContrato))
+apiRouter.patch('/contratos/:id', tenant, asyncHandler(liq.patchContrato))
+apiRouter.delete('/contratos/:id', tenant, asyncHandler(liq.deleteContrato))
 
 // ── Liquidaciones ────────────────────────────────────────────────────────────
-apiRouter.get('/liquidaciones', clinica, asyncHandler(liq.getLiquidaciones))
-apiRouter.get('/liquidaciones/:id', clinica, asyncHandler(liq.getLiquidacion))
-apiRouter.post('/liquidaciones', clinica, asyncHandler(liq.postLiquidacion))
-apiRouter.patch('/liquidaciones/:id', clinica, asyncHandler(liq.patchLiquidacion))
+apiRouter.get('/liquidaciones', tenant, asyncHandler(liq.getLiquidaciones))
+apiRouter.get('/liquidaciones/:id', tenant, asyncHandler(liq.getLiquidacion))
+apiRouter.post('/liquidaciones', tenant, asyncHandler(liq.postLiquidacion))
+apiRouter.patch('/liquidaciones/:id', tenant, asyncHandler(liq.patchLiquidacion))
 
 // ── SUPER-ADMIN (gestión de la plataforma) ───────────────────────────────────
 const sa = [requireAuth, requireSuperAdmin]
@@ -223,10 +223,10 @@ apiRouter.patch('/admin/planes-suscripcion/:id', sa, asyncHandler(admin.patchPla
 apiRouter.delete('/admin/planes-suscripcion/:id', sa, asyncHandler(admin.deletePlan))
 
 // ── Reportes (descargas XLSX) ────────────────────────────────────────────────
-apiRouter.get('/reportes/pacientes', clinica, asyncHandler(reportes.getPacientes))
-apiRouter.get('/reportes/citas', clinica, asyncHandler(reportes.getCitas))
-apiRouter.get('/reportes/cobros', clinica, asyncHandler(reportes.getCobros))
+apiRouter.get('/reportes/pacientes', tenant, asyncHandler(reportes.getPacientes))
+apiRouter.get('/reportes/citas', tenant, asyncHandler(reportes.getCitas))
+apiRouter.get('/reportes/cobros', tenant, asyncHandler(reportes.getCobros))
 apiRouter.get('/reportes/tratamientos', tenant, asyncHandler(reportes.getTratamientos))
-apiRouter.get('/reportes/liquidaciones', clinica, asyncHandler(reportes.getLiquidaciones))
-apiRouter.get('/reportes/caja', clinica, asyncHandler(reportes.getCaja))
-apiRouter.get('/reportes/morosos', clinica, asyncHandler(reportes.getMorosos))
+apiRouter.get('/reportes/liquidaciones', tenant, asyncHandler(reportes.getLiquidaciones))
+apiRouter.get('/reportes/caja', tenant, asyncHandler(reportes.getCaja))
+apiRouter.get('/reportes/morosos', tenant, asyncHandler(reportes.getMorosos))

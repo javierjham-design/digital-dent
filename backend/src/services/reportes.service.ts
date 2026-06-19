@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import type { TenantClient } from '@/db/tenant'
 import { buildXlsx, clp, formatRUT, isoDate, isoDateTime, parseDateRange } from '@/lib/excel'
 
 // Cada reporte devuelve { buffer, filenameBase }; el controller arma la
@@ -8,12 +8,11 @@ export interface ReporteResult { buffer: Buffer; filenameBase: string }
 
 type Q = Record<string, string | undefined>
 
-export async function reportePacientes(clinicaId: string, q: Q): Promise<ReporteResult> {
+export async function reportePacientes(db: TenantClient, q: Q): Promise<ReporteResult> {
   const { desde, hasta } = parseDateRange(q.desde, q.hasta)
   const soloActivos = q.soloActivos === '1'
-  const pacientes = await prisma.paciente.findMany({
+  const pacientes = await db.paciente.findMany({
     where: {
-      clinicaId,
       ...(soloActivos ? { activo: true } : {}),
       ...(desde || hasta ? { createdAt: { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } } : {}),
     },
@@ -35,11 +34,10 @@ export async function reportePacientes(clinicaId: string, q: Q): Promise<Reporte
   return { buffer, filenameBase: 'pacientes' }
 }
 
-export async function reporteCitas(clinicaId: string, q: Q): Promise<ReporteResult> {
+export async function reporteCitas(db: TenantClient, q: Q): Promise<ReporteResult> {
   const { desde, hasta } = parseDateRange(q.desde, q.hasta)
-  const citas = await prisma.cita.findMany({
+  const citas = await db.cita.findMany({
     where: {
-      clinicaId,
       ...(desde || hasta ? { fecha: { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } } : {}),
       ...(q.estado ? { estado: q.estado } : {}),
     },
@@ -63,13 +61,12 @@ export async function reporteCitas(clinicaId: string, q: Q): Promise<ReporteResu
   return { buffer, filenameBase: 'citas' }
 }
 
-export async function reporteCobros(clinicaId: string, q: Q): Promise<ReporteResult> {
+export async function reporteCobros(db: TenantClient, q: Q): Promise<ReporteResult> {
   const { desde, hasta } = parseDateRange(q.desde, q.hasta)
   const usarFechaPago = q.campo === 'fechaPago'
   const filtroFecha = (desde || hasta) ? { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } : null
-  const cobros = await prisma.cobro.findMany({
+  const cobros = await db.cobro.findMany({
     where: {
-      clinicaId,
       ...(q.estado ? { estado: q.estado } : {}),
       ...(filtroFecha ? (usarFechaPago ? { fechaPago: filtroFecha } : { createdAt: filtroFecha }) : {}),
     },
@@ -94,13 +91,12 @@ export async function reporteCobros(clinicaId: string, q: Q): Promise<ReporteRes
   return { buffer, filenameBase: 'cobros' }
 }
 
-export async function reporteTratamientos(clinicaId: string, q: Q): Promise<ReporteResult> {
+export async function reporteTratamientos(db: TenantClient, q: Q): Promise<ReporteResult> {
   const { desde, hasta } = parseDateRange(q.desde, q.hasta)
   const usarFechaCompletado = q.campo === 'fechaCompletado'
   const filtroFecha = (desde || hasta) ? { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } : null
-  const tratamientos = await prisma.tratamiento.findMany({
+  const tratamientos = await db.tratamiento.findMany({
     where: {
-      clinicaId,
       ...(q.estado ? { estado: q.estado } : {}),
       ...(q.doctorId ? { doctorId: q.doctorId } : {}),
       ...(filtroFecha ? (usarFechaCompletado ? { fechaCompletado: filtroFecha } : { fecha: filtroFecha }) : {}),
@@ -129,10 +125,9 @@ export async function reporteTratamientos(clinicaId: string, q: Q): Promise<Repo
   return { buffer, filenameBase: 'tratamientos' }
 }
 
-export async function reporteLiquidaciones(clinicaId: string, q: Q): Promise<ReporteResult> {
-  const liquidaciones = await prisma.liquidacion.findMany({
+export async function reporteLiquidaciones(db: TenantClient, q: Q): Promise<ReporteResult> {
+  const liquidaciones = await db.liquidacion.findMany({
     where: {
-      clinicaId,
       ...(q.periodo ? { periodo: q.periodo } : {}),
       ...(q.doctorId ? { doctorId: q.doctorId } : {}),
       ...(q.estado ? { estado: q.estado } : {}),
@@ -162,11 +157,11 @@ export async function reporteLiquidaciones(clinicaId: string, q: Q): Promise<Rep
   return { buffer, filenameBase: 'liquidaciones' }
 }
 
-export async function reporteCaja(clinicaId: string, q: Q): Promise<ReporteResult> {
+export async function reporteCaja(db: TenantClient, q: Q): Promise<ReporteResult> {
   const { desde, hasta } = parseDateRange(q.desde, q.hasta)
   const filtroFecha = (desde || hasta) ? { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } : null
-  const movs = await prisma.movimientoCaja.findMany({
-    where: { clinicaId, ...(q.cajaId ? { cajaId: q.cajaId } : {}), ...(filtroFecha ? { fecha: filtroFecha } : {}) },
+  const movs = await db.movimientoCaja.findMany({
+    where: { ...(q.cajaId ? { cajaId: q.cajaId } : {}), ...(filtroFecha ? { fecha: filtroFecha } : {}) },
     include: {
       caja: { select: { nombre: true } },
       user: { select: { name: true, email: true } },
@@ -190,10 +185,10 @@ export async function reporteCaja(clinicaId: string, q: Q): Promise<ReporteResul
   return { buffer, filenameBase: 'movimientos-caja' }
 }
 
-export async function reporteMorosos(clinicaId: string, q: Q): Promise<ReporteResult> {
+export async function reporteMorosos(db: TenantClient, q: Q): Promise<ReporteResult> {
   const diasMin = Number(q.diasMin ?? 0)
-  const cobros = await prisma.cobro.findMany({
-    where: { clinicaId, estado: 'PENDIENTE' },
+  const cobros = await db.cobro.findMany({
+    where: { estado: 'PENDIENTE' },
     include: { paciente: { select: { id: true, nombre: true, apellido: true, rut: true, telefono: true, email: true } } },
   })
   const ahora = Date.now()
