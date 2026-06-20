@@ -4,8 +4,11 @@ dist/
 .env.local
 *.log
 
-# Clientes Prisma generados (control-plane + tenant). Se regeneran en install.
+# Clientes Prisma generados (control-plane + tenant + legacy). Se regeneran en install.
 prisma/generated/
+
+# Schema legacy derivado del monolito (lo genera prisma:generate:legacy para la migración F7).
+prisma/legacy/schema.prisma
 
 # Artefactos de tests de integración (DB sqlite + cliente Prisma derivado)
 

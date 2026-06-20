@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-06-20 — [rama arch/split] DB-por-clínica F7: script de migración de datos monolito → per-tenant (dry-run)
+
+Script idempotente para volcar la base COMPARTIDA del monolito (con `clinicaId`) a la arquitectura per-tenant, listo para correr en el cutover. **No toca producción todavía** (requiere credenciales prod). Typecheck limpio (incl. con el cliente legacy ausente) y 67/67 unit/smoke.
+
+- **Fuente de lectura legacy:** `prisma/legacy/build-schema.mjs` deriva un schema Prisma de solo lectura desde `prisma/schema.prisma` del monolito (mismo modelo, output dedicado `prisma/generated/legacy`, datasource `LEGACY_DATABASE_URL`). Scripts npm `prisma:generate:legacy` y `migrate:data`. El schema derivado y el cliente quedan gitignoreados.
+- **`src/scripts/migrate-data.ts`:** por cada clínica del monolito → registra `control.Clinica` (inyecta `dbName`, espeja routing `waEnabled`/`waNumero`), provisiona su base física (idempotente), y vuelca los 27 modelos operativos al tenant en **orden FK-safe**, descartando `clinicaId` automáticamente vía el DMMF del cliente destino (pick de campos escalares). Mapeo no obvio resuelto: la `Clinica` legacy concentraba perfil + WhatsApp + tokens Google → se reparte en `control.Clinica` (routing) y `tenant.Configuracion` (perfil + WA completo + Google); los super-admins (`User.isPlatformAdmin`) → `control.PlatformAdmin`; la `Configuracion` legacy singleton se ignora (remanente pre-multitenant). Control-plane global: planes, leads, pagos, extras, auditoría.
+- **Seguridad:** **DRY-RUN por defecto** (solo lee y reporta conteos por modelo, con passwords enmascarados); escribe solo con `-- --apply`. Idempotente (provisión idempotente + `createMany skipDuplicates` + upserts), reejecutable. Cliente legacy cargado por import dinámico de ruta computada → el typecheck/CI no depende de generarlo.
+- `config/env.ts`: + `legacyDatabaseUrl` (fallback a `DATABASE_URL`).
+
+Pendiente: ejecutar `migrate:data --apply` con credenciales reales y el cutover 5-4 (Railway + DNS, manual).
+
 ## 2026-06-20 — [rama arch/split] DB-por-clínica F4 cierre: integraciones Google + WhatsApp convertidas + limpieza del prisma compartido
 
 Cerrado el último pendiente de F4. Las dos integraciones cross-DB ahora operan en database-per-tenant y se eliminó todo el rastro del modelo compartido. **Verde en cada paso: typecheck limpio, 67/67 unit/smoke, 11/11 aislamiento físico.**

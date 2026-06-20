@@ -24,6 +24,9 @@ export const env = {
   // clínica se construye cambiando el nombre de la base por su `dbName`.
   // Debe tener permisos para CREATE DATABASE (provisión de clínicas).
   tenantDbServerUrl: process.env.TENANT_DB_SERVER_URL ?? process.env.DATABASE_URL ?? 'postgresql://localhost:5432/postgres',
+  // Fuente de la migración de datos F7: la base COMPARTIDA del monolito (con
+  // clinicaId). Solo la usa el script `npm run migrate:data`.
+  legacyDatabaseUrl: process.env.LEGACY_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgresql://localhost:5432/clariva',
   // Secreto para firmar los JWT que emite ESTE backend.
   jwtSecret: required('JWT_SECRET', process.env.NEXTAUTH_SECRET ?? 'dev-insecure-secret-change-me'),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '12h',
