@@ -21,14 +21,32 @@ function toDTO(p: {
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
+// Solo los campos que necesita la lista (aligera el payload con miles de pacientes).
+const LIST_SELECT = {
+  id: true, numero: true, rut: true, nombre: true, apellido: true,
+  telefono: true, email: true, prevision: true, fechaNacimiento: true, activo: true,
+} as const
+
+// Tope de resultados para no reventar el render (la búsqueda acota lo suficiente).
+const LIST_LIMIT = 500
+
 export async function listarPacientes(db: TenantClient, q?: string): Promise<PacienteDTO[]> {
-  const pacientes = await db.paciente.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' }, take: 500 })
-  const dtos = pacientes.map(toDTO)
-  if (!q || q.trim().length < 2) return dtos
-  const needle = norm(q.trim())
-  return dtos.filter((p) =>
-    norm(`${p.nombre} ${p.apellido}`).includes(needle) || (p.rut ?? '').toLowerCase().includes(needle),
-  )
+  const needle = q && q.trim().length >= 2 ? norm(q.trim()) : null
+
+  // Con búsqueda: recorremos TODOS los activos y filtramos insensible a acentos/
+  // mayúsculas. (Antes filtraba sobre un tope de 500 → no encontraba apellidos
+  // alfabéticamente posteriores.) A esta escala (miles) es instantáneo.
+  if (needle) {
+    const todos = await db.paciente.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' }, select: LIST_SELECT })
+    return todos
+      .filter((p) => norm(`${p.nombre} ${p.apellido}`).includes(needle) || (p.rut ?? '').toLowerCase().includes(needle))
+      .slice(0, LIST_LIMIT)
+      .map(toDTO)
+  }
+
+  // Sin búsqueda: listado base acotado (para navegar; el buscador encuentra el resto).
+  const pacientes = await db.paciente.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' }, take: LIST_LIMIT, select: LIST_SELECT })
+  return pacientes.map(toDTO)
 }
 
 export async function obtenerPaciente(db: TenantClient, id: string): Promise<PacienteDTO> {
