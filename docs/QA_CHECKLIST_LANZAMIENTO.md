@@ -1,23 +1,65 @@
 # Checklist de QA — Lanzamiento producción
 
 > Ejecutá cada caso marcando ✅ / ❌ / ⏭ (skip). Si falla algo, anotá: navegador, URL, paso exacto, screenshot.
-> Mientras hagas QA, dejá un tab abierto con Railway → Deploy Logs del servicio `dental-platform` para captar errores backend en vivo.
+> Mientras hagas QA, dejá un tab abierto con Railway → **servicio backend** → Deploy Logs para captar errores en vivo.
 
 ---
 
-## A. Multi-tenancy (CRÍTICO — no se puede romper)
+## 0. Estado de preparación (repaso 2026-06-20) y cómo leer este checklist
 
-Necesitás **2 clínicas de prueba** con datos distintos en ambas. Por ejemplo: `digital-dent` y crear una segunda `qa-clinica` desde super-admin.
+**Veredicto:** el código está **listo para el cutover**. Paridad funcional 100%
+(`docs/parity-matrix.md`), DB-por-tenant completa (F1–F7), y verde en automatizado:
+typecheck · 67/67 unit/smoke · **11/11 aislamiento físico** · contrato FE↔BE 130/116.
+Lo que queda es el **pase manual** de este checklist contra los servicios desplegados.
+
+**Este checklist se escribió para el monolito.** Aplican estas correcciones globales
+para el stack nuevo (3 servicios Railway + DB-por-tenant). Léelas antes de empezar:
+
+| En el checklist dice… | En el stack nuevo es… |
+|---|---|
+| `/api/...` | **`/api/v1/...`**, servido por el backend en `https://api.clariva.cl` |
+| llamadas same-origin con cookie | la SPA llama al backend con **`Authorization: Bearer <JWT>`** (token en `localStorage`) |
+| `/digital-dent-super-admin`, `/digital-dent-admin-login` | **`https://super-admin.clariva.cl`** → login modo plataforma (email) → **`/plataforma`** |
+| `/usuarios` (como página) | **`/equipo`** (la API sigue siendo `/usuarios`) |
+| "aislamiento por `clinicaId`" | **aislamiento FÍSICO**: cada clínica es una base distinta. Un id de otra clínica no existe en tu base → 404 por construcción. |
+
+**Pre-requisitos del pase manual** (ver `docs/cutover.md`): los 3 servicios arriba,
+`migrate:data --apply` corrido (para tener datos reales), y `JWT_SECRET`/`ENCRYPTION_KEY`
+iguales al monolito (si no, no descifran tokens Twilio/Google ni valida sesiones viejas).
+
+**Ya cubierto por tests automáticos** (el pase manual es confirmación, no descubrimiento):
+toda la **Sección A** (aislamiento físico — los 11/11 de integración prueban A2–A6 con bases
+separadas reales), y el contrato de que cada llamada del frontend tiene endpoint en el backend.
+
+---
+
+## A. Multi-tenancy — aislamiento FÍSICO (CRÍTICO — no se puede romper)
+
+> **Pre-validado por los 11/11 tests de integración** (bases sqlite separadas por clínica).
+> En DB-por-tenant un id de otra clínica **no existe** en tu base → 404 por construcción,
+> no por un filtro `clinicaId`. Este pase manual confirma el comportamiento en prod.
+>
+> Necesitás **2 clínicas de prueba** con datos distintos. Ej.: `digital-dent` (migrada) y
+> crear una segunda `qa-clinica` desde super-admin (provisiona su propia base física).
+>
+> Para A4–A6 (DevTools → Console, estando logueado en `qa-clinica`), usa la API real y el
+> token Bearer guardado por la SPA:
+> ```js
+> const API = import.meta?.env?.VITE_API_URL || 'https://api.clariva.cl/api/v1'
+> const T = localStorage.getItem('clariva_token')
+> fetch(`${API}/pacientes/<id_de_digital_dent>`, { headers: { Authorization: `Bearer ${T}` } })
+>   .then(r => console.log(r.status))   // espera 404
+> ```
 
 | # | Caso | Cómo testear | Esperado |
 |---|------|--------------|----------|
-| A1 | Crear segunda clínica | Super-admin → "Crear clínica nueva" → llenar todo | Aparece OK + se muestra contraseña aleatoria UNA vez |
-| A2 | Listado solo muestra mis pacientes | Login en `qa-clinica` → /pacientes → no debe ver pacientes de digital-dent | Solo pacientes de qa-clinica |
-| A3 | URL directa cross-tenant bloquea | Copiá un ID de paciente de digital-dent (visible en URL ficha) y en sesión qa-clinica navegar a `/pacientes/<id_de_digital_dent>` | 404 / Not found |
-| A4 | API PATCH cross-tenant rechazada | En sesión qa-clinica abrí DevTools → console: `fetch('/api/pacientes/<id_digital_dent>', {method:'PATCH',headers:{'Content-Type':'application/json'},body:'{"nombre":"hack"}'}).then(r=>r.text()).then(console.log)` | Status 404 |
-| A5 | Cajas no leakean | Mismo ejercicio con `/api/cajas/<id_otra_clinica>/movimientos` | 403 o 404 |
-| A6 | Cobros no leakean | Idem con `/api/cobros/<id_otra_clinica>` | 404 |
-| A7 | Liquidaciones doctor solo ve las suyas | Crear liquidación en digital-dent para Dr. Aedo → login como Dr. Pabst → /liquidaciones | No debe ver la de Aedo |
+| A1 | Crear segunda clínica | Super-admin → "Crear clínica nueva" → llenar todo | OK + contraseña aleatoria UNA vez + **base física propia provisionada** |
+| A2 | Listado solo muestra mis pacientes | Login en `qa-clinica` → `/pacientes` → no debe ver pacientes de digital-dent | Solo pacientes de qa-clinica |
+| A3 | URL directa cross-tenant bloquea | Copiá un id de paciente de digital-dent y en sesión qa-clinica navegá a `/pacientes/<id_de_digital_dent>` | 404 / Not found (el id no existe en su base) |
+| A4 | API GET/PATCH cross-tenant rechazada | DevTools con el snippet de arriba: `GET /api/v1/pacientes/<id_digital_dent>` (y un PATCH) con Bearer | Status 404 |
+| A5 | Cajas no leakean | Mismo snippet con `/api/v1/cajas/<id_otra_clinica>/movimientos` | 403 o 404 |
+| A6 | Cobros no leakean | Idem con `/api/v1/cobros/<id_otra_clinica>` | 404 |
+| A7 | Liquidaciones doctor solo ve las suyas | Crear liquidación en digital-dent para Dr. Aedo → login como Dr. Pabst → `/liquidaciones` | No debe ver la de Aedo |
 
 ---
 
@@ -28,7 +70,7 @@ Necesitás **2 clínicas de prueba** con datos distintos en ambas. Por ejemplo: 
 | B1 | Login con creds incorrectas | /login con password mala | Error sin revelar si user existe |
 | B2 | Logout limpia sesión | Logout → intentar volver a /agenda | Redirect a /login |
 | B3 | Role admin tiene todos los permisos | Login como admin → todos los toggles "Permisos" en /usuarios funcionan | Todo accesible |
-| B4 | Role doctor NO ve panel admin | Login doctor → intentar /usuarios | Redirect/404 o filtrado a su propio user |
+| B4 | Role doctor NO ve panel admin | Login doctor → intentar `/equipo` | Redirect/404 o filtrado a su propio user |
 | B5 | `puedeRecibirPagos=false` no puede recaudar | Crear user sin permiso → intentar POST /api/cobros | 403 |
 | B6 | `puedeEditarPagos=false` no puede anular | Mismo user → intentar anular cobro | 403 |
 | B7 | `puedeGestionarLiquidaciones=false` no crea liquidación | Mismo user → intentar generar liquidación | 403 |
@@ -135,12 +177,13 @@ Necesitás **2 clínicas de prueba** con datos distintos en ambas. Por ejemplo: 
 
 ## H. Super-admin (gestor de plataforma)
 
-> Acceso: `super-admin.clariva.cl/digital-dent-admin-login` con credenciales de la cuenta marcada como `isPlatformAdmin`.
+> Acceso: **`https://super-admin.clariva.cl`** → login en modo plataforma (con **email**,
+> cuenta de `control.PlatformAdmin`) → entra a **`/plataforma`**.
 
 | # | Caso | Esperado |
 |---|------|----------|
-| H1 | Login super-admin con creds correctas | OK | Entra al dashboard |
-| H2 | Usuario común NO accede a super-admin | Login normal → intentar /digital-dent-super-admin | Bloqueado |
+| H1 | Login super-admin con creds correctas | OK | Entra a `/plataforma` (dashboard) |
+| H2 | Usuario común NO accede a super-admin | Login normal de clínica → intentar `/plataforma` | Redirige a `/agenda` (no es platform admin) |
 | H3 | Crear clínica nueva | Form completo | Password aleatoria mostrada UNA vez, copiable |
 | H4 | Slug duplicado rechazado | Mismo nombre | Error claro |
 | H5 | Slug reservado rechazado | nombre = "admin" / "api" / "app" | Error claro |
