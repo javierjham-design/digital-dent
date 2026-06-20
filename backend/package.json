@@ -15,14 +15,12 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:contract": "node ../scripts/contract-check.mjs",
     "smoke:deploy": "node ../scripts/smoke-deploy.mjs",
-    "prisma:generate": "prisma generate",
     "prisma:generate:control": "prisma generate --schema prisma/control/schema.prisma",
     "prisma:generate:tenant": "prisma generate --schema prisma/tenant/schema.prisma",
-    "prisma:generate:all": "prisma generate && npm run prisma:generate:control && npm run prisma:generate:tenant",
+    "prisma:generate:all": "npm run prisma:generate:control && npm run prisma:generate:tenant",
     "control:push": "prisma db push --schema prisma/control/schema.prisma",
     "tenant:initsql": "prisma migrate diff --from-empty --to-schema-datamodel prisma/tenant/schema.prisma --script > prisma/tenant/init.sql",
-    "migrate:tenants": "tsx src/scripts/migrate-tenants.ts",
-    "prisma:sync": "node -e \"require('fs').copyFileSync('../prisma/schema.prisma','prisma/schema.prisma')\" && prisma generate"
+    "migrate:tenants": "tsx src/scripts/migrate-tenants.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

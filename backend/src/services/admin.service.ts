@@ -265,6 +265,9 @@ export async function putWhatsapp(ctx: AuditCtx, id: string, body: Record<string
   const data: Record<string, unknown> = { waEnabled, waTwilioSid, waNumero, waTemplateSid, waHorasAntes }
   if (typeof body.waTwilioToken === 'string' && body.waTwilioToken.trim()) data.waTwilioToken = encryptNullable(body.waTwilioToken.trim())
   await tenantClient(dbName).configuracion.update({ where: { id: 'singleton' }, data })
+  // Denormalizamos el enrutamiento al control-plane: el webhook resuelve la
+  // clínica por su número y el cron filtra por waEnabled sin abrir cada base.
+  await control.clinica.update({ where: { id }, data: { waEnabled, waNumero } })
   await auditAdmin({ ...ctx, action: 'CONFIGURAR_WHATSAPP', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: slug, waEnabled, waNumero } })
 }
 

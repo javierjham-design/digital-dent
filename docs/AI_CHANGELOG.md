@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-20 — [rama arch/split] DB-por-clínica F4 cierre: integraciones Google + WhatsApp convertidas + limpieza del prisma compartido
+
+Cerrado el último pendiente de F4. Las dos integraciones cross-DB ahora operan en database-per-tenant y se eliminó todo el rastro del modelo compartido. **Verde en cada paso: typecheck limpio, 67/67 unit/smoke, 11/11 aislamiento físico.**
+
+- **Control-plane (`Clinica`) — routing de WhatsApp denormalizado:** nuevos campos `waEnabled Boolean @default(false)` y `waNumero String? @unique`. El webhook de Twilio resuelve la clínica por su número emisor sin abrir cada base, y el cron filtra por `waEnabled` en el control-plane. `admin.service.putWhatsapp` escribe la config completa en la `Configuracion` del tenant **y** espeja `waEnabled`/`waNumero` al control-plane.
+- **`lib/whatsapp.ts` → tenant:** `enviarRecordatorioCita(db, citaId, creds, nombre)` (credenciales y nombre resueltos una vez por clínica); `enviarRecordatoriosPendientes()` recorre `control.clinica` (waEnabled/activo/no-demo) → abre cada base → lee `Configuracion` + citas due; `procesarRespuestaEntrante(db, …)` sin `clinicaId`. `whatsapp.controller.postWebhook` resuelve clínica vía control (waNumero) → `tenantClient(dbName)` → token desde `Configuracion`.
+- **`lib/google.ts` → tenant:** `saveTokensForClinica`/`getAuthorizedClient`/`disconnectClinica`/`listCalendars` reciben el cliente del tenant; los tokens viven en la `Configuracion` singleton (no en Clinica).
+- **`lib/google-sync.ts` → tenant:** push/pull (`pushCita`, `deleteCitaInGoogle`, `pushBloqueo`, `deleteBloqueoInGoogle`, `syncCalendar`, `reconcileEvent`, `findMatchingPaciente`) operan sobre `db` y sin `clinicaId`. `syncAllMappedUsers()` (cron) recorre el control-plane → abre cada base con Google conectado → sincroniza sus doctores mapeados.
+- **`google.controller.ts` → tenant:** connect/disconnect/calendars/reconcile-bloqueos pasan a `requireTenant` (usan `req.clinica`/`tenantDb(req)`); el callback público resuelve `dbName` desde el control-plane por el `state` firmado y valida el user en la base del tenant; `sync` público distingue cron (todas las clínicas) vs trigger manual (resuelve la base por el `clinicaId` del token).
+- **Push reconectado en los services (best-effort, fire-and-forget):** `citas.service` (`pushCita` en crear/editar; `deleteCitaInGoogle` al eliminar y al pasar a CANCELADA) y `bloqueos.service` (`pushBloqueo` en crear/editar; `deleteBloqueoInGoogle` al eliminar). Nunca hacen fallar la operación primaria.
+- **Limpieza del modelo compartido:** eliminados `src/lib/prisma.ts`, `prisma/schema.prisma` (schema shared, 31 KB) y el código muerto `lib/demo-seed.ts` + `lib/demo-cleanup.ts` (el flujo demo ya usa `tenant-seed`/`demo.service`). Retirados de `auth.ts` los huérfanos `requireClinica`/`clinicaId` y del router el array `clinica`/import `requireClinica`. Scripts npm `prisma:sync` y `prisma:generate` (apuntaban al schema viejo) borrados; `prisma:generate:all` ya no invoca el `prisma generate` por defecto. **Cero referencias a `@/lib/prisma` o al cliente por defecto en `src/`.**
+
+Con esto **todo el backend corre en database-per-tenant**. Pendiente: F7 (migrar datos de clínicas existentes de la DB compartida a su base, si las hay) y el cutover 5-4 (Railway + DNS, manual).
+
 ## 2026-06-19 — [rama arch/split] DB-por-clínica F3 (cimientos): provisión automática + middleware de tenant
 
 Sigue aditivo y no disruptivo (backend actual verde, 64/64). El backend **crea la base de cada clínica automáticamente** (la credencial de `TENANT_DB_SERVER_URL` debe poder `CREATE DATABASE`).

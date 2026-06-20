@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
-import { prisma } from '@/lib/prisma'
+import { control } from '@/db/control'
+import { tenantClient } from '@/db/tenant'
 import { env } from '@/config/env'
 import { unauthorized } from '@/lib/errors'
 import { decryptNullable } from '@/lib/crypto'
@@ -25,10 +26,14 @@ export async function postWebhook(req: Request, res: Response) {
   const from = (params.From ?? '').replace(/^whatsapp:/, '')
   if (!to || !from) return twiml(res, null)
 
-  const clinica = await prisma.clinica.findFirst({ where: { waNumero: to, waEnabled: true }, select: { id: true, waTwilioToken: true } })
+  // El control-plane enruta el número emisor → clínica (dbName). El auth token
+  // de Twilio vive cifrado en la Configuracion de la base de esa clínica.
+  const clinica = await control.clinica.findFirst({ where: { waNumero: to, waEnabled: true }, select: { dbName: true } })
   if (!clinica) return twiml(res, null)
 
-  const token = decryptNullable(clinica.waTwilioToken)
+  const db = tenantClient(clinica.dbName)
+  const config = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { waTwilioToken: true } })
+  const token = decryptNullable(config?.waTwilioToken ?? null)
   if (!token) return twiml(res, null)
 
   const proto = (req.headers['x-forwarded-proto'] as string) ?? 'https'
@@ -43,8 +48,8 @@ export async function postWebhook(req: Request, res: Response) {
   const texto = params.ButtonText || params.ButtonPayload || params.Body || ''
   if (!texto.trim()) return twiml(res, null)
 
-  const respuesta = await procesarRespuestaEntrante({
-    clinicaId: clinica.id, fromE164: from, texto, originalMessageSid: params.OriginalRepliedMessageSid || null,
+  const respuesta = await procesarRespuestaEntrante(db, {
+    fromE164: from, texto, originalMessageSid: params.OriginalRepliedMessageSid || null,
   }).catch(() => null)
   twiml(res, respuesta)
 }

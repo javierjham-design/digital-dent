@@ -1,5 +1,6 @@
 import { createHmac } from 'crypto'
-import { prisma } from '@/lib/prisma'
+import { control } from '@/db/control'
+import { tenantClient, type TenantClient } from '@/db/tenant'
 import { decryptNullable } from '@/lib/crypto'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,24 +65,21 @@ function horaLegible(d: Date): string {
   return d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-/** Envía el recordatorio de UNA cita. Devuelve el MessageSid o lanza error. */
-export async function enviarRecordatorioCita(citaId: string): Promise<string> {
-  const cita = await prisma.cita.findUnique({
+/**
+ * Envía el recordatorio de UNA cita usando las credenciales ya resueltas de su
+ * clínica (las provee el cron, que las lee una sola vez por clínica). Devuelve
+ * el MessageSid o lanza error.
+ */
+export async function enviarRecordatorioCita(
+  db: TenantClient, citaId: string, creds: TwilioCreds, clinicaNombre: string,
+): Promise<string> {
+  const cita = await db.cita.findUnique({
     where: { id: citaId },
     include: {
       paciente: { select: { nombre: true, apellido: true, telefono: true } },
-      clinica: {
-        select: {
-          nombre: true, waEnabled: true, waTwilioSid: true, waTwilioToken: true,
-          waNumero: true, waTemplateSid: true,
-        },
-      },
     },
   })
-  if (!cita?.clinica) throw new Error('Cita o clínica no encontrada')
-
-  const creds = credsDeClinica(cita.clinica)
-  if (!creds) throw new Error('La clínica no tiene WhatsApp configurado/habilitado')
+  if (!cita) throw new Error('Cita no encontrada')
 
   const to = fonoAE164(cita.paciente.telefono)
   if (!to) throw new Error('El paciente no tiene teléfono válido')
@@ -89,7 +87,7 @@ export async function enviarRecordatorioCita(citaId: string): Promise<string> {
   const fecha = new Date(cita.fecha)
   const variables = JSON.stringify({
     '1': cita.paciente.nombre,
-    '2': cita.clinica.nombre,
+    '2': clinicaNombre,
     '3': fechaLegible(fecha),
     '4': horaLegible(fecha),
   })
@@ -115,7 +113,7 @@ export async function enviarRecordatorioCita(citaId: string): Promise<string> {
     throw new Error(`Twilio ${res.status}: ${data.message ?? 'error desconocido'}`)
   }
 
-  await prisma.cita.update({
+  await db.cita.update({
     where: { id: citaId },
     data: {
       waMessageSid: data.sid,
@@ -141,21 +139,33 @@ export async function enviarRecordatoriosPendientes(): Promise<{
   enviados: number
   errores: { citaId: string; error: string }[]
 }> {
-  const clinicas = await prisma.clinica.findMany({
-    where: { waEnabled: true, activo: true },
-    select: { id: true, waHorasAntes: true },
+  // Filtramos en el control-plane las clínicas con el servicio activo (waEnabled
+  // se denormaliza ahí) y luego abrimos cada base para leer credenciales y citas.
+  const clinicas = await control.clinica.findMany({
+    where: { waEnabled: true, activo: true, esDemo: false },
+    select: { dbName: true },
   })
 
   let enviados = 0
   const errores: { citaId: string; error: string }[] = []
 
   for (const cl of clinicas) {
-    const ahora = new Date()
-    const hasta = new Date(ahora.getTime() + cl.waHorasAntes * 3600_000)
+    const db = tenantClient(cl.dbName)
+    const config = await db.configuracion.findUnique({
+      where: { id: 'singleton' },
+      select: {
+        nombre: true, waEnabled: true, waTwilioSid: true, waTwilioToken: true,
+        waNumero: true, waTemplateSid: true, waHorasAntes: true,
+      },
+    })
+    const creds = config ? credsDeClinica(config) : null
+    if (!config || !creds) continue
 
-    const citas = await prisma.cita.findMany({
+    const ahora = new Date()
+    const hasta = new Date(ahora.getTime() + config.waHorasAntes * 3600_000)
+
+    const citas = await db.cita.findMany({
       where: {
-        clinicaId: cl.id,
         estado: 'PENDIENTE',
         waMessageSid: null,
         fecha: { gte: ahora, lte: hasta },
@@ -166,7 +176,7 @@ export async function enviarRecordatoriosPendientes(): Promise<{
 
     for (const c of citas) {
       try {
-        await enviarRecordatorioCita(c.id)
+        await enviarRecordatorioCita(db, c.id, creds, config.nombre)
         enviados++
       } catch (e) {
         errores.push({ citaId: c.id, error: e instanceof Error ? e.message : String(e) })
@@ -213,8 +223,7 @@ export function validarFirmaTwilio(
  * Procesa una respuesta entrante del paciente. Devuelve el texto de respuesta
  * a mostrar al paciente (o null si no se identificó la cita).
  */
-export async function procesarRespuestaEntrante(args: {
-  clinicaId: string
+export async function procesarRespuestaEntrante(db: TenantClient, args: {
   fromE164: string                 // teléfono del paciente
   texto: string                    // ButtonText o Body
   originalMessageSid: string | null
@@ -223,8 +232,8 @@ export async function procesarRespuestaEntrante(args: {
 
   // 1) Correlación exacta: respuesta a un mensaje nuestro.
   let cita = args.originalMessageSid
-    ? await prisma.cita.findFirst({
-        where: { clinicaId: args.clinicaId, waMessageSid: args.originalMessageSid },
+    ? await db.cita.findFirst({
+        where: { waMessageSid: args.originalMessageSid },
         select: { id: true, estado: true, fecha: true },
       })
     : null
@@ -234,9 +243,8 @@ export async function procesarRespuestaEntrante(args: {
   if (!cita) {
     const digits = args.fromE164.replace(/\D/g, '')
     const sinPais = digits.startsWith('56') ? digits.slice(2) : digits
-    const candidatos = await prisma.cita.findMany({
+    const candidatos = await db.cita.findMany({
       where: {
-        clinicaId: args.clinicaId,
         waMessageSid: { not: null },
         estado: { in: ['PENDIENTE', 'CONFIRMADA'] },
         fecha: { gte: new Date(Date.now() - 3600_000) },
@@ -258,7 +266,7 @@ export async function procesarRespuestaEntrante(args: {
   const cuando = `${fechaLegible(fecha)} a las ${horaLegible(fecha)}`
 
   if (respuesta === 'CONFIRMAR') {
-    await prisma.cita.update({
+    await db.cita.update({
       where: { id: cita.id },
       data: {
         estado: 'CONFIRMADA',
@@ -270,7 +278,7 @@ export async function procesarRespuestaEntrante(args: {
   }
 
   if (respuesta === 'CANCELAR') {
-    await prisma.cita.update({
+    await db.cita.update({
       where: { id: cita.id },
       data: {
         estado: 'CANCELADA',
@@ -281,7 +289,7 @@ export async function procesarRespuestaEntrante(args: {
   }
 
   if (respuesta === 'REAGENDAR') {
-    await prisma.cita.update({
+    await db.cita.update({
       where: { id: cita.id },
       data: {
         logs: { create: { tipo: 'ESTADO', detalle: 'El paciente pidió reagendar vía WhatsApp', userName: 'Paciente (WhatsApp)' } },
@@ -291,7 +299,7 @@ export async function procesarRespuestaEntrante(args: {
   }
 
   // Mensaje libre: lo dejamos en el log para que recepción lo vea.
-  await prisma.cita.update({
+  await db.cita.update({
     where: { id: cita.id },
     data: {
       logs: { create: { tipo: 'ESTADO', detalle: `Mensaje del paciente por WhatsApp: "${args.texto.slice(0, 200)}"`, userName: 'Paciente (WhatsApp)' } },

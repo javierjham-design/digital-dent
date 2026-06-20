@@ -1,8 +1,9 @@
 import type { Request, Response } from 'express'
-import { prisma } from '@/lib/prisma'
+import { control } from '@/db/control'
+import { tenantClient } from '@/db/tenant'
+import { tenantDb } from '@/middlewares/tenant'
 import { env } from '@/config/env'
 import { badRequest, forbidden, unauthorized } from '@/lib/errors'
-import { clinicaId } from '@/middlewares/auth'
 import { verifyToken } from '@/services/auth.service'
 import {
   buildAuthUrl, disconnectClinica, exchangeCodeForTokens, listCalendars,
@@ -20,17 +21,16 @@ function clinicaFrontendBase(slug?: string): string {
 }
 
 // GET /api/v1/google/connect → devuelve { authUrl } (el SPA navega a esa URL).
-// Solo admin de la clínica.
+// Solo admin de la clínica. req.clinica lo resuelve requireTenant.
 export async function getConnect(req: Request, res: Response) {
   if (req.auth!.role !== 'admin') throw forbidden('Solo el admin puede conectar Google Calendar.')
-  const clinica = await prisma.clinica.findUnique({ where: { id: clinicaId(req) }, select: { id: true, slug: true } })
-  if (!clinica) throw badRequest('Clínica no encontrada.')
+  const clinica = req.clinica!
   const state = signOAuthState({ clinicaId: clinica.id, slug: clinica.slug, userId: req.auth!.sub })
   res.json({ authUrl: buildAuthUrl(state) })
 }
 
 // GET /api/v1/google/callback → público (autorizado por el state firmado).
-// Intercambia el code, guarda tokens y redirige al frontend.
+// Intercambia el code, guarda tokens en la base del tenant y redirige al frontend.
 export async function getCallback(req: Request, res: Response) {
   const code = req.query.code as string | undefined
   const stateRaw = req.query.state as string | undefined
@@ -47,16 +47,23 @@ export async function getCallback(req: Request, res: Response) {
   if (!state) return res.redirect(dest('error', '&reason=invalid_state'))
   redirectBase = clinicaFrontendBase(state.slug)
 
-  const [clinica, user] = await Promise.all([
-    prisma.clinica.findUnique({ where: { id: state.clinicaId }, select: { id: true, slug: true, activo: true } }),
-    prisma.user.findUnique({ where: { id: state.userId }, select: { id: true, clinicaId: true, role: true, name: true, email: true } }),
-  ])
+  // El state lleva el id de control-plane; resolvemos la base física de la clínica.
+  const clinica = await control.clinica.findUnique({
+    where: { id: state.clinicaId },
+    select: { id: true, slug: true, activo: true, dbName: true },
+  })
   if (!clinica || !clinica.activo || clinica.slug !== state.slug) return res.redirect(dest('error', '&reason=clinica_not_found'))
-  if (!user || user.clinicaId !== clinica.id || user.role !== 'admin') return res.redirect(dest('error', '&reason=unauthorized'))
+
+  const db = tenantClient(clinica.dbName)
+  const user = await db.user.findUnique({
+    where: { id: state.userId },
+    select: { id: true, role: true, name: true, email: true },
+  })
+  if (!user || user.role !== 'admin') return res.redirect(dest('error', '&reason=unauthorized'))
 
   try {
     const tokens = await exchangeCodeForTokens(code)
-    await saveTokensForClinica({ clinicaId: clinica.id, tokens, connectedById: user.id, connectedByName: user.name ?? user.email })
+    await saveTokensForClinica(db, { tokens, connectedById: user.id, connectedByName: user.name ?? user.email })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'exchange_failed'
     return res.redirect(dest('error', `&reason=${encodeURIComponent(msg)}`))
@@ -67,14 +74,14 @@ export async function getCallback(req: Request, res: Response) {
 // POST /api/v1/google/disconnect → admin.
 export async function postDisconnect(req: Request, res: Response) {
   if (req.auth!.role !== 'admin') throw forbidden('Solo el admin puede desconectar Google Calendar.')
-  await disconnectClinica(clinicaId(req))
+  await disconnectClinica(tenantDb(req))
   res.json({ ok: true })
 }
 
 // GET /api/v1/google/calendars → admin.
 export async function getCalendars(req: Request, res: Response) {
   if (req.auth!.role !== 'admin') throw forbidden('Solo el admin puede listar calendarios.')
-  res.json(await listCalendars(clinicaId(req)))
+  res.json(await listCalendars(tenantDb(req)))
 }
 
 // POST /api/v1/google/sync → cron (x-cron-secret, sin sesión) o admin de la
@@ -85,27 +92,32 @@ export async function postSync(req: Request, res: Response) {
   const targetUserId = typeof req.body?.userId === 'string' ? req.body.userId : null
 
   if (isCron) {
-    if (targetUserId) return void res.json({ summaries: [await syncCalendar(targetUserId)] })
-    return void res.json({ summaries: await syncAllMappedUsers() })
+    // Cron sin objetivo: recorre todas las clínicas con Google conectado.
+    // Cron con userId: no podemos resolver su base sin saber la clínica, así que
+    // ese caso solo se soporta vía trigger manual (con sesión de clínica).
+    if (!targetUserId) return void res.json({ summaries: await syncAllMappedUsers() })
   }
 
-  // Trigger manual desde la UI: requiere admin de una clínica.
+  // Trigger manual desde la UI (o cron con userId): requiere admin de una clínica.
   const auth = req.headers.authorization
   const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null
   if (!token) throw unauthorized()
   const payload = verifyToken(token)
   if (!payload.clinicaId) throw forbidden('Requiere una clínica')
   if (payload.role !== 'admin') throw forbidden('Forbidden')
-  const cid = payload.clinicaId
+
+  const clinica = await control.clinica.findUnique({ where: { id: payload.clinicaId }, select: { dbName: true } })
+  if (!clinica) throw badRequest('Clínica no encontrada')
+  const db = tenantClient(clinica.dbName)
 
   if (targetUserId) {
-    const ok = await prisma.user.findFirst({ where: { id: targetUserId, clinicaId: cid }, select: { id: true } })
+    const ok = await db.user.findFirst({ where: { id: targetUserId }, select: { id: true } })
     if (!ok) throw badRequest('User not in clinic')
-    return void res.json({ summaries: [await syncCalendar(targetUserId)] })
+    return void res.json({ summaries: [await syncCalendar(db, targetUserId)] })
   }
-  const users = await prisma.user.findMany({ where: { clinicaId: cid, activo: true, googleCalendarId: { not: null } }, select: { id: true } })
+  const users = await db.user.findMany({ where: { activo: true, googleCalendarId: { not: null } }, select: { id: true } })
   const summaries = []
-  for (const u of users) summaries.push(await syncCalendar(u.id))
+  for (const u of users) summaries.push(await syncCalendar(db, u.id))
   res.json({ summaries })
 }
 
@@ -113,29 +125,29 @@ export async function postSync(req: Request, res: Response) {
 // que matchean un paciente a citas reales.
 export async function postReconcileBloqueos(req: Request, res: Response) {
   if (req.auth!.role !== 'admin') throw forbidden('Forbidden')
-  const cid = clinicaId(req)
+  const db = tenantDb(req)
   const userName = req.auth!.name ?? req.auth!.email ?? 'Sistema'
 
-  const bloqueos = await prisma.bloqueoAgenda.findMany({
-    where: { clinicaId: cid, googleEventId: { not: null } },
+  const bloqueos = await db.bloqueoAgenda.findMany({
+    where: { googleEventId: { not: null } },
     select: { id: true, doctorId: true, inicio: true, fin: true, motivo: true, googleEventId: true },
   })
   let converted = 0
   const skipped: { id: string; motivo: string | null; reason: string }[] = []
   for (const b of bloqueos) {
-    const pacienteId = await findMatchingPaciente(cid, b.motivo ?? '')
+    const pacienteId = await findMatchingPaciente(db, b.motivo ?? '')
     if (!pacienteId) { skipped.push({ id: b.id, motivo: b.motivo, reason: 'no_unique_match' }); continue }
     const duracionMin = Math.max(15, Math.round((b.fin.getTime() - b.inicio.getTime()) / 60000))
     try {
-      await prisma.$transaction([
-        prisma.cita.create({
+      await db.$transaction([
+        db.cita.create({
           data: {
-            clinicaId: cid, pacienteId, doctorId: b.doctorId, fecha: b.inicio, duracion: duracionMin,
+            pacienteId, doctorId: b.doctorId, fecha: b.inicio, duracion: duracionMin,
             estado: 'CONFIRMADA', tipo: 'CONSULTA', googleEventId: b.googleEventId, googleSyncedAt: new Date(),
             logs: { create: { tipo: 'AGENDADA', detalle: `Convertida desde bloqueo (título original: "${b.motivo ?? ''}")`, userName } },
           },
         }),
-        prisma.bloqueoAgenda.delete({ where: { id: b.id } }),
+        db.bloqueoAgenda.delete({ where: { id: b.id } }),
       ])
       converted++
     } catch (e) {

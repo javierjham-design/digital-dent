@@ -17,10 +17,15 @@
 //  Todos los errores son "best-effort": si Google falla, persistimos el error
 //  en googleSyncError y dejamos que el siguiente ciclo lo reintente. Nunca
 //  fallamos la operación primaria por un problema con Google.
+//
+//  Database-per-tenant: cada función opera sobre el cliente de la base de UNA
+//  clínica. El cron (syncAllMappedUsers) recorre el control-plane y abre cada
+//  base por separado.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { google, calendar_v3 } from 'googleapis'
-import { prisma } from '@/lib/prisma'
+import { control } from '@/db/control'
+import { tenantClient, type TenantClient } from '@/db/tenant'
 import { getAuthorizedClient } from '@/lib/google'
 
 const TIMEZONE = 'America/Santiago'
@@ -56,8 +61,8 @@ function bloqueoDescription(): string {
   return 'Bloqueo de agenda gestionado en Cláriva.\nNo editar en Google: los cambios se sobrescriben.'
 }
 
-async function getCalendarClient(clinicaId: string) {
-  const auth = await getAuthorizedClient(clinicaId)
+async function getCalendarClient(db: TenantClient) {
+  const auth = await getAuthorizedClient(db)
   if (!auth) return null
   return google.calendar({ version: 'v3', auth })
 }
@@ -76,13 +81,13 @@ function normalize(s: string): string {
     .trim()
 }
 
-export async function findMatchingPaciente(clinicaId: string, titulo: string): Promise<string | null> {
+export async function findMatchingPaciente(db: TenantClient, titulo: string): Promise<string | null> {
   if (!titulo || !titulo.trim()) return null
   const t = normalize(titulo)
   if (t.length < 4) return null
 
-  const pacientes = await prisma.paciente.findMany({
-    where: { clinicaId, activo: true },
+  const pacientes = await db.paciente.findMany({
+    where: { activo: true },
     select: { id: true, nombre: true, apellido: true },
   })
 
@@ -113,17 +118,17 @@ export async function findMatchingPaciente(clinicaId: string, titulo: string): P
  *   - la clínica no tiene conexión con Google, o
  *   - la cita está cancelada (en ese caso usamos `deleteCitaInGoogle`).
  */
-export async function pushCita(citaId: string): Promise<void> {
-  const cita = await prisma.cita.findUnique({
+export async function pushCita(db: TenantClient, citaId: string): Promise<void> {
+  const cita = await db.cita.findUnique({
     where: { id: citaId },
     include: {
       paciente: { select: { nombre: true, apellido: true, rut: true, telefono: true } },
-      doctor: { select: { id: true, name: true, email: true, googleCalendarId: true, clinicaId: true } },
+      doctor: { select: { id: true, name: true, email: true, googleCalendarId: true } },
     },
   })
-  if (!cita || !cita.doctor.googleCalendarId || !cita.doctor.clinicaId) return
+  if (!cita || !cita.doctor.googleCalendarId) return
 
-  const calendar = await getCalendarClient(cita.doctor.clinicaId)
+  const calendar = await getCalendarClient(db)
   if (!calendar) return
 
   const calendarId = cita.doctor.googleCalendarId
@@ -147,13 +152,13 @@ export async function pushCita(citaId: string): Promise<void> {
       const res = await calendar.events.insert({ calendarId, requestBody: eventBody })
       googleEventId = res.data.id ?? null
     }
-    await prisma.cita.update({
+    await db.cita.update({
       where: { id: cita.id },
       data: { googleEventId, googleSyncedAt: new Date(), googleSyncError: null },
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'push_failed'
-    await prisma.cita.update({
+    await db.cita.update({
       where: { id: cita.id },
       data: { googleSyncError: msg.slice(0, 500) },
     }).catch(() => {})
@@ -164,14 +169,14 @@ export async function pushCita(citaId: string): Promise<void> {
  * Borra el evento asociado a una cita en Google. Se usa cuando la cita pasa
  * a CANCELADA o se elimina. Si la cita no tiene googleEventId no hace nada.
  */
-export async function deleteCitaInGoogle(citaId: string): Promise<void> {
-  const cita = await prisma.cita.findUnique({
+export async function deleteCitaInGoogle(db: TenantClient, citaId: string): Promise<void> {
+  const cita = await db.cita.findUnique({
     where: { id: citaId },
-    include: { doctor: { select: { googleCalendarId: true, clinicaId: true } } },
+    include: { doctor: { select: { googleCalendarId: true } } },
   })
-  if (!cita || !cita.googleEventId || !cita.doctor.googleCalendarId || !cita.doctor.clinicaId) return
+  if (!cita || !cita.googleEventId || !cita.doctor.googleCalendarId) return
 
-  const calendar = await getCalendarClient(cita.doctor.clinicaId)
+  const calendar = await getCalendarClient(db)
   if (!calendar) return
 
   try {
@@ -179,13 +184,13 @@ export async function deleteCitaInGoogle(citaId: string): Promise<void> {
       calendarId: cita.doctor.googleCalendarId,
       eventId: cita.googleEventId,
     })
-    await prisma.cita.update({
+    await db.cita.update({
       where: { id: cita.id },
       data: { googleEventId: null, googleSyncedAt: new Date(), googleSyncError: null },
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'delete_failed'
-    await prisma.cita.update({
+    await db.cita.update({
       where: { id: cita.id },
       data: { googleSyncError: msg.slice(0, 500) },
     }).catch(() => {})
@@ -194,16 +199,16 @@ export async function deleteCitaInGoogle(citaId: string): Promise<void> {
 
 // ─── Push: BLOQUEOS ─────────────────────────────────────────────────────────
 
-export async function pushBloqueo(bloqueoId: string): Promise<void> {
-  const bloqueo = await prisma.bloqueoAgenda.findUnique({
+export async function pushBloqueo(db: TenantClient, bloqueoId: string): Promise<void> {
+  const bloqueo = await db.bloqueoAgenda.findUnique({
     where: { id: bloqueoId },
     include: {
-      doctor: { select: { id: true, googleCalendarId: true, clinicaId: true } },
+      doctor: { select: { id: true, googleCalendarId: true } },
     },
   })
-  if (!bloqueo || !bloqueo.doctor.googleCalendarId || !bloqueo.doctor.clinicaId) return
+  if (!bloqueo || !bloqueo.doctor.googleCalendarId) return
 
-  const calendar = await getCalendarClient(bloqueo.doctor.clinicaId)
+  const calendar = await getCalendarClient(db)
   if (!calendar) return
 
   const calendarId = bloqueo.doctor.googleCalendarId
@@ -225,27 +230,27 @@ export async function pushBloqueo(bloqueoId: string): Promise<void> {
       const res = await calendar.events.insert({ calendarId, requestBody: eventBody })
       googleEventId = res.data.id ?? null
     }
-    await prisma.bloqueoAgenda.update({
+    await db.bloqueoAgenda.update({
       where: { id: bloqueo.id },
       data: { googleEventId, googleSyncedAt: new Date(), googleSyncError: null },
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'push_failed'
-    await prisma.bloqueoAgenda.update({
+    await db.bloqueoAgenda.update({
       where: { id: bloqueo.id },
       data: { googleSyncError: msg.slice(0, 500) },
     }).catch(() => {})
   }
 }
 
-export async function deleteBloqueoInGoogle(bloqueoId: string): Promise<void> {
-  const bloqueo = await prisma.bloqueoAgenda.findUnique({
+export async function deleteBloqueoInGoogle(db: TenantClient, bloqueoId: string): Promise<void> {
+  const bloqueo = await db.bloqueoAgenda.findUnique({
     where: { id: bloqueoId },
-    include: { doctor: { select: { googleCalendarId: true, clinicaId: true } } },
+    include: { doctor: { select: { googleCalendarId: true } } },
   })
-  if (!bloqueo || !bloqueo.googleEventId || !bloqueo.doctor.googleCalendarId || !bloqueo.doctor.clinicaId) return
+  if (!bloqueo || !bloqueo.googleEventId || !bloqueo.doctor.googleCalendarId) return
 
-  const calendar = await getCalendarClient(bloqueo.doctor.clinicaId)
+  const calendar = await getCalendarClient(db)
   if (!calendar) return
 
   try {
@@ -253,13 +258,13 @@ export async function deleteBloqueoInGoogle(bloqueoId: string): Promise<void> {
       calendarId: bloqueo.doctor.googleCalendarId,
       eventId: bloqueo.googleEventId,
     })
-    await prisma.bloqueoAgenda.update({
+    await db.bloqueoAgenda.update({
       where: { id: bloqueo.id },
       data: { googleEventId: null, googleSyncedAt: new Date(), googleSyncError: null },
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'delete_failed'
-    await prisma.bloqueoAgenda.update({
+    await db.bloqueoAgenda.update({
       where: { id: bloqueo.id },
       data: { googleSyncError: msg.slice(0, 500) },
     }).catch(() => {})
@@ -293,25 +298,25 @@ export interface SyncSummary {
  *   3. Sin marca de Cláriva → evento "ajeno", lo materializamos como
  *      BloqueoAgenda (los pacientes solo se crean en Cláriva).
  */
-export async function syncCalendar(userId: string): Promise<SyncSummary> {
+export async function syncCalendar(db: TenantClient, userId: string): Promise<SyncSummary> {
   const summary: SyncSummary = {
     userId, doctor: '—', changed: 0, newBloqueos: 0, newCitas: 0, reAsserted: 0, fullResync: false, error: null,
   }
 
-  const user = await prisma.user.findUnique({
+  const user = await db.user.findUnique({
     where: { id: userId },
     select: {
-      id: true, name: true, email: true, clinicaId: true,
+      id: true, name: true, email: true,
       googleCalendarId: true, googleSyncToken: true,
     },
   })
-  if (!user || !user.clinicaId || !user.googleCalendarId) {
+  if (!user || !user.googleCalendarId) {
     summary.error = 'no_calendar_mapped'
     return summary
   }
   summary.doctor = user.name ?? user.email ?? user.id
 
-  const calendar = await getCalendarClient(user.clinicaId)
+  const calendar = await getCalendarClient(db)
   if (!calendar) { summary.error = 'no_google_connection'; return summary }
 
   const calendarId = user.googleCalendarId
@@ -349,7 +354,7 @@ export async function syncCalendar(userId: string): Promise<SyncSummary> {
   } catch (e: any) {
     // 410 Gone = syncToken expirado. Reseteamos y la próxima ejecución hará full.
     if (e?.code === 410 || e?.response?.status === 410) {
-      await prisma.user.update({ where: { id: user.id }, data: { googleSyncToken: null } })
+      await db.user.update({ where: { id: user.id }, data: { googleSyncToken: null } })
       summary.fullResync = true
       summary.error = 'sync_token_expired_reset'
       return summary
@@ -360,7 +365,7 @@ export async function syncCalendar(userId: string): Promise<SyncSummary> {
 
   for (const ev of events) {
     try {
-      const result = await reconcileEvent(user.clinicaId, user.id, calendarId, ev, calendar)
+      const result = await reconcileEvent(db, user.id, calendarId, ev, calendar)
       if (result === 'cancelled' || result === 'updated') summary.changed++
       if (result === 'bloqueo_created') summary.newBloqueos++
       if (result === 'cita_imported') summary.newCitas++
@@ -371,12 +376,12 @@ export async function syncCalendar(userId: string): Promise<SyncSummary> {
   }
 
   if (nextSyncToken) {
-    await prisma.user.update({
+    await db.user.update({
       where: { id: user.id },
       data: { googleSyncToken: nextSyncToken, googleSyncedAt: new Date() },
     })
   } else {
-    await prisma.user.update({
+    await db.user.update({
       where: { id: user.id },
       data: { googleSyncedAt: new Date() },
     })
@@ -388,7 +393,7 @@ export async function syncCalendar(userId: string): Promise<SyncSummary> {
 type ReconcileResult = 'cancelled' | 'updated' | 'bloqueo_created' | 'cita_imported' | 're_asserted' | 'ignored'
 
 async function reconcileEvent(
-  clinicaId: string,
+  db: TenantClient,
   doctorId: string,
   calendarId: string,
   ev: calendar_v3.Schema$Event,
@@ -398,17 +403,17 @@ async function reconcileEvent(
 
   // 1) Evento cancelado en Google → reflejamos en Cláriva.
   if (ev.status === 'cancelled') {
-    const cita = await prisma.cita.findFirst({ where: { googleEventId: ev.id, clinicaId } })
+    const cita = await db.cita.findFirst({ where: { googleEventId: ev.id } })
     if (cita) {
-      await prisma.cita.update({
+      await db.cita.update({
         where: { id: cita.id },
         data: { estado: 'CANCELADA', googleEventId: null, googleSyncedAt: new Date() },
       })
       return 'cancelled'
     }
-    const bloqueo = await prisma.bloqueoAgenda.findFirst({ where: { googleEventId: ev.id, clinicaId } })
+    const bloqueo = await db.bloqueoAgenda.findFirst({ where: { googleEventId: ev.id } })
     if (bloqueo) {
-      await prisma.bloqueoAgenda.delete({ where: { id: bloqueo.id } })
+      await db.bloqueoAgenda.delete({ where: { id: bloqueo.id } })
       return 'cancelled'
     }
     return 'ignored'
@@ -424,23 +429,23 @@ async function reconcileEvent(
   //    sobrescribir cualquier edición manual que el dentista haya hecho.
   const kind = ev.extendedProperties?.private?.clarivaKind
   if (kind === 'cita') {
-    const cita = await prisma.cita.findFirst({ where: { googleEventId: ev.id, clinicaId } })
+    const cita = await db.cita.findFirst({ where: { googleEventId: ev.id } })
     if (cita) {
       // Disparar push para reescribir Google con la versión nuestra.
-      await pushCita(cita.id)
+      await pushCita(db, cita.id)
       return 're_asserted'
     }
   }
   if (kind === 'bloqueo') {
-    const bloqueo = await prisma.bloqueoAgenda.findFirst({ where: { googleEventId: ev.id, clinicaId } })
+    const bloqueo = await db.bloqueoAgenda.findFirst({ where: { googleEventId: ev.id } })
     if (bloqueo) {
-      await pushBloqueo(bloqueo.id)
+      await pushBloqueo(db, bloqueo.id)
       return 're_asserted'
     }
   }
 
   // 3) Evento ajeno: ¿ya lo materializamos como bloqueo en pulls anteriores?
-  const existingBloqueo = await prisma.bloqueoAgenda.findFirst({ where: { googleEventId: ev.id, clinicaId } })
+  const existingBloqueo = await db.bloqueoAgenda.findFirst({ where: { googleEventId: ev.id } })
   if (existingBloqueo) {
     // Actualizamos rango y motivo si cambiaron.
     const newMotivo = ev.summary ?? existingBloqueo.motivo ?? null
@@ -449,7 +454,7 @@ async function reconcileEvent(
       existingBloqueo.fin.getTime()    !== endDate.getTime()   ||
       (existingBloqueo.motivo ?? null) !== newMotivo
     ) {
-      await prisma.bloqueoAgenda.update({
+      await db.bloqueoAgenda.update({
         where: { id: existingBloqueo.id },
         data: { inicio: startDate, fin: endDate, motivo: newMotivo, googleSyncedAt: new Date() },
       })
@@ -462,13 +467,12 @@ async function reconcileEvent(
   //    de la clínica. Si hay un match unívoco lo creamos como Cita real (caso
   //    importación inicial desde Dentalink); si no, bloqueo.
   const summary = ev.summary ?? ''
-  const pacienteId = await findMatchingPaciente(clinicaId, summary)
+  const pacienteId = await findMatchingPaciente(db, summary)
   const duracionMin = Math.max(15, Math.round((endDate.getTime() - startDate.getTime()) / 60000))
 
   if (pacienteId) {
-    await prisma.cita.create({
+    await db.cita.create({
       data: {
-        clinicaId,
         pacienteId,
         doctorId,
         fecha: startDate,
@@ -489,9 +493,8 @@ async function reconcileEvent(
     return 'cita_imported'
   }
 
-  await prisma.bloqueoAgenda.create({
+  await db.bloqueoAgenda.create({
     data: {
-      clinicaId,
       doctorId,
       inicio: startDate,
       fin: endDate,
@@ -505,19 +508,29 @@ async function reconcileEvent(
 }
 
 // ─── Pull para todos los users con calendario mapeado (cron) ────────────────
+// Recorre el control-plane y, por cada clínica activa con Google conectado,
+// abre su base y sincroniza los doctores con calendario asignado.
 
 export async function syncAllMappedUsers(): Promise<SyncSummary[]> {
-  const users = await prisma.user.findMany({
-    where: {
-      activo: true,
-      googleCalendarId: { not: null },
-      clinica: { googleRefreshToken: { not: null } },
-    },
-    select: { id: true },
+  const clinicas = await control.clinica.findMany({
+    where: { activo: true, esDemo: false },
+    select: { dbName: true },
   })
+
   const out: SyncSummary[] = []
-  for (const u of users) {
-    out.push(await syncCalendar(u.id))
+  for (const cl of clinicas) {
+    const db = tenantClient(cl.dbName)
+    const config = await db.configuracion.findUnique({
+      where: { id: 'singleton' },
+      select: { googleRefreshToken: true },
+    })
+    if (!config?.googleRefreshToken) continue
+
+    const users = await db.user.findMany({
+      where: { activo: true, googleCalendarId: { not: null } },
+      select: { id: true },
+    })
+    for (const u of users) out.push(await syncCalendar(db, u.id))
   }
   return out
 }

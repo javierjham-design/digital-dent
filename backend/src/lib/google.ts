@@ -1,7 +1,11 @@
 import { createHmac } from 'crypto'
 import { google } from 'googleapis'
-import { prisma } from '@/lib/prisma'
+import type { TenantClient } from '@/db/tenant'
 import { decrypt, encrypt } from '@/lib/crypto'
+
+// Database-per-tenant: los tokens de Google viven en la Configuracion (singleton)
+// de la base de cada clínica. Estas funciones reciben el cliente del tenant.
+const SINGLETON = 'singleton'
 
 // Derivamos el tipo del propio googleapis para evitar el choque entre dos
 // copias de google-auth-library (la directa vs. la anidada en googleapis-common).
@@ -132,17 +136,16 @@ export async function exchangeCodeForTokens(code: string): Promise<GoogleTokens>
 }
 
 /**
- * Persiste los tokens cifrados en `Clinica`. Si ya había una conexión previa,
- * la reemplaza.
+ * Persiste los tokens cifrados en la `Configuracion` de la clínica. Si ya había
+ * una conexión previa, la reemplaza.
  */
-export async function saveTokensForClinica(args: {
-  clinicaId: string
+export async function saveTokensForClinica(db: TenantClient, args: {
   tokens: GoogleTokens
   connectedById: string
   connectedByName: string | null
 }) {
-  await prisma.clinica.update({
-    where: { id: args.clinicaId },
+  await db.configuracion.update({
+    where: { id: SINGLETON },
     data: {
       googleRefreshToken: encrypt(args.tokens.refreshToken),
       googleAccessToken: encrypt(args.tokens.accessToken),
@@ -160,9 +163,9 @@ export async function saveTokensForClinica(args: {
  * de Google Calendar para una clínica. Refresca el access_token si está
  * vencido y persiste el nuevo.
  */
-export async function getAuthorizedClient(clinicaId: string): Promise<OAuth2Client | null> {
-  const c = await prisma.clinica.findUnique({
-    where: { id: clinicaId },
+export async function getAuthorizedClient(db: TenantClient): Promise<OAuth2Client | null> {
+  const c = await db.configuracion.findUnique({
+    where: { id: SINGLETON },
     select: {
       googleRefreshToken: true,
       googleAccessToken: true,
@@ -188,8 +191,8 @@ export async function getAuthorizedClient(clinicaId: string): Promise<OAuth2Clie
     if (res.token && res.res?.data) {
       const newExp = (res.res.data as { expiry_date?: number }).expiry_date
         ?? Date.now() + 55 * 60 * 1000
-      await prisma.clinica.update({
-        where: { id: clinicaId },
+      await db.configuracion.update({
+        where: { id: SINGLETON },
         data: {
           googleAccessToken: encrypt(res.token),
           googleTokenExpiresAt: new Date(newExp),
@@ -207,9 +210,9 @@ export async function getAuthorizedClient(clinicaId: string): Promise<OAuth2Clie
  * googleCalendarId de todos los usuarios de la clínica (no tienen sentido
  * sin conexión).
  */
-export async function disconnectClinica(clinicaId: string): Promise<void> {
-  const c = await prisma.clinica.findUnique({
-    where: { id: clinicaId },
+export async function disconnectClinica(db: TenantClient): Promise<void> {
+  const c = await db.configuracion.findUnique({
+    where: { id: SINGLETON },
     select: { googleRefreshToken: true },
   })
   if (c?.googleRefreshToken) {
@@ -221,9 +224,9 @@ export async function disconnectClinica(clinicaId: string): Promise<void> {
       // Si Google ya invalidó el token, no es un problema.
     }
   }
-  await prisma.$transaction([
-    prisma.clinica.update({
-      where: { id: clinicaId },
+  await db.$transaction([
+    db.configuracion.update({
+      where: { id: SINGLETON },
       data: {
         googleRefreshToken: null,
         googleAccessToken: null,
@@ -234,8 +237,8 @@ export async function disconnectClinica(clinicaId: string): Promise<void> {
         googleConnectedByName: null,
       },
     }),
-    prisma.user.updateMany({
-      where: { clinicaId },
+    db.user.updateMany({
+      where: {},
       data: { googleCalendarId: null },
     }),
   ])
@@ -254,8 +257,8 @@ export interface CalendarOption {
  * Lista todos los calendarios visibles para la cuenta conectada. Útil para
  * poblar el dropdown en el panel de Usuarios donde se asigna a cada doctor.
  */
-export async function listCalendars(clinicaId: string): Promise<CalendarOption[]> {
-  const auth = await getAuthorizedClient(clinicaId)
+export async function listCalendars(db: TenantClient): Promise<CalendarOption[]> {
+  const auth = await getAuthorizedClient(db)
   if (!auth) throw new Error('La clínica no tiene conexión activa con Google.')
   const calendar = google.calendar({ version: 'v3', auth })
   const res = await calendar.calendarList.list({ minAccessRole: 'writer', showHidden: false })

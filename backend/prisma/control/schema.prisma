@@ -38,6 +38,12 @@ model Clinica {
   proximoCobro     DateTime?
   notasInternas    String?
 
+  // Enrutamiento de WhatsApp (denormalizado desde la Configuracion del tenant):
+  // el webhook de Twilio resuelve la clínica por su número emisor, y el cron de
+  // recordatorios filtra las clínicas con el servicio activo sin abrir cada base.
+  waEnabled Boolean @default(false)
+  waNumero  String? @unique
+
   // Demo autogenerada desde la landing (se elimina al expirar).
   esDemo       Boolean   @default(false)
   demoExpiraEn DateTime?

@@ -7,7 +7,7 @@
 //   - la configuración del seed de la demo por rubro (profesionales,
 //     prestaciones y motivos de atención).
 //
-//  Lo consumen: app/landing-client.tsx (UI) y lib/demo-seed.ts (datos).
+//  Lo consumen: el frontend (landing por rubro) y lib/tenant-seed.ts (seed de la demo).
 
 export type VerticalId = 'dental' | 'medico' | 'estetica'
 export const VERTICAL_IDS: VerticalId[] = ['dental', 'medico', 'estetica']

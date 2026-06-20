@@ -3,10 +3,12 @@ import { badRequest, conflict, notFound } from '@/lib/errors'
 import { CITA_ESTADOS_KEYS, CITA_ESTADO_LABELS, ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import type { CitaDTO } from '@shared/types'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
+import { pushCita, deleteCitaInGoogle } from '@/lib/google-sync'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica.
-// NOTA: la sincronización con Google se reconectará al convertir google-sync al
-// modelo tenant (los tokens viven en Configuracion de la base de la clínica).
+// La sincronización con Google es best-effort (fire-and-forget): nunca debe
+// hacer fallar la operación primaria. Los tokens viven en la Configuracion de
+// la base de la clínica, así que pushCita/deleteCitaInGoogle operan sobre `db`.
 
 type CitaRow = {
   id: string; pacienteId: string; doctorId: string; fecha: Date; duracion: number
@@ -112,6 +114,7 @@ export async function crearCita(db: TenantClient, userName: string, input: Crear
     },
     include: INCLUDE,
   })
+  void pushCita(db, cita.id).catch(() => {})
   return toDTO(cita)
 }
 
@@ -176,12 +179,15 @@ export async function editarCita(db: TenantClient, id: string, userName: string,
     data: { ...data, ...(logs.length > 0 ? { logs: { create: logs } } : {}) },
     include: INCLUDE,
   })
+  void pushCita(db, cita.id).catch(() => {})
   return toDTO(cita)
 }
 
 export async function eliminarCita(db: TenantClient, id: string): Promise<void> {
   const existing = await db.cita.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Cita no encontrada')
+  // Borramos el evento en Google ANTES de eliminar la fila (necesita su googleEventId).
+  await deleteCitaInGoogle(db, id).catch(() => {})
   await db.citaLog.deleteMany({ where: { citaId: id } })
   await db.cita.delete({ where: { id } })
 }
@@ -204,5 +210,8 @@ export async function cambiarEstadoCita(db: TenantClient, id: string, estado: st
     },
     include: INCLUDE,
   })
+  // Cancelar → quitar de Google; cualquier otro estado → reflejar la versión nuestra.
+  if (estado === 'CANCELADA') void deleteCitaInGoogle(db, cita.id).catch(() => {})
+  else void pushCita(db, cita.id).catch(() => {})
   return toDTO(cita)
 }

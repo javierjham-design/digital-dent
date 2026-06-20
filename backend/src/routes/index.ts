@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import multer from 'multer'
 import { asyncHandler } from '@/middlewares/async-handler'
-import { requireAuth, requireClinica, requireAdmin } from '@/middlewares/auth'
+import { requireAuth, requireAdmin } from '@/middlewares/auth'
 import { requireTenant } from '@/middlewares/tenant'
 import { getMe, postLogin, postCambiarPassword } from '@/controllers/auth.controller'
 import {
@@ -33,12 +33,9 @@ import { requireSuperAdmin } from '@/middlewares/auth'
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
 export const apiRouter = Router()
 
-// Middlewares reutilizables para rutas con scope de clínica.
-// `clinica`/`adminClinica`: modelo viejo (DB compartida) — quedan en los dominios
-// aún no convertidos. `tenant`/`adminTenant`: modelo database-per-tenant
-// (resuelve req.tenant). A medida que se convierten los dominios, sus rutas
-// pasan de `clinica` a `tenant`.
-const clinica = [requireAuth, requireClinica]
+// Middlewares reutilizables para rutas con scope de clínica (database-per-tenant).
+// `tenant` resuelve req.tenant (cliente de la base de la clínica) + req.clinica;
+// `adminTenant` además exige rol admin. Todos los dominios usan ya este modelo.
 const tenant = [requireAuth, requireTenant]
 const adminTenant = [requireAuth, requireTenant, requireAdmin]
 
@@ -62,11 +59,11 @@ apiRouter.post('/whatsapp/recordatorios', asyncHandler(whatsapp.postRecordatorio
 apiRouter.get('/google/callback', asyncHandler(googlec.getCallback))
 apiRouter.post('/google/sync', asyncHandler(googlec.postSync))
 
-// ── Google Calendar (sesión de clínica) ──────────────────────────────────────
-apiRouter.get('/google/connect', clinica, asyncHandler(googlec.getConnect))
-apiRouter.post('/google/disconnect', clinica, asyncHandler(googlec.postDisconnect))
-apiRouter.get('/google/calendars', clinica, asyncHandler(googlec.getCalendars))
-apiRouter.post('/google/reconcile-bloqueos', clinica, asyncHandler(googlec.postReconcileBloqueos))
+// ── Google Calendar (sesión de clínica, database-per-tenant) ─────────────────
+apiRouter.get('/google/connect', tenant, asyncHandler(googlec.getConnect))
+apiRouter.post('/google/disconnect', tenant, asyncHandler(googlec.postDisconnect))
+apiRouter.get('/google/calendars', tenant, asyncHandler(googlec.getCalendars))
+apiRouter.post('/google/reconcile-bloqueos', tenant, asyncHandler(googlec.postReconcileBloqueos))
 
 // ── Pacientes (convertido a database-per-tenant) ─────────────────────────────
 apiRouter.get('/pacientes', tenant, asyncHandler(getPacientes))

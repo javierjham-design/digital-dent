@@ -18,13 +18,6 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   next()
 }
 
-// Exige que la sesión pertenezca a una clínica (no super-admin global).
-export function requireClinica(req: Request, _res: Response, next: NextFunction) {
-  if (!req.auth) throw unauthorized()
-  if (!req.auth.clinicaId) throw forbidden('Esta acción requiere una clínica')
-  next()
-}
-
 // Exige super-admin de plataforma.
 export function requireSuperAdmin(req: Request, _res: Response, next: NextFunction) {
   if (!req.auth) throw unauthorized()
@@ -37,10 +30,4 @@ export function requireAdmin(req: Request, _res: Response, next: NextFunction) {
   if (!req.auth) throw unauthorized()
   if (req.auth.role !== 'admin' && !req.auth.isPlatformAdmin) throw forbidden('Requiere rol administrador')
   next()
-}
-
-// Helper: clinicaId de la sesión, garantizado no-nulo (usar tras requireClinica).
-export function clinicaId(req: Request): string {
-  if (!req.auth?.clinicaId) throw forbidden('Sin clínica en la sesión')
-  return req.auth.clinicaId
 }
