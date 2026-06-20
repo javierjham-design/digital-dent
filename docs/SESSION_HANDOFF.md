@@ -1,68 +1,72 @@
 # Session Handoff
 
-> **Lee este archivo PRIMERO al iniciar una sesión.** Resume exactamente dónde quedó el trabajo, sin depender del historial de chat anterior.
+> **Lee este archivo PRIMERO al iniciar una sesión.** Resume exactamente dónde quedó
+> el trabajo, sin depender del historial de chat anterior.
 
 ---
 
 ## Última actualización
 
-- **Fecha:** 2026-06-12
-- **Sesión:** Fase de maduración comercial pre-lanzamiento. Commits de la sesión: PWA (`315c964`), agenda+UX (`7d504a3`), y drag&drop + toasts + seguridad (último).
+- **Fecha:** 2026-06-20
+- **Rama:** `arch/split-frontend-backend` (último commit `11c7730`).
+- **Foco:** re-arquitectura database-per-tenant COMPLETA en código; pendiente solo el cutover.
 
 ---
 
-## Estado general
+## El hilo grande (para no perderse)
 
-La plataforma (**Cláriva**, `app.clariva.cl` + subdominios por clínica) está en fase de pulido final para lanzamiento comercial este mes. Funciona en Railway con auto-deploy desde `master`.
+Hay DOS trabajos encadenados:
 
-## Qué se hizo en esta sesión
+1. **Split del monolito → stack separado** (`web/` + `frontend/` SPA + `backend/` Express + `shared/`).
+   **Estado: CÓDIGO TERMINADO.** Paridad funcional 100% (ver `docs/parity-matrix.md`,
+   2026-06-17): GAPS P1 (Presupuestos) y P2 (Reportes) cerrados, contrato FE↔BE verde
+   (130 rutas / 116 llamadas). Lo que NUNCA se ejecutó es la **Etapa 5 (cutover)**.
 
-1. **PWA instalable** (commit `315c964`): manifest + íconos generados + service worker conservador (no cachea HTML/API) + banner de instalación (`components/PWASetup.tsx`). Artículos de ayuda sobre instalación agregados al manual.
+2. **Database-per-tenant (modelo C)** — pivote que metimos JUSTO ANTES del cutover.
+   Cada clínica con base física propia (control-plane DB + 1 DB por clínica).
+   **Estado: CÓDIGO TERMINADO (F1–F7).**
 
-2. **Agenda — mejora funcional mayor** (ver entrada 2026-06-11 en `AI_CHANGELOG.md`):
-   - Estados clínicos completos: Agendada → Confirmada → **En espera** → **En atención** → Atendida (+ No asistió / Cancelada). Fuente única: `lib/cita-estados.ts`.
-   - Flujo de recepción con un clic: botón de acción principal en el detalle de cita y quick-action por fila en vista Diaria (`siguienteEstado()`).
-   - **Editar / Reagendar cita** (modal nuevo): fecha, hora, duración, doctor, motivo, notas. El PATCH loguea "Reagendada de X a Y".
-   - **Anti doble-reserva** en backend (`lib/citas.ts` → `findCitaSolapada`): POST y PATCH devuelven 409 si el doctor ya tiene cita activa solapada. Sobrecupos exentos por diseño.
-   - Sin `window.location.reload()`: todo usa `router.refresh()` + toasts → no se pierden filtros/vista/scroll.
+## Estado de la re-arquitectura DB-por-tenant (F1–F7)
 
-3. **Base visual premium**:
-   - Tipografía **Inter** (next/font) en toda la app.
-   - `components/ui/Toaster.tsx`: sistema de toasts global (`toast.success/error/info`), montado en dashboard y super-admin.
-   - `tabular-nums`, focus-visible consistente, `prefers-reduced-motion` en `globals.css`.
+- **F1–F3:** schemas control/tenant, capa de conexión + cache de PrismaClient, provisión
+  automática (`CREATE DATABASE`) + middleware `requireTenant`.
+- **F4:** 11 dominios + auth + demo + super-admin + integraciones **Google y WhatsApp**
+  convertidos al cliente por-request. Push/pull de Google reconectado en citas/bloqueos.
+  WhatsApp: routing por `waNumero`/`waEnabled` denormalizados en `control.Clinica`.
+- **Limpieza:** borrados `lib/prisma.ts`, `prisma/schema.prisma` (shared), código muerto
+  (`demo-seed`/`demo-cleanup`), helpers huérfanos y scripts `prisma:sync`/`prisma:generate`.
+- **F5:** `npm run migrate:tenants` (aplica el schema tenant a todas las bases).
+- **F6:** tests de aislamiento físico (sqlite por clínica) — 11/11.
+- **F7:** `npm run migrate:data` — script de migración monolito → control + tenants
+  (DRY-RUN por defecto, `-- --apply` para escribir; idempotente). **Aún NO ejecutado
+  contra prod** (sin credenciales en la sesión).
 
-4. **Consistencia de estados** en dashboard, ficha del paciente y reportes (importan de `lib/cita-estados.ts`).
+## Verificación (verde hoy)
 
-## Verificación
+- `npm --prefix backend run typecheck` limpio (incl. sin el cliente legacy generado).
+- `npm --prefix backend test` → 67/67 unit/smoke.
+- `npm --prefix backend run test:integration` → 11/11 aislamiento físico.
+- `npm --prefix backend run test:contract` → contrato FE↔BE OK (130/116).
 
-- `npx tsc --noEmit` limpio.
-- `npx next build` **completo y exitoso** en Windows (el bug intermitente de prerender `_not-found` no apareció).
+## Lo único pendiente: CUTOVER (manual, requiere prod) — `docs/cutover.md`
 
-## Qué se hizo además (2026-06-12)
+`cutover.md` quedó **actualizado para database-per-tenant** (2026-06-20). Pasos clave:
 
-5. **Drag & drop en agenda**: arrastrar cita = reagendar; estirar = cambiar duración. Backend valida; revert + toast si rechaza.
-6. **Toasts globales**: los 15 `alert()` de la plataforma convertidos a `toast.error`.
-7. **Hardening de seguridad** (ver `docs/SECURITY.md`): headers HTTP (HSTS/CSP/nosniff/etc.), rate limiting de login (5 fallos/15min por usuario, 30 por IP) y de API global (300/min/IP), sesiones JWT de 12 h, contraseñas mínimo 8 con letra y número, bcrypt cost 12.
+1. Crear/definir bases: `CONTROL_DATABASE_URL`, `TENANT_DB_SERVER_URL` (con permiso
+   `CREATE DATABASE`), `LEGACY_DATABASE_URL` (= `DATABASE_URL` del monolito).
+   `JWT_SECRET`/`ENCRYPTION_KEY` idénticos al monolito.
+2. Levantar los 3 servicios Railway (backend/frontend/web) + `control:push`.
+3. **Ventana de solo-lectura** en el monolito → `migrate:data` (dry-run y luego `--apply`).
+4. Validar el stack nuevo con datos migrados → mover DNS (`api`, `*.clariva.cl`, apex).
+5. Rollback limpio solo ANTES de aceptar escrituras nuevas (después hay divergencia de datos).
 
-## Qué quedó pendiente
+## Pendientes operativos (no bloquean el cutover)
 
-- **2FA TOTP para super-admin** (la cuenta más valiosa de la plataforma).
-- **Sentry + monitoreo de uptime** (UptimeRobot u otro apuntando a app.clariva.cl).
-- **Verificar backups Postgres en Railway** (retención + prueba de restore).
-- **Super Admin**: el dashboard general podría sumar accesos rápidos y gráfico de MRR histórico.
-- **QA checklist** `docs/QA_CHECKLIST_LANZAMIENTO.md` sigue pendiente de ejecución por el usuario.
-- **Google OAuth verification** (para sacar la app de modo Testing) — trámite del usuario con Google.
-- Operacional: política de privacidad, términos, monitoreo de errores (Sentry), verificación de backups, casilla soporte@clariva.cl.
+- 2FA TOTP super-admin · Sentry + uptime · verificar backups Postgres · Google OAuth
+  verification (sacar de modo Testing) · ejecutar `docs/QA_CHECKLIST_LANZAMIENTO.md`.
 
-## Decisiones técnicas relevantes de hoy
+## Notas
 
-- `Cita.estado` sigue siendo String (no enum) → agregar estados fue no-destructivo.
-- Las citas históricas solapadas no se tocan; la validación aplica solo a escrituras nuevas.
-- El label de `PENDIENTE` ahora es **"Agendada"** en toda la UI (la constante en DB no cambió).
-
-## Cómo probar rápido la agenda nueva
-
-1. `/agenda` → click en un slot → agendar (toast verde, sin recarga de página).
-2. Intentar agendar otra cita al mismo doctor en el mismo horario → error 409 con mensaje claro.
-3. Click en cita → "Editar / Reagendar" → cambiar hora → guardar → ver log "Reagendada" en el historial.
-4. Vista Diaria → botón de acción rápida por fila: Confirmar → Llegó → Pasar al sillón → Finalizar.
+- Nunca pushear a `master` (deploya el monolito). Trabajo en `arch/split-frontend-backend`.
+- `docs/PROJECT_STATUS.md` está desactualizado (era del monolito Fase 1B); la fuente de
+  verdad del estado actual son `docs/AI_CHANGELOG.md`, `docs/parity-matrix.md` y este archivo.

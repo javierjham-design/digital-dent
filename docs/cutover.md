@@ -1,12 +1,24 @@
 # Runbook de cutover — Etapa 5
 
 > Migrar producción del **monolito Next.js** (un servicio Railway, raíz del repo)
-> al **stack separado**: 2 servicios Railway (backend Express + frontend SPA),
-> compartiendo la MISMA base de datos Postgres.
+> al **stack separado**: 3 servicios Railway (web + frontend SPA + backend Express).
 >
-> Principio rector: **el monolito sigue sirviendo a las clínicas hasta el último
-> paso**. Los servicios nuevos se levantan en paralelo y se validan antes de
-> mover tráfico. Rollback = volver a apuntar el dominio al monolito.
+> ⚠️ **ACTUALIZADO para database-per-tenant (2026-06-20).** El backend nuevo ya
+> **NO comparte la base del monolito**: usa una **DB de control-plane** + **una DB
+> física por clínica**. Eso cambia dos cosas de este runbook respecto a su versión
+> original (que asumía DB compartida):
+>
+> 1. **Hay migración de datos obligatoria** (paso §2.6, `npm run migrate:data`):
+>    copia el contenido de la DB del monolito a la DB de control + las DBs por
+>    clínica. No es "la misma DB".
+> 2. **El rollback ya no es gratis tras mover tráfico:** apenas las clínicas
+>    empiezan a escribir en sus tenant DBs, esos datos NO existen en la DB del
+>    monolito. Por eso el switch se hace con **ventana de congelación de escrituras**
+>    (§6): migrar con el monolito en solo-lectura, validar, recién ahí abrir el stack
+>    nuevo. Rollback limpio solo es posible ANTES de aceptar la primera escritura nueva.
+>
+> Principio rector: **el monolito sigue sirviendo a las clínicas hasta el switch**.
+> Los servicios nuevos se levantan en paralelo y se validan antes de mover tráfico.
 
 ---
 
@@ -28,11 +40,18 @@ misma base de datos. El monolito se puede **retirar por completo** tras el cutov
                     ┌─────────────▼──────────────┐
    api.clariva.cl → │ Backend API (Express+tsx)  │  (Railway, root dir: backend/)
                     └─────────────┬──────────────┘
-                                  │ Prisma
-                    ┌─────────────▼──────────────┐
-                    │  PostgreSQL (Railway)       │  ← la MISMA base de datos
-                    └────────────────────────────┘
+                                  │ Prisma (control + tenant)
+                    ┌─────────────▼──────────────────────────────┐
+                    │  PostgreSQL (Railway)                       │
+                    │   • clariva_control  (registro/planes/…)    │
+                    │   • clariva_t_<slug>  × N  (1 por clínica)   │
+                    └─────────────────────────────────────────────┘
 ```
+
+> **Database-per-tenant:** un solo servidor Postgres, muchas bases. El backend
+> resuelve la clínica por subdominio → su `dbName` en el control-plane → abre/cachea
+> el `PrismaClient` de esa base. Provisión automática al crear clínica/demo
+> (`TENANT_DB_SERVER_URL` necesita permiso `CREATE DATABASE`).
 
 - **Tenancy por SUBDOMINIO, igual que el monolito**: `<slug>.clariva.cl` es la
   clínica `<slug>`; `super-admin.clariva.cl` es la plataforma; `clariva.cl`/`www`
@@ -57,6 +76,14 @@ misma base de datos. El monolito se puede **retirar por completo** tras el cutov
 - [ ] **`ENCRYPTION_KEY` y el secreto JWT deben ser idénticos a los del monolito**
       (si no, no se descifran los tokens de Twilio/Google ya guardados, y las
       sesiones no son compatibles). Reusar `NEXTAUTH_SECRET` como `JWT_SECRET`.
+- [ ] **Database-per-tenant — definir el destino:**
+      - `CONTROL_DATABASE_URL` → base del control-plane (p.ej. `clariva_control` en el
+        mismo Postgres). Crearla: `createdb clariva_control` o `CREATE DATABASE`.
+      - `TENANT_DB_SERVER_URL` → URL del **servidor** Postgres (la base del path da igual;
+        el backend la cambia por el `dbName` de cada clínica). **Requiere permiso
+        `CREATE DATABASE`** (provisión automática de clínicas/demos).
+      - `LEGACY_DATABASE_URL` → la `DATABASE_URL` del monolito (origen de la migración §2.6).
+      - Aplicar el schema al control-plane: `npm --prefix backend run control:push`.
 
 ---
 
@@ -73,7 +100,9 @@ misma base de datos. El monolito se puede **retirar por completo** tras el cutov
 4. **Variables** (Settings → Variables):
    | Variable | Valor |
    |----------|-------|
-   | `DATABASE_URL` | la misma del monolito (o `${{Postgres.DATABASE_URL}}` si está en el mismo proyecto) |
+   | `CONTROL_DATABASE_URL` | base del control-plane (registro de clínicas, planes, leads, facturación, super-admins). |
+   | `TENANT_DB_SERVER_URL` | URL del servidor Postgres para las bases por clínica. **Con permiso `CREATE DATABASE`.** |
+   | `DATABASE_URL` | fallback de las dos anteriores si no se setean (no recomendado en prod: déjalas explícitas). |
    | `JWT_SECRET` | **el mismo** `NEXTAUTH_SECRET` del monolito |
    | `ENCRYPTION_KEY` | **el mismo** del monolito |
    | `CRON_SECRET` | el mismo del monolito |
@@ -87,9 +116,43 @@ misma base de datos. El monolito se puede **retirar por completo** tras el cutov
      `dependencies`. (Puede setearse `NODE_ENV=production` sin problema.)
 5. Networking → **Generate Domain** (queda `…-backend.up.railway.app`). Más tarde
    se le agrega el dominio propio `api.clariva.cl`.
-6. **NO correr `prisma db push` desde el backend.** La DB ya está en sync (la maneja
-   el monolito). El backend solo genera el cliente y se conecta.
+6. **Schema de control-plane:** `npm --prefix backend run control:push` (crea las
+   tablas de `CONTROL_DATABASE_URL`). Las bases por clínica se crean en la migración
+   (§2.6) o automáticamente al crear clínica/demo. **No** hay un `db push` global
+   contra la base del monolito (ya no la usamos).
 7. Validar: `GET https://<backend>/health` → `{ ok: true }`.
+
+---
+
+## 2.6 Migración de datos (monolito → control + tenants) — F7
+
+> Paso **obligatorio** del modelo database-per-tenant: copia el contenido de la DB
+> del monolito a la DB de control + una DB por clínica. Idempotente y reejecutable.
+> Script: `backend/src/scripts/migrate-data.ts` (ver cabecera para detalle del mapeo).
+
+1. Generar el cliente de lectura del monolito (deriva el schema del monolito):
+   ```
+   npm --prefix backend run prisma:generate:legacy
+   ```
+2. **Dry-run** (no escribe; reporta conteos por modelo). Con las env del backend
+   (`CONTROL_DATABASE_URL`, `TENANT_DB_SERVER_URL`) + `LEGACY_DATABASE_URL` = DB del monolito:
+   ```
+   npm --prefix backend run migrate:data
+   ```
+   Revisar que los conteos cuadren con lo esperado (clínicas, pacientes, citas, …).
+3. **Aplicar** (provisiona cada base, registra las clínicas en el control-plane y
+   vuelca los datos). Hacerlo con el monolito en **solo-lectura** (ventana de §6):
+   ```
+   npm --prefix backend run migrate:data -- --apply
+   ```
+4. Mapeo clave (por si hay que auditar): la `Clinica` del monolito se reparte en
+   `control.Clinica` (perfil + routing WhatsApp `waEnabled`/`waNumero`) y en la
+   `Configuracion` del tenant (perfil + WhatsApp completo + tokens Google); los
+   super-admins (`User.isPlatformAdmin`) → `control.PlatformAdmin`.
+
+> Re-correr el script es seguro (provisión idempotente + `createMany skipDuplicates`
+> + upserts): solo agrega lo que falte. Pero los datos escritos en los tenants tras
+> el switch NO vuelven al monolito (ver rollback §7).
 
 ---
 
@@ -210,21 +273,37 @@ Las clínicas entran por `<slug>.clariva.cl` → el frontend nuevo se sirve en u
 
 ---
 
-## 6. Switch de tráfico
+## 6. Switch de tráfico (con ventana de congelación de escrituras)
 
-- El cutover mueve los 3 dominios al stack nuevo: el apex/`www` al **web**, el
-  wildcard `*.clariva.cl` al **frontend** (clínicas), y `api` al **backend**.
-- Recomendado: mantener el monolito accesible en un dominio alterno
-  (`legacy.clariva.cl`) unos días por si hay que volver (rollback = reapuntar DNS).
+> Como el stack nuevo usa OTRAS bases (control + tenants), el orden importa:
+> migrar con el monolito en solo-lectura para no perder escrituras.
+
+1. **Congelar escrituras** en el monolito (ventana de bajo uso): suspender las
+   clínicas o poner el monolito en modo mantenimiento/solo-lectura. A partir de acá
+   nadie escribe en la DB del monolito.
+2. **Migrar** los datos (§2.6, `migrate:data --apply`). Validar conteos.
+3. **Validar** el stack nuevo contra los dominios de prueba (§4) leyendo datos reales
+   ya migrados.
+4. **Mover los 3 dominios** al stack nuevo: el apex/`www` al **web**, el wildcard
+   `*.clariva.cl` al **frontend** (clínicas), y `api` al **backend**. Recién acá se
+   aceptan escrituras nuevas (en los tenants).
+5. Recomendado: mantener el monolito accesible en un dominio alterno
+   (`legacy.clariva.cl`) unos días en solo-lectura por si hay que consultar.
 
 ---
 
 ## 7. Rollback (si algo falla)
 
-1. **Volver el dominio** de las clínicas al servicio del monolito (revertir el
-   CNAME / custom domain). El monolito nunca se tocó: sigue operativo.
-2. No hay migración de datos que revertir: **ambos stacks usan la misma DB**.
-3. Investigar con los logs del backend nuevo (Railway → Deployments → Logs).
+- **Antes de aceptar escrituras nuevas** (durante la validación del paso §6.3, con el
+  monolito aún en solo-lectura): rollback **limpio** = reapuntar el DNS al monolito y
+  reactivar sus escrituras. Los tenants quedan como copia descartable; el monolito
+  sigue siendo la fuente de verdad. El monolito nunca se tocó (solo se leyó).
+- **Después de aceptar escrituras nuevas** (§6.4 ya hecho): las clínicas escribieron
+  en sus tenant DBs; esos datos **no están** en la DB del monolito. Volver al monolito
+  perdería todo lo escrito post-switch. Opciones: (a) arreglar hacia adelante en el
+  stack nuevo (preferido), o (b) si es inevitable volver, migrar de vuelta los deltas
+  de los tenants al monolito (manual). Por eso la ventana de §6 y validar bien antes.
+- Investigar con los logs del backend nuevo (Railway → Deployments → Logs).
 
 ---
 
@@ -234,12 +313,16 @@ Las clínicas entran por `<slug>.clariva.cl` → el frontend nuevo se sirve en u
 > monolito **se puede retirar por completo** una vez estable el stack nuevo.
 
 - [ ] Confirmar varios días de operación sin incidencias en los 3 servicios nuevos.
-- [ ] El backend pasa a ser **dueño del schema**: a partir de acá, los cambios de
-      schema se hacen en `backend/prisma/schema.prisma` (sincronizado con
-      `npm run prisma:sync`) y se aplican con `prisma db push` (mismo flujo que
-      tenía el monolito). Documentar el cambio en `docs/AI_CHANGELOG.md`.
+- [ ] El backend ya es **dueño del schema** (database-per-tenant). Los cambios se
+      hacen en `backend/prisma/control/schema.prisma` (control-plane) o
+      `backend/prisma/tenant/schema.prisma` (clínicas):
+      - control: `npm run control:push`.
+      - tenants: regenerar `prisma/tenant/init.sql` (`npm run tenant:initsql`) y aplicar
+        a TODAS las bases con `npm run migrate:tenants`.
+      - Documentar el cambio en `docs/AI_CHANGELOG.md`. (El `prisma:sync` del monolito
+        ya no existe; el schema compartido fue retirado.)
 - [ ] Pausar/eliminar el servicio del **monolito** en Railway (los 3 dominios ya
-      apuntan al stack nuevo).
+      apuntan al stack nuevo). Conservar un backup de su DB por si se necesita auditar.
 - [ ] (Opcional) archivar el código del monolito (`app/`, `proxy.ts`, etc.).
 
 ---
