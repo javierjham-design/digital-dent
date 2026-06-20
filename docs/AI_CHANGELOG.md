@@ -18,7 +18,13 @@ Pendiente F4 (corte real): refactor de auth (admins de plataforma en control / s
 
 **Puente F3→F4 (aditivo, 67/67):** `lib/tenant-seed.ts` (siembra Configuracion + admin en la base nueva) y `services/clinicas-registry.service.ts` (`crearClinicaConProvision`: slug único → dbName → provisión de la base → seed → registro en control-plane, con rollback `dropTenantDatabase` si falla). Test `clinicas-registry` (slugify). Listos para que el controller admin de F4 los use.
 
-**F4 (en curso) — auth + demo al modelo control/tenant (67/67, `npm test` verde):**
+**F4 — conversión masiva de dominios al cliente por-request (67/67 verde en cada paso):**
+- **Datos de clínica (11 dominios) → `req.tenant`** (sin `clinicaId`; service usa el cliente de la base de la clínica, controller usa `tenantDb(req)`, rutas a `requireTenant`): pacientes (+ficha/comentarios/mensajes/resumen/export/import), citas, usuarios (equipo), catálogo (prestaciones/medios/config — la config de clínica ahora es la `Configuracion` singleton del tenant), agenda (horarios/bloqueos), clínico (planes/secciones/tratamientos/evoluciones/odontograma), presupuestos, caja (+`lib/caja`), cobros, liquidaciones/contratos, reportes (7 XLSX).
+- **Super-admin (`admin.service`) → split control/tenant:** registro de clínicas, planes, leads, pagos, extras y facturación en el **control-plane**; reset de contraseña y config WhatsApp sobre la **base del tenant** (resuelta por `dbName`); `crearClinica` usa `crearClinicaConProvision` (provisión automática de la base). `lib/plans` y `lib/audit-admin` → control-plane.
+- Wiring: arrays `tenant`/`adminTenant` en el router; `requireClinica`/`clinica` solo quedan en google/whatsapp (aún sin convertir).
+- **Pendiente F4:** integraciones **google** (connect/callback/sync + libs) y **whatsapp** (webhook/recordatorios + lib) — requieren iteración cross-DB en los crons y, para el webhook de WA, una decisión de routing (mapear `waNumero` → clínica en el control-plane). Son opcionales para la marcha blanca. Luego: limpieza (quitar `lib/prisma` viejo + schema compartido), F5–F7.
+
+**F4 (inicio) — auth + demo al modelo control/tenant (67/67, `npm test` verde):**
 - `auth.service` reescrito: login dual (clínica → su base tenant resuelta por slug en el control-plane; plataforma → `PlatformAdmin`), `getSessionUser(payload)` rehidrata desde la base correcta, `cambiarPassword` por contexto, `issueTokenForTenantUser` (auto-login de demo). JWT ahora lleva `slug`; `clinicaId` = id en el control-plane.
 - `demo.service` convertido: cada demo **provisiona su propia base** + seed (admin + prestaciones del rubro + pacientes de muestra vía `seedDemoTenant`) + registra clínica/lead en el control-plane + emite token; `limpiarDemosExpiradas` borra la base física + el registro.
 - `tratamientos`/`liquidaciones` (aún sin convertir) leen permisos del prisma compartido (helper local) para no acoplarse a medias al nuevo auth.
