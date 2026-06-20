@@ -8,7 +8,12 @@ dist/
 prisma/generated/
 
 # Artefactos de tests de integración (DB sqlite + cliente Prisma derivado)
-prisma/.test-client/
-prisma/test.db
-prisma/test.db-journal
-prisma/schema.test.prisma
+
+# Artefactos de tests de integración (sqlite control + tenants + clientes)
+prisma/control/.test-control-client/
+prisma/tenant/.test-tenant-client/
+prisma/control/schema.test.prisma
+prisma/tenant/schema.test.prisma
+prisma/.test-control.db
+prisma/.test-control.db-journal
+prisma/.test-tenants/
