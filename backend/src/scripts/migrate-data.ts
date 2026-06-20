@@ -92,9 +92,23 @@ const pick = (row: any, fields: string[]) => {
 const counts: Record<string, number> = {}
 const bump = (k: string, n: number) => { counts[k] = (counts[k] ?? 0) + n }
 
-// Copia un modelo del tenant filtrando por clinicaId en el origen.
+// Modelos HIJOS del monolito que NO tienen clinicaId propio: se scopean por la
+// relación a su padre (que sí lo tiene). El resto filtra por clinicaId directo.
+const PARENT_FILTER: Record<string, (clinicaId: string) => any> = {
+  CitaLog:         (clinicaId) => ({ cita: { clinicaId } }),
+  Diente:          (clinicaId) => ({ ficha: { clinicaId } }),
+  SeccionPlan:     (clinicaId) => ({ plan: { clinicaId } }),
+  ItemPresupuesto: (clinicaId) => ({ presupuesto: { clinicaId } }),
+  CajaUsuario:     (clinicaId) => ({ caja: { clinicaId } }),
+  CobroItem:       (clinicaId) => ({ cobro: { clinicaId } }),
+  LiquidacionItem: (clinicaId) => ({ liquidacion: { clinicaId } }),
+}
+
+// Copia un modelo del tenant filtrando por clínica en el origen (clinicaId directo
+// o, para los hijos, por la relación a su padre).
 async function copyTenantModel(db: any, model: string, clinicaId: string): Promise<void> {
-  const rows = await delegate(legacy, model).findMany({ where: { clinicaId } })
+  const where = PARENT_FILTER[model] ? PARENT_FILTER[model](clinicaId) : { clinicaId }
+  const rows = await delegate(legacy, model).findMany({ where })
   if (rows.length === 0) return
   const data = rows.map((r: any) => pick(r, TENANT_FIELDS[model]))
   if (!DRY) await delegate(db, model).createMany({ data, skipDuplicates: true })
