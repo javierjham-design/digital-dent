@@ -1,9 +1,9 @@
 # Dockerfile del BACKEND. Contexto de build = raíz del repo (dental-platform/),
 # porque el backend importa ../shared. En Railway: Root Directory = raíz del repo
 # y Dockerfile Path = backend/Dockerfile.
-FROM node:20-slim
-# openssl: requerido por los engines de Prisma.
-RUN apt-get update && apt-get install -y --no-install-recommends openssl && rm -rf /var/lib/apt/lists/*
+# Usamos node:20 (full): ya incluye openssl (requerido por los engines de Prisma),
+# así evitamos un `apt-get install` que falla intermitentemente en el build de Railway.
+FROM node:20
 WORKDIR /app
 COPY shared ./shared
 COPY backend ./backend
