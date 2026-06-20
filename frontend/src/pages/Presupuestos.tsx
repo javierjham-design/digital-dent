@@ -4,6 +4,7 @@ import { presupuestosService } from '@/services/clinico.service'
 import { prestacionesService } from '@/services/catalogo.service'
 import { pacientesService } from '@/services/clinica.service'
 import { ApiError } from '@/services/api'
+import { PacienteBuscador } from '@/components/PacienteBuscador'
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
@@ -81,14 +82,14 @@ export function Presupuestos() {
           )}
       </div>
 
-      {crear && <CrearPresupuestoModal pacientes={pacientes} onClose={() => setCrear(false)} onCreado={() => { setCrear(false); cargar() }} />}
+      {crear && <CrearPresupuestoModal onClose={() => setCrear(false)} onCreado={() => { setCrear(false); cargar() }} />}
     </div>
   )
 }
 
 interface ItemForm { prestacionId: string; nombre: string; cantidad: number; precioUnitario: number; descuento: number }
 
-function CrearPresupuestoModal({ pacientes, onClose, onCreado }: { pacientes: PacienteDTO[]; onClose: () => void; onCreado: () => void }) {
+function CrearPresupuestoModal({ onClose, onCreado }: { onClose: () => void; onCreado: () => void }) {
   const [pacienteId, setPacienteId] = useState('')
   const [prestaciones, setPrestaciones] = useState<PrestacionDTO[]>([])
   const [items, setItems] = useState<ItemForm[]>([])
@@ -129,10 +130,7 @@ function CrearPresupuestoModal({ pacientes, onClose, onCreado }: { pacientes: Pa
 
         <label className="block mb-4">
           <span className="block text-sm font-medium text-slate-700 mb-1">Paciente</span>
-          <select value={pacienteId} onChange={(e) => setPacienteId(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
-            <option value="">Selecciona un paciente…</option>
-            {pacientes.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellido}{p.rut ? ` · ${p.rut}` : ''}</option>)}
-          </select>
+          <PacienteBuscador onSelect={(p) => setPacienteId(p?.id ?? '')} />
         </label>
 
         <div className="flex items-end gap-2 mb-3">

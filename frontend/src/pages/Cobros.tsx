@@ -1,9 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { PacienteDTO } from '@shared/types'
+import { useCallback, useEffect, useState } from 'react'
 import { cajasService, cobrosService } from '@/services/caja.service'
 import { mediosPagoService, type MedioPagoDTO } from '@/services/catalogo.service'
-import { pacientesService } from '@/services/clinica.service'
 import { ApiError } from '@/services/api'
+import { PacienteBuscador } from '@/components/PacienteBuscador'
 
 interface Caja { id: string; nombre: string }
 interface Sesion { id: string; estado: string; saldoApertura: number; abiertaAt: string; saldoEsperado?: number | null; saldoReal?: number | null; diferencia?: number | null; totalIngresos?: number | null; totalEgresos?: number | null }
@@ -12,7 +11,6 @@ interface Resumen { ingresos: number; egresos: number; saldoEsperado: number; sa
 interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; paciente: { nombre: string; apellido: string }; medioPago?: { nombre: string } | null }
 
 const fmt = (n: number | null | undefined) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n ?? 0))
-const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
 export function Cobros() {
   const [cajas, setCajas] = useState<Caja[]>([])
@@ -211,15 +209,12 @@ function MovModal({ cajaId, onClose, onDone, onError }: { cajaId: string; onClos
 }
 
 function PagoModal({ cajaId, onClose, onDone, onError }: { cajaId: string; onClose: () => void; onDone: () => void; onError: (m: string) => void }) {
-  const [pacientes, setPacientes] = useState<PacienteDTO[]>([])
   const [medios, setMedios] = useState<MedioPagoDTO[]>([])
-  const [search, setSearch] = useState('')
   const [pacienteId, setPacienteId] = useState('')
   const [medioPagoId, setMedioPagoId] = useState('')
   const [items, setItems] = useState([{ descripcion: '', monto: '' }])
   const [g, setG] = useState(false)
-  useEffect(() => { pacientesService.listar().then(setPacientes).catch(() => {}); mediosPagoService.listar().then(setMedios).catch(() => {}) }, [])
-  const results = useMemo(() => { if (search.length < 2) return []; const q = norm(search); return pacientes.filter((p) => norm(`${p.nombre} ${p.apellido}`).includes(q) || (p.rut ?? '').toLowerCase().includes(q)).slice(0, 6) }, [search, pacientes])
+  useEffect(() => { mediosPagoService.listar().then(setMedios).catch(() => {}) }, [])
   const total = items.reduce((s, i) => s + (Number(i.monto) || 0), 0)
   const puede = pacienteId && items.some((i) => i.descripcion && Number(i.monto) > 0)
   async function guardar() {
@@ -231,14 +226,8 @@ function PagoModal({ cajaId, onClose, onDone, onError }: { cajaId: string; onClo
   }
   return (
     <Modal title="Recibir pago" onClose={onClose}>
-      <div className="relative mb-3">
-        <input value={search} onChange={(e) => { setSearch(e.target.value); setPacienteId('') }} placeholder="Buscar paciente…" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-        {results.length > 0 && !pacienteId && (
-          <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-            {results.map((p) => <button key={p.id} onClick={() => { setPacienteId(p.id); setSearch(`${p.nombre} ${p.apellido}`) }} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 text-sm">{p.nombre} {p.apellido} <span className="text-xs text-slate-400 font-mono">{p.rut ?? ''}</span></button>)}
-          </div>
-        )}
-        {pacienteId && <p className="text-xs text-cyan-700 mt-1">Paciente seleccionado ✓</p>}
+      <div className="mb-3">
+        <PacienteBuscador onSelect={(p) => setPacienteId(p?.id ?? '')} placeholder="Buscar paciente…" />
       </div>
       <div className="space-y-2 mb-3">
         {items.map((it, i) => (

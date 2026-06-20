@@ -7,17 +7,17 @@ import type { EventClickArg } from '@fullcalendar/core'
 
 // Tipo estructural común a eventDrop y eventResize (ambos traen event + revert).
 type MoveArg = { event: { start: Date | null; end: Date | null; extendedProps: Record<string, unknown> }; revert: () => void }
-import type { BloqueoDTO, CitaDTO, DoctorDTO, HorarioDTO, PacienteDTO } from '@shared/types'
+import type { BloqueoDTO, CitaDTO, DoctorDTO, HorarioDTO } from '@shared/types'
 import { CITA_ESTADOS, siguienteEstado } from '@shared/constants/cita-estados'
 import { bloqueosService, citasService, horariosLectura } from '@/services/clinica.service'
 import { pacientesService } from '@/services/clinica.service'
 import { usuariosService } from '@/services/equipo.service'
 import { ApiError } from '@/services/api'
+import { PacienteBuscador } from '@/components/PacienteBuscador'
 
 const MOTIVOS = ['Consulta diagnóstico', 'Control', 'Detartraje / Profilaxis', 'Obturación', 'Endodoncia', 'Exodoncia', 'Ortodoncia', 'Blanqueamiento', 'Urgencia', 'Otro']
 const DURACIONES = [15, 30, 45, 60, 90, 120]
 
-const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
 
 type Vista = 'semanal' | 'diaria'
@@ -28,7 +28,6 @@ export function Agenda() {
   const [citas, setCitas] = useState<CitaDTO[]>([])
   const [bloqueos, setBloqueos] = useState<BloqueoDTO[]>([])
   const [horarios, setHorarios] = useState<HorarioDTO[]>([])
-  const [pacientes, setPacientes] = useState<PacienteDTO[]>([])
 
   const [vista, setVista] = useState<Vista>('semanal')
   const [currentDate, setCurrentDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })
@@ -43,13 +42,12 @@ export function Agenda() {
 
   function notify(t: string, ok = true) { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
 
-  // Carga inicial: doctores + pacientes.
+  // Carga inicial: doctores (los pacientes se buscan en el servidor al crear cita).
   useEffect(() => {
     usuariosService.doctores().then((d) => {
       setDoctores(d)
       setDoctorId((cur) => cur || d[0]?.id || '')
     }).catch(() => {})
-    pacientesService.listar().then(setPacientes).catch(() => {})
   }, [])
 
   // Rango visible según vista.
@@ -247,8 +245,8 @@ export function Agenda() {
 
       {crear && (
         <CrearCitaModal slotISO={crear.slotISO} doctorId={doctorId || doctores[0]?.id || ''} doctores={doctores}
-          pacientes={pacientes} onClose={() => setCrear(null)}
-          onCreated={() => { setCrear(null); notify('Cita agendada'); recargar(); pacientesService.listar().then(setPacientes).catch(() => {}) }}
+          onClose={() => setCrear(null)}
+          onCreated={() => { setCrear(null); notify('Cita agendada'); recargar() }}
           onError={(m) => notify(m, false)} />
       )}
       {selected && (
@@ -294,8 +292,8 @@ function DiariaLista({ citas, onClick, onAvanzar }: { citas: CitaDTO[]; onClick:
 }
 
 // ── Modal: crear cita ──
-function CrearCitaModal({ slotISO, doctorId, doctores, pacientes, onClose, onCreated, onError }: {
-  slotISO: string; doctorId: string; doctores: DoctorDTO[]; pacientes: PacienteDTO[]
+function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onError }: {
+  slotISO: string; doctorId: string; doctores: DoctorDTO[]
   onClose: () => void; onCreated: () => void; onError: (m: string) => void
 }) {
   const [doc, setDoc] = useState(doctorId)
@@ -303,16 +301,9 @@ function CrearCitaModal({ slotISO, doctorId, doctores, pacientes, onClose, onCre
   const [duracion, setDuracion] = useState(30)
   const [sobrecupo, setSobrecupo] = useState(false)
   const [modo, setModo] = useState<'existente' | 'nuevo'>('existente')
-  const [search, setSearch] = useState('')
   const [pacienteId, setPacienteId] = useState('')
   const [nuevo, setNuevo] = useState({ nombre: '', apellido: '', rut: '', telefono: '' })
   const [guardando, setGuardando] = useState(false)
-
-  const results = useMemo(() => {
-    if (search.length < 2) return []
-    const q = norm(search)
-    return pacientes.filter((p) => norm(`${p.nombre} ${p.apellido}`).includes(q) || (p.rut ?? '').toLowerCase().includes(q)).slice(0, 6)
-  }, [search, pacientes])
 
   const puede = modo === 'existente' ? !!pacienteId : !!nuevo.nombre && !!nuevo.apellido
 
@@ -360,22 +351,7 @@ function CrearCitaModal({ slotISO, doctorId, doctores, pacientes, onClose, onCre
         </div>
 
         {modo === 'existente' ? (
-          <div className="relative">
-            <input value={search} onChange={(e) => { setSearch(e.target.value); setPacienteId('') }} placeholder="Buscar nombre o RUT…"
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-            {results.length > 0 && !pacienteId && (
-              <div className="absolute z-10 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
-                {results.map((p) => (
-                  <button key={p.id} type="button" onClick={() => { setPacienteId(p.id); setSearch(`${p.nombre} ${p.apellido}`) }}
-                    className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0">
-                    <p className="text-sm font-medium text-slate-800">{p.nombre} {p.apellido}</p>
-                    <p className="text-xs text-slate-500 font-mono">{p.rut ?? 'Sin RUT'}</p>
-                  </button>
-                ))}
-              </div>
-            )}
-            {pacienteId && <p className="text-xs text-cyan-700 mt-1">Paciente seleccionado ✓</p>}
-          </div>
+          <PacienteBuscador onSelect={(p) => setPacienteId(p?.id ?? '')} />
         ) : (
           <div className="grid grid-cols-2 gap-2">
             <input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Nombre *" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
