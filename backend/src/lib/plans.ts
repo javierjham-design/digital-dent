@@ -1,4 +1,4 @@
-import { prisma } from './prisma'
+import { control } from '@/db/control'
 
 // Defaults usados para seed inicial y como fallback si la consulta a DB falla.
 // El catálogo "real" vive en la tabla PlanSuscripcion y se gestiona desde el
@@ -102,9 +102,9 @@ function mapPlan(r: {
 // Llamado on-demand desde lecturas para que la primera carga del super-admin
 // no se quede vacía aunque nadie haya corrido un seed explícito.
 export async function ensureDefaultPlans(): Promise<void> {
-  const count = await prisma.planSuscripcion.count()
+  const count = await control.planSuscripcion.count()
   if (count > 0) return
-  await prisma.planSuscripcion.createMany({
+  await control.planSuscripcion.createMany({
     data: DEFAULT_PLANS.map((p) => ({
       id: p.id,
       nombre: p.nombre,
@@ -122,7 +122,7 @@ export async function ensureDefaultPlans(): Promise<void> {
 
 export async function getPlanes(opts: { soloActivos?: boolean } = {}): Promise<Plan[]> {
   await ensureDefaultPlans()
-  const rows = await prisma.planSuscripcion.findMany({
+  const rows = await control.planSuscripcion.findMany({
     where: opts.soloActivos ? { activo: true } : undefined,
     orderBy: [{ orden: 'asc' }, { precioMensual: 'asc' }],
   })
@@ -131,7 +131,7 @@ export async function getPlanes(opts: { soloActivos?: boolean } = {}): Promise<P
 
 export async function getPlan(id: string): Promise<Plan | null> {
   await ensureDefaultPlans()
-  const r = await prisma.planSuscripcion.findUnique({ where: { id } })
+  const r = await control.planSuscripcion.findUnique({ where: { id } })
   return r ? mapPlan(r) : null
 }
 

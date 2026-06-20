@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma'
+import { control } from '@/db/control'
 
 // Auditoría de acciones sensibles del super-admin. Versión backend: recibe
 // ip/userAgent ya extraídos (el controller los saca del request de Express).
@@ -23,7 +23,7 @@ export async function auditAdmin(args: {
   userAgent?: string | null
 }): Promise<void> {
   try {
-    await prisma.auditLogAdmin.create({
+    await control.auditLogAdmin.create({
       data: {
         actorId: args.actorId,
         actorEmail: args.actorEmail,
