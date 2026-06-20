@@ -10,16 +10,26 @@ export function Pacientes() {
   const esAdmin = user?.role === 'admin'
   const [pacientes, setPacientes] = useState<PacienteDTO[]>([])
   const [q, setQ] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+  const [total, setTotal] = useState(0)
   const [cargando, setCargando] = useState(true)
   const [io, setIo] = useState<{ tipo: 'export' | 'plantilla' | 'import' | null; error?: string }>({ tipo: null })
   const [resultado, setResultado] = useState<ImportResultado | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  function cargar() { pacientesService.listar(q).then(setPacientes).finally(() => setCargando(false)) }
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  function cargar() {
+    setCargando(true)
+    pacientesService.listarPaginado(q.trim() || undefined, page, pageSize)
+      .then((r) => { setPacientes(r.items); setTotal(r.total) })
+      .finally(() => setCargando(false))
+  }
   useEffect(() => {
     const t = setTimeout(cargar, 250)
     return () => clearTimeout(t)
-  }, [q]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, page, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function descarga(tipo: 'export' | 'plantilla') {
     setIo({ tipo }); setResultado(null)
@@ -73,8 +83,20 @@ export function Pacientes() {
         </div>
       )}
 
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre o RUT…"
-        className="w-full max-w-md mb-4 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder="Buscar por nombre o RUT…"
+          className="flex-1 min-w-[16rem] max-w-md px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        <label className="flex items-center gap-2 text-sm text-slate-500 whitespace-nowrap">
+          Ver
+          <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }}
+            className="px-2 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+          por página
+        </label>
+      </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
         {cargando ? (
@@ -93,6 +115,18 @@ export function Pacientes() {
           ))
         )}
       </div>
+
+      {!cargando && total > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-slate-600">
+          <span>{total.toLocaleString('es-CL')} paciente{total === 1 ? '' : 's'} · página {page} de {totalPages}</span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1}
+              className="px-3 py-1.5 border border-slate-200 rounded-lg disabled:opacity-40 hover:bg-slate-50">Anterior</button>
+            <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+              className="px-3 py-1.5 border border-slate-200 rounded-lg disabled:opacity-40 hover:bg-slate-50">Siguiente</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

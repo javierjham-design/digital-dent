@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
 import {
-  actualizarPaciente, crearPaciente, guardarFicha, listarPacientes, obtenerFicha, obtenerPaciente,
+  actualizarPaciente, crearPaciente, guardarFicha, listarPacientes, listarPacientesPaginado, obtenerFicha, obtenerPaciente,
   listarComentarios, crearComentario, listarMensajes, crearMensaje, resumenPaciente,
   exportarPacientes, plantillaPacientes, importarPacientes,
 } from '@/services/pacientes.service'
@@ -10,6 +10,14 @@ import { crearPacienteSchema } from '@/validators/schemas'
 
 export async function getPacientes(req: Request, res: Response) {
   const q = typeof req.query.q === 'string' ? req.query.q : undefined
+  // Con ?page= devuelve un resultado paginado { items, total, page, pageSize }
+  // (sección /pacientes). Sin page, devuelve un array (selectores de paciente).
+  if (req.query.page !== undefined) {
+    const page = Number(req.query.page)
+    const pageSize = req.query.pageSize !== undefined ? Number(req.query.pageSize) : undefined
+    res.json(await listarPacientesPaginado(tenantDb(req), { q, page, pageSize }))
+    return
+  }
   res.json(await listarPacientes(tenantDb(req), q))
 }
 

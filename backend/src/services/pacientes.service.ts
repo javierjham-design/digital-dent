@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx'
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { buildXlsx, formatRUT, isoDate } from '@/lib/excel'
-import type { PacienteDTO } from '@shared/types'
+import type { PacienteDTO, PacientesPagina } from '@shared/types'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica
 // (req.tenant). Ya no hay clinicaId — la base ES la clínica.
@@ -47,6 +47,40 @@ export async function listarPacientes(db: TenantClient, q?: string): Promise<Pac
   // Sin búsqueda: listado base acotado (para navegar; el buscador encuentra el resto).
   const pacientes = await db.paciente.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' }, take: LIST_LIMIT, select: LIST_SELECT })
   return pacientes.map(toDTO)
+}
+
+const PAGE_SIZES = [25, 50, 100]
+
+// Listado PAGINADO para la sección /pacientes. Devuelve la página pedida + el total
+// (para construir el paginador). La búsqueda filtra sobre TODOS los activos.
+export async function listarPacientesPaginado(
+  db: TenantClient,
+  opts: { q?: string; page?: number; pageSize?: number },
+): Promise<PacientesPagina> {
+  const pageSize = PAGE_SIZES.includes(Number(opts.pageSize)) ? Number(opts.pageSize) : 25
+  const page = Math.max(1, Number(opts.page) || 1)
+  const needle = opts.q && opts.q.trim().length >= 2 ? norm(opts.q.trim()) : null
+
+  if (needle) {
+    // Búsqueda: traemos todos los activos, filtramos (insensible a acentos/mayúsculas)
+    // y paginamos en memoria. A esta escala (miles) es instantáneo.
+    const todos = await db.paciente.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' }, select: LIST_SELECT })
+    const filtrados = todos.filter((p) =>
+      norm(`${p.nombre} ${p.apellido}`).includes(needle) || (p.rut ?? '').toLowerCase().includes(needle),
+    )
+    const start = (page - 1) * pageSize
+    return { items: filtrados.slice(start, start + pageSize).map(toDTO), total: filtrados.length, page, pageSize }
+  }
+
+  // Sin búsqueda: paginación en la base (count + skip/take).
+  const [total, pacientes] = await Promise.all([
+    db.paciente.count({ where: { activo: true } }),
+    db.paciente.findMany({
+      where: { activo: true }, orderBy: { nombre: 'asc' },
+      skip: (page - 1) * pageSize, take: pageSize, select: LIST_SELECT,
+    }),
+  ])
+  return { items: pacientes.map(toDTO), total, page, pageSize }
 }
 
 export async function obtenerPaciente(db: TenantClient, id: string): Promise<PacienteDTO> {

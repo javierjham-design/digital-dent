@@ -46,6 +46,14 @@ export interface PacienteDTO {
   activo: boolean
 }
 
+// Resultado paginado de la lista de pacientes (la sección /pacientes).
+export interface PacientesPagina {
+  items: PacienteDTO[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 export interface CitaDTO {
   id: string
   pacienteId: string

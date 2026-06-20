@@ -1,5 +1,5 @@
 import { api, tokenStore, ApiError } from './api'
-import type { BloqueoDTO, CitaDTO, HorarioDTO, PacienteDTO } from '@shared/types'
+import type { BloqueoDTO, CitaDTO, HorarioDTO, PacienteDTO, PacientesPagina } from '@shared/types'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
 
@@ -44,6 +44,13 @@ export interface DienteDTO { numero: number; cara: string; estado: string }
 
 export const pacientesService = {
   listar: (q?: string) => api.get<PacienteDTO[]>(`/pacientes${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  listarPaginado: (q: string | undefined, page: number, pageSize: number) => {
+    const p = new URLSearchParams()
+    if (q) p.set('q', q)
+    p.set('page', String(page))
+    p.set('pageSize', String(pageSize))
+    return api.get<PacientesPagina>(`/pacientes?${p.toString()}`)
+  },
   obtener: (id: string) => api.get<PacienteDTO>(`/pacientes/${id}`),
   crear: (input: { nombre: string; apellido: string; rut?: string; telefono?: string; email?: string; prevision?: string }) =>
     api.post<PacienteDTO>('/pacientes', input),
