@@ -120,9 +120,12 @@ function DetalleModal({ liq, onClose }: { liq: LiqFinDetalle; onClose: () => voi
           <span className={`text-xs font-semibold rounded-lg px-2 py-0.5 ${ESTADO_COLOR[liq.estado] ?? ''}`}>{ESTADO_LABEL[liq.estado] ?? liq.estado}</span>
           {liq.estado === 'PAGADA' && liq.fechaPago && <span className="text-xs text-slate-500">Pagada el {fmtFecha(liq.fechaPago)}</span>}
         </div>
-        <div className="flex justify-end gap-4 text-sm mb-3">
-          <span className="text-slate-500">Pagado por pacientes <b className="font-mono">{fmt(liq.totalBruto)}</b></span>
-          <span className="text-slate-500 font-semibold">A pagar <b className="font-mono text-cyan-700">{fmt(liq.totalLiquidado)}</b></span>
+        <div className="flex items-center justify-between gap-4 text-sm mb-3 flex-wrap">
+          <button onClick={() => window.open(`/print/liquidacion/${liq.id}`, '_blank')} className="px-3 py-1.5 border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 text-xs font-medium">Imprimir / PDF</button>
+          <div className="flex gap-4">
+            <span className="text-slate-500">Pagado por pacientes <b className="font-mono">{fmt(liq.totalBruto)}</b></span>
+            <span className="text-slate-500 font-semibold">A pagar <b className="font-mono text-cyan-700">{fmt(liq.totalLiquidado)}</b></span>
+          </div>
         </div>
         <div className="border border-slate-100 rounded-xl overflow-hidden">
           <table className="w-full text-sm">
