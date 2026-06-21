@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { CambiarPasswordModal } from '@/components/CambiarPasswordModal'
@@ -21,22 +21,34 @@ const linkCls = ({ isActive }: { isActive: boolean }) =>
 
 function LiquidacionesMenu({ puedeGestionar }: { puedeGestionar: boolean }) {
   const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
   const activo = pathname.startsWith('/liquidaciones') || pathname.startsWith('/mis-liquidaciones')
+
+  // Cerrar al hacer click fuera del menú (no por hover, que cerraba al cruzar el hueco).
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
   // Si no gestiona, no hace falta submenú: va directo a "Mis liquidaciones".
   if (!puedeGestionar) {
     return <NavLink to="/mis-liquidaciones" className={linkCls}>Liquidaciones</NavLink>
   }
   return (
-    <div className="relative" onMouseLeave={() => setOpen(false)}>
+    <div className="relative" ref={ref}>
       <button onClick={() => setOpen((o) => !o)}
         className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${activo ? 'bg-cyan-50 text-cyan-700' : 'text-slate-500 hover:text-slate-800 hover:bg-slate-50'}`}>
         Liquidaciones ▾
       </button>
       {open && (
-        <div className="absolute left-0 mt-1 w-52 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-20">
-          <NavLink to="/liquidaciones" onClick={() => setOpen(false)} className="block px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">Gestión de liquidaciones</NavLink>
-          <NavLink to="/mis-liquidaciones" onClick={() => setOpen(false)} className="block px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 border-t border-slate-100">Mis liquidaciones</NavLink>
+        <div className="absolute left-0 top-full pt-1 w-52 z-20">
+          <div className="bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
+            <NavLink to="/liquidaciones" onClick={() => setOpen(false)} className="block px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50">Gestión de liquidaciones</NavLink>
+            <NavLink to="/mis-liquidaciones" onClick={() => setOpen(false)} className="block px-4 py-2.5 text-sm text-slate-700 hover:bg-slate-50 border-t border-slate-100">Mis liquidaciones</NavLink>
+          </div>
         </div>
       )}
     </div>
