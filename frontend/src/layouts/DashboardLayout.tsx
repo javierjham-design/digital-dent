@@ -6,7 +6,6 @@ import { CambiarPasswordModal } from '@/components/CambiarPasswordModal'
 const NAV = [
   { to: '/agenda', label: 'Agenda' },
   { to: '/pacientes', label: 'Pacientes' },
-  { to: '/presupuestos', label: 'Presupuestos' },
   { to: '/cobros', label: 'Cobros' },
   { to: '/liquidaciones', label: 'Liquidaciones' },
   { to: '/prestaciones', label: 'Prestaciones' },
