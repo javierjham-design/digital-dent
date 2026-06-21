@@ -1,7 +1,23 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { liquidacionesService } from '@/services/caja.service'
 import { api } from '@/services/api'
+
+// Rasteriza la 1ª página de un PDF a PNG (data URL). Así la vista previa se
+// imprime de verdad (los <embed> de PDF no aparecen en el resultado impreso).
+async function pdfPrimeraPaginaPng(blob: Blob): Promise<string> {
+  const pdfjs = await import('pdfjs-dist')
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl
+  const pdf = await pdfjs.getDocument({ data: await blob.arrayBuffer() }).promise
+  const page = await pdf.getPage(1)
+  const viewport = page.getViewport({ scale: 1.6 })
+  const canvas = document.createElement('canvas')
+  canvas.width = viewport.width
+  canvas.height = viewport.height
+  await page.render({ canvasContext: canvas.getContext('2d')!, viewport, canvas }).promise
+  return canvas.toDataURL('image/png')
+}
 
 const fmt = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n))
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—')
@@ -29,8 +45,17 @@ export function LiquidacionPrint() {
       const det = d as Detalle
       setLiq(det)
       // Vistas previas de factura / comprobante (para que se vea el N° y el monto).
-      ;(det.adjuntos ?? []).forEach((a) => {
-        liquidacionesService.adjuntoBlob(id, a.id).then((b) => setPreviews((p) => ({ ...p, [a.id]: b }))).catch(() => {})
+      // Los PDF se rasterizan a imagen para que se impriman bien.
+      ;(det.adjuntos ?? []).forEach(async (a) => {
+        try {
+          const b = await liquidacionesService.adjuntoBlob(id, a.id)
+          if (b.mime === 'application/pdf') {
+            const dataUrl = await pdfPrimeraPaginaPng(b.blob)
+            setPreviews((p) => ({ ...p, [a.id]: { url: dataUrl, mime: 'image/png' } }))
+          } else {
+            setPreviews((p) => ({ ...p, [a.id]: { url: b.url, mime: b.mime } }))
+          }
+        } catch { /* sin vista previa */ }
       })
     }).catch(() => {})
   }, [id])
@@ -75,23 +100,23 @@ export function LiquidacionPrint() {
       <table className="w-full border-collapse mb-4">
         <thead>
           <tr className="border-b-2 border-slate-300 text-left text-xs uppercase text-slate-500">
-            <th className="py-1.5">Paciente</th>
-            <th className="py-1.5">Acción</th>
-            <th className="py-1.5">Medio pago</th>
-            <th className="py-1.5 text-right">Pagado</th>
-            <th className="py-1.5 text-right">Comisión</th>
-            <th className="py-1.5 text-right">Total</th>
+            <th className="py-1.5 px-2">Paciente</th>
+            <th className="py-1.5 px-2">Acción</th>
+            <th className="py-1.5 px-2">Medio pago</th>
+            <th className="py-1.5 px-2 text-right">Pagado</th>
+            <th className="py-1.5 px-2 text-right">Comisión</th>
+            <th className="py-1.5 px-2 text-right">Total</th>
           </tr>
         </thead>
         <tbody>
           {liq.items.map((it) => (
             <tr key={it.id} className="border-b border-slate-100">
-              <td className="py-1.5">{it.pacienteNombre}</td>
-              <td className="py-1.5">{it.prestacionNombre}{it.diente ? ` · ${it.diente}` : ''}</td>
-              <td className="py-1.5">{it.medioPago ?? '—'}</td>
-              <td className="py-1.5 text-right font-mono">{fmt(it.montoPagado)}</td>
-              <td className="py-1.5 text-right font-mono">−{fmt(it.comisionAplicada)}</td>
-              <td className="py-1.5 text-right font-mono font-semibold">{fmt(it.montoLiquidado)}</td>
+              <td className="py-1.5 px-2">{it.pacienteNombre}</td>
+              <td className="py-1.5 px-2">{it.prestacionNombre}{it.diente ? ` · ${it.diente}` : ''}</td>
+              <td className="py-1.5 px-2">{it.medioPago ?? '—'}</td>
+              <td className="py-1.5 px-2 text-right font-mono">{fmt(it.montoPagado)}</td>
+              <td className="py-1.5 px-2 text-right font-mono">−{fmt(it.comisionAplicada)}</td>
+              <td className="py-1.5 px-2 text-right font-mono font-semibold">{fmt(it.montoLiquidado)}</td>
             </tr>
           ))}
         </tbody>
@@ -113,10 +138,8 @@ export function LiquidacionPrint() {
                 <div key={a.id} className="border border-slate-200 rounded-lg p-2 break-inside-avoid">
                   <p className="text-xs font-semibold text-slate-600 mb-1">{label} · <span className="font-normal text-slate-400">{a.nombre}</span></p>
                   {pv?.mime.startsWith('image/')
-                    ? <img src={pv.url} alt={label} className="max-h-64 w-full object-contain" />
-                    : pv?.mime === 'application/pdf'
-                      ? <embed src={pv.url} type="application/pdf" className="w-full h-64" />
-                      : <p className="text-xs text-slate-400">Vista previa no disponible.</p>}
+                    ? <img src={pv.url} alt={label} className="max-h-80 w-full object-contain border border-slate-100" />
+                    : <p className="text-xs text-slate-400 py-8 text-center">Cargando vista previa…</p>}
                 </div>
               )
             })}
