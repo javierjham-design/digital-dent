@@ -12,6 +12,7 @@ import { Prestaciones } from '@/pages/Prestaciones'
 import { Configuracion } from '@/pages/Configuracion'
 import { Cobros } from '@/pages/Cobros'
 import { Liquidaciones } from '@/pages/Liquidaciones'
+import { MisLiquidaciones } from '@/pages/MisLiquidaciones'
 import { Presupuestos } from '@/pages/Presupuestos'
 import { Reportes } from '@/pages/Reportes'
 import { Ayuda } from '@/pages/Ayuda'
@@ -41,6 +42,7 @@ export default function App() {
             <Route path="/cobros" element={<Cobros />} />
             <Route path="/reportes" element={<Reportes />} />
             <Route path="/liquidaciones" element={<Liquidaciones />} />
+            <Route path="/mis-liquidaciones" element={<MisLiquidaciones />} />
             <Route path="/prestaciones" element={<Prestaciones />} />
             <Route path="/equipo" element={<Equipo />} />
             <Route path="/configuracion" element={<Configuracion />} />

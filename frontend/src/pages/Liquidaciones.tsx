@@ -1,7 +1,9 @@
 import { Fragment, useEffect, useState } from 'react'
+import { Navigate } from 'react-router-dom'
 import type { DoctorDTO, LiquidacionActivaDetalle, LiquidacionActivaResumen, LiquidacionAccion } from '@shared/types'
 import { liquidacionesService, contratosService } from '@/services/caja.service'
 import { usuariosService } from '@/services/equipo.service'
+import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
 interface LiqFin { id: string; periodo: string; totalBruto: number; totalLiquidado: number; estado: string; doctor?: { name: string | null; especialidad: string | null }; _count?: { items: number } }
@@ -15,6 +17,7 @@ const ESTADOS = ['BORRADOR', 'APROBADA', 'PAGADA']
 const ESTADO_COLOR: Record<string, string> = { BORRADOR: 'bg-slate-200 text-slate-600', APROBADA: 'bg-cyan-100 text-cyan-700', PAGADA: 'bg-emerald-100 text-emerald-700' }
 
 export function Liquidaciones() {
+  const { user } = useAuth()
   const [tab, setTab] = useState<'activas' | 'finalizadas'>('activas')
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
   const [modal, setModal] = useState<null | 'contratos'>(null)
@@ -22,6 +25,9 @@ export function Liquidaciones() {
   const notify = (t: string, ok = true) => { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
 
   useEffect(() => { usuariosService.doctores().then(setDoctores).catch(() => {}) }, [])
+
+  // Solo quien puede gestionar liquidaciones ve esta vista; el resto va a "Mis liquidaciones".
+  if (!user?.permisos?.puedeGestionarLiquidaciones) return <Navigate to="/mis-liquidaciones" replace />
 
   return (
     <div>
