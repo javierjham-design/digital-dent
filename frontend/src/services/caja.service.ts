@@ -1,5 +1,8 @@
-import { api } from './api'
-import type { LiquidacionActivaDetalle, LiquidacionActivaResumen } from '@shared/types'
+import { api, tokenStore, ApiError } from './api'
+import type { LiquidacionActivaDetalle, LiquidacionActivaResumen, LiquidacionAdjuntoMeta } from '@shared/types'
+
+const BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
+const authHeader = (): Record<string, string> => { const t = tokenStore.get(); return t ? { Authorization: `Bearer ${t}` } : {} }
 
 export const cobrosService = {
   listar: () => api.get<unknown[]>('/cobros'),
@@ -36,6 +39,23 @@ export const liquidacionesService = {
   listar: () => api.get<unknown[]>('/liquidaciones'),
   obtener: (id: string) => api.get<unknown>(`/liquidaciones/${id}`),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/liquidaciones/${id}`, patch),
+  // Adjuntos (factura / comprobante): multipart al subir, blob al descargar.
+  adjuntos: (id: string) => api.get<LiquidacionAdjuntoMeta[]>(`/liquidaciones/${id}/adjuntos`),
+  eliminarAdjunto: (id: string, adjId: string) => api.del<{ ok: true }>(`/liquidaciones/${id}/adjuntos/${adjId}`),
+  async subirAdjunto(id: string, tipo: 'FACTURA' | 'COMPROBANTE', file: File): Promise<LiquidacionAdjuntoMeta> {
+    const fd = new FormData(); fd.append('tipo', tipo); fd.append('file', file)
+    const res = await fetch(`${BASE}/liquidaciones/${id}/adjuntos`, { method: 'POST', headers: authHeader(), body: fd })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? 'No se pudo subir el archivo')
+    return data as LiquidacionAdjuntoMeta
+  },
+  async abrirAdjunto(id: string, adjId: string): Promise<void> {
+    const res = await fetch(`${BASE}/liquidaciones/${id}/adjuntos/${adjId}`, { headers: authHeader() })
+    if (!res.ok) throw new ApiError(res.status, 'No se pudo abrir el archivo')
+    const url = URL.createObjectURL(await res.blob())
+    window.open(url, '_blank')
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  },
 }
 
 export const contratosService = {

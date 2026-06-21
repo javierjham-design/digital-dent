@@ -488,6 +488,25 @@ model Liquidacion {
   doctor         User              @relation(fields: [doctorId], references: [id])
   contrato       Contrato          @relation(fields: [contratoId], references: [id])
   items          LiquidacionItem[]
+  adjuntos       LiquidacionAdjunto[]
+}
+
+// Archivos asociados a una liquidación (factura del profesional, comprobante de
+// transferencia). Se guardan como bytes en la base de la clínica.
+model LiquidacionAdjunto {
+  id              String      @id @default(cuid())
+  liquidacionId   String
+  tipo            String      // FACTURA | COMPROBANTE
+  nombre          String      // nombre original del archivo
+  mime            String
+  size            Int
+  data            Bytes
+  subidoPorId     String?
+  subidoPorNombre String?
+  createdAt       DateTime    @default(now())
+  liquidacion     Liquidacion @relation(fields: [liquidacionId], references: [id], onDelete: Cascade)
+
+  @@index([liquidacionId])
 }
 
 model LiquidacionItem {

@@ -5,6 +5,7 @@ import { liquidacionesService, contratosService } from '@/services/caja.service'
 import { usuariosService } from '@/services/equipo.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
+import { AdjuntosLiquidacion } from '@/components/AdjuntosLiquidacion'
 
 interface LiqFin { id: string; periodo: string; totalBruto: number; totalLiquidado: number; estado: string; doctor?: { name: string | null; especialidad: string | null }; _count?: { items: number } }
 interface LiqFinItem { id: string; prestacionNombre: string; pacienteNombre: string; diente: string | null; medioPago: string | null; montoPagado: number; comisionAplicada: number; montoLiquidado: number; fechaCompletado: string }
@@ -267,6 +268,7 @@ function DetalleFinalizadaModal({ liq, onClose }: { liq: LiqFinDetalle; onClose:
           </tbody>
         </table>
       </div>
+      <AdjuntosLiquidacion liqId={liq.id} />
     </Modal>
   )
 }

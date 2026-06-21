@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { LiquidacionActivaDetalle } from '@shared/types'
 import { liquidacionesService } from '@/services/caja.service'
 import { useAuth } from '@/hooks/useAuth'
+import { AdjuntosLiquidacion } from '@/components/AdjuntosLiquidacion'
 
 interface LiqFin {
   id: string; periodo: string; totalBruto: number; totalLiquidado: number; estado: string; fechaPago: string | null
@@ -149,6 +150,7 @@ function DetalleModal({ liq, onClose }: { liq: LiqFinDetalle; onClose: () => voi
             </tbody>
           </table>
         </div>
+        <AdjuntosLiquidacion liqId={liq.id} />
       </div>
     </div>
   )

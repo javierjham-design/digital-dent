@@ -84,6 +84,15 @@ export interface LiquidacionActivaResumen {
   realizado: number
   aPagar: number
 }
+export interface LiquidacionAdjuntoMeta {
+  id: string
+  tipo: string            // FACTURA | COMPROBANTE
+  nombre: string
+  mime: string
+  size: number
+  subidoPorNombre: string | null
+  createdAt: string
+}
 
 export interface CitaDTO {
   id: string

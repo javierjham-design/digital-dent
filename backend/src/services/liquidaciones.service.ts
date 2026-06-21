@@ -250,10 +250,55 @@ export async function obtenerLiquidacion(db: TenantClient, actor: JwtPayload, id
       doctor: { select: { id: true, name: true, email: true, rut: true, especialidad: true } },
       contrato: true,
       items: { orderBy: { fechaCompletado: 'asc' } },
+      adjuntos: { select: { id: true, tipo: true, nombre: true, mime: true, size: true, subidoPorNombre: true, createdAt: true }, orderBy: { createdAt: 'desc' } },
     },
   })
   if (!liq) throw notFound('Liquidación no encontrada')
   return liq
+}
+
+// ── Adjuntos de liquidación (factura / comprobante) — guardados como bytes ─────
+
+const TIPOS_ADJUNTO = ['FACTURA', 'COMPROBANTE']
+
+// Verifica que la liquidación exista y que el actor pueda accederla (dueño o gestor).
+async function liqAccesible(db: TenantClient, actor: JwtPayload, liqId: string) {
+  const liq = await db.liquidacion.findUnique({ where: { id: liqId }, select: { id: true, doctorId: true } })
+  if (!liq) throw notFound('Liquidación no encontrada')
+  if (!(await puedeGestionar(db, actor)) && liq.doctorId !== actor.sub) throw forbidden('No puedes acceder a esta liquidación.')
+  return liq
+}
+
+const ADJ_META = { id: true, tipo: true, nombre: true, mime: true, size: true, subidoPorNombre: true, createdAt: true } as const
+
+export async function listarAdjuntos(db: TenantClient, actor: JwtPayload, liqId: string) {
+  await liqAccesible(db, actor, liqId)
+  return db.liquidacionAdjunto.findMany({ where: { liquidacionId: liqId }, select: ADJ_META, orderBy: { createdAt: 'desc' } })
+}
+
+export async function subirAdjunto(db: TenantClient, actor: JwtPayload, liqId: string, file: { tipo: string; nombre: string; mime: string; buffer: Buffer }) {
+  await liqAccesible(db, actor, liqId)
+  if (!TIPOS_ADJUNTO.includes(file.tipo)) throw badRequest('tipo inválido (FACTURA | COMPROBANTE)')
+  return db.liquidacionAdjunto.create({
+    data: {
+      liquidacionId: liqId, tipo: file.tipo, nombre: file.nombre.slice(0, 200), mime: file.mime, size: file.buffer.length,
+      data: file.buffer, subidoPorId: actor.sub, subidoPorNombre: actor.name ?? actor.email ?? null,
+    },
+    select: ADJ_META,
+  })
+}
+
+export async function descargarAdjunto(db: TenantClient, actor: JwtPayload, liqId: string, adjId: string) {
+  await liqAccesible(db, actor, liqId)
+  const adj = await db.liquidacionAdjunto.findFirst({ where: { id: adjId, liquidacionId: liqId } })
+  if (!adj) throw notFound('Adjunto no encontrado')
+  return adj
+}
+
+export async function eliminarAdjunto(db: TenantClient, actor: JwtPayload, liqId: string, adjId: string) {
+  await liqAccesible(db, actor, liqId)
+  const r = await db.liquidacionAdjunto.deleteMany({ where: { id: adjId, liquidacionId: liqId } })
+  if (r.count === 0) throw notFound('Adjunto no encontrado')
 }
 
 export async function actualizarLiquidacion(db: TenantClient, actor: JwtPayload, id: string, body: Record<string, unknown>) {

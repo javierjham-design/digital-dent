@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
+import { badRequest } from '@/lib/errors'
 import * as svc from '@/services/liquidaciones.service'
 import { crearContratoSchema } from '@/validators/schemas'
 
@@ -39,4 +40,24 @@ export async function getLiquidacion(req: Request, res: Response) {
 }
 export async function patchLiquidacion(req: Request, res: Response) {
   res.json(await svc.actualizarLiquidacion(tenantDb(req), req.auth!, req.params.id, req.body ?? {}))
+}
+
+// ── Adjuntos (factura / comprobante) ──
+export async function getAdjuntos(req: Request, res: Response) {
+  res.json(await svc.listarAdjuntos(tenantDb(req), req.auth!, req.params.id))
+}
+export async function postAdjunto(req: Request, res: Response) {
+  const f = req.file
+  if (!f) throw badRequest('Falta el archivo')
+  res.status(201).json(await svc.subirAdjunto(tenantDb(req), req.auth!, req.params.id, { tipo: String(req.body?.tipo ?? ''), nombre: f.originalname, mime: f.mimetype, buffer: f.buffer }))
+}
+export async function getAdjunto(req: Request, res: Response) {
+  const adj = await svc.descargarAdjunto(tenantDb(req), req.auth!, req.params.id, req.params.adjId)
+  res.setHeader('Content-Type', adj.mime)
+  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(adj.nombre)}"`)
+  res.send(Buffer.from(adj.data))
+}
+export async function deleteAdjunto(req: Request, res: Response) {
+  await svc.eliminarAdjunto(tenantDb(req), req.auth!, req.params.id, req.params.adjId)
+  res.json({ ok: true })
 }

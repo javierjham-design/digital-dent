@@ -190,6 +190,11 @@ apiRouter.post('/liquidaciones-activas/:doctorId/finalizar', tenant, asyncHandle
 apiRouter.get('/liquidaciones', tenant, asyncHandler(liq.getLiquidaciones))
 apiRouter.get('/liquidaciones/:id', tenant, asyncHandler(liq.getLiquidacion))
 apiRouter.patch('/liquidaciones/:id', tenant, asyncHandler(liq.patchLiquidacion))
+// Adjuntos (factura / comprobante de transferencia) — guardados como bytes.
+apiRouter.get('/liquidaciones/:id/adjuntos', tenant, asyncHandler(liq.getAdjuntos))
+apiRouter.post('/liquidaciones/:id/adjuntos', tenant, upload.single('file'), asyncHandler(liq.postAdjunto))
+apiRouter.get('/liquidaciones/:id/adjuntos/:adjId', tenant, asyncHandler(liq.getAdjunto))
+apiRouter.delete('/liquidaciones/:id/adjuntos/:adjId', tenant, asyncHandler(liq.deleteAdjunto))
 
 // ── SUPER-ADMIN (gestión de la plataforma) ───────────────────────────────────
 const sa = [requireAuth, requireSuperAdmin]
