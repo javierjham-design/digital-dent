@@ -54,6 +54,37 @@ export interface PacientesPagina {
   pageSize: number
 }
 
+// ── Liquidaciones (saldo corriente por profesional) ──────────────────────────
+export interface LiquidacionAccion {
+  tratamientoId: string
+  pacienteNombre: string
+  accion: string
+  pieza: string | null
+  fecha: string
+  monto: number          // precio neto de la acción
+  montoPagado: number    // lo que el paciente pagó
+  comision: number       // comisión del medio de pago (proporcional)
+  medioPago: string
+  total: number          // pago al profesional por esta acción
+  pagada: boolean        // true = verde (suma a "A pagar"); false = rojo (pendiente)
+}
+export interface LiquidacionActivaDetalle {
+  doctor: { id: string; name: string | null; email: string | null; rut: string | null; especialidad: string | null }
+  contrato: { tipo: string; porcentaje: number | null; montoFijo: number | null } | null
+  items: LiquidacionAccion[]
+  realizado: number      // total de TODAS las acciones (pagadas + pendientes)
+  aPagar: number         // total solo de las acciones pagadas (verde)
+}
+export interface LiquidacionActivaResumen {
+  doctorId: string
+  doctor: string
+  especialidad: string | null
+  acciones: number
+  pendientes: number
+  realizado: number
+  aPagar: number
+}
+
 export interface CitaDTO {
   id: string
   pacienteId: string

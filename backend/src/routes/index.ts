@@ -182,9 +182,13 @@ apiRouter.patch('/contratos/:id', tenant, asyncHandler(liq.patchContrato))
 apiRouter.delete('/contratos/:id', tenant, asyncHandler(liq.deleteContrato))
 
 // ── Liquidaciones ────────────────────────────────────────────────────────────
+// Activas (saldo corriente por profesional) + finalizar.
+apiRouter.get('/liquidaciones-activas', tenant, asyncHandler(liq.getLiquidacionesActivas))
+apiRouter.get('/liquidaciones-activas/:doctorId', tenant, asyncHandler(liq.getLiquidacionActiva))
+apiRouter.post('/liquidaciones-activas/:doctorId/finalizar', tenant, asyncHandler(liq.postFinalizarLiquidacion))
+// Finalizadas (snapshots guardados).
 apiRouter.get('/liquidaciones', tenant, asyncHandler(liq.getLiquidaciones))
 apiRouter.get('/liquidaciones/:id', tenant, asyncHandler(liq.getLiquidacion))
-apiRouter.post('/liquidaciones', tenant, asyncHandler(liq.postLiquidacion))
 apiRouter.patch('/liquidaciones/:id', tenant, asyncHandler(liq.patchLiquidacion))
 
 // ── SUPER-ADMIN (gestión de la plataforma) ───────────────────────────────────

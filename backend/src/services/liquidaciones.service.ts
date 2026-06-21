@@ -70,6 +70,18 @@ export async function eliminarContrato(db: TenantClient, id: string) {
 }
 
 // ── Liquidaciones ────────────────────────────────────────────────────────────
+//
+//  Modelo "saldo corriente" (estilo Dentalink):
+//   - Una acción liquidable = Tratamiento COMPLETADO aún no incluido en una
+//     liquidación finalizada (sin LiquidacionItem).
+//   - Solo se PAGAN las acciones completamente pagadas por el paciente (verde).
+//     Las evolucionadas pero impagas se muestran en rojo y NO suman a "A pagar".
+//   - Pago por acción (confirmado con el cliente):
+//       PORCENTAJE:  (montoPagado × %) − comisión del medio de pago
+//       MONTO_FIJO:  montoFijo − comisión proporcional
+//     La comisión del medio de pago es proporcional al CobroItem dentro del Cobro.
+//   - "Finalizar" toma una foto de las acciones PAGADAS en una Liquidacion y las
+//     marca como liquidadas (dejan de aparecer en la activa). Las impagas quedan.
 
 const LIQ_LIST_INCLUDE = {
   doctor: { select: { id: true, name: true, email: true, especialidad: true } },
@@ -77,10 +89,157 @@ const LIQ_LIST_INCLUDE = {
   _count: { select: { items: true } },
 } as const
 
+const TRAT_ACTIVA_INCLUDE = {
+  prestacion: { select: { nombre: true } },
+  ficha: { select: { paciente: { select: { nombre: true, apellido: true } } } },
+  cobroItems: {
+    select: {
+      monto: true,
+      cobro: { select: { monto: true, comisionMonto: true, estado: true, anulado: true, medioPago: { select: { nombre: true } } } },
+    },
+  },
+} as const
+
+type ContratoCalc = { tipo: string; porcentaje: number | null; montoFijo: number | null }
+
+// Cálculo del pago de UNA acción a partir de sus cobros y el contrato.
+function calcAccion(
+  t: { precio: number; descuento: number; cobroItems: { monto: number; cobro: { monto: number; comisionMonto: number | null; estado: string; anulado: boolean; medioPago: { nombre: string } | null } | null }[] },
+  contrato: ContratoCalc,
+) {
+  const precio = Math.max(0, t.precio - (t.descuento ?? 0))
+  const pagados = t.cobroItems.filter((ci) => ci.cobro && ci.cobro.estado === 'PAGADO' && !ci.cobro.anulado)
+  const montoPagado = pagados.reduce((s, ci) => s + ci.monto, 0)
+  // Comisión proporcional: cada CobroItem aporta su parte de la comisión del Cobro.
+  const comision = pagados.reduce((s, ci) => {
+    const c = ci.cobro!
+    const rate = c.monto > 0 ? (c.comisionMonto ?? 0) / c.monto : 0
+    return s + ci.monto * rate
+  }, 0)
+  const medios = [...new Set(pagados.map((ci) => ci.cobro!.medioPago?.nombre).filter((x): x is string => Boolean(x)))]
+  const pagada = montoPagado >= precio - 0.5 // completamente pagada (tolerancia de redondeo)
+  const base = pagada ? montoPagado : precio
+  const bruto = contrato.tipo === 'PORCENTAJE' ? base * ((contrato.porcentaje ?? 0) / 100) : (contrato.montoFijo ?? 0)
+  // La comisión solo se descuenta cuando ya está pagada (si no, aún no hay comisión real).
+  const total = Math.max(0, Math.round(pagada ? bruto - comision : bruto))
+  return { precio: Math.round(precio), montoPagado: Math.round(montoPagado), comision: Math.round(comision), medios, pagada, total }
+}
+
+async function accionesActivas(db: TenantClient, doctorId: string, contrato: ContratoCalc) {
+  const trats = await db.tratamiento.findMany({
+    where: { doctorId, estado: 'COMPLETADO', liquidacionItems: { none: {} } },
+    include: TRAT_ACTIVA_INCLUDE,
+    orderBy: { fechaCompletado: 'desc' },
+  })
+  return trats.map((t) => {
+    const c = calcAccion(t, contrato)
+    return {
+      tratamientoId: t.id,
+      pacienteNombre: `${t.ficha.paciente.nombre} ${t.ficha.paciente.apellido}`,
+      accion: t.prestacion.nombre,
+      pieza: t.diente ? `Pieza ${t.diente}` : (t.cara ?? null),
+      fecha: (t.fechaCompletado ?? t.fecha).toISOString(),
+      monto: c.precio,
+      montoPagado: c.montoPagado,
+      comision: c.comision,
+      medioPago: c.medios.join(', ') || '—',
+      total: c.total,
+      pagada: c.pagada,
+    }
+  })
+}
+
+// Lista de liquidaciones ACTIVAS (resumen por profesional con contrato vigente).
+export async function liquidacionesActivas(db: TenantClient, actor: JwtPayload) {
+  const canManage = await puedeGestionar(db, actor)
+  const contratos = await db.contrato.findMany({
+    where: { activo: true, ...(canManage ? {} : { doctorId: actor.sub }) },
+    include: { doctor: { select: { id: true, name: true, email: true, especialidad: true } } },
+  })
+  const out = []
+  for (const c of contratos) {
+    if (c.porcentaje == null && c.montoFijo == null) continue
+    const items = await accionesActivas(db, c.doctorId, c)
+    out.push({
+      doctorId: c.doctorId,
+      doctor: c.doctor.name ?? c.doctor.email ?? '—',
+      especialidad: c.doctor.especialidad,
+      acciones: items.length,
+      pendientes: items.filter((i) => !i.pagada).length,
+      realizado: items.reduce((s, i) => s + i.total, 0),
+      aPagar: items.filter((i) => i.pagada).reduce((s, i) => s + i.total, 0),
+    })
+  }
+  return out
+}
+
+// Detalle de la liquidación activa de UN profesional (acciones + totales).
+export async function liquidacionActiva(db: TenantClient, actor: JwtPayload, doctorId: string) {
+  if (!(await puedeGestionar(db, actor)) && actor.sub !== doctorId) throw forbidden('No puedes ver la liquidación de otro profesional.')
+  const doctor = await db.user.findUnique({ where: { id: doctorId }, select: { id: true, name: true, email: true, rut: true, especialidad: true } })
+  if (!doctor) throw notFound('Profesional no encontrado')
+  const contrato = await db.contrato.findFirst({ where: { doctorId, activo: true } })
+  if (!contrato || (contrato.porcentaje == null && contrato.montoFijo == null)) {
+    return { doctor, contrato: null, items: [], realizado: 0, aPagar: 0 }
+  }
+  const items = await accionesActivas(db, doctorId, contrato)
+  return {
+    doctor,
+    contrato: { tipo: contrato.tipo, porcentaje: contrato.porcentaje, montoFijo: contrato.montoFijo },
+    items,
+    realizado: items.reduce((s, i) => s + i.total, 0),
+    aPagar: items.filter((i) => i.pagada).reduce((s, i) => s + i.total, 0),
+  }
+}
+
+// Finaliza: toma una foto de las acciones PAGADAS y las marca como liquidadas.
+export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, doctorId: string) {
+  if (!(await puedeGestionar(db, actor))) throw forbidden('No tienes permiso para finalizar liquidaciones.')
+  const contrato = await db.contrato.findFirst({ where: { doctorId, activo: true } })
+  if (!contrato) throw badRequest('El profesional no tiene contrato activo')
+
+  const trats = await db.tratamiento.findMany({
+    where: { doctorId, estado: 'COMPLETADO', liquidacionItems: { none: {} } },
+    include: TRAT_ACTIVA_INCLUDE,
+  })
+
+  const itemsData = trats.flatMap((t) => {
+    const c = calcAccion(t, contrato)
+    if (!c.pagada) return [] // solo se finalizan las acciones completamente pagadas
+    return [{
+      tratamientoId: t.id,
+      prestacionNombre: t.prestacion.nombre,
+      pacienteNombre: `${t.ficha.paciente.nombre} ${t.ficha.paciente.apellido}`,
+      diente: t.diente ? `Pieza ${t.diente}` : (t.cara ?? null),
+      fechaCompletado: t.fechaCompletado ?? t.fecha,
+      precioTratamiento: t.precio,
+      porcentajeAplicado: contrato.tipo === 'PORCENTAJE' ? contrato.porcentaje : null,
+      montoFijoAplicado: contrato.tipo === 'MONTO_FIJO' ? contrato.montoFijo : null,
+      montoPagado: c.montoPagado,
+      comisionAplicada: c.comision,
+      medioPago: c.medios.join(', ') || null,
+      montoLiquidado: c.total,
+    }]
+  })
+  if (itemsData.length === 0) throw badRequest('No hay acciones pagadas pendientes de liquidar')
+
+  const totalBruto = itemsData.reduce((s, i) => s + i.montoPagado, 0)
+  const totalLiquidado = itemsData.reduce((s, i) => s + i.montoLiquidado, 0)
+  return db.liquidacion.create({
+    data: {
+      doctorId, contratoId: contrato.id, periodo: new Date().toISOString().slice(0, 10),
+      estado: 'APROBADA', totalBruto, totalLiquidado, items: { create: itemsData },
+    },
+    include: { ...LIQ_LIST_INCLUDE, items: true },
+  })
+}
+
+// ── Liquidaciones FINALIZADAS (snapshots guardados) ───────────────────────────
+
 export async function listarLiquidaciones(db: TenantClient, actor: JwtPayload) {
   const canManage = await puedeGestionar(db, actor)
   const where = canManage ? {} : { doctorId: actor.sub }
-  return db.liquidacion.findMany({ where, include: LIQ_LIST_INCLUDE, orderBy: [{ periodo: 'desc' }, { createdAt: 'desc' }] })
+  return db.liquidacion.findMany({ where, include: LIQ_LIST_INCLUDE, orderBy: [{ createdAt: 'desc' }] })
 }
 
 export async function obtenerLiquidacion(db: TenantClient, actor: JwtPayload, id: string) {
@@ -95,44 +254,6 @@ export async function obtenerLiquidacion(db: TenantClient, actor: JwtPayload, id
   })
   if (!liq) throw notFound('Liquidación no encontrada')
   return liq
-}
-
-export async function crearLiquidacion(db: TenantClient, actor: JwtPayload, body: { doctorId: string; periodo: string }) {
-  if (!(await puedeGestionar(db, actor))) throw forbidden('No tienes permiso para generar liquidaciones.')
-
-  const contrato = await db.contrato.findFirst({ where: { doctorId: body.doctorId, activo: true } })
-  if (!contrato) throw badRequest('El doctor no tiene contrato activo')
-
-  const [year, month] = body.periodo.split('-').map(Number)
-  if (!year || !month) throw badRequest('periodo inválido (use YYYY-MM)')
-  const inicio = new Date(year, month - 1, 1)
-  const fin = new Date(year, month, 0, 23, 59, 59)
-
-  const tratamientos = await db.tratamiento.findMany({
-    where: { doctorId: body.doctorId, estado: 'COMPLETADO', fechaCompletado: { gte: inicio, lte: fin }, liquidacionItems: { none: {} } },
-    include: { prestacion: true, ficha: { include: { paciente: true } } },
-  })
-  if (tratamientos.length === 0) throw badRequest('No hay tratamientos completados en este período sin liquidar')
-
-  const items = tratamientos.map((t) => {
-    const monto = contrato.tipo === 'PORCENTAJE' ? t.precio * (contrato.porcentaje! / 100) : contrato.montoFijo!
-    return {
-      tratamientoId: t.id, prestacionNombre: t.prestacion.nombre,
-      pacienteNombre: `${t.ficha.paciente.nombre} ${t.ficha.paciente.apellido}`,
-      diente: t.diente ? `Pieza ${t.diente}` : (t.cara ?? null),
-      fechaCompletado: t.fechaCompletado!, precioTratamiento: t.precio,
-      porcentajeAplicado: contrato.tipo === 'PORCENTAJE' ? contrato.porcentaje : null,
-      montoFijoAplicado: contrato.tipo === 'MONTO_FIJO' ? contrato.montoFijo : null,
-      montoLiquidado: monto,
-    }
-  })
-  const totalBruto = tratamientos.reduce((s, t) => s + t.precio, 0)
-  const totalLiquidado = items.reduce((s, i) => s + i.montoLiquidado, 0)
-
-  return db.liquidacion.create({
-    data: { doctorId: body.doctorId, contratoId: contrato.id, periodo: body.periodo, totalBruto, totalLiquidado, items: { create: items } },
-    include: { ...LIQ_LIST_INCLUDE, items: true },
-  })
 }
 
 export async function actualizarLiquidacion(db: TenantClient, actor: JwtPayload, id: string, body: Record<string, unknown>) {

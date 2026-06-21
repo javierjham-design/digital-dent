@@ -1,4 +1,5 @@
 import { api } from './api'
+import type { LiquidacionActivaDetalle, LiquidacionActivaResumen } from '@shared/types'
 
 export const cobrosService = {
   listar: () => api.get<unknown[]>('/cobros'),
@@ -27,9 +28,13 @@ export const cajasService = {
 }
 
 export const liquidacionesService = {
+  // Activas (saldo corriente)
+  activas: () => api.get<LiquidacionActivaResumen[]>('/liquidaciones-activas'),
+  activa: (doctorId: string) => api.get<LiquidacionActivaDetalle>(`/liquidaciones-activas/${doctorId}`),
+  finalizar: (doctorId: string) => api.post<unknown>(`/liquidaciones-activas/${doctorId}/finalizar`),
+  // Finalizadas (snapshots)
   listar: () => api.get<unknown[]>('/liquidaciones'),
   obtener: (id: string) => api.get<unknown>(`/liquidaciones/${id}`),
-  crear: (input: { doctorId: string; periodo: string }) => api.post<unknown>('/liquidaciones', input),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/liquidaciones/${id}`, patch),
 }
 

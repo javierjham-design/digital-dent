@@ -501,7 +501,10 @@ model LiquidacionItem {
   precioTratamiento  Float
   porcentajeAplicado Float?
   montoFijoAplicado  Float?
-  montoLiquidado     Float
+  montoPagado        Float       @default(0)  // lo que el paciente pagó por la acción
+  comisionAplicada   Float       @default(0)  // comisión del medio de pago descontada
+  medioPago          String?                  // medio(s) de pago de la acción
+  montoLiquidado     Float                    // total pagado al profesional (neto)
   liquidacion        Liquidacion @relation(fields: [liquidacionId], references: [id])
   tratamiento        Tratamiento @relation(fields: [tratamientoId], references: [id])
 }
