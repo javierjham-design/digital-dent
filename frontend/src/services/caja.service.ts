@@ -50,11 +50,16 @@ export const liquidacionesService = {
     return data as LiquidacionAdjuntoMeta
   },
   async abrirAdjunto(id: string, adjId: string): Promise<void> {
-    const res = await fetch(`${BASE}/liquidaciones/${id}/adjuntos/${adjId}`, { headers: authHeader() })
-    if (!res.ok) throw new ApiError(res.status, 'No se pudo abrir el archivo')
-    const url = URL.createObjectURL(await res.blob())
+    const url = (await this.adjuntoBlob(id, adjId)).url
     window.open(url, '_blank')
     setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  },
+  // Devuelve el archivo como blob URL (para embeber una vista previa).
+  async adjuntoBlob(id: string, adjId: string): Promise<{ url: string; mime: string }> {
+    const res = await fetch(`${BASE}/liquidaciones/${id}/adjuntos/${adjId}`, { headers: authHeader() })
+    if (!res.ok) throw new ApiError(res.status, 'No se pudo cargar el archivo')
+    const blob = await res.blob()
+    return { url: URL.createObjectURL(blob), mime: blob.type }
   },
 }
 
