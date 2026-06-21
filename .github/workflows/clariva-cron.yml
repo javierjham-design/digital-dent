@@ -1,0 +1,46 @@
+name: Clariva cron
+
+# Tareas periódicas de Cláriva. En vez de servicios cron en Railway, GitHub
+# ejecuta estos jobs por schedule y hace un POST autenticado (x-cron-secret) al
+# backend. Requiere el secreto de repo CRON_SECRET (= el CRON_SECRET del backend).
+#
+# Nota: el cron de GitHub Actions usa UTC y puede demorarse algunos minutos bajo
+# carga; para sync (cada 15') y cleanup (diario) es suficiente.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # sync Google Calendar — cada 15 min
+    - cron: '0 6 * * *'      # limpieza de demos expiradas — diaria 06:00 UTC
+  workflow_dispatch:          # permite dispararlo a mano desde la pestaña Actions
+
+env:
+  API_URL: https://api.clariva.cl
+
+jobs:
+  sync-google:
+    # Solo en el schedule de 15 min (o manual).
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '*/15 * * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync Google Calendar
+        run: |
+          curl -fsS -X POST "$API_URL/api/v1/google/sync" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
+
+  cleanup-demos:
+    # Solo en el schedule diario (o manual).
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '0 6 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Limpiar demos expiradas
+        run: |
+          curl -fsS -X POST "$API_URL/api/v1/demo/cleanup" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
+
+  # Recordatorios WhatsApp: descomentar cuando alguna clínica active el servicio.
+  # recordatorios-wa:
+  #   if: github.event_name == 'workflow_dispatch' || github.event.schedule == '*/20 * * * *'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Recordatorios WhatsApp
+  #       run: curl -fsS -X POST "$API_URL/api/v1/whatsapp/recordatorios" -H "x-cron-secret: ${{ secrets.CRON_SECRET }}"
