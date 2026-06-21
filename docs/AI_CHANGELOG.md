@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-06-20 — CUTOVER EJECUTADO: stack split + DB-por-tenant en PRODUCCIÓN
+
+Se ejecutó el cutover completo (Railway, proyecto `amused-recreation`, desde la rama
+`arch/split-frontend-backend`). El monolito quedó offline; sus dominios pasaron al stack nuevo.
+
+- **3 servicios live:** backend → `api.clariva.cl`, frontend (SPA por subdominio) → `*.clariva.cl`,
+  web/landing → `clariva.cl`/`www`. Dockerfiles con Root Directory vacío + `RAILWAY_DOCKERFILE_PATH`
+  por servicio (contexto = raíz, por el `../shared`). DNS en Cloudflare en gris/DNS-only.
+- **Postgres:** un servidor, varias bases → `clariva_control` + `clariva_t_<slug>` por clínica.
+  `migrate:data --apply` corrido en ventana de solo-lectura del monolito. 2 clínicas migradas
+  (digital-dent 6.548 pacientes + montenegro), aislamiento físico verificado (`verify-migration`).
+- **Backend env a prueba de rotación** (referencias `${{Postgres.*}}`); `LEGACY_DATABASE_URL`
+  removido del runtime; password de Postgres rotada.
+- **Crons** vía GitHub Actions (`.github/workflows/clariva-cron.yml`): se activan al mergear a master.
+- **Smoke de producción** verde (`scripts/smoke-deploy.mjs`): health, planes, 401, CORS por subdominio.
+- **Fixes durante QA inicial (en prod):** lista de pacientes con **búsqueda server-side** (antes
+  filtraba un tope de 500 → solo "A") + **paginación 25/50/100** con total; **selectores de paciente**
+  de cita/presupuesto/cobro ahora buscan en el servidor (componente `PacienteBuscador`) — antes solo
+  veían los primeros 500. Bug de migración corregido: modelos hijos sin `clinicaId` se scopean por la
+  relación al padre. Verde: typecheck · 67/67 unit · contrato 130/117.
+
+Pendiente: QA en producción (incl. probar Google Calendar) y cierre final (merge `arch → master` +
+retirar el servicio monolito, que además activa los crons).
+
 ## 2026-06-20 — [rama arch/split] DB-por-clínica F7: script de migración de datos monolito → per-tenant (dry-run)
 
 Script idempotente para volcar la base COMPARTIDA del monolito (con `clinicaId`) a la arquitectura per-tenant, listo para correr en el cutover. **No toca producción todavía** (requiere credenciales prod). Typecheck limpio (incl. con el cliente legacy ausente) y 67/67 unit/smoke.

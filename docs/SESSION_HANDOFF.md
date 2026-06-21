@@ -38,8 +38,8 @@ Hay DOS trabajos encadenados:
 - **F5:** `npm run migrate:tenants` (aplica el schema tenant a todas las bases).
 - **F6:** tests de aislamiento físico (sqlite por clínica) — 11/11.
 - **F7:** `npm run migrate:data` — script de migración monolito → control + tenants
-  (DRY-RUN por defecto, `-- --apply` para escribir; idempotente). **Aún NO ejecutado
-  contra prod** (sin credenciales en la sesión).
+  (DRY-RUN por defecto, `-- --apply` para escribir; idempotente). **Ya EJECUTADO contra
+  producción** en el cutover (ver sección "CUTOVER EJECUTADO" abajo).
 
 ## Verificación (verde hoy)
 
@@ -48,17 +48,41 @@ Hay DOS trabajos encadenados:
 - `npm --prefix backend run test:integration` → 11/11 aislamiento físico.
 - `npm --prefix backend run test:contract` → contrato FE↔BE OK (130/116).
 
-## Lo único pendiente: CUTOVER (manual, requiere prod) — `docs/cutover.md`
+## CUTOVER EJECUTADO ✅ (2026-06-20) — EN PRODUCCIÓN
 
-`cutover.md` quedó **actualizado para database-per-tenant** (2026-06-20). Pasos clave:
+El stack nuevo está **vivo en producción** en Railway (proyecto `amused-recreation`),
+desplegando desde la rama `arch/split-frontend-backend`. El monolito (`digital-dent`)
+quedó **offline** (sus dominios los tiene el stack nuevo).
 
-1. Crear/definir bases: `CONTROL_DATABASE_URL`, `TENANT_DB_SERVER_URL` (con permiso
-   `CREATE DATABASE`), `LEGACY_DATABASE_URL` (= `DATABASE_URL` del monolito).
-   `JWT_SECRET`/`ENCRYPTION_KEY` idénticos al monolito.
-2. Levantar los 3 servicios Railway (backend/frontend/web) + `control:push`.
-3. **Ventana de solo-lectura** en el monolito → `migrate:data` (dry-run y luego `--apply`).
-4. Validar el stack nuevo con datos migrados → mover DNS (`api`, `*.clariva.cl`, apex).
-5. Rollback limpio solo ANTES de aceptar escrituras nuevas (después hay divergencia de datos).
+- **Backend** → `api.clariva.cl` · **Frontend** (app clínicas) → `*.clariva.cl`
+  (subdominio por clínica) · **Web/landing** → `clariva.cl` + `www`. DNS en Cloudflare
+  (registros en **gris/DNS-only**; el wildcard obligatorio gris).
+- **Postgres:** un servidor, 3 roles de base → `clariva_control` (control-plane) +
+  `clariva_t_digital_dent` + `clariva_t_clinica_montenegro` (una física por clínica).
+- **Datos migrados** con `migrate:data --apply` (digital-dent: 6.548 pacientes, 139
+  citas, equipo 5, Google token migrado; montenegro: su propia base). Verificado el
+  aislamiento físico con `verify-migration`.
+- **Backend env (a prueba de rotación):** `TENANT_DB_SERVER_URL=${{Postgres.DATABASE_URL}}`,
+  `CONTROL_DATABASE_URL=postgresql://${{Postgres.PGUSER}}:${{Postgres.PGPASSWORD}}@postgres.railway.internal:5432/clariva_control`.
+  `LEGACY_DATABASE_URL` removido del backend (solo lo usó el script de migración).
+  Password de Postgres **rotada** post-cutover.
+- **Smoke de producción** (`scripts/smoke-deploy.mjs`) verde: health, planes públicos,
+  401 sin token, CORS por subdominio.
+- **Crons:** workflow GitHub Actions (`.github/workflows/clariva-cron.yml`, sync + cleanup)
+  — ⚠️ se **activa solo al mergear a `master`** (GitHub corre `schedule` solo en la rama
+  default). Secreto `CRON_SECRET` ya cargado en GitHub.
+
+### Lo que queda
+1. **QA en producción** (usuario): agenda, cobros/caja, liquidaciones, reportes, super-admin,
+   y **probar "Conectar Google"** (redirect ya en `api.clariva.cl`). Irán saliendo ajustes
+   menores vs. el monolito.
+2. **Cierre final:** merge `arch → master` + retirar el servicio monolito en Railway.
+   Esto **activa los crons** automáticamente. Sin apuro (ya corre desde la rama).
+3. Opcional: **Watch Paths** por servicio en Railway (hoy cada push redeploya los 3).
+
+> Fixes ya hechos durante el QA inicial: búsqueda de pacientes server-side + paginación
+> (25/50/100); selectores de paciente (cita/presupuesto/cobro) server-side (antes veían
+> solo los primeros 500). Ver `AI_CHANGELOG.md`.
 
 ## Pendientes operativos (no bloquean el cutover)
 
