@@ -3,8 +3,9 @@ import { Link, useParams } from 'react-router-dom'
 import type { CitaDTO, PacienteDTO, PrestacionDTO } from '@shared/types'
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
 import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO } from '@/services/clinica.service'
-import { planesService, tratamientosService, evolucionesService, odontogramaService } from '@/services/clinico.service'
+import { planesService, seccionesService, tratamientosService, evolucionesService, odontogramaService } from '@/services/clinico.service'
 import { prestacionesService } from '@/services/catalogo.service'
+import { ApiError } from '@/services/api'
 
 const TABS = ['Datos', 'Citas', 'Planes', 'Evoluciones', 'Odontograma', 'Comentarios', 'Mensajes'] as const
 type Tab = typeof TABS[number]
@@ -222,45 +223,47 @@ function CitasTab({ pacienteId }: { pacienteId: string }) {
   )
 }
 
-// ── Planes de tratamiento ──
-interface TratNode { id: string; estado: string; precio: number; diente: number | null; cara: string | null; prestacion: { nombre: string } }
-interface PlanLite { id: string; nombre: string; estado: string; _count?: { tratamientos: number } }
-interface PlanDetalle { id: string; nombre: string; estado: string; secciones: { id: string; titulo: string; tratamientos: TratNode[] }[]; tratamientos: TratNode[] }
+// ── Planes de tratamiento (estilo Dentalink) ──
+interface CobroItemLite { monto: number; cobro: { estado: string } | null }
+interface TratNode {
+  id: string; estado: string; precio: number; descuento: number; diente: number | null; cara: string | null
+  prestacion: { nombre: string; categoria: string | null }; cobroItems: CobroItemLite[]
+}
+interface SeccionNode { id: string; titulo: string; fechaTentativa: string | null; diasDesdeAnterior: number | null; tratamientos: TratNode[] }
+interface PlanLite { id: string; nombre: string; estado: string; bloqueado?: boolean; _count?: { tratamientos: number } }
+interface PlanDetalle { id: string; nombre: string; estado: string; bloqueado: boolean; secciones: SeccionNode[]; tratamientos: TratNode[] }
+
+const CARAS = [['V', 'Vestibular'], ['L', 'Lingual/Palatino'], ['M', 'Mesial'], ['D', 'Distal'], ['O', 'Oclusal/Incisal']] as const
+const netoTrat = (t: TratNode) => Math.round(t.precio * (1 - (t.descuento || 0) / 100))
+const pagadoTrat = (t: TratNode) => t.cobroItems.filter((ci) => ci.cobro?.estado === 'PAGADO').reduce((s, ci) => s + ci.monto, 0)
+const pagadaTrat = (t: TratNode) => netoTrat(t) > 0 && pagadoTrat(t) >= netoTrat(t) - 0.5
 
 function PlanesTab({ pacienteId }: { pacienteId: string }) {
   const [planes, setPlanes] = useState<PlanLite[]>([])
   const [detalle, setDetalle] = useState<PlanDetalle | null>(null)
   const [prestaciones, setPrestaciones] = useState<PrestacionDTO[]>([])
-  const [agregando, setAgregando] = useState(false)
-  const [nuevoPrest, setNuevoPrest] = useState('')
-  const [pieza, setPieza] = useState('')
+  const [error, setError] = useState('')
 
-  const cargarPlanes = () => planesService.listar(pacienteId).then((p) => setPlanes(p as PlanLite[]))
-  useEffect(() => { cargarPlanes(); prestacionesService.listar().then(setPrestaciones) }, [pacienteId])
+  const cargarPlanes = () => planesService.listar(pacienteId).then((p) => setPlanes(p as PlanLite[])).catch(() => {})
+  useEffect(() => { cargarPlanes(); prestacionesService.listar().then((ps) => setPrestaciones(ps.filter((p) => p.activo))).catch(() => {}) }, [pacienteId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function crearPlan() {
-    await planesService.crear({ pacienteId })
-    cargarPlanes()
-  }
-  async function abrir(planId: string) {
-    setDetalle(await planesService.obtener(planId) as PlanDetalle)
-  }
-  async function agregarTrat() {
-    if (!detalle || !nuevoPrest) return
-    const prest = prestaciones.find((p) => p.id === nuevoPrest)
-    await tratamientosService.crear({ pacienteId, prestacionId: nuevoPrest, planId: detalle.id, precio: prest?.precio, piezas: pieza ? [Number(pieza)] : undefined })
-    setNuevoPrest(''); setPieza(''); setAgregando(false)
-    abrir(detalle.id)
-  }
-  async function cambiarEstadoTrat(tId: string, estado: string) {
-    await tratamientosService.actualizar(tId, { estado, ...(estado === 'COMPLETADO' ? { fechaCompletado: new Date().toISOString() } : {}) })
-    if (detalle) abrir(detalle.id)
+  const abrir = async (planId: string) => { try { setDetalle(await planesService.obtener(planId) as PlanDetalle) } catch (e) { setError((e as Error).message) } }
+  const recargar = () => { if (detalle) abrir(detalle.id) }
+  async function crearPlan() { const p = await planesService.crear({ pacienteId }) as { id: string }; cargarPlanes(); abrir(p.id) }
+
+  async function accion<T>(fn: () => Promise<T>) {
+    setError('')
+    try { await fn(); recargar(); cargarPlanes() } catch (e) { setError(e instanceof ApiError ? e.message : 'Error') }
   }
 
-  const trats = detalle ? [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos] : []
+  // Presupuesto del plan (todas las acciones, con/sin sección).
+  const todas = detalle ? [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos] : []
+  const total = todas.reduce((s, t) => s + netoTrat(t), 0)
+  const realizado = todas.filter((t) => t.estado === 'COMPLETADO').reduce((s, t) => s + netoTrat(t), 0)
+  const abonado = todas.reduce((s, t) => s + pagadoTrat(t), 0)
 
   return (
-    <div className="grid md:grid-cols-[260px_1fr] gap-4">
+    <div className="grid md:grid-cols-[240px_1fr] gap-4">
       <div>
         <button onClick={crearPlan} className="w-full mb-3 px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">+ Nuevo plan</button>
         <div className="space-y-2">
@@ -268,47 +271,185 @@ function PlanesTab({ pacienteId }: { pacienteId: string }) {
             <button key={p.id} onClick={() => abrir(p.id)}
               className={`w-full text-left p-3 rounded-xl border ${detalle?.id === p.id ? 'border-cyan-400 bg-cyan-50' : 'border-slate-200 bg-white hover:border-cyan-300'}`}>
               <p className="text-sm font-semibold text-slate-800">{p.nombre}</p>
-              <p className="text-xs text-slate-500">{p.estado}{p._count ? ` · ${p._count.tratamientos} acciones` : ''}</p>
+              <p className="text-xs text-slate-500">{p.estado}{p._count ? ` · ${p._count.tratamientos} acc.` : ''}{p.bloqueado ? ' · 🔒' : ''}</p>
             </button>
           ))}
           {planes.length === 0 && <p className="text-sm text-slate-500">Sin planes.</p>}
         </div>
       </div>
+
       <div>
+        {error && <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-3">{error}</p>}
         {!detalle ? (
           <p className="text-sm text-slate-500">Selecciona o crea un plan.</p>
         ) : (
-          <div className="bg-white rounded-2xl border border-slate-200 p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-slate-900">{detalle.nombre}</h3>
-              <button onClick={() => setAgregando((v) => !v)} className="text-xs font-semibold text-cyan-700">{agregando ? 'Cancelar' : '+ Acción'}</button>
-            </div>
-            {agregando && (
-              <div className="flex gap-2 mb-4">
-                <select value={nuevoPrest} onChange={(e) => setNuevoPrest(e.target.value)} className="flex-1 px-2 py-2 border border-slate-200 rounded-lg text-sm">
-                  <option value="">Prestación…</option>
-                  {prestaciones.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {fmtCLP(p.precio)}</option>)}
-                </select>
-                <input value={pieza} onChange={(e) => setPieza(e.target.value)} placeholder="Pieza" className="w-20 px-2 py-2 border border-slate-200 rounded-lg text-sm" />
-                <button onClick={agregarTrat} disabled={!nuevoPrest} className="px-3 py-2 bg-cyan-600 disabled:opacity-50 text-white text-sm rounded-lg">Añadir</button>
+          <div className="space-y-4">
+            {/* Presupuesto */}
+            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+              <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+                <h3 className="font-semibold text-slate-900">{detalle.nombre}</h3>
+                <button onClick={() => accion(() => planesService.actualizar(detalle.id, { bloqueado: !detalle.bloqueado }))}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg border ${detalle.bloqueado ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                  {detalle.bloqueado ? '🔒 Bloqueado · Desbloquear' : '🔓 Bloquear presupuesto'}
+                </button>
               </div>
-            )}
-            <div className="divide-y divide-slate-100">
-              {trats.length === 0 ? <p className="text-sm text-slate-500 py-3">Sin acciones en este plan.</p> : trats.map((t) => (
-                <div key={t.id} className="flex items-center justify-between py-2.5 gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">{t.prestacion.nombre}{t.diente ? ` · pieza ${t.diente}` : ''}</p>
-                    <p className="text-xs text-slate-500 font-mono">{fmtCLP(t.precio)}</p>
-                  </div>
-                  <select value={t.estado} onChange={(e) => cambiarEstadoTrat(t.id, e.target.value)} className="text-xs border border-slate-200 rounded-lg px-2 py-1">
-                    {['PLANIFICADO', 'EN_PROGRESO', 'COMPLETADO'].map((s) => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-              ))}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                <Resumen l="Presupuesto total" v={fmtCLP(total)} />
+                <Resumen l="Realizado" v={fmtCLP(realizado)} />
+                <Resumen l="Abonado" v={fmtCLP(abonado)} />
+                <Resumen l="Saldo por abonar" v={fmtCLP(Math.max(0, total - abonado))} destacado={total - abonado > 0} />
+              </div>
             </div>
+
+            {detalle.bloqueado && (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                Plan bloqueado: no se puede editar el presupuesto (agregar/quitar acciones, precios). Las acciones igual se pueden evolucionar. Desbloquéalo para editar.
+              </p>
+            )}
+
+            {/* Secciones */}
+            {detalle.secciones.map((s) => (
+              <SeccionBloque key={s.id} seccion={s} plan={detalle} prestaciones={prestaciones} pacienteId={pacienteId} accion={accion} />
+            ))}
+
+            {/* Acciones sin sección */}
+            {detalle.tratamientos.length > 0 && (
+              <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', fechaTentativa: null, diasDesdeAnterior: null, tratamientos: detalle.tratamientos }} plan={detalle} prestaciones={prestaciones} pacienteId={pacienteId} accion={accion} sinSeccion />
+            )}
+
+            {!detalle.bloqueado && <AgregarSeccion planId={detalle.id} accion={accion} />}
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function Resumen({ l, v, destacado }: { l: string; v: string; destacado?: boolean }) {
+  return (
+    <div className="bg-slate-50 rounded-xl px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wide text-slate-400">{l}</p>
+      <p className={`font-mono font-semibold ${destacado ? 'text-amber-600' : 'text-slate-800'}`}>{v}</p>
+    </div>
+  )
+}
+
+function SeccionBloque({ seccion, plan, prestaciones, pacienteId, accion, sinSeccion }: {
+  seccion: SeccionNode; plan: PlanDetalle; prestaciones: PrestacionDTO[]; pacienteId: string
+  accion: (fn: () => Promise<unknown>) => Promise<void>; sinSeccion?: boolean
+}) {
+  const [agregando, setAgregando] = useState(false)
+  const totalSec = seccion.tratamientos.reduce((s, t) => s + netoTrat(t), 0)
+  const tiempo = seccion.diasDesdeAnterior != null ? `~${seccion.diasDesdeAnterior} días` : (seccion.fechaTentativa ? new Date(seccion.fechaTentativa).toLocaleDateString('es-CL') : null)
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-semibold text-slate-800 text-sm truncate">{seccion.titulo}</span>
+          {tiempo && <span className="text-xs text-slate-400">· {tiempo}</span>}
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-mono text-slate-600">{fmtCLP(totalSec)}</span>
+          {!sinSeccion && !plan.bloqueado && (
+            <button onClick={() => accion(() => seccionesService.eliminar(seccion.id))} className="text-slate-300 hover:text-rose-600 text-sm" title="Eliminar sección">🗑</button>
+          )}
+        </div>
+      </div>
+      <div className="divide-y divide-slate-100">
+        {seccion.tratamientos.length === 0 && <p className="px-4 py-3 text-xs text-slate-400">Sin acciones.</p>}
+        {seccion.tratamientos.map((t) => <AccionFila key={t.id} t={t} bloqueado={plan.bloqueado} accion={accion} />)}
+      </div>
+      {!plan.bloqueado && !sinSeccion && (
+        <div className="px-4 py-2 border-t border-slate-100">
+          {agregando
+            ? <AgregarAccion planId={plan.id} seccionId={seccion.id} pacienteId={pacienteId} prestaciones={prestaciones} accion={accion} onDone={() => setAgregando(false)} />
+            : <button onClick={() => setAgregando(true)} className="text-xs font-semibold text-cyan-700">+ Prestación</button>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AccionFila({ t, bloqueado, accion }: { t: TratNode; bloqueado: boolean; accion: (fn: () => Promise<unknown>) => Promise<void> }) {
+  const completado = t.estado === 'COMPLETADO'
+  const pagada = pagadaTrat(t)
+  const toggle = () => accion(() => tratamientosService.actualizar(t.id, { estado: completado ? 'PLANIFICADO' : 'COMPLETADO', fechaCompletado: completado ? null : new Date().toISOString() }))
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5">
+      <button onClick={toggle} title={completado ? 'Completada (clic para revertir)' : 'Evolucionar a completada'}
+        className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] shrink-0 ${completado ? 'bg-emerald-500 text-white' : 'bg-slate-200 text-slate-400 hover:bg-slate-300'}`}>
+        {completado ? '✓' : ''}
+      </button>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm text-slate-800 truncate">{t.prestacion.nombre}</p>
+        <p className="text-xs text-slate-400">
+          {t.diente ? `Pieza ${t.diente}` : 'General'}{t.cara ? ` · caras ${t.cara.split('').join(',')}` : ''}{t.descuento ? ` · ${t.descuento}% dscto` : ''}
+        </p>
+      </div>
+      <span className="text-sm font-mono text-slate-700 w-24 text-right">{fmtCLP(netoTrat(t))}</span>
+      <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${pagada ? 'bg-emerald-500' : 'bg-rose-400'}`} title={pagada ? 'Pagada' : 'Pendiente de pago'} />
+      {!bloqueado && <button onClick={() => accion(() => tratamientosService.eliminar(t.id))} className="text-slate-300 hover:text-rose-600 text-sm shrink-0" title="Quitar">×</button>}
+    </div>
+  )
+}
+
+function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, accion, onDone }: {
+  planId: string; seccionId: string; pacienteId: string; prestaciones: PrestacionDTO[]
+  accion: (fn: () => Promise<unknown>) => Promise<void>; onDone: () => void
+}) {
+  const [prestId, setPrestId] = useState('')
+  const [pieza, setPieza] = useState('')
+  const [caras, setCaras] = useState<string[]>([])
+  const prest = prestaciones.find((p) => p.id === prestId)
+
+  async function añadir() {
+    if (!prestId) return
+    await accion(() => tratamientosService.crear({
+      pacienteId, prestacionId: prestId, planId, seccionId,
+      precio: prest?.precio, piezas: pieza ? [Number(pieza)] : undefined, cara: caras.length ? caras.join('') : undefined,
+    }))
+    onDone()
+  }
+
+  return (
+    <div className="space-y-2 py-1">
+      <div className="flex gap-2 flex-wrap">
+        <select value={prestId} onChange={(e) => setPrestId(e.target.value)} className="flex-1 min-w-[12rem] px-2 py-1.5 border border-slate-200 rounded-lg text-sm">
+          <option value="">Prestación…</option>
+          {prestaciones.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {fmtCLP(p.precio)}</option>)}
+        </select>
+        <input value={pieza} onChange={(e) => setPieza(e.target.value)} placeholder="Pieza (FDI)" inputMode="numeric" className="w-24 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+      </div>
+      <div className="flex items-center gap-2 flex-wrap text-xs text-slate-500">
+        <span>Caras:</span>
+        {CARAS.map(([c, label]) => (
+          <button key={c} type="button" title={label}
+            onClick={() => setCaras((cs) => cs.includes(c) ? cs.filter((x) => x !== c) : [...cs, c])}
+            className={`px-2 py-1 rounded-md border ${caras.includes(c) ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-200 text-slate-600'}`}>{c}</button>
+        ))}
+        <span className="text-slate-300">(vacío = diente completo / implante)</span>
+      </div>
+      <div className="flex gap-2">
+        <button onClick={añadir} disabled={!prestId} className="px-3 py-1.5 bg-cyan-600 disabled:opacity-50 text-white text-sm rounded-lg">Añadir</button>
+        <button onClick={onDone} className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg">Cancelar</button>
+      </div>
+    </div>
+  )
+}
+
+function AgregarSeccion({ planId, accion }: { planId: string; accion: (fn: () => Promise<unknown>) => Promise<void> }) {
+  const [abierto, setAbierto] = useState(false)
+  const [titulo, setTitulo] = useState('')
+  const [dias, setDias] = useState('')
+  if (!abierto) return <button onClick={() => setAbierto(true)} className="text-sm font-semibold text-cyan-700">+ Sección</button>
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-3 flex gap-2 flex-wrap items-center">
+      <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Nombre de la sección" className="flex-1 min-w-[12rem] px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+      <input value={dias} onChange={(e) => setDias(e.target.value)} placeholder="Días estimados" inputMode="numeric" className="w-32 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+      <button onClick={async () => { await accion(() => planesService.crearSeccion(planId, { titulo: titulo.trim() || undefined, diasDesdeAnterior: dias ? Number(dias) : undefined })); setAbierto(false); setTitulo(''); setDias('') }}
+        className="px-3 py-1.5 bg-cyan-600 text-white text-sm rounded-lg">Crear</button>
+      <button onClick={() => setAbierto(false)} className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg">Cancelar</button>
     </div>
   )
 }

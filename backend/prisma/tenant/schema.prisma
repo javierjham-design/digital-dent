@@ -274,6 +274,7 @@ model PlanTratamiento {
   doctorTitularId String?
   nombre          String        @default("Plan de tratamiento")
   estado          String        @default("ACTIVO")
+  bloqueado       Boolean       @default(false)  // bloqueo al imprimir; desbloquear para editar
   notas           String?
   fechaInicio     DateTime?
   createdAt       DateTime      @default(now())

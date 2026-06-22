@@ -74,6 +74,7 @@ export async function actualizarPlan(db: TenantClient, id: string, body: Record<
   if (typeof body.nombre === 'string') data.nombre = body.nombre
   if (typeof body.notas === 'string' || body.notas === null) data.notas = body.notas
   if (typeof body.estado === 'string') data.estado = body.estado
+  if (typeof body.bloqueado === 'boolean') data.bloqueado = body.bloqueado
   if (typeof body.doctorTitularId === 'string' || body.doctorTitularId === null) data.doctorTitularId = body.doctorTitularId || null
   if (body.fechaInicio === null) data.fechaInicio = null
   else if (typeof body.fechaInicio === 'string') data.fechaInicio = new Date(body.fechaInicio)
@@ -81,6 +82,14 @@ export async function actualizarPlan(db: TenantClient, id: string, body: Record<
   const r = await db.planTratamiento.updateMany({ where: { id }, data })
   if (r.count === 0) throw notFound('Plan no existe')
   return db.planTratamiento.findUnique({ where: { id } })
+}
+
+// Bloqueo del presupuesto: con el plan bloqueado no se puede editar su estructura
+// ni precios (sí se permite evolucionar acciones). Desbloquear para editar.
+async function assertPlanDesbloqueado(db: TenantClient, planId: string | null | undefined) {
+  if (!planId) return
+  const p = await db.planTratamiento.findUnique({ where: { id: planId }, select: { bloqueado: true } })
+  if (p?.bloqueado) throw forbidden('El plan está bloqueado. Desbloquéalo para editar el presupuesto.')
 }
 
 export async function eliminarPlan(db: TenantClient, id: string) {
@@ -93,6 +102,7 @@ export async function eliminarPlan(db: TenantClient, id: string) {
 export async function crearSeccion(db: TenantClient, planId: string, body: { titulo?: string; fechaTentativa?: string; diasDesdeAnterior?: number; notas?: string }) {
   const plan = await db.planTratamiento.findUnique({ where: { id: planId }, select: { id: true } })
   if (!plan) throw notFound('Plan no existe')
+  await assertPlanDesbloqueado(db, planId)
   const max = await db.seccionPlan.aggregate({ where: { planId }, _max: { orden: true } })
   const orden = (max._max.orden ?? -1) + 1
   return db.seccionPlan.create({
@@ -122,8 +132,10 @@ export async function actualizarSeccion(db: TenantClient, id: string, body: Reco
 }
 
 export async function eliminarSeccion(db: TenantClient, id: string) {
-  const r = await db.seccionPlan.deleteMany({ where: { id } })
-  if (r.count === 0) throw notFound('Sección no existe')
+  const s = await db.seccionPlan.findUnique({ where: { id }, select: { planId: true } })
+  if (!s) throw notFound('Sección no existe')
+  await assertPlanDesbloqueado(db, s.planId)
+  await db.seccionPlan.delete({ where: { id } })
 }
 
 // ── Tratamientos (acciones) ──────────────────────────────────────────────────
@@ -138,6 +150,7 @@ export async function crearTratamiento(db: TenantClient, actorId: string, body: 
   if (!paciente) throw notFound('Paciente no encontrado')
   const prestacion = await db.prestacion.findUnique({ where: { id: body.prestacionId }, select: { id: true, precio: true } })
   if (!prestacion) throw notFound('Prestación no encontrada')
+  await assertPlanDesbloqueado(db, body.planId)
 
   const me = await actorPermisos(db, actorId)
   const precioFinal = me.permisos.puedeModificarPrecio ? Number(body.precio) : prestacion.precio
@@ -177,8 +190,12 @@ export async function crearTratamiento(db: TenantClient, actorId: string, body: 
 }
 
 export async function actualizarTratamiento(db: TenantClient, actorId: string, id: string, body: Record<string, unknown>) {
-  const existing = await db.tratamiento.findUnique({ where: { id }, select: { id: true, estado: true } })
+  const existing = await db.tratamiento.findUnique({ where: { id }, select: { id: true, estado: true, planId: true } })
   if (!existing) throw notFound('Tratamiento no encontrado')
+
+  // Editar estructura/precio requiere el plan desbloqueado; evolucionar (estado) y notas, no.
+  const tocaPresupuesto = ['precio', 'descuento', 'diente', 'cara', 'seccionId', 'planId', 'prestacionId'].some((k) => k in body)
+  if (tocaPresupuesto) await assertPlanDesbloqueado(db, existing.planId)
 
   const me = await actorPermisos(db, actorId)
   const data: Record<string, unknown> = {}
@@ -212,8 +229,10 @@ export async function actualizarTratamiento(db: TenantClient, actorId: string, i
 }
 
 export async function eliminarTratamiento(db: TenantClient, id: string) {
-  const r = await db.tratamiento.deleteMany({ where: { id } })
-  if (r.count === 0) throw notFound('Tratamiento no encontrado')
+  const t = await db.tratamiento.findUnique({ where: { id }, select: { planId: true } })
+  if (!t) throw notFound('Tratamiento no encontrado')
+  await assertPlanDesbloqueado(db, t.planId)
+  await db.tratamiento.delete({ where: { id } })
 }
 
 // ── Evoluciones ────────────────────────────────────────────────────────────
