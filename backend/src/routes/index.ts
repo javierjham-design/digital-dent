@@ -136,6 +136,7 @@ apiRouter.delete('/secciones-plan/:id', tenant, asyncHandler(clinico.deleteSecci
 // ── Clínico: tratamientos (acciones) ─────────────────────────────────────────
 apiRouter.post('/tratamientos', tenant, asyncHandler(clinico.postTratamiento))
 apiRouter.patch('/tratamientos/:id', tenant, asyncHandler(clinico.patchTratamiento))
+apiRouter.post('/tratamientos/:id/evolucionar', tenant, asyncHandler(clinico.postEvolucionarTratamiento))
 apiRouter.delete('/tratamientos/:id', tenant, asyncHandler(clinico.deleteTratamiento))
 
 // ── Clínico: evoluciones ─────────────────────────────────────────────────────

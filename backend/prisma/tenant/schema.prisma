@@ -303,6 +303,7 @@ model Evolucion {
   tratamientoId String?
   autorId       String?
   texto         String
+  fecha         DateTime     @default(now()) // fecha clínica de la evolución (editable)
   createdAt     DateTime     @default(now())
   paciente      Paciente     @relation(fields: [pacienteId], references: [id])
   tratamiento   Tratamiento? @relation(fields: [tratamientoId], references: [id], onDelete: SetNull)

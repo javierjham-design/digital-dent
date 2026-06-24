@@ -115,6 +115,15 @@ export const crearEvolucionSchema = z.object({
   pacienteId: z.string().min(1),
   tratamientoId: z.string().optional(),
   texto: z.string().min(1),
+  fecha: z.string().optional(),
+})
+
+// Evolucionar una acción del plan: marca COMPLETADO + (opcional) cambia el
+// profesional que la realiza + deja la evolución en la ficha clínica.
+export const evolucionarTratamientoSchema = z.object({
+  texto: z.string().min(1),
+  profesionalId: z.string().optional(),
+  fecha: z.string().optional(),
 })
 
 export const upsertDienteSchema = z.object({

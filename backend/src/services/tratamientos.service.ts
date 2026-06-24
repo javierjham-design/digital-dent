@@ -37,6 +37,13 @@ export async function listarPlanes(db: TenantClient, pacienteId: string) {
     include: {
       doctorTitular: { select: { id: true, name: true, email: true } },
       _count: { select: { tratamientos: true, secciones: true } },
+      // Datos mínimos para que las tarjetas calculen progreso y estado financiero.
+      tratamientos: {
+        select: {
+          estado: true, precio: true, descuento: true,
+          cobroItems: { select: { monto: true, cobro: { select: { estado: true } } } },
+        },
+      },
     },
   })
 }
@@ -235,21 +242,58 @@ export async function eliminarTratamiento(db: TenantClient, id: string) {
   await db.tratamiento.delete({ where: { id } })
 }
 
+// Evolucionar una acción: la marca COMPLETADA, (opcional) asigna el profesional
+// que la realizó —por defecto el dueño del plan, pero se puede cambiar— y deja
+// la evolución registrada en la ficha clínica del paciente. Todo atómico.
+export async function evolucionarTratamiento(
+  db: TenantClient, actorId: string, id: string,
+  body: { texto: string; profesionalId?: string; fecha?: string },
+) {
+  if (!body.texto?.trim()) throw badRequest('Falta la evolución')
+  const t = await db.tratamiento.findUnique({ where: { id }, select: { id: true, ficha: { select: { pacienteId: true } } } })
+  if (!t) throw notFound('Tratamiento no encontrado')
+  if (body.profesionalId) {
+    const doc = await db.user.findUnique({ where: { id: body.profesionalId }, select: { id: true } })
+    if (!doc) throw notFound('Profesional no encontrado')
+  }
+  const fecha = body.fecha ? new Date(body.fecha) : new Date()
+  return db.$transaction(async (tx) => {
+    await tx.tratamiento.update({
+      where: { id },
+      data: {
+        estado: 'COMPLETADO',
+        fechaCompletado: fecha,
+        ...(body.profesionalId ? { doctorId: body.profesionalId } : {}),
+      },
+    })
+    return tx.evolucion.create({
+      data: { pacienteId: t.ficha.pacienteId, tratamientoId: id, autorId: actorId, texto: body.texto.trim(), fecha },
+      include: { autor: { select: { id: true, name: true, email: true, username: true } } },
+    })
+  })
+}
+
 // ── Evoluciones ────────────────────────────────────────────────────────────
 
 export async function listarEvoluciones(db: TenantClient, pacienteId: string) {
   if (!pacienteId) throw badRequest('Falta pacienteId')
   return db.evolucion.findMany({
     where: { pacienteId },
-    orderBy: { createdAt: 'desc' },
+    orderBy: [{ fecha: 'desc' }, { createdAt: 'desc' }],
     include: {
       autor: { select: { id: true, name: true, email: true, username: true } },
-      tratamiento: { select: { id: true, diente: true, cara: true, prestacion: { select: { nombre: true } } } },
+      tratamiento: {
+        select: {
+          id: true, diente: true, cara: true,
+          prestacion: { select: { nombre: true } },
+          doctor: { select: { id: true, name: true } },
+        },
+      },
     },
   })
 }
 
-export async function crearEvolucion(db: TenantClient, actorId: string, body: { pacienteId: string; tratamientoId?: string; texto: string }) {
+export async function crearEvolucion(db: TenantClient, actorId: string, body: { pacienteId: string; tratamientoId?: string; texto: string; fecha?: string }) {
   if (!body.pacienteId || !body.texto?.trim()) throw badRequest('Faltan campos')
   const paciente = await db.paciente.findUnique({ where: { id: body.pacienteId }, select: { id: true } })
   if (!paciente) throw notFound('Paciente no encontrado')
@@ -258,7 +302,10 @@ export async function crearEvolucion(db: TenantClient, actorId: string, body: { 
     if (!t) throw notFound('Tratamiento no encontrado')
   }
   return db.evolucion.create({
-    data: { pacienteId: body.pacienteId, tratamientoId: body.tratamientoId || null, autorId: actorId, texto: body.texto.trim() },
+    data: {
+      pacienteId: body.pacienteId, tratamientoId: body.tratamientoId || null, autorId: actorId,
+      texto: body.texto.trim(), ...(body.fecha ? { fecha: new Date(body.fecha) } : {}),
+    },
     include: { autor: { select: { id: true, name: true, email: true, username: true } } },
   })
 }

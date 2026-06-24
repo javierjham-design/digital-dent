@@ -21,11 +21,15 @@ export const tratamientosService = {
   crear: (input: Record<string, unknown>) => api.post<unknown[]>('/tratamientos', input),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/tratamientos/${id}`, patch),
   eliminar: (id: string) => api.del<{ ok: true }>(`/tratamientos/${id}`),
+  // Evolucionar = marcar la acción como realizada + registrar la evolución en la
+  // ficha clínica + (opcional) cambiar el profesional que la realiza.
+  evolucionar: (id: string, input: { texto: string; profesionalId?: string; fecha?: string }) =>
+    api.post<unknown>(`/tratamientos/${id}/evolucionar`, input),
 }
 
 export const evolucionesService = {
   listar: (pacienteId: string) => api.get<unknown[]>(`/evoluciones?pacienteId=${pacienteId}`),
-  crear: (input: { pacienteId: string; tratamientoId?: string; texto: string }) => api.post<unknown>('/evoluciones', input),
+  crear: (input: { pacienteId: string; tratamientoId?: string; texto: string; fecha?: string }) => api.post<unknown>('/evoluciones', input),
   eliminar: (id: string) => api.del<{ ok: true }>(`/evoluciones/${id}`),
 }
 
