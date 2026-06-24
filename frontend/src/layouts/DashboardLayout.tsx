@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import type { PacienteDTO } from '@shared/types'
 import { useAuth } from '@/hooks/useAuth'
+import { pacientesService } from '@/services/clinica.service'
 import { CambiarPasswordModal } from '@/components/CambiarPasswordModal'
 
 const NAV_PRE = [
@@ -55,6 +57,53 @@ function LiquidacionesMenu({ puedeGestionar }: { puedeGestionar: boolean }) {
   )
 }
 
+// Buscador de pacientes anclado al header: busca en el servidor a medida que se
+// escribe y navega a la ficha al elegir.
+function BuscadorPacientesHeader() {
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<PacienteDTO[]>([])
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const term = q.trim()
+    if (term.length < 2) { setResults([]); return }
+    const t = setTimeout(() => {
+      pacientesService.listar(term).then((r) => { setResults(r.slice(0, 8)); setOpen(true) }).catch(() => setResults([]))
+    }, 250)
+    return () => clearTimeout(t)
+  }, [q])
+
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+
+  const ir = (id: string) => { navigate(`/pacientes/${id}`); setQ(''); setResults([]); setOpen(false) }
+
+  return (
+    <div className="relative hidden sm:block" ref={ref}>
+      <input value={q} onChange={(e) => setQ(e.target.value)}
+        onFocus={() => results.length > 0 && setOpen(true)}
+        onKeyDown={(e) => { if (e.key === 'Escape') { setOpen(false); (e.currentTarget as HTMLInputElement).blur() } }}
+        placeholder="Buscar paciente…"
+        className="w-44 lg:w-60 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+      {open && results.length > 0 && (
+        <div className="absolute left-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-30 max-h-80 overflow-y-auto">
+          {results.map((p) => (
+            <button key={p.id} type="button" onClick={() => ir(p.id)} className="block w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0">
+              <p className="text-sm text-slate-800">{p.nombre} {p.apellido}</p>
+              <p className="text-xs text-slate-400 font-mono">{p.rut ?? 'Sin RUT'}{p.telefono ? ` · ${p.telefono}` : ''}</p>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function DashboardLayout() {
   const { user, logout } = useAuth()
   const [cambiarPass, setCambiarPass] = useState(false)
@@ -71,7 +120,8 @@ export function DashboardLayout() {
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-800 text-white font-bold flex items-center justify-center">C</div>
           <span className="font-bold tracking-tight">Cláriva</span>
         </div>
-        <nav className="flex items-center gap-1 flex-1">
+        <BuscadorPacientesHeader />
+        <nav className="flex items-center gap-1 flex-1 overflow-x-auto">
           {NAV_PRE.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
           <LiquidacionesMenu puedeGestionar={puedeGestionarLiq} />
           {NAV_POST.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
