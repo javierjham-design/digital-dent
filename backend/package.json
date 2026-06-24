@@ -6,6 +6,7 @@
   "description": "API backend de Cláriva (Express + Prisma). Lógica de negocio, auth y multi-tenant.",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "prestart": "npm run control:push && npm run migrate:tenants",
     "start": "tsx src/index.ts",
     "build": "npm run prisma:generate:all",
     "postinstall": "npm run prisma:generate:all",

@@ -5,8 +5,12 @@
 //   1) npm run tenant:initsql      (regenera el DDL para clínicas NUEVAS)
 //   2) npm run migrate:tenants     (sincroniza las clínicas EXISTENTES)
 //
-// `prisma db push` es idempotente y aditivo; con cambios no destructivos no
-// pierde datos. Requiere que TENANT_DB_SERVER_URL pueda conectarse a cada base.
+// SEGURIDAD DE DATOS: el push se hace SIN `--accept-data-loss` a propósito. Los
+// cambios aditivos (columnas/tablas nuevas) se aplican igual; pero si un cambio
+// implicara PERDER datos de una clínica, el push FALLA y se marca esa base como
+// fallida en vez de borrar en silencio. Si alguna vez se necesita un cambio
+// destructivo, se hace de forma deliberada (backup + migración manual), nunca
+// como efecto colateral de un deploy. Requiere alcanzar cada base.
 import { execSync } from 'node:child_process'
 import { control } from '@/db/control'
 import { tenantUrl } from '@/db/tenant'
@@ -20,7 +24,7 @@ async function main() {
   for (const c of clinicas) {
     process.stdout.write(`  · ${c.slug} (${c.dbName}) … `)
     try {
-      execSync('npx prisma db push --schema prisma/tenant/schema.prisma --skip-generate --accept-data-loss', {
+      execSync('npx prisma db push --schema prisma/tenant/schema.prisma --skip-generate', {
         stdio: ['ignore', 'ignore', 'inherit'],
         env: { ...process.env, TENANT_DATABASE_URL: tenantUrl(c.dbName) },
       })
