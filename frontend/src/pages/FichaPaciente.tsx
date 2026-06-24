@@ -254,6 +254,7 @@ function PlanesTab({ pacienteId, pacienteNombre }: { pacienteId: string; pacient
   const [prestaciones, setPrestaciones] = useState<PrestacionDTO[]>([])
   const [doctores, setDoctores] = useState<DoctorDTO[]>([])
   const [piezaSel, setPiezaSel] = useState<number | null>(null)
+  const [carasSel, setCarasSel] = useState<string[]>([])
   const [evoAccion, setEvoAccion] = useState<TratNode | null>(null)
   const [error, setError] = useState('')
 
@@ -264,8 +265,15 @@ function PlanesTab({ pacienteId, pacienteNombre }: { pacienteId: string; pacient
     usuariosService.doctores().then(setDoctores).catch(() => {})
   }, [pacienteId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const abrir = async (planId: string) => { try { setPiezaSel(null); setDetalle(await planesService.obtener(planId) as PlanDetalle) } catch (e) { setError((e as Error).message) } }
+  const abrir = async (planId: string) => { try { setPiezaSel(null); setCarasSel([]); setDetalle(await planesService.obtener(planId) as PlanDetalle) } catch (e) { setError((e as Error).message) } }
   const recargar = () => { if (detalle) abrir(detalle.id) }
+  // Selección visual en el odontograma: clic en una cara la marca; clic en otra
+  // pieza reinicia; el número de la pieza la selecciona completa (implante).
+  const selFace = (n: number, f: string) => {
+    if (piezaSel !== n) { setPiezaSel(n); setCarasSel([f]) }
+    else setCarasSel((cs) => cs.includes(f) ? cs.filter((x) => x !== f) : [...cs, f])
+  }
+  const selWhole = (n: number) => { setPiezaSel((p) => (p === n ? null : n)); setCarasSel([]) }
   async function crearPlan() { const p = await planesService.crear({ pacienteId, doctorTitularId: doctores[0]?.id }) as { id: string }; cargarPlanes(); abrir(p.id) }
 
   async function accion<T>(fn: () => Promise<T>) {
@@ -289,7 +297,7 @@ function PlanesTab({ pacienteId, pacienteNombre }: { pacienteId: string; pacient
       {detalle ? (
         <PlanDetalleView
           plan={detalle} prestaciones={prestaciones} doctores={doctores} pacienteId={pacienteId}
-          piezaSel={piezaSel} setPiezaSel={setPiezaSel} accion={accion}
+          piezaSel={piezaSel} carasSel={carasSel} selFace={selFace} selWhole={selWhole} accion={accion}
           onCerrar={() => setDetalle(null)} onEvolucionar={setEvoAccion} onRenombrar={renombrar}
           onBloquear={() => accion(() => planesService.actualizar(detalle.id, { bloqueado: !detalle.bloqueado }))}
           onProfesional={(id) => accion(() => planesService.actualizar(detalle.id, { doctorTitularId: id || null }))}
@@ -390,16 +398,23 @@ function PlanLista({ planes, onAbrir, onNuevo, onEliminar }: {
   )
 }
 
-function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, piezaSel, setPiezaSel, accion, onCerrar, onEvolucionar, onRenombrar, onBloquear, onProfesional }: {
+function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, piezaSel, carasSel, selFace, selWhole, accion, onCerrar, onEvolucionar, onRenombrar, onBloquear, onProfesional }: {
   plan: PlanDetalle; prestaciones: PrestacionDTO[]; doctores: DoctorDTO[]; pacienteId: string
-  piezaSel: number | null; setPiezaSel: (n: number | null) => void
+  piezaSel: number | null; carasSel: string[]; selFace: (n: number, f: string) => void; selWhole: (n: number) => void
   accion: (fn: () => Promise<unknown>) => Promise<void>
   onCerrar: () => void; onEvolucionar: (t: TratNode) => void; onRenombrar: () => void
   onBloquear: () => void; onProfesional: (id: string) => void
 }) {
   const todas = [...plan.secciones.flatMap((s) => s.tratamientos), ...plan.tratamientos]
   const fin = planFinanzas(todas)
-  const piezasConAccion = new Set(todas.map((t) => t.diente).filter((d): d is number => d != null))
+  // Caras que ya tienen una acción, por pieza (para resaltarlas en el odontograma).
+  const caraMap = new Map<number, Set<string>>()
+  for (const t of todas) {
+    if (t.diente == null) continue
+    const set = caraMap.get(t.diente) ?? new Set<string>()
+    for (const f of (t.cara ?? '').split('')) if (f.trim()) set.add(f)
+    caraMap.set(t.diente, set)
+  }
   return (
     <div>
       <button onClick={onCerrar} className="text-sm text-cyan-600 hover:underline mb-3">← Planes de tratamiento</button>
@@ -437,7 +452,7 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, piezaSel, s
         {/* Panel derecho: odontograma + secciones */}
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200 p-4">
-            <OdontogramaPlan piezasConAccion={piezasConAccion} piezaSel={piezaSel} onSel={setPiezaSel} />
+            <OdontogramaPlan caraMap={caraMap} piezaSel={piezaSel} carasSel={carasSel} onFace={selFace} onWhole={selWhole} />
           </div>
 
           {plan.bloqueado && (
@@ -455,10 +470,10 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, piezaSel, s
           )}
 
           {plan.secciones.map((s) => (
-            <SeccionBloque key={s.id} seccion={s} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} piezaSel={piezaSel} accion={accion} onEvolucionar={onEvolucionar} />
+            <SeccionBloque key={s.id} seccion={s} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} piezaSel={piezaSel} carasSel={carasSel} accion={accion} onEvolucionar={onEvolucionar} />
           ))}
           {plan.tratamientos.length > 0 && (
-            <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', fechaTentativa: null, diasDesdeAnterior: null, tratamientos: plan.tratamientos }} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} piezaSel={piezaSel} accion={accion} onEvolucionar={onEvolucionar} sinSeccion />
+            <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', fechaTentativa: null, diasDesdeAnterior: null, tratamientos: plan.tratamientos }} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} piezaSel={piezaSel} carasSel={carasSel} accion={accion} onEvolucionar={onEvolucionar} sinSeccion />
           )}
           {!plan.bloqueado && <AgregarSeccion planId={plan.id} accion={accion} />}
         </div>
@@ -467,26 +482,72 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, piezaSel, s
   )
 }
 
-function OdontogramaPlan({ piezasConAccion, piezaSel, onSel }: { piezasConAccion: Set<number>; piezaSel: number | null; onSel: (n: number | null) => void }) {
-  const Tooth = ({ n }: { n: number }) => {
-    const tiene = piezasConAccion.has(n)
-    const sel = piezaSel === n
-    return (
-      <button onClick={() => onSel(sel ? null : n)} title={`Pieza ${n}`}
-        className={`w-8 h-10 rounded-md border text-[10px] font-bold flex items-center justify-center transition-transform hover:scale-105 ${sel ? 'bg-cyan-600 text-white border-cyan-600 ring-2 ring-cyan-300' : tiene ? 'bg-cyan-50 text-cyan-700 border-cyan-300' : 'bg-white text-slate-500 border-slate-200'}`}>
-        {n}
-      </button>
-    )
-  }
+const FACE_NAME: Record<string, string> = { V: 'Vestibular', O: 'Oclusal/Incisal', L: 'Lingual/Palatino', M: 'Mesial', D: 'Distal' }
+const EMPTY_FACES = new Set<string>()
+
+function Leyenda({ color, l }: { color: string; l: string }) {
+  return <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm border border-slate-300" style={{ background: color }} /> {l}</span>
+}
+
+// Diagrama de una pieza con sus 5 caras seleccionables (V arriba, L abajo,
+// M/D a los lados, O al centro). Clic en una cara la marca; clic en el número
+// selecciona la pieza completa (implante / diente entero).
+function ToothFaces({ n, sel, carasSel, carasConAccion, onFace, onWhole }: {
+  n: number; sel: boolean; carasSel: string[]; carasConAccion: Set<string>
+  onFace: (n: number, f: string) => void; onWhole: (n: number) => void
+}) {
+  const S = 30, a = S * 0.34
+  const zonas: [string, string][] = [
+    ['V', `0,0 ${S},0 ${S - a},${a} ${a},${a}`],
+    ['L', `0,${S} ${S},${S} ${S - a},${S - a} ${a},${S - a}`],
+    ['M', `0,0 ${a},${a} ${a},${S - a} 0,${S}`],
+    ['D', `${S},0 ${S - a},${a} ${S - a},${S - a} ${S},${S}`],
+    ['O', `${a},${a} ${S - a},${a} ${S - a},${S - a} ${a},${S - a}`],
+  ]
+  const fill = (f: string) => (sel && carasSel.includes(f) ? '#0891b2' : carasConAccion.has(f) ? '#bae6fd' : '#ffffff')
+  return (
+    <div className="flex flex-col items-center gap-0.5">
+      <svg width={S} height={S} viewBox={`0 0 ${S} ${S}`} className={`shrink-0 rounded-sm ${sel ? 'ring-2 ring-cyan-400' : ''}`}>
+        {zonas.map(([f, pts]) => (
+          <polygon key={f} points={pts} fill={fill(f)} stroke="#94a3b8" strokeWidth="0.75"
+            className="cursor-pointer hover:opacity-70 transition-opacity" onClick={() => onFace(n, f)}>
+            <title>{`Pieza ${n} · ${FACE_NAME[f]}`}</title>
+          </polygon>
+        ))}
+      </svg>
+      <button onClick={() => onWhole(n)} title={`Pieza ${n} completa`}
+        className={`text-[9px] font-bold leading-none px-0.5 rounded ${sel ? 'text-cyan-700 bg-cyan-50' : 'text-slate-400 hover:text-slate-600'}`}>{n}</button>
+    </div>
+  )
+}
+
+function OdontogramaPlan({ caraMap, piezaSel, carasSel, onFace, onWhole }: {
+  caraMap: Map<number, Set<string>>; piezaSel: number | null; carasSel: string[]
+  onFace: (n: number, f: string) => void; onWhole: (n: number) => void
+}) {
+  const fila = (nums: number[]) => (
+    <div className="flex gap-1 justify-center min-w-max">
+      {nums.map((n) => <ToothFaces key={n} n={n} sel={piezaSel === n} carasSel={carasSel} carasConAccion={caraMap.get(n) ?? EMPTY_FACES} onFace={onFace} onWhole={onWhole} />)}
+    </div>
+  )
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <p className="text-sm font-semibold text-slate-700">Odontograma</p>
-        <p className="text-xs text-slate-400">{piezaSel ? `Pieza ${piezaSel} seleccionada — agrégala con "+ Agregar prestación"` : 'Selecciona una pieza para asignarle una acción'}</p>
+        <p className="text-xs text-slate-400">
+          {piezaSel
+            ? `Pieza ${piezaSel}${carasSel.length ? ` · caras ${carasSel.join(',')}` : ' · completa'} — agrégala con "+ Agregar prestación"`
+            : 'Clic en las caras de una pieza (o en su número para la pieza completa)'}
+        </p>
       </div>
-      <div className="space-y-1.5 overflow-x-auto">
-        <div className="flex gap-1 justify-center min-w-max">{SUP.map((n) => <Tooth key={n} n={n} />)}</div>
-        <div className="flex gap-1 justify-center min-w-max">{INF.map((n) => <Tooth key={n} n={n} />)}</div>
+      <div className="space-y-2 overflow-x-auto pb-1">
+        {fila(SUP)}
+        {fila(INF)}
+      </div>
+      <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-slate-500">
+        <Leyenda color="#0891b2" l="Cara seleccionada" />
+        <Leyenda color="#bae6fd" l="Con acción" />
+        <span className="text-slate-400">V vestibular · O oclusal · L lingual/palatino · M mesial · D distal</span>
       </div>
     </div>
   )
@@ -555,8 +616,8 @@ function EvolucionModal({ accion, pacienteNombre, doctores, plan, onClose, onDon
   )
 }
 
-function SeccionBloque({ seccion, plan, prestaciones, pacienteId, piezaSel, accion, onEvolucionar, sinSeccion }: {
-  seccion: SeccionNode; plan: PlanDetalle; prestaciones: PrestacionDTO[]; pacienteId: string; piezaSel: number | null
+function SeccionBloque({ seccion, plan, prestaciones, pacienteId, piezaSel, carasSel, accion, onEvolucionar, sinSeccion }: {
+  seccion: SeccionNode; plan: PlanDetalle; prestaciones: PrestacionDTO[]; pacienteId: string; piezaSel: number | null; carasSel: string[]
   accion: (fn: () => Promise<unknown>) => Promise<void>; onEvolucionar: (t: TratNode) => void; sinSeccion?: boolean
 }) {
   const [agregando, setAgregando] = useState(false)
@@ -584,8 +645,8 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, piezaSel, acci
       {!plan.bloqueado && !sinSeccion && (
         <div className="px-4 py-2 border-t border-slate-100">
           {agregando
-            ? <AgregarAccion planId={plan.id} seccionId={seccion.id} pacienteId={pacienteId} prestaciones={prestaciones} piezaSel={piezaSel} accion={accion} onDone={() => setAgregando(false)} />
-            : <button onClick={() => setAgregando(true)} className="text-xs font-semibold text-cyan-700">+ Agregar prestación{piezaSel ? ` (pieza ${piezaSel})` : ''}</button>}
+            ? <AgregarAccion planId={plan.id} seccionId={seccion.id} pacienteId={pacienteId} prestaciones={prestaciones} piezaSel={piezaSel} carasSel={carasSel} accion={accion} onDone={() => setAgregando(false)} />
+            : <button onClick={() => setAgregando(true)} className="text-xs font-semibold text-cyan-700">+ Agregar prestación{piezaSel ? ` (pieza ${piezaSel}${carasSel.length ? ` ${carasSel.join(',')}` : ''})` : ''}</button>}
         </div>
       )}
     </div>
@@ -622,13 +683,13 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
   )
 }
 
-function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, piezaSel, accion, onDone }: {
-  planId: string; seccionId: string; pacienteId: string; prestaciones: PrestacionDTO[]; piezaSel: number | null
+function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, piezaSel, carasSel, accion, onDone }: {
+  planId: string; seccionId: string; pacienteId: string; prestaciones: PrestacionDTO[]; piezaSel: number | null; carasSel: string[]
   accion: (fn: () => Promise<unknown>) => Promise<void>; onDone: () => void
 }) {
   const [prestId, setPrestId] = useState('')
   const [pieza, setPieza] = useState(piezaSel != null ? String(piezaSel) : '')
-  const [caras, setCaras] = useState<string[]>([])
+  const [caras, setCaras] = useState<string[]>(carasSel)
   const prest = prestaciones.find((p) => p.id === prestId)
 
   async function añadir() {
