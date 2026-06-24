@@ -8,6 +8,32 @@ const dist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'dist')
 const app = express()
 app.disable('x-powered-by')
 
+// ── Security headers ─────────────────────────────────────────────────────────
+// Landing estático: script solo del propio origen; conexiones solo al backend
+// de Cláriva (precios públicos + crear demo).
+const CSP = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "object-src 'none'",
+  "frame-ancestors 'none'",
+  "form-action 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "img-src 'self' data: https:",
+  "font-src 'self' data: https://fonts.gstatic.com",
+  "connect-src 'self' https://api.clariva.cl https://*.up.railway.app",
+].join('; ')
+
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy', CSP)
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  res.setHeader('X-Frame-Options', 'DENY')
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=()')
+  next()
+})
+
 app.use(express.static(dist, {
   index: false,
   setHeaders: (res, filePath) => {
