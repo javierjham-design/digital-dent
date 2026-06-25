@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import type { CitaDTO, DoctorDTO, PacienteDTO, PrestacionDTO } from '@shared/types'
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
@@ -236,7 +236,7 @@ interface TratNode {
   doctor: { id: string; name: string | null } | null
 }
 interface TratLite { estado: string; precio: number; descuento: number; cobroItems: CobroItemLite[] }
-interface SeccionNode { id: string; titulo: string; fechaTentativa: string | null; diasDesdeAnterior: number | null; tratamientos: TratNode[] }
+interface SeccionNode { id: string; titulo: string; orden: number; fechaTentativa: string | null; diasDesdeAnterior: number | null; tratamientos: TratNode[] }
 interface DoctorRef { id: string; name: string | null; email?: string | null }
 interface PlanCard {
   id: string; nombre: string; estado: string; bloqueado?: boolean
@@ -447,6 +447,14 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
     for (const f of (t.cara ?? '').split('')) if (f.trim()) set.add(f)
     caraMap.set(t.diente, set)
   }
+  // Reordenar secciones: reasigna `orden` = posición tras el intercambio.
+  async function moverSeccion(idx: number, dir: -1 | 1) {
+    const arr = [...plan.secciones]
+    const j = idx + dir
+    if (j < 0 || j >= arr.length) return
+    ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
+    await accion(() => Promise.all(arr.map((s, i) => seccionesService.actualizar(s.id, { orden: i }))))
+  }
   return (
     <div>
       <button onClick={onCerrar} className="text-sm text-cyan-600 hover:underline mb-3">← Planes de tratamiento</button>
@@ -493,16 +501,16 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
               Plan bloqueado: no se puede editar el presupuesto (agregar/quitar acciones, precios). Las acciones igual se pueden evolucionar. Desbloquéalo para editar.
             </p>
           ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 p-3">
-              {agregando ? (
-                <AgregarAccion planId={plan.id} seccionId="" pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />
-              ) : (
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button onClick={() => setAgregando(true)} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-lg">+ Agregar prestación</button>
-                  <AgregarSeccion planId={plan.id} accion={accion} />
-                  <span className="text-xs text-slate-400">Selecciona piezas o una zona arriba y agrégalas como prestación.</span>
-                </div>
-              )}
+            <div className="bg-white rounded-2xl border border-slate-200 p-3 space-y-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => setAgregando((v) => !v)}
+                  className={`px-3 py-1.5 text-sm font-semibold rounded-lg ${agregando ? 'bg-cyan-100 text-cyan-700' : 'bg-cyan-600 hover:bg-cyan-700 text-white'}`}>
+                  + Agregar prestación
+                </button>
+                <AgregarSeccion planId={plan.id} accion={accion} />
+                {!agregando && <span className="text-xs text-slate-400">Selecciona piezas o una zona arriba.</span>}
+              </div>
+              {agregando && <AgregarAccion planId={plan.id} seccionId="" pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />}
             </div>
           )}
 
@@ -514,11 +522,11 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
             </div>
           )}
 
-          {plan.secciones.map((s) => (
-            <SeccionBloque key={s.id} seccion={s} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} />
+          {plan.secciones.map((s, i) => (
+            <SeccionBloque key={s.id} seccion={s} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} idx={i} total={plan.secciones.length} onMover={moverSeccion} />
           ))}
           {plan.tratamientos.length > 0 && (
-            <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', fechaTentativa: null, diasDesdeAnterior: null, tratamientos: plan.tratamientos }} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} sinSeccion />
+            <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', orden: 0, fechaTentativa: null, diasDesdeAnterior: null, tratamientos: plan.tratamientos }} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} sinSeccion />
           )}
         </div>
       </div>
@@ -741,10 +749,11 @@ function EvolucionModal({ accion, pacienteNombre, doctores, plan, onClose, onDon
   )
 }
 
-function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, selCaras, selZona, clearSel, accion, onEvolucionar, sinSeccion }: {
+function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, selCaras, selZona, clearSel, accion, onEvolucionar, sinSeccion, idx, total, onMover }: {
   seccion: SeccionNode; plan: PlanDetalle; prestaciones: PrestacionDTO[]; pacienteId: string
   selPiezas: number[]; selCaras: Record<number, string[]>; selZona: string | null; clearSel: () => void
   accion: (fn: () => Promise<unknown>) => Promise<void>; onEvolucionar: (t: TratNode) => void; sinSeccion?: boolean
+  idx?: number; total?: number; onMover?: (idx: number, dir: -1 | 1) => void
 }) {
   const [agregando, setAgregando] = useState(false)
   const totalSec = seccion.tratamientos.reduce((s, t) => s + netoTrat(t), 0)
@@ -760,8 +769,14 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
           <span className="font-semibold text-slate-800 text-sm truncate">{seccion.titulo}</span>
           {tiempo && <span className="text-[11px] px-2 py-0.5 rounded-full bg-cyan-50 text-cyan-700 whitespace-nowrap">⏱ {tiempo}</span>}
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <span className="text-sm font-mono text-slate-600">{fmtCLP(totalSec)}</span>
+          {!sinSeccion && !plan.bloqueado && onMover && idx != null && total != null && (
+            <div className="flex flex-col -my-1 leading-none">
+              <button disabled={idx === 0} onClick={() => onMover(idx, -1)} className="text-slate-300 hover:text-cyan-600 disabled:opacity-30 text-[10px]" title="Subir sección">▲</button>
+              <button disabled={idx === total - 1} onClick={() => onMover(idx, 1)} className="text-slate-300 hover:text-cyan-600 disabled:opacity-30 text-[10px]" title="Bajar sección">▼</button>
+            </div>
+          )}
           {!sinSeccion && !plan.bloqueado && (
             <button onClick={() => accion(() => seccionesService.eliminar(seccion.id))} className="text-slate-300 hover:text-rose-600 text-sm" title="Eliminar sección">🗑</button>
           )}
@@ -813,6 +828,41 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
   )
 }
 
+// Buscador de prestaciones (hay cientos en el arancel): filtra a medida que se
+// escribe en vez de una lista desplegable gigante.
+function PrestacionBuscador({ prestaciones, onSelect }: { prestaciones: PrestacionDTO[]; onSelect: (p: PrestacionDTO) => void }) {
+  const [q, setQ] = useState('')
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const term = q.trim().toLowerCase()
+  const results = (term ? prestaciones.filter((p) => p.nombre.toLowerCase().includes(term) || (p.categoria ?? '').toLowerCase().includes(term)) : prestaciones).slice(0, 40)
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+  return (
+    <div className="relative" ref={ref}>
+      <input value={q} onChange={(e) => { setQ(e.target.value); setOpen(true) }} onFocus={() => setOpen(true)}
+        placeholder="Buscar prestación…" autoFocus
+        className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-30 max-h-64 overflow-y-auto">
+          {results.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">Sin resultados</p>}
+          {results.map((p) => (
+            <button key={p.id} type="button" onClick={() => { onSelect(p); setQ(p.nombre); setOpen(false) }}
+              className="block w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0">
+              <span className="text-sm text-slate-800">{p.nombre}</span>
+              <span className="text-xs text-slate-400 ml-2 font-mono">{fmtCLP(p.precio)}</span>
+              {p.categoria && <span className="block text-[11px] text-slate-400">{p.categoria}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas, selCaras, selZona, clearSel, accion, onDone }: {
   planId: string; seccionId: string; pacienteId: string; prestaciones: PrestacionDTO[]
   selPiezas: number[]; selCaras: Record<number, string[]>; selZona: string | null; clearSel: () => void
@@ -849,10 +899,7 @@ function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas,
 
   return (
     <div className="space-y-2 py-1">
-      <select value={prestId} onChange={(e) => setPrestId(e.target.value)} className="w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm">
-        <option value="">Prestación…</option>
-        {prestaciones.map((p) => <option key={p.id} value={p.id}>{p.nombre} · {fmtCLP(p.precio)}</option>)}
-      </select>
+      <PrestacionBuscador prestaciones={prestaciones} onSelect={(p) => setPrestId(p.id)} />
       {selZona ? (
         <p className="text-xs text-cyan-700">Asociada a la zona <b>{selZona}</b> (sin dientes){prest ? ` · ${fmtCLP(prest.precio)}` : ''}.</p>
       ) : piezas.length > 0 ? (
