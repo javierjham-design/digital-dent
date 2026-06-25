@@ -30,7 +30,16 @@ export const tratamientosService = {
 export const evolucionesService = {
   listar: (pacienteId: string) => api.get<unknown[]>(`/evoluciones?pacienteId=${pacienteId}`),
   crear: (input: { pacienteId: string; tratamientoId?: string; texto: string; fecha?: string }) => api.post<unknown>('/evoluciones', input),
+  actualizar: (id: string, texto: string) => api.patch<unknown>(`/evoluciones/${id}`, { texto }),
   eliminar: (id: string) => api.del<{ ok: true }>(`/evoluciones/${id}`),
+}
+
+export interface HistorialEntry {
+  id: string; fecha: string; userNombre: string | null
+  accion: string; entidad: string; entidadId: string | null; resumen: string; datosPrevios: string | null
+}
+export const historialService = {
+  listar: (pacienteId: string) => api.get<HistorialEntry[]>(`/historial?pacienteId=${pacienteId}`),
 }
 
 export const odontogramaService = {

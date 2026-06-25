@@ -310,6 +310,24 @@ model Evolucion {
   autor         User?        @relation("AutorEvolucion", fields: [autorId], references: [id])
 }
 
+// Bitácora de auditoría: registro inmutable de quién hizo qué y cuándo sobre los
+// datos clínicos del paciente. Requisito legal de trazabilidad de la ficha
+// clínica (Ley 20.584 / Ley 21.719). No se edita ni se borra desde la app.
+model AuditLog {
+  id           String   @id @default(cuid())
+  fecha        DateTime @default(now())
+  userId       String?
+  userNombre   String?
+  accion       String   // CREAR | EDITAR | EVOLUCIONAR | ELIMINAR
+  entidad      String   // Paciente | FichaClinica | Evolucion | Tratamiento | PlanTratamiento | Cobro
+  entidadId    String?
+  pacienteId   String?
+  resumen      String
+  datosPrevios String?  // estado anterior (JSON) en ediciones/borrados
+
+  @@index([pacienteId, fecha])
+}
+
 model Presupuesto {
   id         String            @id @default(cuid())
   pacienteId String

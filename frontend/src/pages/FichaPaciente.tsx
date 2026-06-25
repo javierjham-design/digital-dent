@@ -3,12 +3,13 @@ import { Link, useParams } from 'react-router-dom'
 import type { CitaDTO, DoctorDTO, PacienteDTO, PrestacionDTO } from '@shared/types'
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
 import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO } from '@/services/clinica.service'
-import { planesService, seccionesService, tratamientosService, evolucionesService } from '@/services/clinico.service'
+import { planesService, seccionesService, tratamientosService, evolucionesService, historialService, type HistorialEntry } from '@/services/clinico.service'
 import { prestacionesService } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
+import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
-const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Evoluciones', 'Comentarios', 'Mensajes'] as const
+const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Evoluciones', 'Historial', 'Comentarios', 'Mensajes'] as const
 type Tab = typeof TABS[number]
 
 // Numeración FDI. Permanente: cuadrantes 1/2 (superior) y 4/3 (inferior).
@@ -32,6 +33,8 @@ const edad = (iso: string | null) => { if (!iso) return null; const d = new Date
 
 export function FichaPaciente() {
   const { id = '' } = useParams()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [tab, setTab] = useState<Tab>('Datos')
   const [paciente, setPaciente] = useState<PacienteDTO | null>(null)
   const [resumen, setResumen] = useState<ResumenPaciente | null>(null)
@@ -75,7 +78,8 @@ export function FichaPaciente() {
       {tab === 'Datos' && <DatosTab paciente={paciente} onSaved={setPaciente} />}
       {tab === 'Citas' && <CitasTab pacienteId={id} />}
       {tab === 'Planes de Tratamiento' && <PlanesTab pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} />}
-      {tab === 'Evoluciones' && <EvolucionesTab pacienteId={id} />}
+      {tab === 'Evoluciones' && <EvolucionesTab pacienteId={id} isAdmin={isAdmin} />}
+      {tab === 'Historial' && <HistorialTab pacienteId={id} />}
       {tab === 'Comentarios' && <ComentariosTab pacienteId={id} />}
       {tab === 'Mensajes' && <MensajesTab pacienteId={id} />}
     </div>
@@ -862,8 +866,13 @@ function AgregarSeccion({ planId, accion }: { planId: string; accion: (fn: () =>
 }
 
 // ── Evoluciones ──
-function EvolucionesTab({ pacienteId }: { pacienteId: string }) {
-  interface Evo { id: string; texto: string; createdAt: string; autor?: { name: string | null; username: string | null } }
+interface Evo {
+  id: string; texto: string; fecha?: string; createdAt: string
+  autor?: { name: string | null; username: string | null }
+  tratamiento?: { prestacion?: { nombre: string }; diente: number | null } | null
+}
+
+function EvolucionesTab({ pacienteId, isAdmin }: { pacienteId: string; isAdmin: boolean }) {
   const [evos, setEvos] = useState<Evo[]>([])
   const [texto, setTexto] = useState('')
   const [guardando, setGuardando] = useState(false)
@@ -874,6 +883,11 @@ function EvolucionesTab({ pacienteId }: { pacienteId: string }) {
     setGuardando(true)
     try { await evolucionesService.crear({ pacienteId, texto: texto.trim() }); setTexto(''); cargar() } finally { setGuardando(false) }
   }
+  async function borrar(id: string) {
+    if (!window.confirm('¿Eliminar esta evolución de la ficha clínica? Queda registrada en el historial de auditoría.')) return
+    try { await evolucionesService.eliminar(id) } catch (e) { alert(e instanceof ApiError ? e.message : 'Error') }
+    cargar()
+  }
   return (
     <div>
       <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
@@ -882,14 +896,84 @@ function EvolucionesTab({ pacienteId }: { pacienteId: string }) {
         <button onClick={agregar} disabled={guardando || !texto.trim()} className="mt-2 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">Agregar</button>
       </div>
       <div className="space-y-3">
-        {evos.map((e) => (
-          <div key={e.id} className="bg-white rounded-2xl border border-slate-200 p-4">
-            <p className="text-sm text-slate-700 whitespace-pre-wrap">{e.texto}</p>
-            <p className="text-xs text-slate-400 mt-2">{e.autor?.name ?? e.autor?.username ?? 'Sistema'} · {new Date(e.createdAt).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</p>
-          </div>
-        ))}
+        {evos.map((e) => <EvolucionItem key={e.id} e={e} isAdmin={isAdmin} onChanged={cargar} onBorrar={() => borrar(e.id)} />)}
         {evos.length === 0 && <p className="text-sm text-slate-500">Sin evoluciones registradas.</p>}
       </div>
+    </div>
+  )
+}
+
+function EvolucionItem({ e, isAdmin, onChanged, onBorrar }: { e: Evo; isAdmin: boolean; onChanged: () => void; onBorrar: () => void }) {
+  const [editando, setEditando] = useState(false)
+  const [txt, setTxt] = useState(e.texto)
+  const fecha = e.fecha ?? e.createdAt
+  async function guardar() {
+    if (!txt.trim()) return
+    try { await evolucionesService.actualizar(e.id, txt.trim()) } catch (err) { alert(err instanceof ApiError ? err.message : 'Error'); return }
+    setEditando(false); onChanged()
+  }
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-4">
+      {editando ? (
+        <div>
+          <textarea value={txt} onChange={(ev) => setTxt(ev.target.value)} rows={4} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+          <div className="flex gap-2 mt-2">
+            <button onClick={guardar} className="px-3 py-1.5 bg-cyan-600 text-white text-sm rounded-lg">Guardar</button>
+            <button onClick={() => { setEditando(false); setTxt(e.texto) }} className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg">Cancelar</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <p className="text-sm text-slate-700 whitespace-pre-wrap">{e.texto}</p>
+          {e.tratamiento?.prestacion?.nombre && (
+            <p className="text-xs text-cyan-700 mt-1">{e.tratamiento.prestacion.nombre}{e.tratamiento.diente ? ` · pieza ${e.tratamiento.diente}` : ''}</p>
+          )}
+          <div className="flex items-center justify-between mt-2 gap-2">
+            <p className="text-xs text-slate-400">{e.autor?.name ?? e.autor?.username ?? 'Sistema'} · {new Date(fecha).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+            {isAdmin && (
+              <div className="flex gap-3 shrink-0">
+                <button onClick={() => setEditando(true)} className="text-xs text-slate-400 hover:text-cyan-600">Editar</button>
+                <button onClick={onBorrar} className="text-xs text-slate-400 hover:text-rose-600">Eliminar</button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Historial / trazabilidad de la ficha clínica ──
+function HistorialTab({ pacienteId }: { pacienteId: string }) {
+  const [items, setItems] = useState<HistorialEntry[]>([])
+  const [cargando, setCargando] = useState(true)
+  useEffect(() => { historialService.listar(pacienteId).then(setItems).catch(() => {}).finally(() => setCargando(false)) }, [pacienteId])
+  if (cargando) return <p className="text-slate-500 text-sm">Cargando…</p>
+  const ACC: Record<string, { l: string; c: string }> = {
+    CREAR: { l: 'Creó', c: 'bg-emerald-50 text-emerald-700' },
+    EDITAR: { l: 'Editó', c: 'bg-amber-50 text-amber-700' },
+    EVOLUCIONAR: { l: 'Evolucionó', c: 'bg-cyan-50 text-cyan-700' },
+    ELIMINAR: { l: 'Eliminó', c: 'bg-rose-50 text-rose-700' },
+  }
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-3">Trazabilidad de la ficha clínica: quién hizo qué y cuándo. Registro inmutable, conforme a la normativa de fichas clínicas (Ley 20.584 / Ley 21.719).</p>
+      {items.length === 0 ? <p className="text-sm text-slate-500">Sin movimientos registrados aún.</p> : (
+        <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+          {items.map((h) => {
+            const a = ACC[h.accion] ?? { l: h.accion, c: 'bg-slate-100 text-slate-600' }
+            return (
+              <div key={h.id} className="px-4 py-3 flex items-start gap-3">
+                <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${a.c}`}>{a.l}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-slate-700">{h.resumen}</p>
+                  <p className="text-xs text-slate-400">{h.userNombre ?? 'Sistema'} · {new Date(h.fecha).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

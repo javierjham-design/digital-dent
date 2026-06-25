@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
 import * as svc from '@/services/tratamientos.service'
+import { listarAuditoria } from '@/lib/audit'
 import { crearPlanSchema, crearSeccionSchema, crearTratamientoSchema, crearEvolucionSchema, evolucionarTratamientoSchema, upsertDienteSchema } from '@/validators/schemas'
 
 // ── Planes ──
@@ -19,7 +20,7 @@ export async function patchPlan(req: Request, res: Response) {
   res.json(await svc.actualizarPlan(tenantDb(req), req.params.id, req.body ?? {}))
 }
 export async function deletePlan(req: Request, res: Response) {
-  await svc.eliminarPlan(tenantDb(req), req.params.id)
+  await svc.eliminarPlan(tenantDb(req), req.auth!.sub, req.params.id)
   res.json({ ok: true })
 }
 
@@ -45,7 +46,7 @@ export async function patchTratamiento(req: Request, res: Response) {
   res.json(await svc.actualizarTratamiento(tenantDb(req), req.auth!.sub, req.params.id, req.body ?? {}))
 }
 export async function deleteTratamiento(req: Request, res: Response) {
-  await svc.eliminarTratamiento(tenantDb(req), req.params.id)
+  await svc.eliminarTratamiento(tenantDb(req), req.auth!.sub, req.params.id)
   res.json({ ok: true })
 }
 export async function postEvolucionarTratamiento(req: Request, res: Response) {
@@ -62,9 +63,19 @@ export async function postEvolucion(req: Request, res: Response) {
   const input = crearEvolucionSchema.parse(req.body)
   res.status(201).json(await svc.crearEvolucion(tenantDb(req), req.auth!.sub, input))
 }
+export async function patchEvolucion(req: Request, res: Response) {
+  const texto = typeof req.body?.texto === 'string' ? req.body.texto : ''
+  res.json(await svc.actualizarEvolucion(tenantDb(req), req.auth!, req.params.id, texto))
+}
 export async function deleteEvolucion(req: Request, res: Response) {
   await svc.eliminarEvolucion(tenantDb(req), req.auth!, req.params.id)
   res.json({ ok: true })
+}
+
+// ── Historial / auditoría de la ficha clínica ──
+export async function getHistorial(req: Request, res: Response) {
+  const pacienteId = typeof req.query.pacienteId === 'string' ? req.query.pacienteId : ''
+  res.json(await listarAuditoria(tenantDb(req), pacienteId))
 }
 
 // ── Odontograma ──

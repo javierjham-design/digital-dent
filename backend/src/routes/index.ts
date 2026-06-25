@@ -142,7 +142,11 @@ apiRouter.delete('/tratamientos/:id', tenant, asyncHandler(clinico.deleteTratami
 // ── Clínico: evoluciones ─────────────────────────────────────────────────────
 apiRouter.get('/evoluciones', tenant, asyncHandler(clinico.getEvoluciones))
 apiRouter.post('/evoluciones', tenant, asyncHandler(clinico.postEvolucion))
-apiRouter.delete('/evoluciones/:id', tenant, asyncHandler(clinico.deleteEvolucion))
+apiRouter.patch('/evoluciones/:id', tenant, asyncHandler(clinico.patchEvolucion)) // editar: solo admin (validado en service)
+apiRouter.delete('/evoluciones/:id', tenant, asyncHandler(clinico.deleteEvolucion)) // borrar: solo admin
+
+// ── Clínico: historial / auditoría de la ficha ───────────────────────────────
+apiRouter.get('/historial', tenant, asyncHandler(clinico.getHistorial))
 
 // ── Clínico: odontograma ─────────────────────────────────────────────────────
 apiRouter.post('/odontograma', tenant, asyncHandler(clinico.postDiente))

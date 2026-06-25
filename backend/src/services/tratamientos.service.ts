@@ -1,8 +1,14 @@
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
+import { audit } from '@/lib/audit'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica.
+
+async function esAdmin(db: TenantClient, actorId: string): Promise<boolean> {
+  const u = await db.user.findUnique({ where: { id: actorId }, select: { role: true } })
+  return u?.role === 'admin'
+}
 
 async function actorPermisos(db: TenantClient, actorId: string) {
   const u = await db.user.findUnique({
@@ -99,9 +105,13 @@ async function assertPlanDesbloqueado(db: TenantClient, planId: string | null | 
   if (p?.bloqueado) throw forbidden('El plan está bloqueado. Desbloquéalo para editar el presupuesto.')
 }
 
-export async function eliminarPlan(db: TenantClient, id: string) {
-  const r = await db.planTratamiento.deleteMany({ where: { id } })
-  if (r.count === 0) throw notFound('Plan no existe')
+export async function eliminarPlan(db: TenantClient, actorId: string, id: string) {
+  const plan = await db.planTratamiento.findUnique({ where: { id }, select: { id: true, nombre: true, pacienteId: true } })
+  if (!plan) throw notFound('Plan no existe')
+  // Eliminar un plan retira acciones de la ficha clínica: solo el administrador.
+  if (!(await esAdmin(db, actorId))) throw forbidden('Solo un administrador puede eliminar un plan de tratamiento.')
+  await db.planTratamiento.delete({ where: { id } })
+  await audit(db, actorId, { accion: 'ELIMINAR', entidad: 'PlanTratamiento', entidadId: id, pacienteId: plan.pacienteId, resumen: `Eliminó el plan "${plan.nombre}"` })
 }
 
 // ── Secciones ──────────────────────────────────────────────────────────────
@@ -185,19 +195,24 @@ export async function crearTratamiento(db: TenantClient, actorId: string, body: 
     notas: body.notas || null, estado: 'PLANIFICADO',
   }
 
-  if (Array.isArray(body.piezas) && body.piezas.length > 0) {
-    return Promise.all(
-      body.piezas.map((pieza) =>
-        db.tratamiento.create({ data: { ...baseData, diente: pieza, cara: body.cara || null }, include: { prestacion: true } }),
-      ),
-    )
-  }
-  const t = await db.tratamiento.create({ data: { ...baseData, diente: null, cara: body.zona || body.cara || null }, include: { prestacion: true } })
-  return [t]
+  const creados = (Array.isArray(body.piezas) && body.piezas.length > 0)
+    ? await Promise.all(body.piezas.map((pieza) =>
+        db.tratamiento.create({ data: { ...baseData, diente: pieza, cara: body.cara || null }, include: { prestacion: true } })))
+    : [await db.tratamiento.create({ data: { ...baseData, diente: null, cara: body.zona || body.cara || null }, include: { prestacion: true } })]
+
+  const piezasTxt = creados.map((t) => t.diente).filter(Boolean).join(', ')
+  await audit(db, actorId, {
+    accion: 'CREAR', entidad: 'Tratamiento', entidadId: creados[0]?.id, pacienteId: body.pacienteId,
+    resumen: `Agregó "${creados[0]?.prestacion?.nombre ?? 'prestación'}"${piezasTxt ? ` · pieza(s) ${piezasTxt}` : ''} al plan`,
+  })
+  return creados
 }
 
 export async function actualizarTratamiento(db: TenantClient, actorId: string, id: string, body: Record<string, unknown>) {
-  const existing = await db.tratamiento.findUnique({ where: { id }, select: { id: true, estado: true, planId: true } })
+  const existing = await db.tratamiento.findUnique({
+    where: { id },
+    select: { id: true, estado: true, planId: true, precio: true, descuento: true, ficha: { select: { pacienteId: true } }, prestacion: { select: { nombre: true } } },
+  })
   if (!existing) throw notFound('Tratamiento no encontrado')
 
   // Editar estructura/precio requiere el plan desbloqueado; evolucionar (estado) y notas, no.
@@ -232,14 +247,34 @@ export async function actualizarTratamiento(db: TenantClient, actorId: string, i
     data.descuento = Math.max(0, Math.min(100, body.descuento))
   }
 
-  return db.tratamiento.update({ where: { id }, data, include: { prestacion: true } })
+  const updated = await db.tratamiento.update({ where: { id }, data, include: { prestacion: true } })
+  if (tocaPresupuesto && Object.keys(data).length > 0) {
+    await audit(db, actorId, {
+      accion: 'EDITAR', entidad: 'Tratamiento', entidadId: id, pacienteId: existing.ficha.pacienteId,
+      resumen: `Editó la acción "${existing.prestacion.nombre}"`,
+      datosPrevios: { precio: existing.precio, descuento: existing.descuento, estado: existing.estado },
+    })
+  }
+  return updated
 }
 
-export async function eliminarTratamiento(db: TenantClient, id: string) {
-  const t = await db.tratamiento.findUnique({ where: { id }, select: { planId: true } })
+export async function eliminarTratamiento(db: TenantClient, actorId: string, id: string) {
+  const t = await db.tratamiento.findUnique({
+    where: { id },
+    select: { planId: true, estado: true, precio: true, descuento: true, diente: true, ficha: { select: { pacienteId: true } }, prestacion: { select: { nombre: true } } },
+  })
   if (!t) throw notFound('Tratamiento no encontrado')
+  // Borrar una acción YA REALIZADA altera la ficha clínica: solo el administrador.
+  if (t.estado === 'COMPLETADO' && !(await esAdmin(db, actorId))) {
+    throw forbidden('Solo un administrador puede eliminar una acción ya realizada (queda registrada en la ficha).')
+  }
   await assertPlanDesbloqueado(db, t.planId)
   await db.tratamiento.delete({ where: { id } })
+  await audit(db, actorId, {
+    accion: 'ELIMINAR', entidad: 'Tratamiento', entidadId: id, pacienteId: t.ficha.pacienteId,
+    resumen: `Eliminó la acción "${t.prestacion.nombre}"${t.diente ? ` · pieza ${t.diente}` : ''}`,
+    datosPrevios: { estado: t.estado, precio: t.precio, descuento: t.descuento, diente: t.diente },
+  })
 }
 
 // Evolucionar una acción: la marca COMPLETADA, (opcional) asigna el profesional
@@ -250,14 +285,14 @@ export async function evolucionarTratamiento(
   body: { texto: string; profesionalId?: string; fecha?: string },
 ) {
   if (!body.texto?.trim()) throw badRequest('Falta la evolución')
-  const t = await db.tratamiento.findUnique({ where: { id }, select: { id: true, ficha: { select: { pacienteId: true } } } })
+  const t = await db.tratamiento.findUnique({ where: { id }, select: { id: true, ficha: { select: { pacienteId: true } }, prestacion: { select: { nombre: true } } } })
   if (!t) throw notFound('Tratamiento no encontrado')
   if (body.profesionalId) {
     const doc = await db.user.findUnique({ where: { id: body.profesionalId }, select: { id: true } })
     if (!doc) throw notFound('Profesional no encontrado')
   }
   const fecha = body.fecha ? new Date(body.fecha) : new Date()
-  return db.$transaction(async (tx) => {
+  const evo = await db.$transaction(async (tx) => {
     await tx.tratamiento.update({
       where: { id },
       data: {
@@ -271,6 +306,11 @@ export async function evolucionarTratamiento(
       include: { autor: { select: { id: true, name: true, email: true, username: true } } },
     })
   })
+  await audit(db, actorId, {
+    accion: 'EVOLUCIONAR', entidad: 'Tratamiento', entidadId: id, pacienteId: t.ficha.pacienteId,
+    resumen: `Evolucionó "${t.prestacion.nombre}" a realizada`,
+  })
+  return evo
 }
 
 // ── Evoluciones ────────────────────────────────────────────────────────────
@@ -301,22 +341,36 @@ export async function crearEvolucion(db: TenantClient, actorId: string, body: { 
     const t = await db.tratamiento.findUnique({ where: { id: body.tratamientoId }, select: { id: true } })
     if (!t) throw notFound('Tratamiento no encontrado')
   }
-  return db.evolucion.create({
+  const creada = await db.evolucion.create({
     data: {
       pacienteId: body.pacienteId, tratamientoId: body.tratamientoId || null, autorId: actorId,
       texto: body.texto.trim(), ...(body.fecha ? { fecha: new Date(body.fecha) } : {}),
     },
     include: { autor: { select: { id: true, name: true, email: true, username: true } } },
   })
+  await audit(db, actorId, { accion: 'CREAR', entidad: 'Evolucion', entidadId: creada.id, pacienteId: body.pacienteId, resumen: `Registró una evolución clínica` })
+  return creada
+}
+
+// Editar una evolución es modificar la ficha clínica: SOLO el administrador, y
+// queda auditado con el texto anterior (trazabilidad legal).
+export async function actualizarEvolucion(db: TenantClient, actor: JwtPayload, id: string, texto: string) {
+  if (actor.role !== 'admin') throw forbidden('Solo un administrador puede editar una evolución de la ficha clínica.')
+  if (!texto?.trim()) throw badRequest('El texto de la evolución no puede quedar vacío')
+  const evo = await db.evolucion.findUnique({ where: { id }, select: { id: true, pacienteId: true, texto: true } })
+  if (!evo) throw notFound('Evolución no existe')
+  const updated = await db.evolucion.update({ where: { id }, data: { texto: texto.trim() }, include: { autor: { select: { id: true, name: true, email: true, username: true } } } })
+  await audit(db, actor.sub, { accion: 'EDITAR', entidad: 'Evolucion', entidadId: id, pacienteId: evo.pacienteId, resumen: 'Editó una evolución clínica', datosPrevios: { texto: evo.texto } })
+  return updated
 }
 
 export async function eliminarEvolucion(db: TenantClient, actor: JwtPayload, id: string) {
-  const evo = await db.evolucion.findUnique({ where: { id }, select: { id: true, autorId: true } })
+  // Borrar de la ficha clínica: SOLO el administrador (queda auditado).
+  if (actor.role !== 'admin') throw forbidden('Solo un administrador puede eliminar una evolución de la ficha clínica.')
+  const evo = await db.evolucion.findUnique({ where: { id }, select: { id: true, pacienteId: true, texto: true } })
   if (!evo) throw notFound('Evolución no existe')
-  if (actor.role !== 'admin' && evo.autorId !== actor.sub) {
-    throw forbidden('Sólo el autor o un admin pueden eliminar esta evolución')
-  }
   await db.evolucion.delete({ where: { id } })
+  await audit(db, actor.sub, { accion: 'ELIMINAR', entidad: 'Evolucion', entidadId: id, pacienteId: evo.pacienteId, resumen: 'Eliminó una evolución clínica', datosPrevios: { texto: evo.texto } })
 }
 
 // ── Odontograma ──────────────────────────────────────────────────────────────

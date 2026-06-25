@@ -107,7 +107,8 @@ function calcAccion(
   t: { precio: number; descuento: number; cobroItems: { monto: number; cobro: { monto: number; comisionMonto: number | null; estado: string; anulado: boolean; medioPago: { nombre: string } | null } | null }[] },
   contrato: ContratoCalc,
 ) {
-  const precio = Math.max(0, t.precio - (t.descuento ?? 0))
+  // El descuento se guarda como porcentaje (0–100), igual que en el plan.
+  const precio = Math.max(0, Math.round(t.precio * (1 - (t.descuento ?? 0) / 100)))
   const pagados = t.cobroItems.filter((ci) => ci.cobro && ci.cobro.estado === 'PAGADO' && !ci.cobro.anulado)
   const montoPagado = pagados.reduce((s, ci) => s + ci.monto, 0)
   // Comisión proporcional: cada CobroItem aporta su parte de la comisión del Cobro.
