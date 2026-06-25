@@ -120,7 +120,7 @@ export function DashboardLayout() {
           <span className="font-bold tracking-tight">Cláriva</span>
         </div>
         <BuscadorPacientesHeader />
-        <nav className="flex items-center gap-1 flex-1 overflow-x-auto">
+        <nav className="flex items-center gap-1 flex-1">
           {NAV_PRE.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
           <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} />
           <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
