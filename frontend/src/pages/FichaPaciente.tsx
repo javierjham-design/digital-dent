@@ -455,6 +455,8 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
     ;[arr[idx], arr[j]] = [arr[j], arr[idx]]
     await accion(() => Promise.all(arr.map((s, i) => seccionesService.actualizar(s.id, { orden: i }))))
   }
+  // Mover una acción (arrastrar) a otra sección. seccionId '' = sin sección.
+  const moverAccion = (tratId: string, seccionId: string) => accion(() => tratamientosService.actualizar(tratId, { seccionId: seccionId || null }))
   return (
     <div>
       <button onClick={onCerrar} className="text-sm text-cyan-600 hover:underline mb-3">← Planes de tratamiento</button>
@@ -485,6 +487,10 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
             </label>
             <button onClick={onBloquear} className={`w-full text-xs font-semibold px-3 py-2 rounded-lg border ${plan.bloqueado ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
               {plan.bloqueado ? '🔒 Presupuesto bloqueado · Desbloquear' : '🔓 Bloquear presupuesto'}
+            </button>
+            <button onClick={() => window.open(`/print/plan/${plan.id}`, '_blank')}
+              className="w-full text-xs font-semibold px-3 py-2 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100">
+              🖨 Imprimir presupuesto (PDF)
             </button>
           </div>
         </div>
@@ -517,16 +523,16 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
           {todas.length > 0 && (
             <div className="flex items-center gap-3 px-4 text-[11px] uppercase tracking-wide text-slate-400">
               <span className="w-5" /><span className="flex-1">Prestación</span>
-              <span className="w-12 text-center">Pieza</span><span className="w-12 text-center">Dscto</span>
+              <span className="w-28">Pieza / zona</span><span className="w-12 text-center">Dscto</span>
               <span className="w-24 text-right">Precio</span><span className="w-10 text-center">Pago</span><span className="w-4" />
             </div>
           )}
 
           {plan.secciones.map((s, i) => (
-            <SeccionBloque key={s.id} seccion={s} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} idx={i} total={plan.secciones.length} onMover={moverSeccion} />
+            <SeccionBloque key={s.id} seccion={s} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} onMoverAccion={moverAccion} idx={i} total={plan.secciones.length} onMover={moverSeccion} />
           ))}
           {plan.tratamientos.length > 0 && (
-            <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', orden: 0, fechaTentativa: null, diasDesdeAnterior: null, tratamientos: plan.tratamientos }} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} sinSeccion />
+            <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', orden: 0, fechaTentativa: null, diasDesdeAnterior: null, tratamientos: plan.tratamientos }} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} onMoverAccion={moverAccion} sinSeccion />
           )}
         </div>
       </div>
@@ -749,13 +755,15 @@ function EvolucionModal({ accion, pacienteNombre, doctores, plan, onClose, onDon
   )
 }
 
-function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, selCaras, selZona, clearSel, accion, onEvolucionar, sinSeccion, idx, total, onMover }: {
+function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, selCaras, selZona, clearSel, accion, onEvolucionar, onMoverAccion, sinSeccion, idx, total, onMover }: {
   seccion: SeccionNode; plan: PlanDetalle; prestaciones: PrestacionDTO[]; pacienteId: string
   selPiezas: number[]; selCaras: Record<number, string[]>; selZona: string | null; clearSel: () => void
-  accion: (fn: () => Promise<unknown>) => Promise<void>; onEvolucionar: (t: TratNode) => void; sinSeccion?: boolean
+  accion: (fn: () => Promise<unknown>) => Promise<void>; onEvolucionar: (t: TratNode) => void
+  onMoverAccion?: (tratId: string, seccionId: string) => void; sinSeccion?: boolean
   idx?: number; total?: number; onMover?: (idx: number, dir: -1 | 1) => void
 }) {
   const [agregando, setAgregando] = useState(false)
+  const [over, setOver] = useState(false)
   const totalSec = seccion.tratamientos.reduce((s, t) => s + netoTrat(t), 0)
   const tiempo = seccion.diasDesdeAnterior != null
     ? `~${seccion.diasDesdeAnterior} días estimados`
@@ -763,7 +771,10 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
   const seleccion = selZona ?? (selPiezas.length ? `${selPiezas.length} pieza${selPiezas.length > 1 ? 's' : ''}` : '')
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+    <div className={`bg-white rounded-2xl border overflow-hidden transition-colors ${over ? 'border-cyan-400 ring-2 ring-cyan-100' : 'border-slate-200'}`}
+      onDragOver={(e) => { if (!plan.bloqueado && onMoverAccion) { e.preventDefault(); setOver(true) } }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => { e.preventDefault(); setOver(false); const id = e.dataTransfer.getData('text/plain'); if (id && onMoverAccion) onMoverAccion(id, seccion.id) }}>
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <span className="font-semibold text-slate-800 text-sm truncate">{seccion.titulo}</span>
@@ -803,8 +814,13 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
   const completado = t.estado === 'COMPLETADO'
   const pagada = pagadaTrat(t)
   const revertir = () => accion(() => tratamientosService.actualizar(t.id, { estado: 'PLANIFICADO', fechaCompletado: null }))
+  const piezaLabel = t.diente
+    ? `${t.diente}${t.cara ? ` (${t.cara.split('').join(',')})` : ''}`
+    : (t.cara ? t.cara : (t.notas ? t.notas.replace(/^Piezas:\s*/, '') : '—'))
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5">
+    <div className={`flex items-center gap-3 px-4 py-2.5 ${!bloqueado ? 'cursor-move' : ''}`}
+      draggable={!bloqueado}
+      onDragStart={(e) => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move' }}>
       <button onClick={() => (completado ? revertir() : onEvolucionar(t))}
         title={completado ? 'Realizada (clic para revertir)' : 'Evolucionar / marcar como realizada'}
         className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] shrink-0 ${completado ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300 hover:border-cyan-400'}`}>
@@ -812,12 +828,8 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
       </button>
       <div className="min-w-0 flex-1">
         <p className="text-sm text-slate-800 truncate">{t.prestacion.nombre}</p>
-        <p className="text-xs text-slate-400 truncate">
-          {t.doctor?.name ? `Dr(a) ${t.doctor.name}` : 'Sin profesional'}
-          {t.diente ? (t.cara ? ` · caras ${t.cara.split('').join(',')}` : '') : (t.cara ? ` · ${t.cara}` : (t.notas ? ` · ${t.notas}` : ''))}
-        </p>
       </div>
-      <span className="w-12 text-center text-sm text-slate-600">{t.diente ?? '—'}</span>
+      <span className="w-28 text-sm text-slate-600 truncate" title={piezaLabel}>{piezaLabel}</span>
       <span className="w-12 text-center text-sm text-slate-500">{t.descuento ? `${t.descuento}%` : '—'}</span>
       <span className="w-24 text-right text-sm font-mono text-slate-700">{fmtCLP(netoTrat(t))}</span>
       <span className="w-10 flex justify-center"><span className={`w-2.5 h-2.5 rounded-full ${pagada ? 'bg-emerald-500' : 'bg-rose-400'}`} title={pagada ? 'Pagada' : 'Pendiente de pago'} /></span>

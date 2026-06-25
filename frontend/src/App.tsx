@@ -14,6 +14,7 @@ import { Cobros } from '@/pages/Cobros'
 import { Liquidaciones } from '@/pages/Liquidaciones'
 import { MisLiquidaciones } from '@/pages/MisLiquidaciones'
 import { LiquidacionPrint } from '@/pages/LiquidacionPrint'
+import { PlanPrint } from '@/pages/PlanPrint'
 import { Presupuestos } from '@/pages/Presupuestos'
 import { Reportes } from '@/pages/Reportes'
 import { Ayuda } from '@/pages/Ayuda'
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="planes" element={<AdminPlanes />} />
           </Route>
           <Route path="/print/liquidacion/:id" element={<ProtectedRoute><LiquidacionPrint /></ProtectedRoute>} />
+          <Route path="/print/plan/:id" element={<ProtectedRoute><PlanPrint /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/agenda" replace />} />
         </Routes>
       </BrowserRouter>
