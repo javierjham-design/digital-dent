@@ -82,14 +82,14 @@ function BuscadorPacientesHeader() {
   const ir = (id: string) => { navigate(`/pacientes/${id}`); setQ(''); setResults([]); setOpen(false) }
 
   return (
-    <div className="relative hidden sm:block" ref={ref}>
+    <div className="relative order-2 flex-1 min-w-0 sm:flex-none" ref={ref}>
       <input value={q} onChange={(e) => setQ(e.target.value)}
         onFocus={() => results.length > 0 && setOpen(true)}
         onKeyDown={(e) => { if (e.key === 'Escape') { setOpen(false); (e.currentTarget as HTMLInputElement).blur() } }}
         placeholder="Buscar paciente…"
-        className="w-44 lg:w-60 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        className="w-full sm:w-56 px-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
       {open && results.length > 0 && (
-        <div className="absolute left-0 top-full mt-1 w-72 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-30 max-h-80 overflow-y-auto">
+        <div className="absolute left-0 top-full mt-1 w-72 max-w-[85vw] bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-30 max-h-80 overflow-y-auto">
           {results.map((p) => (
             <button key={p.id} type="button" onClick={() => ir(p.id)} className="block w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0">
               <p className="text-sm text-slate-800">{p.nombre} {p.apellido}</p>
@@ -114,24 +114,24 @@ export function DashboardLayout() {
   const esAdmin = user?.role === 'admin'
   return (
     <div className="min-h-screen">
-      <header className="h-14 bg-white border-b border-slate-100 flex items-center px-4 gap-4 sticky top-0 z-10">
-        <div className="flex items-center gap-2">
+      <header className="bg-white border-b border-slate-100 sticky top-0 z-10 px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex items-center gap-2 shrink-0 order-1">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-800 text-white font-bold flex items-center justify-center">C</div>
-          <span className="font-bold tracking-tight">Cláriva</span>
+          <span className="font-bold tracking-tight hidden sm:inline">Cláriva</span>
         </div>
         <BuscadorPacientesHeader />
-        <nav className="flex items-center gap-1 flex-1">
-          {NAV_PRE.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
-          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} />
-          <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
-        </nav>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0 order-3 sm:order-4">
           <div className="hidden sm:flex flex-col items-end leading-tight">
             <span className="text-sm text-slate-600">{user?.name ?? user?.email}</span>
             <button onClick={() => setCambiarPass(true)} className="text-xs text-slate-400 hover:text-cyan-600">Cambiar contraseña</button>
           </div>
           <button onClick={logout} className="text-sm text-slate-500 hover:text-rose-600">Salir</button>
         </div>
+        <nav className="flex flex-wrap items-center gap-1 w-full order-4 sm:order-3 sm:w-auto sm:flex-1">
+          {NAV_PRE.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
+          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} />
+          <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
+        </nav>
       </header>
       <main className="max-w-5xl mx-auto px-4 py-8">
         <Outlet />

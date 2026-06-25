@@ -70,12 +70,10 @@ export function Agenda() {
 
   useEffect(() => { recargar() }, [recargar])
 
-  // Sincronizar FullCalendar con la fecha/vista actual (semanal/diaria, ambas en bloques).
+  // Sincronizar FullCalendar (vista semanal en bloques) con la fecha actual.
   useEffect(() => {
     const api = calRef.current?.getApi()
-    if (!api) return
-    api.changeView(vista === 'semanal' ? 'timeGridWeek' : 'timeGridDay')
-    api.gotoDate(currentDate)
+    if (api && vista === 'semanal') api.gotoDate(currentDate)
   }, [currentDate, vista])
 
   const businessHours = useMemo(() => {
@@ -149,6 +147,13 @@ export function Agenda() {
     catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
 
+  const citasDelDia = useMemo(() => {
+    const d0 = new Date(currentDate); d0.setHours(0, 0, 0, 0)
+    const d1 = new Date(currentDate); d1.setHours(23, 59, 59, 999)
+    return citasVisibles.filter((c) => { const t = new Date(c.inicio); return t >= d0 && t <= d1 })
+      .sort((a, b) => +new Date(a.inicio) - +new Date(b.inicio))
+  }, [citasVisibles, currentDate])
+
   const labelFecha = vista === 'semanal'
     ? `Semana del ${new Date(rango.from).toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })}`
     : currentDate.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -210,35 +215,42 @@ export function Agenda() {
           <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>
         )}
 
-        <div className="bg-white rounded-2xl border border-slate-200 p-2">
-          {/* Bloques más altos + nombre del paciente que envuelve (sin la hora dentro del bloque). */}
-          <style>{`
-            .fc .fc-timegrid-slot { height: 2em; }
-            .fc .fc-timegrid-event { border-radius: 6px; box-shadow: none; }
-            .fc .fc-timegrid-event .fc-event-main { padding: 3px 6px; }
-            .fc .fc-event-title { white-space: normal; font-weight: 600; font-size: 0.8rem; line-height: 1.15; }
-          `}</style>
-          <FullCalendar
-            ref={calRef}
-            plugins={[timeGridPlugin, interactionPlugin]}
-            initialView={vista === 'semanal' ? 'timeGridWeek' : 'timeGridDay'}
-            initialDate={currentDate}
-            locale={esLocale}
-            headerToolbar={false}
-            events={events}
-            eventClick={onEventClick}
-            editable
-            eventDrop={onDrop}
-            eventResize={onDrop}
-            dateClick={(a) => setCrear({ slotISO: a.date.toISOString() })}
-            businessHours={businessHours}
-            slotMinTime="07:00:00" slotMaxTime="21:00:00" slotDuration="00:15:00"
-            allDaySlot={false} height="auto" nowIndicator expandRows
-            displayEventTime={false} eventMinHeight={32}
-            slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
-            dayHeaderFormat={{ weekday: 'short', day: 'numeric' }}
-          />
-        </div>
+        {vista === 'semanal' ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-2 overflow-x-auto">
+            {/* Bloques altos, nombre del paciente (sin la hora dentro). En móvil el grid scrollea horizontal. */}
+            <style>{`
+              .fc { min-width: 560px; }
+              .fc .fc-timegrid-slot { height: 2em; }
+              .fc .fc-col-header-cell { padding: 4px 0; }
+              .fc .fc-timegrid-event { border-radius: 6px; box-shadow: none; }
+              .fc .fc-timegrid-event .fc-event-main { padding: 3px 6px; }
+              .fc .fc-event-title { white-space: normal; font-weight: 600; font-size: 0.8rem; line-height: 1.15; }
+              .fc .fc-day-today { background: #ecfeff !important; }
+            `}</style>
+            <FullCalendar
+              ref={calRef}
+              plugins={[timeGridPlugin, interactionPlugin]}
+              initialView="timeGridWeek"
+              initialDate={currentDate}
+              locale={esLocale}
+              headerToolbar={false}
+              events={events}
+              eventClick={onEventClick}
+              editable
+              eventDrop={onDrop}
+              eventResize={onDrop}
+              dateClick={(a) => setCrear({ slotISO: a.date.toISOString() })}
+              businessHours={businessHours}
+              slotMinTime="07:00:00" slotMaxTime="21:00:00" slotDuration="00:15:00"
+              allDaySlot={false} height="auto" nowIndicator expandRows
+              displayEventTime={false} eventMinHeight={32}
+              slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
+              dayHeaderFormat={{ weekday: 'short', day: 'numeric' }}
+            />
+          </div>
+        ) : (
+          <DiariaLista citas={citasDelDia} onClick={setSelected} onAvanzar={(c) => { const n = siguienteEstado(c.estado); if (n) cambiarEstado(c.id, n.estado) }} />
+        )}
       </div>
 
       {crear && (
@@ -258,6 +270,36 @@ export function Agenda() {
           onClose={() => setBloqueoForm(false)} onCreated={() => { setBloqueoForm(false); notify('Horario bloqueado'); recargar() }}
           onError={(m) => notify(m, false)} />
       )}
+    </div>
+  )
+}
+
+// ── Vista diaria (lista) — pensada para gestionar confirmaciones rápido ──
+function DiariaLista({ citas, onClick, onAvanzar }: { citas: CitaDTO[]; onClick: (c: CitaDTO) => void; onAvanzar: (c: CitaDTO) => void }) {
+  if (citas.length === 0) return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 text-sm">Sin citas para este día.</div>
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+      {citas.map((c) => {
+        const cfg = CITA_ESTADOS[c.estado]
+        const next = siguienteEstado(c.estado)
+        const wa = c.pacienteTelefono ? `https://wa.me/${c.pacienteTelefono.replace(/\D/g, '')}` : null
+        return (
+          <div key={c.id} className="flex items-center gap-3 px-3 sm:px-4 py-3">
+            <div className="flex flex-col items-center rounded-lg px-2 py-1 shrink-0" style={{ backgroundColor: cfg?.bg, color: cfg?.text }}>
+              <span className="font-mono text-[13px] font-bold">{hora(c.inicio)}</span>
+              <span className="font-mono text-[11px] opacity-70">{hora(c.fin)}</span>
+            </div>
+            <button onClick={() => onClick(c)} className="flex-1 min-w-0 text-left">
+              <p className="font-semibold text-cyan-800 hover:text-cyan-600 truncate">{c.pacienteNombre}</p>
+              <p className="text-xs text-slate-500 truncate">{c.doctor} · {c.tipo}</p>
+            </button>
+            <span className="hidden sm:inline text-xs font-semibold px-2.5 py-1 rounded-full shrink-0" style={{ backgroundColor: cfg?.bg, color: cfg?.text }}>{cfg?.label ?? c.estado}</span>
+            {wa && <a href={wa} target="_blank" rel="noopener noreferrer" title="Confirmar por WhatsApp"
+              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 text-base">✆</a>}
+            {next && <button onClick={() => onAvanzar(c)} className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100">{next.accion}</button>}
+          </div>
+        )
+      })}
     </div>
   )
 }
