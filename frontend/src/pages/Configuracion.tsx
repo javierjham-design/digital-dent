@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react'
-import type { ClinicaConfigDTO } from '@shared/types'
+import type { ClinicaConfigDTO, UsuarioDTO } from '@shared/types'
 import { clinicaService, mediosPagoService, type MedioPagoDTO } from '@/services/catalogo.service'
+import { usuariosService } from '@/services/equipo.service'
+import { googleService, type GoogleCalendar } from '@/services/google.service'
+import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
 export function Configuracion() {
+  const { user } = useAuth()
+  const esAdmin = user?.role === 'admin'
   const [data, setData] = useState<ClinicaConfigDTO | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
@@ -67,6 +72,100 @@ export function Configuracion() {
       </form>
 
       <MediosPago />
+      {esAdmin && <GoogleCalendarSection />}
+    </div>
+  )
+}
+
+// Integración con Google Calendar: conectar/desconectar, mapear cada doctor a un
+// calendario y sincronizar. El flujo OAuth redirige a /configuracion?google=...
+function GoogleCalendarSection() {
+  const [estado, setEstado] = useState<'cargando' | 'conectado' | 'desconectado'>('cargando')
+  const [calendars, setCalendars] = useState<GoogleCalendar[]>([])
+  const [doctores, setDoctores] = useState<UsuarioDTO[]>([])
+  const [msg, setMsg] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  function cargarDoctores() {
+    usuariosService.listar().then((us) => setDoctores(us.filter((u) => u.role === 'doctor' || u.role === 'medico'))).catch(() => {})
+  }
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const g = params.get('google')
+    if (g === 'connected') setMsg('✓ Google Calendar conectado.')
+    else if (g === 'error') setMsg('No se pudo conectar Google: ' + (params.get('reason') ?? 'error'))
+    if (g) window.history.replaceState({}, '', '/configuracion')
+    googleService.calendarios().then((cs) => { setCalendars(cs); setEstado('conectado') }).catch(() => setEstado('desconectado'))
+    cargarDoctores()
+  }, [])
+
+  async function conectar() {
+    try { const { authUrl } = await googleService.conectar(); window.location.href = authUrl }
+    catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error') }
+  }
+  async function desconectar() {
+    if (!window.confirm('¿Desconectar Google Calendar de la clínica?')) return
+    await googleService.desconectar().catch(() => {})
+    setEstado('desconectado'); setCalendars([]); setMsg('Google Calendar desconectado.')
+  }
+  async function sincronizar() {
+    setBusy(true); setMsg('Sincronizando…')
+    try { await googleService.sincronizar(); setMsg('Sincronización completa.') }
+    catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error al sincronizar') } finally { setBusy(false) }
+  }
+  async function reconciliar() {
+    setBusy(true); setMsg('Reconciliando bloqueos…')
+    try { const r = await googleService.reconciliarBloqueos(); setMsg(`Reconciliados: ${r.converted} de ${r.total} (omitidos ${r.skippedCount}).`) }
+    catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
+  }
+  async function mapear(u: UsuarioDTO, calId: string) {
+    await usuariosService.actualizar(u.id, { googleCalendarId: calId || null }).catch(() => {})
+    cargarDoctores()
+  }
+
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-6 mt-5">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <h2 className="text-lg font-bold text-slate-900">Google Calendar</h2>
+        {estado === 'conectado'
+          ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Conectado</span>
+          : estado === 'desconectado'
+          ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">No conectado</span>
+          : <span className="text-xs text-slate-400">Verificando…</span>}
+      </div>
+      <p className="text-slate-500 text-sm mt-1 mb-4">Sincroniza la agenda de cada profesional con un calendario de Google.</p>
+
+      {estado === 'desconectado' && (
+        <button onClick={conectar} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Conectar Google Calendar</button>
+      )}
+
+      {estado === 'conectado' && (
+        <div className="space-y-4">
+          <div>
+            <p className="text-sm font-medium text-slate-700 mb-2">Calendario por profesional</p>
+            <div className="divide-y divide-slate-100">
+              {doctores.map((u) => (
+                <div key={u.id} className="flex items-center justify-between gap-3 py-2">
+                  <span className="text-sm text-slate-700">{u.name ?? u.username}</span>
+                  <select value={u.googleCalendarId ?? ''} onChange={(e) => mapear(u, e.target.value)}
+                    className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm max-w-[60%]">
+                    <option value="">Sin sincronizar</option>
+                    {calendars.map((c) => <option key={c.id} value={c.id}>{c.summary}{c.primary ? ' (principal)' : ''}</option>)}
+                  </select>
+                </div>
+              ))}
+              {doctores.length === 0 && <p className="text-sm text-slate-400 py-2">No hay profesionales con agenda.</p>}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button onClick={sincronizar} disabled={busy} className="px-3 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl">Sincronizar ahora</button>
+            <button onClick={reconciliar} disabled={busy} className="px-3 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm rounded-xl" title="Convierte eventos de Google que coinciden con un paciente en citas reales">Reconciliar bloqueos</button>
+            <button onClick={desconectar} className="px-3 py-2 border border-slate-200 text-slate-600 hover:text-rose-600 text-sm rounded-xl">Desconectar</button>
+          </div>
+        </div>
+      )}
+
+      {msg && <p className="text-sm text-slate-600 mt-3">{msg}</p>}
     </div>
   )
 }
