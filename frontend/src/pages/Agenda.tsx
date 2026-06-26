@@ -230,6 +230,28 @@ export function Agenda() {
           </div>
         </div>
 
+        {/* Controles para móvil (en pantallas chicas el sidebar está oculto). */}
+        <div className="lg:hidden mb-3 space-y-2">
+          <select value={doctorId} onChange={(e) => setDoctorId(e.target.value)}
+            className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+            {vista !== 'semanal' && <option value="">Todos los profesionales</option>}
+            {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
+          </select>
+          <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+            {Object.entries(CITA_ESTADOS).map(([k, cfg]) => {
+              const on = statusFilter.has(k)
+              return (
+                <button key={k} onClick={() => setStatusFilter((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n })}
+                  className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs border ${on ? 'border-transparent font-semibold' : 'border-slate-200 text-slate-400'}`}
+                  style={on ? { background: cfg.bg, color: cfg.text } : undefined}>
+                  <span className="w-2 h-2 rounded-full" style={{ background: cfg.color }} />
+                  {cfg.label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
         {aviso && (
           <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>
         )}
