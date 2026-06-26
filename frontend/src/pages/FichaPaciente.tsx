@@ -966,6 +966,7 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   const [abono, setAbono] = useState('')
   const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [derivar, setDerivar] = useState(false)
 
   const cargarDetalle = (id: string) => { if (id) planesService.obtener(id).then((d) => setDetalle(d as PlanDetalle)).catch(() => {}) }
   useEffect(() => {
@@ -1012,6 +1013,18 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
             {planes.map((p) => <option key={p.id} value={p.id}>#{p.id.slice(-4)} · {p.nombre}</option>)}
           </select>
         </label>
+      )}
+
+      {(detalle?.abonoLibre ?? 0) > 0 && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-emerald-800">Abono libre en este plan: {fmtCLP(detalle?.abonoLibre ?? 0)}</p>
+            <p className="text-xs text-emerald-700">Monto abonado sin asignar a una acción específica.</p>
+          </div>
+          {planes.length > 1 && (
+            <button onClick={() => setDerivar(true)} className="shrink-0 px-3 py-2 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100 text-sm font-semibold rounded-xl">Derivar a otro plan</button>
+          )}
+        </div>
       )}
 
       {acciones.length === 0 ? (
@@ -1069,6 +1082,60 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
           </div>
         </>
       )}
+
+      {derivar && (
+        <DerivarAbonoModal fromPlanId={planId} disponible={detalle?.abonoLibre ?? 0}
+          planes={planes.filter((p) => p.id !== planId)}
+          onClose={() => setDerivar(false)}
+          onDone={(t) => { setDerivar(false); setMsg({ t, ok: true }); cargarDetalle(planId); planesService.listar(pacienteId).then((p) => setPlanes(p as PlanCard[])).catch(() => {}) }}
+          onError={(t) => setMsg({ t, ok: false })} />
+      )}
+    </div>
+  )
+}
+
+// Modal: derivar el abono libre de un plan a otro plan del mismo paciente.
+function DerivarAbonoModal({ fromPlanId, disponible, planes, onClose, onDone, onError }: {
+  fromPlanId: string; disponible: number; planes: PlanCard[]
+  onClose: () => void; onDone: (msg: string) => void; onError: (msg: string) => void
+}) {
+  const [toPlanId, setToPlanId] = useState(planes[0]?.id ?? '')
+  const [monto, setMonto] = useState(String(Math.round(disponible)))
+  const [g, setG] = useState(false)
+  async function guardar() {
+    const m = Number(monto)
+    if (!toPlanId) { onError('Selecciona el plan de destino.'); return }
+    if (!(m > 0) || m > disponible) { onError('Monto inválido (no puede superar el abono disponible).'); return }
+    setG(true)
+    try {
+      await cobrosService.derivarAbono({ fromPlanId, toPlanId, monto: m })
+      onDone(`Se derivaron ${fmtCLP(m)} al otro plan.`)
+    } catch (e) { onError(e instanceof ApiError ? e.message : 'No se pudo derivar') } finally { setG(false) }
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-slate-900">Derivar abono a otro plan</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
+        </div>
+        <p className="text-sm text-slate-600 mb-3">Abono disponible: <span className="font-mono font-semibold">{fmtCLP(disponible)}</span></p>
+        <label className="block mb-3">
+          <span className="text-xs font-medium text-slate-500">Plan de destino</span>
+          <select value={toPlanId} onChange={(e) => setToPlanId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+            {planes.length === 0 && <option value="">No hay otros planes</option>}
+            {planes.map((p) => <option key={p.id} value={p.id}>#{p.id.slice(-4)} · {p.nombre}</option>)}
+          </select>
+        </label>
+        <label className="block mb-1">
+          <span className="text-xs font-medium text-slate-500">Monto a derivar</span>
+          <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
+        </label>
+        <div className="flex gap-2 pt-4">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+          <button onClick={guardar} disabled={g || planes.length === 0} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{g ? '…' : 'Derivar'}</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1152,10 +1219,23 @@ function EvolucionItem({ e, isAdmin, onChanged, onBorrar }: { e: Evo; isAdmin: b
 }
 
 // ── Historial / trazabilidad de la ficha clínica ──
+interface PagoPaciente {
+  id: string; numero: number; monto: number; estado: string; anulado: boolean
+  fechaPago: string | null; concepto: string
+  medioPago?: { nombre: string } | null
+  reciboUsuario?: { name: string | null } | null
+}
+
 function HistorialTab({ pacienteId }: { pacienteId: string }) {
   const [items, setItems] = useState<HistorialEntry[]>([])
+  const [pagos, setPagos] = useState<PagoPaciente[]>([])
   const [cargando, setCargando] = useState(true)
-  useEffect(() => { historialService.listar(pacienteId).then(setItems).catch(() => {}).finally(() => setCargando(false)) }, [pacienteId])
+  useEffect(() => {
+    Promise.all([
+      historialService.listar(pacienteId).then(setItems).catch(() => {}),
+      cobrosService.porPaciente(pacienteId).then((c) => setPagos(c as PagoPaciente[])).catch(() => {}),
+    ]).finally(() => setCargando(false))
+  }, [pacienteId])
   if (cargando) return <p className="text-slate-500 text-sm">Cargando…</p>
   const ACC: Record<string, { l: string; c: string }> = {
     CREAR: { l: 'Creó', c: 'bg-emerald-50 text-emerald-700' },
@@ -1164,7 +1244,33 @@ function HistorialTab({ pacienteId }: { pacienteId: string }) {
     ELIMINAR: { l: 'Eliminó', c: 'bg-rose-50 text-rose-700' },
   }
   return (
-    <div>
+    <div className="space-y-6">
+      {/* Pagos recibidos */}
+      <div>
+        <h3 className="text-sm font-semibold text-slate-700 mb-2">Pagos recibidos</h3>
+        {pagos.length === 0 ? <p className="text-sm text-slate-500">Sin pagos registrados.</p> : (
+          <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+            {pagos.map((p) => (
+              <div key={p.id} className={`px-4 py-3 flex items-center justify-between gap-3 ${p.anulado ? 'opacity-50' : ''}`}>
+                <div className="min-w-0">
+                  <p className={`text-sm font-medium text-slate-800 truncate ${p.anulado ? 'line-through' : ''}`}>
+                    #{p.numero} · {fmtCLP(p.monto)}
+                    <span className="ml-2 text-xs font-normal text-slate-500">{p.medioPago?.nombre ?? 'Efectivo'}</span>
+                    {p.anulado && <span className="ml-2 text-[11px] font-semibold text-rose-600">ANULADO</span>}
+                  </p>
+                  <p className="text-xs text-slate-500 truncate">{p.concepto}</p>
+                  <p className="text-xs text-slate-400">
+                    {p.fechaPago ? new Date(p.fechaPago).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                    {p.reciboUsuario?.name ? ` · recibió ${p.reciboUsuario.name}` : ''}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div>
       <p className="text-xs text-slate-500 mb-3">Trazabilidad de la ficha clínica: quién hizo qué y cuándo. Registro inmutable, conforme a la normativa de fichas clínicas (Ley 20.584 / Ley 21.719).</p>
       {items.length === 0 ? <p className="text-sm text-slate-500">Sin movimientos registrados aún.</p> : (
         <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
@@ -1182,6 +1288,7 @@ function HistorialTab({ pacienteId }: { pacienteId: string }) {
           })}
         </div>
       )}
+      </div>
     </div>
   )
 }

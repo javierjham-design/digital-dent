@@ -3,6 +3,7 @@ import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import {
   abrirSesion as abrirSesionCore, calcularResumenSesion, calcularSaldoSugerido, getSesionAbierta,
+  getUltimaSesionCerrada,
 } from '@/lib/caja'
 
 const CATEGORIAS_EGRESO = ['ARRIENDO', 'INSUMOS', 'SUELDO', 'SERVICIOS', 'RETIRO', 'OTRO']
@@ -34,6 +35,23 @@ export async function listarCajas(db: TenantClient, actor: JwtPayload) {
 export async function obtenerCaja(db: TenantClient, actor: JwtPayload, id: string) {
   await cajaConAcceso(db, id, actor)
   return db.caja.findUnique({ where: { id }, include: CAJA_INCLUDE })
+}
+
+// Resumen para las vistas "Cajas abiertas" / "Cajas cerradas": cada caja con su
+// sesión abierta (si la hay, con ingresos/egresos/saldo) y su último cierre.
+export async function resumenCajas(db: TenantClient, actor: JwtPayload) {
+  const cajas = await listarCajas(db, actor)
+  return Promise.all(cajas.map(async (c) => {
+    const sesionAbierta = await getSesionAbierta(db, c.id)
+    const resumen = sesionAbierta ? await calcularResumenSesion(db, sesionAbierta.id) : null
+    const ultimaCerrada = await getUltimaSesionCerrada(db, c.id)
+    return {
+      id: c.id, nombre: c.nombre, descripcion: c.descripcion, saldoInicial: c.saldoInicial,
+      usuarios: c.usuarios,
+      sesionAbierta: sesionAbierta ? { ...sesionAbierta, resumen } : null,
+      ultimaCerrada,
+    }
+  }))
 }
 
 export async function crearCaja(db: TenantClient, body: { nombre: string; descripcion?: string; saldoInicial?: number; usuarioIds?: string[] }) {

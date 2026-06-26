@@ -6,15 +6,18 @@ const authHeader = (): Record<string, string> => { const t = tokenStore.get(); r
 
 export const cobrosService = {
   listar: () => api.get<unknown[]>('/cobros'),
+  porPaciente: (pacienteId: string) => api.get<unknown[]>(`/cobros?pacienteId=${pacienteId}`),
   obtener: (id: string) => api.get<unknown>(`/cobros/${id}`),
   crear: (input: Record<string, unknown>) => api.post<unknown>('/cobros', input),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/cobros/${id}`, patch),
   anular: (id: string, motivo: string) => api.post<unknown>(`/cobros/${id}/anular`, { motivo }),
   eliminar: (id: string) => api.del<{ ok: true }>(`/cobros/${id}`),
+  derivarAbono: (input: { fromPlanId: string; toPlanId: string; monto?: number }) => api.post<unknown>('/cobros/derivar-abono', input),
 }
 
 export const cajasService = {
   listar: () => api.get<unknown[]>('/cajas'),
+  resumen: () => api.get<unknown[]>('/cajas/resumen'),
   obtener: (id: string) => api.get<unknown>(`/cajas/${id}`),
   crear: (input: Record<string, unknown>) => api.post<unknown>('/cajas', input),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/cajas/${id}`, patch),

@@ -160,6 +160,7 @@ apiRouter.patch('/presupuestos/:id', tenant, asyncHandler(presupuestos.patchPres
 
 // ── Cajas (sesiones, movimientos) ────────────────────────────────────────────
 apiRouter.get('/cajas', tenant, asyncHandler(caja.getCajas))
+apiRouter.get('/cajas/resumen', tenant, asyncHandler(caja.getResumenCajas)) // estado abiertas/cerradas (antes de /:id)
 apiRouter.post('/cajas', adminTenant, asyncHandler(caja.postCaja))
 apiRouter.get('/cajas/:id', tenant, asyncHandler(caja.getCaja))
 apiRouter.patch('/cajas/:id', adminTenant, asyncHandler(caja.patchCaja))
@@ -174,7 +175,8 @@ apiRouter.post('/cajas/:id/movimientos', tenant, asyncHandler(caja.postMovimient
 apiRouter.post('/cajas/:id/movimientos/:movId/anular', tenant, asyncHandler(caja.postAnularMovimiento))
 
 // ── Cobros ───────────────────────────────────────────────────────────────────
-apiRouter.get('/cobros', tenant, asyncHandler(cobros.getCobros))
+apiRouter.get('/cobros', tenant, asyncHandler(cobros.getCobros)) // ?pacienteId= opcional
+apiRouter.post('/cobros/derivar-abono', tenant, asyncHandler(cobros.postDerivarAbono)) // mover abono libre entre planes
 apiRouter.get('/cobros/:id', tenant, asyncHandler(cobros.getCobro))
 apiRouter.post('/cobros', tenant, asyncHandler(cobros.postCobro))
 apiRouter.patch('/cobros/:id', tenant, asyncHandler(cobros.patchCobro))

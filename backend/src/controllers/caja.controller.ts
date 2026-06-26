@@ -6,6 +6,9 @@ import { crearCajaSchema, abrirCajaSchema, cerrarCajaSchema, crearMovimientoSche
 export async function getCajas(req: Request, res: Response) {
   res.json(await svc.listarCajas(tenantDb(req), req.auth!))
 }
+export async function getResumenCajas(req: Request, res: Response) {
+  res.json(await svc.resumenCajas(tenantDb(req), req.auth!))
+}
 export async function getCaja(req: Request, res: Response) {
   res.json(await svc.obtenerCaja(tenantDb(req), req.auth!, req.params.id))
 }

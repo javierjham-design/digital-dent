@@ -1,10 +1,15 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
 import * as svc from '@/services/cobros.service'
-import { crearCobroSchema, motivoSchema } from '@/validators/schemas'
+import { crearCobroSchema, motivoSchema, derivarAbonoSchema } from '@/validators/schemas'
 
 export async function getCobros(req: Request, res: Response) {
-  res.json(await svc.listarCobros(tenantDb(req)))
+  const pacienteId = typeof req.query.pacienteId === 'string' ? req.query.pacienteId : undefined
+  res.json(await svc.listarCobros(tenantDb(req), pacienteId))
+}
+export async function postDerivarAbono(req: Request, res: Response) {
+  const { fromPlanId, toPlanId, monto } = derivarAbonoSchema.parse(req.body)
+  res.json(await svc.derivarAbono(tenantDb(req), req.auth!, fromPlanId, { toPlanId, monto }))
 }
 export async function getCobro(req: Request, res: Response) {
   res.json(await svc.obtenerCobro(tenantDb(req), req.params.id))

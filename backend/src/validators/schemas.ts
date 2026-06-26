@@ -189,6 +189,12 @@ export const crearCobroSchema = z.object({
   })).min(1, 'Agrega al menos un item.'),
 })
 
+export const derivarAbonoSchema = z.object({
+  fromPlanId: z.string().min(1),
+  toPlanId: z.string().min(1),
+  monto: z.number().optional(),
+})
+
 export const crearContratoSchema = z.object({
   doctorId: z.string().min(1),
   tipo: z.enum(['PORCENTAJE', 'MONTO_FIJO']),

@@ -106,6 +106,58 @@ describe('flujo de pagos → liquidación (medios de pago, retención, caja, cob
   })
 })
 
+describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, gastos en caja', () => {
+  let cajaId = ''
+  beforeAll(async () => {
+    const caja = await post('/cajas', { nombre: 'Caja test pagos', usuarioIds: [A.adminId] })
+    cajaId = caja.body.id
+    await post(`/cajas/${cajaId}/abrir`, { saldoApertura: 0 })
+  })
+
+  it('rechaza un cobro sin asociación a un plan de tratamiento', async () => {
+    const r = await post('/cobros', { pacienteId: A.pacienteId, cajaId, items: [{ descripcion: 'Pago suelto', monto: 10000 }] })
+    expect(r.status).toBe(400)
+  })
+
+  it('acepta un abono libre al plan y lo lista en los pagos del paciente (Historial)', async () => {
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })
+    const planId = plan.body.id
+    const cobro = await post('/cobros', { pacienteId: A.pacienteId, cajaId, items: [{ planId, descripcion: 'Abono libre al plan', monto: 25000 }] })
+    expect(cobro.status).toBe(201)
+    const det = await get(`/planes-tratamiento/${planId}`)
+    expect(det.body.abonoLibre).toBe(25000)
+    const pagos = await get(`/cobros?pacienteId=${A.pacienteId}`)
+    expect(pagos.body.some((c: { id: string }) => c.id === cobro.body.id)).toBe(true)
+  })
+
+  it('deriva el abono libre de un plan a otro plan del mismo paciente', async () => {
+    const planA = (await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })).body
+    const planB = (await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })).body
+    await post('/cobros', { pacienteId: A.pacienteId, cajaId, items: [{ planId: planA.id, descripcion: 'Abono', monto: 30000 }] })
+
+    const der = await post('/cobros/derivar-abono', { fromPlanId: planA.id, toPlanId: planB.id, monto: 20000 })
+    expect(der.status).toBe(200)
+
+    const detA = await get(`/planes-tratamiento/${planA.id}`)
+    const detB = await get(`/planes-tratamiento/${planB.id}`)
+    expect(detA.body.abonoLibre).toBe(10000)
+    expect(detB.body.abonoLibre).toBe(20000)
+  })
+
+  it('registra un gasto (egreso) en la caja abierta y baja el saldo esperado', async () => {
+    const before = await get('/cajas/resumen')
+    const saldoBefore = before.body.find((c: { id: string }) => c.id === cajaId).sesionAbierta.resumen.saldoEsperado
+
+    const gasto = await post(`/cajas/${cajaId}/movimientos`, { tipo: 'EGRESO', categoria: 'INSUMOS', monto: 5000, descripcion: 'Guantes' })
+    expect(gasto.status).toBe(201)
+
+    const after = await get('/cajas/resumen')
+    const fila = after.body.find((c: { id: string }) => c.id === cajaId)
+    expect(fila.sesionAbierta.resumen.saldoEsperado).toBe(saldoBefore - 5000)
+    expect(fila.sesionAbierta.resumen.egresos).toBeGreaterThanOrEqual(5000)
+  })
+})
+
 describe('configuración del profesional (contratos y horarios)', () => {
   it('crear contrato PORCENTAJE con montoFijo null NO falla (montoFijo no es obligatorio)', async () => {
     const r = await post('/contratos', { doctorId, tipo: 'PORCENTAJE', porcentaje: 40, montoFijo: null, descripcion: null, fechaFin: null })
