@@ -110,12 +110,12 @@ export async function listarMediosPago(db: TenantClient) {
   return db.medioPago.findMany({ orderBy: { nombre: 'asc' } })
 }
 
-export async function crearMedioPago(db: TenantClient, body: { nombre: string; comision?: number }) {
+export async function crearMedioPago(db: TenantClient, body: { nombre: string; comision?: number; requiereReferencia?: boolean }) {
   const nombre = (body.nombre ?? '').trim()
   if (!nombre) throw badRequest('nombre requerido')
   const comision = body.comision != null ? Number(body.comision) : 0
   if (!Number.isFinite(comision) || comision < 0 || comision > 100) throw badRequest('comision debe estar entre 0 y 100')
-  return db.medioPago.create({ data: { nombre, comision } })
+  return db.medioPago.create({ data: { nombre, comision, requiereReferencia: Boolean(body.requiereReferencia) } })
 }
 
 export async function actualizarMedioPago(db: TenantClient, id: string, body: Record<string, unknown>) {
@@ -125,6 +125,7 @@ export async function actualizarMedioPago(db: TenantClient, id: string, body: Re
   if (body.nombre !== undefined) data.nombre = String(body.nombre)
   if (body.comision !== undefined) data.comision = Number(body.comision)
   if (body.activo !== undefined) data.activo = Boolean(body.activo)
+  if (body.requiereReferencia !== undefined) data.requiereReferencia = Boolean(body.requiereReferencia)
   return db.medioPago.update({ where: { id }, data })
 }
 

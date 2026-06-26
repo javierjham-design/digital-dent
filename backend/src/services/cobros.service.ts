@@ -41,7 +41,7 @@ export async function obtenerCobro(db: TenantClient, id: string) {
 
 export interface CrearCobroInput {
   pacienteId: string; cajaId: string; medioPagoId?: string; reciboUsuarioId?: string
-  fechaPago?: string; notas?: string
+  fechaPago?: string; notas?: string; numeroReferencia?: string; numeroBoleta?: string
   items: { tratamientoId?: string; planId?: string; descripcion: string; monto: number }[]
 }
 
@@ -95,12 +95,20 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
     }
   }
 
+  const numeroReferencia = input.numeroReferencia?.trim() || null
+  const numeroBoleta = input.numeroBoleta?.trim() || null
+
   let comisionMonto = 0
   let montoNeto = monto
   let medioNombre = ''
   if (input.medioPagoId) {
     const medio = await db.medioPago.findUnique({ where: { id: input.medioPagoId } })
-    if (medio) { comisionMonto = monto * (medio.comision / 100); montoNeto = monto - comisionMonto; medioNombre = medio.nombre }
+    if (!medio) throw badRequest('Medio de pago inválido')
+    comisionMonto = monto * (medio.comision / 100); montoNeto = monto - comisionMonto; medioNombre = medio.nombre
+    // Pagos con tarjeta (medios marcados como "requiere referencia") exigen el N° de operación.
+    if (medio.requiereReferencia && !numeroReferencia) {
+      throw badRequest(`El medio de pago "${medio.nombre}" requiere el número de referencia de la operación.`)
+    }
   }
 
   const concepto = items.map((i) => i.descripcion).join(', ')
@@ -116,7 +124,7 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
       data: {
         pacienteId: input.pacienteId, numero, concepto, monto, montoNeto, comisionMonto,
         estado: 'PAGADO', medioPagoId: input.medioPagoId || null, reciboUsuarioId: input.reciboUsuarioId || actor.sub,
-        cajaId: caja.id, fechaPago, notas: input.notas || null,
+        cajaId: caja.id, fechaPago, notas: input.notas || null, numeroReferencia, numeroBoleta,
         items: { create: items.map((i) => ({ tratamientoId: i.tratamientoId || null, planId: i.planId || null, descripcion: i.descripcion, monto: Number(i.monto) })) },
       },
       include: COBRO_INCLUDE,

@@ -144,6 +144,23 @@ describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, 
     expect(detB.body.abonoLibre).toBe(20000)
   })
 
+  it('exige el N° de referencia en pagos con tarjeta y guarda referencia + boleta', async () => {
+    const medio = await post('/medios-pago', { nombre: 'Tarjeta Redcompra', comision: 2, requiereReferencia: true })
+    expect(medio.body.requiereReferencia).toBe(true)
+    const medioPagoId = medio.body.id
+    const plan = (await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })).body
+
+    // Sin referencia → rechazado
+    const sinRef = await post('/cobros', { pacienteId: A.pacienteId, cajaId, medioPagoId, items: [{ planId: plan.id, descripcion: 'Abono', monto: 10000 }] })
+    expect(sinRef.status).toBe(400)
+
+    // Con referencia + boleta → OK y persiste
+    const conRef = await post('/cobros', { pacienteId: A.pacienteId, cajaId, medioPagoId, numeroReferencia: 'OP-12345', numeroBoleta: 'B-987', items: [{ planId: plan.id, descripcion: 'Abono', monto: 10000 }] })
+    expect(conRef.status).toBe(201)
+    expect(conRef.body.numeroReferencia).toBe('OP-12345')
+    expect(conRef.body.numeroBoleta).toBe('B-987')
+  })
+
   it('registra un gasto (egreso) en la caja abierta y baja el saldo esperado', async () => {
     const before = await get('/cajas/resumen')
     const saldoBefore = before.body.find((c: { id: string }) => c.id === cajaId).sesionAbierta.resumen.saldoEsperado

@@ -6,6 +6,7 @@ export interface MedioPagoDTO {
   nombre: string
   comision: number
   activo: boolean
+  requiereReferencia: boolean
 }
 
 export const prestacionesService = {
@@ -19,7 +20,7 @@ export const prestacionesService = {
 
 export const mediosPagoService = {
   listar: () => api.get<MedioPagoDTO[]>('/medios-pago'),
-  crear: (input: { nombre: string; comision?: number }) => api.post<MedioPagoDTO>('/medios-pago', input),
+  crear: (input: { nombre: string; comision?: number; requiereReferencia?: boolean }) => api.post<MedioPagoDTO>('/medios-pago', input),
   actualizar: (id: string, patch: Partial<MedioPagoDTO>) => api.patch<MedioPagoDTO>(`/medios-pago/${id}`, patch),
   eliminar: (id: string) => api.del<{ ok: true }>(`/medios-pago/${id}`),
 }

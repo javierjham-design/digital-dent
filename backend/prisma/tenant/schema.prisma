@@ -356,11 +356,12 @@ model ItemPresupuesto {
 }
 
 model MedioPago {
-  id       String  @id @default(cuid())
-  nombre   String
-  comision Float   @default(0)
-  activo   Boolean @default(true)
-  cobros   Cobro[]
+  id                 String  @id @default(cuid())
+  nombre             String
+  comision           Float   @default(0)
+  activo             Boolean @default(true)
+  requiereReferencia Boolean @default(false) // pagos con tarjeta exigen N° de operación
+  cobros             Cobro[]
 }
 
 model Cobro {
@@ -378,6 +379,8 @@ model Cobro {
   cajaId           String?
   fechaPago        DateTime?
   notas            String?
+  numeroReferencia String?    // N° de operación (obligatorio en pagos con tarjeta)
+  numeroBoleta     String?    // N° de boleta (opcional, cualquier pago)
   anulado          Boolean    @default(false)
   motivoAnulacion  String?
   anuladoAt        DateTime?

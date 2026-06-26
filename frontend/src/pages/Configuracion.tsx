@@ -196,30 +196,36 @@ function MediosPago() {
   const [medios, setMedios] = useState<MedioPagoDTO[]>([])
   const [nombre, setNombre] = useState('')
   const [comision, setComision] = useState('0')
+  const [reqRef, setReqRef] = useState(false)
   const [msg, setMsg] = useState('')
   const cargar = () => mediosPagoService.listar().then(setMedios).catch(() => {})
   useEffect(() => { cargar() }, [])
   async function crear() {
     if (!nombre.trim()) return
-    try { await mediosPagoService.crear({ nombre: nombre.trim(), comision: Number(comision) || 0 }); setNombre(''); setComision('0'); setMsg(''); cargar() }
+    try { await mediosPagoService.crear({ nombre: nombre.trim(), comision: Number(comision) || 0, requiereReferencia: reqRef }); setNombre(''); setComision('0'); setReqRef(false); setMsg(''); cargar() }
     catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error') }
   }
   const setComisionMedio = (m: MedioPagoDTO, v: string) => { mediosPagoService.actualizar(m.id, { comision: Number(v) || 0 }).then(cargar).catch(() => {}) }
+  const setReqRefMedio = (m: MedioPagoDTO, v: boolean) => { mediosPagoService.actualizar(m.id, { requiereReferencia: v }).then(cargar).catch(() => {}) }
   const toggle = (m: MedioPagoDTO) => { mediosPagoService.actualizar(m.id, { activo: !m.activo }).then(cargar).catch(() => {}) }
   const eliminar = (m: MedioPagoDTO) => { if (window.confirm(`¿Eliminar el medio de pago "${m.nombre}"?`)) mediosPagoService.eliminar(m.id).then(cargar).catch(() => {}) }
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-6 mt-5">
       <h2 className="text-lg font-bold text-slate-900">Medios de pago</h2>
-      <p className="text-slate-500 text-sm mt-1 mb-4">El % de comisión se descuenta del monto liquidado a los profesionales.</p>
+      <p className="text-slate-500 text-sm mt-1 mb-4">El % de comisión se descuenta del monto liquidado a los profesionales. Marca “Requiere referencia” en los medios con tarjeta para exigir el N° de operación al cobrar.</p>
       <div className="divide-y divide-slate-100 mb-4">
         {medios.map((m) => (
-          <div key={m.id} className="flex items-center justify-between gap-3 py-2.5">
+          <div key={m.id} className="flex items-center justify-between gap-3 py-2.5 flex-wrap">
             <span className={`text-sm font-medium ${m.activo ? 'text-slate-800' : 'text-slate-400 line-through'}`}>{m.nombre}</span>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <label className="flex items-center gap-1 text-sm text-slate-500">
                 Comisión
                 <input type="number" defaultValue={m.comision} step="0.01" onBlur={(e) => setComisionMedio(m, e.target.value)}
                   className="w-20 px-2 py-1 border border-slate-200 rounded-lg text-sm text-right" /> %
+              </label>
+              <label className="flex items-center gap-1.5 text-sm text-slate-500" title="Exige el N° de referencia de la operación al cobrar (tarjetas)">
+                <input type="checkbox" checked={m.requiereReferencia} onChange={(e) => setReqRefMedio(m, e.target.checked)} />
+                Requiere referencia
               </label>
               <button onClick={() => toggle(m)} className="text-xs text-slate-500 hover:text-slate-800">{m.activo ? 'Desactivar' : 'Activar'}</button>
               <button onClick={() => eliminar(m)} className="text-xs text-slate-300 hover:text-rose-600">Eliminar</button>
@@ -238,6 +244,10 @@ function MediosPago() {
           <span className="block text-sm font-medium text-slate-700 mb-1">Comisión %</span>
           <input type="number" value={comision} step="0.01" onChange={(e) => setComision(e.target.value)}
             className="w-24 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+        </label>
+        <label className="flex items-center gap-1.5 text-sm text-slate-600 pb-2.5">
+          <input type="checkbox" checked={reqRef} onChange={(e) => setReqRef(e.target.checked)} />
+          Requiere referencia (tarjeta)
         </label>
         <button onClick={crear} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Agregar</button>
         {msg && <span className="text-sm text-rose-600">{msg}</span>}

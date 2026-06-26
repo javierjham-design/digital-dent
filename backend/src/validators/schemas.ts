@@ -181,6 +181,8 @@ export const crearCobroSchema = z.object({
   reciboUsuarioId: z.string().optional(),
   fechaPago: z.string().optional(),
   notas: z.string().optional(),
+  numeroReferencia: z.string().optional(),
+  numeroBoleta: z.string().optional(),
   items: z.array(z.object({
     tratamientoId: z.string().optional(),
     planId: z.string().optional(),

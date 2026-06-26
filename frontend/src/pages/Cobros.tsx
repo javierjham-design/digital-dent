@@ -19,7 +19,7 @@ interface ResumenCaja {
   sesionAbierta: SesionAbierta | null; ultimaCerrada: SesionCerrada | null
 }
 interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { numero: number } | null }
-interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; paciente: { nombre: string; apellido: string }; medioPago?: { nombre: string } | null }
+interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; paciente: { nombre: string; apellido: string }; medioPago?: { nombre: string } | null }
 
 // Plan (para recibir pago obligado a un plan)
 interface CobroItemLite { monto: number; cobro?: { estado: string } | null }
@@ -142,7 +142,7 @@ export function Cobros() {
           <div key={c.id} className={`flex items-center justify-between px-5 py-3 ${c.anulado ? 'opacity-50' : ''}`}>
             <div className="min-w-0">
               <p className="text-sm font-medium text-slate-800 truncate">#{c.numero} · {c.paciente.nombre} {c.paciente.apellido}</p>
-              <p className="text-xs text-slate-500 truncate">{c.concepto}{c.medioPago ? ` · ${c.medioPago.nombre}` : ' · Efectivo'}{c.fechaPago ? ` · ${fechaHora(c.fechaPago)}` : ''}</p>
+              <p className="text-xs text-slate-500 truncate">{c.concepto}{c.medioPago ? ` · ${c.medioPago.nombre}` : ' · Efectivo'}{c.numeroReferencia ? ` · Ref ${c.numeroReferencia}` : ''}{c.numeroBoleta ? ` · Boleta ${c.numeroBoleta}` : ''}{c.fechaPago ? ` · ${fechaHora(c.fechaPago)}` : ''}</p>
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
               <span className="font-mono text-sm text-slate-700">{fmt(c.monto)}</span>
@@ -342,9 +342,14 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
   const [planId, setPlanId] = useState('')
   const [detalle, setDetalle] = useState<PlanDetalle | null>(null)
   const [medioPagoId, setMedioPagoId] = useState('')
+  const [numeroReferencia, setNumeroReferencia] = useState('')
+  const [numeroBoleta, setNumeroBoleta] = useState('')
   const [sel, setSel] = useState<Record<string, number>>({})
   const [abono, setAbono] = useState('')
   const [g, setG] = useState(false)
+
+  const medioSel = medios.find((m) => m.id === medioPagoId)
+  const requiereRef = Boolean(medioSel?.requiereReferencia)
 
   useEffect(() => {
     setPlanId(''); setDetalle(null); setSel({}); setAbono('')
@@ -371,9 +376,13 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
     }
     if (Number(abono) > 0) items.push({ planId, descripcion: 'Abono libre al plan', monto: Number(abono) })
     if (items.length === 0) { onError('Selecciona acciones del plan o ingresa un abono.'); return }
+    if (requiereRef && !numeroReferencia.trim()) { onError(`Ingresa el N° de referencia de la operación (${medioSel?.nombre}).`); return }
     setG(true)
     try {
-      await cobrosService.crear({ pacienteId, cajaId, medioPagoId: medioPagoId || undefined, items })
+      await cobrosService.crear({
+        pacienteId, cajaId, medioPagoId: medioPagoId || undefined, items,
+        numeroReferencia: numeroReferencia.trim() || undefined, numeroBoleta: numeroBoleta.trim() || undefined,
+      })
       onDone()
     } catch (e) { onError(e instanceof ApiError ? e.message : 'Error') } finally { setG(false) }
   }
@@ -415,12 +424,18 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
               <input type="number" value={abono} onChange={(e) => setAbono(e.target.value)} placeholder="Monto" className="mt-1 w-40 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
             </label>
 
-            <select value={medioPagoId} onChange={(e) => setMedioPagoId(e.target.value)} className="w-full mb-3 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+            <select value={medioPagoId} onChange={(e) => setMedioPagoId(e.target.value)} className="w-full mb-2 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
               <option value="">Efectivo / sin comisión</option>
               {medios.map((m) => <option key={m.id} value={m.id}>{m.nombre}{m.comision ? ` (${m.comision}%)` : ''}</option>)}
             </select>
+            {requiereRef && (
+              <input value={numeroReferencia} onChange={(e) => setNumeroReferencia(e.target.value)} placeholder="N° de referencia de la operación *"
+                className="w-full mb-2 px-3 py-2.5 border border-cyan-300 bg-cyan-50/40 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+            )}
+            <input value={numeroBoleta} onChange={(e) => setNumeroBoleta(e.target.value)} placeholder="N° de boleta (opcional)"
+              className="w-full mb-3 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
             <p className="text-right text-sm font-semibold text-slate-800 mb-1">Total: {fmt(total)}</p>
-            <Acciones onClose={onClose} onOk={guardar} okLabel="Cobrar" loading={g} disabled={total <= 0} />
+            <Acciones onClose={onClose} onOk={guardar} okLabel="Cobrar" loading={g} disabled={total <= 0 || (requiereRef && !numeroReferencia.trim())} />
           </>
         )}
     </Modal>

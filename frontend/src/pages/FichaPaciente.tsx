@@ -962,11 +962,16 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   const [medios, setMedios] = useState<MedioPagoDTO[]>([])
   const [cajaId, setCajaId] = useState('')
   const [medioPagoId, setMedioPagoId] = useState('')
+  const [numeroReferencia, setNumeroReferencia] = useState('')
+  const [numeroBoleta, setNumeroBoleta] = useState('')
   const [sel, setSel] = useState<Record<string, number>>({})
   const [abono, setAbono] = useState('')
   const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null)
   const [saving, setSaving] = useState(false)
   const [derivar, setDerivar] = useState(false)
+
+  const medioSel = medios.find((m) => m.id === medioPagoId)
+  const requiereRef = Boolean(medioSel?.requiereReferencia)
 
   const cargarDetalle = (id: string) => { if (id) planesService.obtener(id).then((d) => setDetalle(d as PlanDetalle)).catch(() => {}) }
   useEffect(() => {
@@ -994,11 +999,15 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
     if (Number(abono) > 0) items.push({ planId, descripcion: 'Abono libre al plan', monto: Number(abono) })
     if (items.length === 0) { setMsg({ t: 'Selecciona acciones o ingresa un abono.', ok: false }); return }
     if (!cajaId) { setMsg({ t: 'Selecciona una caja.', ok: false }); return }
+    if (requiereRef && !numeroReferencia.trim()) { setMsg({ t: `Ingresa el N° de referencia de la operación (${medioSel?.nombre}).`, ok: false }); return }
     setSaving(true); setMsg(null)
     try {
-      await cobrosService.crear({ pacienteId, cajaId, medioPagoId: medioPagoId || undefined, items })
+      await cobrosService.crear({
+        pacienteId, cajaId, medioPagoId: medioPagoId || undefined, items,
+        numeroReferencia: numeroReferencia.trim() || undefined, numeroBoleta: numeroBoleta.trim() || undefined,
+      })
       setMsg({ t: `Recaudación de ${fmtCLP(totalSel)} registrada.`, ok: true })
-      setSel({}); setAbono(''); cargarDetalle(planId)
+      setSel({}); setAbono(''); setNumeroReferencia(''); setNumeroBoleta(''); cargarDetalle(planId)
     } catch (e) { setMsg({ t: e instanceof ApiError ? e.message : 'No se pudo recaudar', ok: false }) } finally { setSaving(false) }
   }
 
@@ -1072,11 +1081,25 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
                 </select>
               </label>
             </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {requiereRef && (
+                <label className="block">
+                  <span className="text-xs font-medium text-slate-500">N° de referencia de la operación *</span>
+                  <input value={numeroReferencia} onChange={(e) => setNumeroReferencia(e.target.value)} placeholder="Obligatorio para tarjeta"
+                    className="mt-1 w-full px-3 py-2 border border-cyan-300 bg-cyan-50/40 rounded-lg text-sm" />
+                </label>
+              )}
+              <label className="block">
+                <span className="text-xs font-medium text-slate-500">N° de boleta (opcional)</span>
+                <input value={numeroBoleta} onChange={(e) => setNumeroBoleta(e.target.value)} placeholder="N° de boleta"
+                  className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              </label>
+            </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-slate-500">Total a recaudar</span>
               <span className="text-lg font-bold text-cyan-700">{fmtCLP(totalSel)}</span>
             </div>
-            <button onClick={recaudar} disabled={saving || totalSel <= 0} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
+            <button onClick={recaudar} disabled={saving || totalSel <= 0 || (requiereRef && !numeroReferencia.trim())} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
             {msg && <p className={`text-sm ${msg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{msg.t}</p>}
             <p className="text-[11px] text-slate-400">La caja debe estar abierta (ábrela en Cobros si hace falta).</p>
           </div>
@@ -1222,6 +1245,7 @@ function EvolucionItem({ e, isAdmin, onChanged, onBorrar }: { e: Evo; isAdmin: b
 interface PagoPaciente {
   id: string; numero: number; monto: number; estado: string; anulado: boolean
   fechaPago: string | null; concepto: string
+  numeroReferencia?: string | null; numeroBoleta?: string | null
   medioPago?: { nombre: string } | null
   reciboUsuario?: { name: string | null } | null
 }
@@ -1259,6 +1283,11 @@ function HistorialTab({ pacienteId }: { pacienteId: string }) {
                     {p.anulado && <span className="ml-2 text-[11px] font-semibold text-rose-600">ANULADO</span>}
                   </p>
                   <p className="text-xs text-slate-500 truncate">{p.concepto}</p>
+                  {(p.numeroReferencia || p.numeroBoleta) && (
+                    <p className="text-xs text-slate-500">
+                      {p.numeroReferencia ? `Ref: ${p.numeroReferencia}` : ''}{p.numeroReferencia && p.numeroBoleta ? ' · ' : ''}{p.numeroBoleta ? `Boleta: ${p.numeroBoleta}` : ''}
+                    </p>
+                  )}
                   <p className="text-xs text-slate-400">
                     {p.fechaPago ? new Date(p.fechaPago).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
                     {p.reciboUsuario?.name ? ` · recibió ${p.reciboUsuario.name}` : ''}

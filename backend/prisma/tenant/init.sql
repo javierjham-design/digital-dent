@@ -298,6 +298,7 @@ CREATE TABLE "MedioPago" (
     "nombre" TEXT NOT NULL,
     "comision" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "activo" BOOLEAN NOT NULL DEFAULT true,
+    "requiereReferencia" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "MedioPago_pkey" PRIMARY KEY ("id")
 );
@@ -318,6 +319,8 @@ CREATE TABLE "Cobro" (
     "cajaId" TEXT,
     "fechaPago" TIMESTAMP(3),
     "notas" TEXT,
+    "numeroReferencia" TEXT,
+    "numeroBoleta" TEXT,
     "anulado" BOOLEAN NOT NULL DEFAULT false,
     "motivoAnulacion" TEXT,
     "anuladoAt" TIMESTAMP(3),
