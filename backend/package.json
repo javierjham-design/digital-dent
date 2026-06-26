@@ -23,7 +23,8 @@
     "tenant:initsql": "prisma migrate diff --from-empty --to-schema-datamodel prisma/tenant/schema.prisma --script > prisma/tenant/init.sql",
     "migrate:tenants": "tsx src/scripts/migrate-tenants.ts",
     "prisma:generate:legacy": "node prisma/legacy/build-schema.mjs && prisma generate --schema prisma/legacy/schema.prisma",
-    "migrate:data": "tsx src/scripts/migrate-data.ts"
+    "migrate:data": "tsx src/scripts/migrate-data.ts",
+    "dedupe:prestaciones": "tsx src/scripts/dedupe-prestaciones.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
