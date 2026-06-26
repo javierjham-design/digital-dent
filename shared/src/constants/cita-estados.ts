@@ -11,14 +11,17 @@ export interface EstadoCitaConfig {
   orden: number
 }
 
+// Paleta alineada a la simbología tipo Dentalink: agendada (tan/no confirmado),
+// confirmada (verde), en espera (amarillo), en atención (teal), atendida (gris),
+// no asistió (lavanda), cancelada/anulado (gris apagado).
 export const CITA_ESTADOS: Record<string, EstadoCitaConfig> = {
-  PENDIENTE:   { label: 'Agendada',    color: '#f59e0b', bg: '#fef3c7', text: '#92400e', badgeClass: 'bg-amber-100 text-amber-700',   orden: 1 },
-  CONFIRMADA:  { label: 'Confirmada',  color: '#0891b2', bg: '#cffafe', text: '#155e75', badgeClass: 'bg-cyan-100 text-cyan-700',     orden: 2 },
-  EN_ESPERA:   { label: 'En espera',   color: '#8b5cf6', bg: '#ede9fe', text: '#5b21b6', badgeClass: 'bg-violet-100 text-violet-700', orden: 3 },
-  EN_ATENCION: { label: 'En atención', color: '#3b82f6', bg: '#dbeafe', text: '#1e40af', badgeClass: 'bg-blue-100 text-blue-700',     orden: 4 },
-  ATENDIDA:    { label: 'Atendida',    color: '#10b981', bg: '#d1fae5', text: '#065f46', badgeClass: 'bg-emerald-100 text-emerald-700', orden: 5 },
-  NO_ASISTIO:  { label: 'No asistió',  color: '#6b7280', bg: '#f3f4f6', text: '#374151', badgeClass: 'bg-slate-100 text-slate-600',   orden: 6 },
-  CANCELADA:   { label: 'Cancelada',   color: '#ef4444', bg: '#fee2e2', text: '#991b1b', badgeClass: 'bg-rose-100 text-rose-700',     orden: 7 },
+  PENDIENTE:   { label: 'Agendada',    color: '#e8923a', bg: '#fdebd0', text: '#9a5b1e', badgeClass: 'bg-amber-100 text-amber-700',     orden: 1 },
+  CONFIRMADA:  { label: 'Confirmada',  color: '#2bb673', bg: '#d4f3e3', text: '#0f5132', badgeClass: 'bg-emerald-100 text-emerald-700', orden: 2 },
+  EN_ESPERA:   { label: 'En espera',   color: '#eab308', bg: '#fef9c3', text: '#854d0e', badgeClass: 'bg-yellow-100 text-yellow-700',   orden: 3 },
+  EN_ATENCION: { label: 'En atención', color: '#14b8a6', bg: '#ccfbf1', text: '#115e59', badgeClass: 'bg-teal-100 text-teal-700',       orden: 4 },
+  ATENDIDA:    { label: 'Atendida',    color: '#94a3b8', bg: '#e2e8f0', text: '#334155', badgeClass: 'bg-slate-100 text-slate-600',     orden: 5 },
+  NO_ASISTIO:  { label: 'No asistió',  color: '#a78bfa', bg: '#ede9fe', text: '#5b21b6', badgeClass: 'bg-violet-100 text-violet-700',   orden: 6 },
+  CANCELADA:   { label: 'Cancelada',   color: '#cbd5e1', bg: '#f1f5f9', text: '#64748b', badgeClass: 'bg-slate-100 text-slate-500',     orden: 7 },
 }
 
 export const CITA_ESTADOS_KEYS = Object.keys(CITA_ESTADOS)

@@ -217,15 +217,21 @@ export function Agenda() {
 
         {vista === 'semanal' ? (
           <div className="bg-white rounded-2xl border border-slate-200 p-2 overflow-x-auto">
-            {/* Bloques altos, nombre del paciente (sin la hora dentro). En móvil el grid scrollea horizontal. */}
+            {/* Estilo tipo Dentalink: espacios disponibles en verde, fuera de horario en gris,
+                bloques anchos con el nombre del paciente. En móvil el grid scrollea horizontal. */}
             <style>{`
-              .fc { min-width: 560px; }
-              .fc .fc-timegrid-slot { height: 2em; }
-              .fc .fc-col-header-cell { padding: 4px 0; }
-              .fc .fc-timegrid-event { border-radius: 6px; box-shadow: none; }
-              .fc .fc-timegrid-event .fc-event-main { padding: 3px 6px; }
-              .fc .fc-event-title { white-space: normal; font-weight: 600; font-size: 0.8rem; line-height: 1.15; }
-              .fc .fc-day-today { background: #ecfeff !important; }
+              .fc { min-width: 720px; }
+              .fc .fc-timegrid-slot { height: 1.95em; }
+              .fc .fc-timegrid-slot-lane { background: #f0fdf4; }
+              .fc .fc-non-business { background: #f1f5f9 !important; }
+              .fc .fc-day-today { background: transparent !important; }
+              .fc .fc-col-header-cell { padding: 6px 0; background: #f8fafc; }
+              .fc .fc-col-header-cell-cushion { font-weight: 600; color: #334155; text-transform: capitalize; }
+              .fc .fc-day-today .fc-col-header-cell-cushion { color: #0891b2; }
+              .fc .fc-timegrid-now-indicator-line { border-color: #ef4444; }
+              .fc .fc-timegrid-event { border-radius: 5px; box-shadow: none; border: none; }
+              .fc .fc-timegrid-event .fc-event-main { padding: 2px 5px; }
+              .fc .fc-event-title { white-space: normal; font-weight: 600; font-size: 0.78rem; line-height: 1.12; }
             `}</style>
             <FullCalendar
               ref={calRef}
