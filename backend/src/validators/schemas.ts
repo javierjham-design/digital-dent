@@ -192,11 +192,11 @@ export const crearCobroSchema = z.object({
 export const crearContratoSchema = z.object({
   doctorId: z.string().min(1),
   tipo: z.enum(['PORCENTAJE', 'MONTO_FIJO']),
-  porcentaje: z.number().optional(),
-  montoFijo: z.number().optional(),
-  descripcion: z.string().optional(),
-  fechaInicio: z.string().optional(),
-  fechaFin: z.string().optional(),
+  porcentaje: z.number().nullish(),
+  montoFijo: z.number().nullish(),
+  descripcion: z.string().nullish(),
+  fechaInicio: z.string().nullish(),
+  fechaFin: z.string().nullish(),
 })
 
 export const crearLiquidacionSchema = z.object({

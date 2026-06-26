@@ -105,3 +105,18 @@ describe('flujo de pagos → liquidación (medios de pago, retención, caja, cob
     expect(fila.pendientes).toBeGreaterThanOrEqual(1) // la acción impaga
   })
 })
+
+describe('configuración del profesional (contratos y horarios)', () => {
+  it('crear contrato PORCENTAJE con montoFijo null NO falla (montoFijo no es obligatorio)', async () => {
+    const r = await post('/contratos', { doctorId, tipo: 'PORCENTAJE', porcentaje: 40, montoFijo: null, descripcion: null, fechaFin: null })
+    expect(r.status).toBe(201)
+    expect(r.body.porcentaje).toBe(40)
+  })
+  it('guardar y leer el horario del profesional (con receso)', async () => {
+    const days = [{ diaSemana: 1, horaInicio: '09:00', horaFin: '18:00', activo: true, recesoActivo: true, recesoInicio: '13:00', recesoFin: '14:00' }]
+    const r = await post('/horarios', { doctorId, days })
+    expect(r.status).toBe(200)
+    const list = await get(`/horarios?doctorId=${doctorId}`)
+    expect(list.body.some((h: { diaSemana: number; activo: boolean }) => h.diaSemana === 1 && h.activo)).toBe(true)
+  })
+})
