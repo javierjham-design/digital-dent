@@ -3,6 +3,7 @@ import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-route
 import type { PacienteDTO } from '@shared/types'
 import { useAuth } from '@/hooks/useAuth'
 import { pacientesService } from '@/services/clinica.service'
+import { clinicaService } from '@/services/catalogo.service'
 import { CambiarPasswordModal } from '@/components/CambiarPasswordModal'
 
 const NAV_PRE = [
@@ -105,6 +106,8 @@ function BuscadorPacientesHeader() {
 export function DashboardLayout() {
   const { user, logout } = useAuth()
   const [cambiarPass, setCambiarPass] = useState(false)
+  const [logo, setLogo] = useState<string | null>(null)
+  useEffect(() => { clinicaService.obtener().then((c) => setLogo(c.logoUrl)).catch(() => {}) }, [])
   // Si el admin reseteó la contraseña o es el primer ingreso, forzar el cambio.
   const forzado = Boolean(user?.requirePasswordChange)
   useEffect(() => { if (forzado) setCambiarPass(true) }, [forzado])
@@ -116,7 +119,9 @@ export function DashboardLayout() {
     <div className="min-h-screen">
       <header className="bg-white border-b border-slate-100 sticky top-0 z-10 px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="flex items-center gap-2 shrink-0 order-1">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-800 text-white font-bold flex items-center justify-center">C</div>
+          {logo
+            ? <img src={logo} alt="" className="w-8 h-8 rounded-lg object-contain bg-white" />
+            : <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-800 text-white font-bold flex items-center justify-center">C</div>}
           <span className="font-bold tracking-tight hidden sm:inline">Cláriva</span>
         </div>
         <BuscadorPacientesHeader />

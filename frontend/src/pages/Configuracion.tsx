@@ -31,7 +31,7 @@ export function Configuracion() {
     try {
       const updated = await clinicaService.actualizar({
         nombre: data.nombre, direccion: data.direccion, telefono: data.telefono,
-        email: data.email, ciudad: data.ciudad, mensajeWA: data.mensajeWA,
+        email: data.email, ciudad: data.ciudad, mensajeWA: data.mensajeWA, logoUrl: data.logoUrl,
       })
       setData(updated)
       setOk(true)
@@ -47,6 +47,27 @@ export function Configuracion() {
     <div className="max-w-2xl">
       <h1 className="text-2xl font-bold text-slate-900 mb-6">Configuración de la clínica</h1>
       <form onSubmit={guardar} className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
+        <div>
+          <span className="block text-sm font-medium text-slate-700 mb-1">Logo de la clínica</span>
+          <div className="flex items-center gap-4">
+            {data.logoUrl
+              ? <img src={data.logoUrl} alt="Logo" className="h-16 w-16 object-contain rounded-lg border border-slate-200 bg-white" />
+              : <div className="h-16 w-16 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 text-xs">Sin logo</div>}
+            <div className="flex-1 space-y-2">
+              <input type="file" accept="image/*" onChange={(e) => {
+                const f = e.target.files?.[0]; if (!f) return
+                if (f.size > 500_000) { setError('El logo es muy grande (máx 500 KB). Usá una imagen más liviana.'); return }
+                const reader = new FileReader()
+                reader.onload = () => { set('logoUrl', String(reader.result)); setError('') }
+                reader.readAsDataURL(f)
+              }} className="block text-sm text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-cyan-50 file:text-cyan-700 file:text-sm file:font-semibold" />
+              <input value={data.logoUrl ?? ''} onChange={(e) => set('logoUrl', e.target.value)} placeholder="…o pega la URL de una imagen"
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+              {data.logoUrl && <button type="button" onClick={() => set('logoUrl', '')} className="text-xs text-slate-400 hover:text-rose-600">Quitar logo</button>}
+            </div>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">Aparece en el encabezado de la plataforma y en los presupuestos/imprimibles. Recordá pulsar "Guardar cambios".</p>
+        </div>
         <Field label="Nombre" value={data.nombre} onChange={(v) => set('nombre', v)} />
         <div className="grid sm:grid-cols-2 gap-4">
           <Field label="Teléfono" value={data.telefono} onChange={(v) => set('telefono', v)} />
