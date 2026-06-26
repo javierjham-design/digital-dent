@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import type { CitaDTO, DoctorDTO, PacienteDTO, PrestacionDTO } from '@shared/types'
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
 import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO } from '@/services/clinica.service'
@@ -31,9 +31,11 @@ const edad = (iso: string | null) => { if (!iso) return null; const d = new Date
 
 export function FichaPaciente() {
   const { id = '' } = useParams()
+  const [searchParams] = useSearchParams()
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
-  const [tab, setTab] = useState<Tab>('Datos')
+  // Permite entrar directo a una pestaña vía ?tab= (p.ej. desde la agenda → planes).
+  const [tab, setTab] = useState<Tab>(searchParams.get('tab') === 'planes' ? 'Planes de Tratamiento' : 'Datos')
   const [paciente, setPaciente] = useState<PacienteDTO | null>(null)
   const [resumen, setResumen] = useState<ResumenPaciente | null>(null)
   const [error, setError] = useState('')

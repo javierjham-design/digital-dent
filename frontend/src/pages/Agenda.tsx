@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import FullCalendar from '@fullcalendar/react'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
@@ -529,6 +530,7 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar }: {
         <Row k="Motivo" v={cita.tipo} />
         <Row k="Estado" v={CITA_ESTADOS[cita.estado]?.label ?? cita.estado} />
       </dl>
+      <Link to={`/pacientes/${cita.pacienteId}?tab=planes`} className="block w-full text-center mb-3 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Ir a planes de tratamiento</Link>
       {waUrl && <a href={waUrl} target="_blank" rel="noopener noreferrer" className="block w-full text-center mb-3 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium">Escribir por WhatsApp</a>}
       {next && (
         <button onClick={() => onEstado(cita.id, next.estado)} className="w-full mb-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ backgroundColor: CITA_ESTADOS[next.estado]?.color }}>
