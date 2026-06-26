@@ -225,13 +225,13 @@ export function Agenda() {
               .fc .fc-timegrid-slot-lane { background: #dcfce7; }
               .fc .fc-non-business { background: #eceef1 !important; }
               .fc .fc-day-today { background: transparent !important; }
-              /* Divisor vertical entre días: box-shadow (rendea por encima del verde) en el mismo
-                 verde oscuro que las horizontales, con un pelín de separación. */
-              .fc .fc-timegrid-col { box-shadow: inset -1px 0 0 0 #74b18c, inset 1px 0 0 0 #ffffff; }
+              /* Separación entre días: una franja clara (espacio) + una línea gris, dibujadas con
+                 box-shadow para que queden POR ENCIMA del verde y "corten" las líneas horizontales. */
+              .fc .fc-timegrid-col { box-shadow: inset -4px 0 0 0 #f4f6f8, inset -5px 0 0 0 #cbd5e1; position: relative; }
               .fc .fc-timegrid-axis { box-shadow: none !important; }
               /* Divisor horizontal entre cada bloque */
-              .fc .fc-timegrid-slot { border-bottom: 1px solid #74b18c !important; }
-              .fc .fc-timegrid-slot-minor { border-top: 1px dotted #aed5bd !important; }
+              .fc .fc-timegrid-slot { border-bottom: 1px solid #8fc2a4 !important; }
+              .fc .fc-timegrid-slot-minor { border-top: 1px dotted #b9dcc8 !important; }
               .fc .fc-col-header-cell { padding: 6px 0; background: #f1f5f9; }
               .fc .fc-col-header-cell-cushion { font-weight: 600; color: #334155; text-transform: capitalize; }
               .fc .fc-day-today .fc-col-header-cell-cushion { color: #0891b2; }
@@ -254,7 +254,7 @@ export function Agenda() {
               eventResize={onDrop}
               dateClick={(a) => setCrear({ slotISO: a.date.toISOString() })}
               businessHours={businessHours}
-              slotMinTime="07:00:00" slotMaxTime="21:00:00" slotDuration="00:15:00"
+              slotMinTime="07:00:00" slotMaxTime="21:00:00" slotDuration="00:15:00" slotLabelInterval="00:15:00"
               allDaySlot={false} height="auto" nowIndicator expandRows
               displayEventTime={false} eventMinHeight={32}
               slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
