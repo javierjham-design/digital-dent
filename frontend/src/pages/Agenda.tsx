@@ -225,10 +225,12 @@ export function Agenda() {
               .fc .fc-timegrid-slot-lane { background: #dcfce7; }
               .fc .fc-non-business { background: #eceef1 !important; }
               .fc .fc-day-today { background: transparent !important; }
-              /* Separación entre días: una franja clara (espacio) + una línea gris, dibujadas con
-                 box-shadow para que queden POR ENCIMA del verde y "corten" las líneas horizontales. */
-              .fc .fc-timegrid-col { box-shadow: inset -4px 0 0 0 #f4f6f8, inset -5px 0 0 0 #cbd5e1; position: relative; }
-              .fc .fc-timegrid-axis { box-shadow: none !important; }
+              /* Separación entre días: pseudo-elemento absoluto en cada columna (franja clara +
+                 línea gris). Es un elemento real con fondo → SIEMPRE se dibuja por encima del verde
+                 y corta las líneas horizontales, sin depender de los bordes de FullCalendar. */
+              .fc .fc-timegrid-col { position: relative; }
+              .fc .fc-timegrid-col::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 3px; background: #eef1f4; border-right: 1px solid #94a3b8; pointer-events: none; }
+              .fc .fc-timegrid-axis::after { display: none; }
               /* Divisor horizontal entre cada bloque */
               .fc .fc-timegrid-slot { border-bottom: 1px solid #8fc2a4 !important; }
               .fc .fc-timegrid-slot-minor { border-top: 1px dotted #b9dcc8 !important; }
