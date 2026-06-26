@@ -17,7 +17,7 @@ import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
 
 // Link de WhatsApp con el mensaje de confirmación prellenado desde Configuración.
-// Reemplaza las variables {nombre} {clinica} {fecha} {direccion}.
+// Reemplaza las variables {nombre} {clinica} {fecha} {direccion} {profesional}.
 function waLink(c: CitaDTO, clinica: ClinicaConfigDTO | null): string | null {
   if (!c.pacienteTelefono) return null
   const base = `https://wa.me/${c.pacienteTelefono.replace(/\D/g, '')}`
@@ -29,6 +29,7 @@ function waLink(c: CitaDTO, clinica: ClinicaConfigDTO | null): string | null {
     .replace(/\{clinica\}/gi, clinica?.nombre ?? '')
     .replace(/\{fecha\}/gi, fecha)
     .replace(/\{direccion\}/gi, clinica?.direccion ?? '')
+    .replace(/\{profesional\}/gi, c.doctor ?? '')
   return `${base}?text=${encodeURIComponent(msg)}`
 }
 
