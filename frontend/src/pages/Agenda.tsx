@@ -18,19 +18,29 @@ import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
 
 // Link de WhatsApp con el mensaje de confirmación prellenado desde Configuración.
-// Reemplaza las variables {nombre} {clinica} {fecha} {direccion} {profesional}.
+// Variables disponibles: {nombre} (primer nombre), {nombrecompleto}, {profesional},
+// {clinica}, {fecha} (día + hora), {dia}, {hora}, {direccion}, {telefono}, {motivo}.
 function waLink(c: CitaDTO, clinica: ClinicaConfigDTO | null): string | null {
   if (!c.pacienteTelefono) return null
   const base = `https://wa.me/${c.pacienteTelefono.replace(/\D/g, '')}`
   const plantilla = clinica?.mensajeWA?.trim()
   if (!plantilla) return base
-  const fecha = new Date(c.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })
+  const d = new Date(c.inicio)
+  const fecha = d.toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })
+  const dia = d.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
+  const horaTxt = d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+  const primerNombre = c.pacienteNombre.split(' ')[0] ?? c.pacienteNombre
   const msg = plantilla
-    .replace(/\{nombre\}/gi, c.pacienteNombre.split(' ')[0] ?? c.pacienteNombre)
+    .replace(/\{nombrecompleto\}/gi, c.pacienteNombre)
+    .replace(/\{nombre\}/gi, primerNombre)
+    .replace(/\{profesional\}/gi, c.doctor ?? '')
     .replace(/\{clinica\}/gi, clinica?.nombre ?? '')
     .replace(/\{fecha\}/gi, fecha)
+    .replace(/\{dia\}/gi, dia)
+    .replace(/\{hora\}/gi, horaTxt)
     .replace(/\{direccion\}/gi, clinica?.direccion ?? '')
-    .replace(/\{profesional\}/gi, c.doctor ?? '')
+    .replace(/\{telefono\}/gi, clinica?.telefono ?? '')
+    .replace(/\{motivo\}/gi, c.tipo ?? '')
   return `${base}?text=${encodeURIComponent(msg)}`
 }
 

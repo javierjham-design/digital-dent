@@ -81,7 +81,9 @@ export function Configuracion() {
           <span className="block text-sm font-medium text-slate-700 mb-1">Plantilla de mensaje WhatsApp</span>
           <textarea value={data.mensajeWA} onChange={(e) => set('mensajeWA', e.target.value)} rows={3}
             className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-          <p className="text-xs text-slate-400 mt-1">Variables: {'{nombre}'}, {'{profesional}'}, {'{clinica}'}, {'{fecha}'}, {'{direccion}'}</p>
+          <p className="text-xs text-slate-400 mt-1">
+            Variables disponibles: {'{nombre}'} (primer nombre), {'{nombrecompleto}'}, {'{profesional}'}, {'{clinica}'}, {'{fecha}'} (día y hora), {'{dia}'}, {'{hora}'}, {'{direccion}'}, {'{telefono}'}, {'{motivo}'}
+          </p>
         </label>
 
         {error && <p className="text-sm text-rose-600">{error}</p>}
