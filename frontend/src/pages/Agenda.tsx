@@ -225,8 +225,13 @@ export function Agenda() {
               .fc .fc-timegrid-slot-lane { background: #dcfce7; }
               .fc .fc-non-business { background: #eceef1 !important; }
               .fc .fc-day-today { background: transparent !important; }
-              .fc .fc-timegrid-col, .fc .fc-col-header-cell { border-left: 1px solid #cbd5e1; }
-              .fc .fc-col-header-cell { padding: 6px 0; background: #f1f5f9; }
+              /* Divisor vertical entre días (la capa de columnas va encima del verde) */
+              .fc .fc-timegrid-col { border-left: 1px solid #94a3b8 !important; }
+              .fc .fc-timegrid-axis { border-left: none !important; }
+              /* Divisor horizontal entre cada bloque */
+              .fc .fc-timegrid-slot { border-bottom: 1px solid #a7c9b4 !important; }
+              .fc .fc-timegrid-slot-minor { border-top: 1px dotted #bfe0cd !important; }
+              .fc .fc-col-header-cell { padding: 6px 0; background: #f1f5f9; border-left: 1px solid #94a3b8; }
               .fc .fc-col-header-cell-cushion { font-weight: 600; color: #334155; text-transform: capitalize; }
               .fc .fc-day-today .fc-col-header-cell-cushion { color: #0891b2; }
               .fc .fc-timegrid-now-indicator-line { border-color: #ef4444; }
