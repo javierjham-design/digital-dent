@@ -20,7 +20,7 @@ export async function listarContratos(db: TenantClient) {
   })
 }
 
-export async function crearContrato(db: TenantClient, body: { doctorId: string; tipo: string; porcentaje?: number; montoFijo?: number; descripcion?: string; fechaInicio?: string; fechaFin?: string }) {
+export async function crearContrato(db: TenantClient, body: { doctorId: string; tipo: string; porcentaje?: number | null; montoFijo?: number | null; descripcion?: string | null; fechaInicio?: string | null; fechaFin?: string | null }) {
   if (!TIPOS_CONTRATO.includes(body.tipo)) throw badRequest(`tipo inválido. Use: ${TIPOS_CONTRATO.join(', ')}`)
   const doctor = await db.user.findUnique({ where: { id: body.doctorId }, select: { id: true } })
   if (!doctor) throw notFound('Doctor no encontrado')

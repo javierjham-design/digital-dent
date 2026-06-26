@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { PrestacionDTO } from '@shared/types'
 import { prestacionesService } from '@/services/catalogo.service'
+import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
 const fmtCLP = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(n)
 
 export function Prestaciones() {
+  const { user } = useAuth()
+  const esAdmin = user?.role === 'admin'
   const [items, setItems] = useState<PrestacionDTO[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
@@ -40,6 +43,16 @@ export function Prestaciones() {
     cargar()
   }
 
+  async function dedupe() {
+    if (!confirm('Deja una sola prestación por nombre (fusiona las duplicadas y repunta los tratamientos). ¿Continuar?')) return
+    setGuardando(true); setError('')
+    try {
+      const r = await prestacionesService.dedupe()
+      alert(`Listo: ${r.eliminadas} duplicadas eliminadas. Quedan ${r.restantes} prestaciones.`)
+      cargar()
+    } catch (e) { setError(e instanceof ApiError ? e.message : 'No se pudo limpiar') } finally { setGuardando(false) }
+  }
+
   // Agrupar por categoría.
   const porCategoria = new Map<string, PrestacionDTO[]>()
   for (const p of items) {
@@ -56,10 +69,18 @@ export function Prestaciones() {
           <h1 className="text-2xl font-bold text-slate-900">Prestaciones</h1>
           <p className="text-slate-500 text-sm mt-1">{items.length} prestaciones en el catálogo</p>
         </div>
-        <button onClick={() => setShowForm((v) => !v)}
-          className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl transition-colors">
-          {showForm ? 'Cerrar' : '+ Nueva prestación'}
-        </button>
+        <div className="flex items-center gap-2">
+          {esAdmin && (
+            <button onClick={dedupe} disabled={guardando}
+              className="px-4 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 text-sm font-semibold rounded-xl">
+              Limpiar duplicadas
+            </button>
+          )}
+          <button onClick={() => setShowForm((v) => !v)}
+            className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl transition-colors">
+            {showForm ? 'Cerrar' : '+ Nueva prestación'}
+          </button>
+        </div>
       </div>
 
       {showForm && (

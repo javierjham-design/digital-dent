@@ -16,6 +16,34 @@ export async function listarPrestaciones(db: TenantClient): Promise<PrestacionDT
   return prestaciones.map(prestacionDTO)
 }
 
+// Deja una sola prestación por nombre: fusiona las duplicadas repuntando los
+// tratamientos e ítems de presupuesto a la que se conserva (la más referenciada).
+export async function dedupePrestaciones(db: TenantClient): Promise<{ duplicados: number; eliminadas: number; restantes: number }> {
+  const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+  const prestaciones = await db.prestacion.findMany({
+    select: { id: true, nombre: true, _count: { select: { tratamientos: true, itemsPresupuesto: true } } },
+  })
+  const grupos = new Map<string, typeof prestaciones>()
+  for (const p of prestaciones) {
+    const key = norm(p.nombre)
+    const arr = grupos.get(key) ?? []; arr.push(p); grupos.set(key, arr)
+  }
+  let duplicados = 0
+  let eliminadas = 0
+  for (const [, arr] of grupos) {
+    if (arr.length <= 1) continue
+    duplicados++
+    arr.sort((a, b) => (b._count.tratamientos + b._count.itemsPresupuesto) - (a._count.tratamientos + a._count.itemsPresupuesto))
+    const keep = arr[0]
+    const dupIds = arr.slice(1).map((d) => d.id)
+    await db.tratamiento.updateMany({ where: { prestacionId: { in: dupIds } }, data: { prestacionId: keep.id } })
+    await db.itemPresupuesto.updateMany({ where: { prestacionId: { in: dupIds } }, data: { prestacionId: keep.id } })
+    await db.prestacion.deleteMany({ where: { id: { in: dupIds } } })
+    eliminadas += dupIds.length
+  }
+  return { duplicados, eliminadas, restantes: prestaciones.length - eliminadas }
+}
+
 export async function crearPrestacion(db: TenantClient, input: { nombre: string; categoria?: string | null; precio: number; descripcion?: string | null; duracion?: number }): Promise<PrestacionDTO> {
   if (!input.nombre?.trim() || input.precio == null) throw badRequest('Faltan campos requeridos')
   const p = await db.prestacion.create({

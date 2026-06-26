@@ -13,7 +13,7 @@ import { getCitas, postCita, patchCita, deleteCita, patchEstado } from '@/contro
 import { getUsuarios, getDoctores, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
 import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo } from '@/controllers/agenda.controller'
 import {
-  getPrestaciones, postPrestacion, patchPrestacion, deletePrestacion,
+  getPrestaciones, postPrestacion, patchPrestacion, deletePrestacion, postDedupePrestaciones,
   getMediosPago, postMedioPago, patchMedioPago, deleteMedioPago,
   getClinica, patchClinica,
 } from '@/controllers/catalogo.controller'
@@ -107,6 +107,7 @@ apiRouter.delete('/bloqueos/:id', tenant, asyncHandler(deleteBloqueo))
 
 // ── Prestaciones (convertido a database-per-tenant) ──────────────────────────
 apiRouter.get('/prestaciones', tenant, asyncHandler(getPrestaciones))
+apiRouter.post('/prestaciones/dedupe', adminTenant, asyncHandler(postDedupePrestaciones)) // limpiar duplicados (admin)
 apiRouter.post('/prestaciones', tenant, asyncHandler(postPrestacion))
 apiRouter.patch('/prestaciones/:id', tenant, asyncHandler(patchPrestacion))
 apiRouter.delete('/prestaciones/:id', tenant, asyncHandler(deletePrestacion))

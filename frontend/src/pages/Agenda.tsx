@@ -7,13 +7,30 @@ import type { EventClickArg } from '@fullcalendar/core'
 
 // Tipo estructural común a eventDrop y eventResize (ambos traen event + revert).
 type MoveArg = { event: { start: Date | null; end: Date | null; extendedProps: Record<string, unknown> }; revert: () => void }
-import type { BloqueoDTO, CitaDTO, DoctorDTO, HorarioDTO } from '@shared/types'
-import { CITA_ESTADOS, siguienteEstado } from '@shared/constants/cita-estados'
+import type { BloqueoDTO, CitaDTO, DoctorDTO, HorarioDTO, ClinicaConfigDTO } from '@shared/types'
+import { CITA_ESTADOS, ESTADOS_NO_OCUPAN, siguienteEstado } from '@shared/constants/cita-estados'
 import { bloqueosService, citasService, horariosLectura } from '@/services/clinica.service'
 import { pacientesService } from '@/services/clinica.service'
+import { clinicaService } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
+
+// Link de WhatsApp con el mensaje de confirmación prellenado desde Configuración.
+// Reemplaza las variables {nombre} {clinica} {fecha} {direccion}.
+function waLink(c: CitaDTO, clinica: ClinicaConfigDTO | null): string | null {
+  if (!c.pacienteTelefono) return null
+  const base = `https://wa.me/${c.pacienteTelefono.replace(/\D/g, '')}`
+  const plantilla = clinica?.mensajeWA?.trim()
+  if (!plantilla) return base
+  const fecha = new Date(c.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })
+  const msg = plantilla
+    .replace(/\{nombre\}/gi, c.pacienteNombre.split(' ')[0] ?? c.pacienteNombre)
+    .replace(/\{clinica\}/gi, clinica?.nombre ?? '')
+    .replace(/\{fecha\}/gi, fecha)
+    .replace(/\{direccion\}/gi, clinica?.direccion ?? '')
+  return `${base}?text=${encodeURIComponent(msg)}`
+}
 
 const MOTIVOS = ['Consulta diagnóstico', 'Control', 'Detartraje / Profilaxis', 'Obturación', 'Endodoncia', 'Exodoncia', 'Ortodoncia', 'Blanqueamiento', 'Urgencia', 'Otro']
 const DURACIONES = [15, 30, 45, 60, 90, 120]
@@ -28,6 +45,7 @@ export function Agenda() {
   const [citas, setCitas] = useState<CitaDTO[]>([])
   const [bloqueos, setBloqueos] = useState<BloqueoDTO[]>([])
   const [horarios, setHorarios] = useState<HorarioDTO[]>([])
+  const [clinica, setClinica] = useState<ClinicaConfigDTO | null>(null)
 
   const [vista, setVista] = useState<Vista>('semanal')
   const [currentDate, setCurrentDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })
@@ -38,6 +56,7 @@ export function Agenda() {
   const [selectedBloqueo, setSelectedBloqueo] = useState<BloqueoDTO | null>(null)
   const [crear, setCrear] = useState<null | { slotISO: string }>(null)
   const [bloqueoForm, setBloqueoForm] = useState(false)
+  const [slotAccion, setSlotAccion] = useState<null | { slotISO: string }>(null)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
 
   function notify(t: string, ok = true) { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
@@ -48,6 +67,7 @@ export function Agenda() {
       setDoctores(d)
       setDoctorId((cur) => cur || d[0]?.id || '')
     }).catch(() => {})
+    clinicaService.obtener().then(setClinica).catch(() => {})
   }, [])
 
   // Rango visible según vista.
@@ -225,12 +245,12 @@ export function Agenda() {
               .fc .fc-timegrid-slot-lane { background: #dcfce7; }
               .fc .fc-non-business { background: #eceef1 !important; }
               .fc .fc-day-today { background: transparent !important; }
-              /* Separación entre días: pseudo-elemento absoluto en cada columna (franja clara +
-                 línea gris). Es un elemento real con fondo → SIEMPRE se dibuja por encima del verde
-                 y corta las líneas horizontales, sin depender de los bordes de FullCalendar. */
+              /* Separación entre días: barra gris sólida (pseudo-elemento posicionado) en el borde
+                 de cada columna, con z-index alto para que SIEMPRE se vea sobre el verde y corte las
+                 líneas horizontales. pointer-events:none para no bloquear el clic. */
               .fc .fc-timegrid-col { position: relative; }
-              .fc .fc-timegrid-col::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 3px; background: #eef1f4; border-right: 1px solid #94a3b8; pointer-events: none; }
-              .fc .fc-timegrid-axis::after { display: none; }
+              .fc td.fc-timegrid-col::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 2px; background: #9aa6b2; pointer-events: none; z-index: 4; }
+              .fc td.fc-timegrid-axis::after { display: none; }
               /* Divisor horizontal entre cada bloque */
               .fc .fc-timegrid-slot { border-bottom: 1px solid #8fc2a4 !important; }
               .fc .fc-timegrid-slot-minor { border-top: 1px dotted #b9dcc8 !important; }
@@ -254,7 +274,7 @@ export function Agenda() {
               editable
               eventDrop={onDrop}
               eventResize={onDrop}
-              dateClick={(a) => setCrear({ slotISO: a.date.toISOString() })}
+              dateClick={(a) => setSlotAccion({ slotISO: a.date.toISOString() })}
               businessHours={businessHours}
               slotMinTime="07:00:00" slotMaxTime="21:00:00" slotDuration="00:15:00" slotLabelInterval="00:15:00"
               allDaySlot={false} height="auto" nowIndicator expandRows
@@ -264,7 +284,7 @@ export function Agenda() {
             />
           </div>
         ) : (
-          <DiariaLista citas={citasDelDia} onClick={setSelected} onAvanzar={(c) => { const n = siguienteEstado(c.estado); if (n) cambiarEstado(c.id, n.estado) }} />
+          <DiariaLista citas={citasDelDia} clinica={clinica} onClick={setSelected} onAvanzar={(c) => { const n = siguienteEstado(c.estado); if (n) cambiarEstado(c.id, n.estado) }} />
         )}
       </div>
 
@@ -275,7 +295,7 @@ export function Agenda() {
           onError={(m) => notify(m, false)} />
       )}
       {selected && (
-        <CitaDetalle cita={selected} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} />
+        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} />
       )}
       {selectedBloqueo && (
         <BloqueoDetalle b={selectedBloqueo} onClose={() => setSelectedBloqueo(null)} onEliminar={eliminarBloqueo} />
@@ -285,19 +305,81 @@ export function Agenda() {
           onClose={() => setBloqueoForm(false)} onCreated={() => { setBloqueoForm(false); notify('Horario bloqueado'); recargar() }}
           onError={(m) => notify(m, false)} />
       )}
+      {slotAccion && (
+        <SlotAccionModal slotISO={slotAccion.slotISO} doctorId={doctorId || doctores[0]?.id || ''} doctores={doctores}
+          citas={citas} bloqueos={bloqueos}
+          onClose={() => setSlotAccion(null)}
+          onCita={() => { setCrear({ slotISO: slotAccion.slotISO }); setSlotAccion(null) }}
+          onBloqueado={() => { setSlotAccion(null); notify('Horario bloqueado'); recargar() }}
+          onError={(m) => notify(m, false)} />
+      )}
     </div>
   )
 }
 
+// ── Modal: ¿qué hacer en este slot? Agendar cita o bloquear (con duración tope) ──
+function SlotAccionModal({ slotISO, doctorId, doctores, citas, bloqueos, onClose, onCita, onBloqueado, onError }: {
+  slotISO: string; doctorId: string; doctores: DoctorDTO[]; citas: CitaDTO[]; bloqueos: BloqueoDTO[]
+  onClose: () => void; onCita: () => void; onBloqueado: () => void; onError: (m: string) => void
+}) {
+  const start = useMemo(() => new Date(slotISO), [slotISO])
+  const [doc, setDoc] = useState(doctorId)
+  const [motivo, setMotivo] = useState('')
+  const [guardando, setGuardando] = useState(false)
+
+  // Tope: hasta el próximo evento ocupado del profesional ese día, o el fin de agenda (21:00).
+  const maxMin = useMemo(() => {
+    const fin = new Date(start); fin.setHours(21, 0, 0, 0)
+    let limite = fin.getTime()
+    const ocupados = [
+      ...citas.filter((c) => c.doctorId === doc && !ESTADOS_NO_OCUPAN.includes(c.estado)),
+      ...bloqueos.filter((b) => b.doctorId === doc),
+    ]
+    for (const o of ocupados) { const s = new Date(o.inicio).getTime(); if (s > start.getTime() && s < limite) limite = s }
+    return Math.max(15, Math.round((limite - start.getTime()) / 60000))
+  }, [doc, citas, bloqueos, start])
+
+  const opciones = [15, 30, 45, 60, 90, 120, 180, 240].filter((d) => d < maxMin)
+  opciones.push(maxMin) // siempre incluir "todo el espacio disponible"
+  const [dur, setDur] = useState(Math.min(30, maxMin))
+
+  async function bloquear() {
+    setGuardando(true)
+    try {
+      const fin = new Date(start.getTime() + dur * 60000)
+      await bloqueosService.crear({ doctorId: doc, inicio: start.toISOString(), fin: fin.toISOString(), motivo: motivo || undefined })
+      onBloqueado()
+    } catch (e) { onError(e instanceof ApiError ? e.message : 'No se pudo bloquear') } finally { setGuardando(false) }
+  }
+
+  return (
+    <Modal title={start.toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })} onClose={onClose}>
+      <button onClick={onCita} className="w-full mb-4 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Agendar cita</button>
+      <div className="border-t border-slate-100 pt-4 space-y-3">
+        <p className="text-sm font-semibold text-slate-700">Bloquear este horario</p>
+        <Sel label="Profesional" value={doc} onChange={setDoc} options={doctores.map((d) => ({ v: d.id, l: d.name ?? d.email ?? '' }))} />
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Duración</span>
+          <select value={dur} onChange={(e) => setDur(Number(e.target.value))} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
+            {opciones.map((d) => <option key={d} value={d}>{d >= maxMin ? `${d} min (todo el espacio disponible)` : `${d} min`}</option>)}
+          </select>
+        </label>
+        <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        <button onClick={bloquear} disabled={guardando} className="w-full px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{guardando ? 'Bloqueando…' : `Bloquear ${dur} min`}</button>
+      </div>
+    </Modal>
+  )
+}
+
 // ── Vista diaria (lista) — pensada para gestionar confirmaciones rápido ──
-function DiariaLista({ citas, onClick, onAvanzar }: { citas: CitaDTO[]; onClick: (c: CitaDTO) => void; onAvanzar: (c: CitaDTO) => void }) {
+function DiariaLista({ citas, clinica, onClick, onAvanzar }: { citas: CitaDTO[]; clinica: ClinicaConfigDTO | null; onClick: (c: CitaDTO) => void; onAvanzar: (c: CitaDTO) => void }) {
   if (citas.length === 0) return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 text-sm">Sin citas para este día.</div>
   return (
     <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
       {citas.map((c) => {
         const cfg = CITA_ESTADOS[c.estado]
         const next = siguienteEstado(c.estado)
-        const wa = c.pacienteTelefono ? `https://wa.me/${c.pacienteTelefono.replace(/\D/g, '')}` : null
+        const wa = waLink(c, clinica)
         return (
           <div key={c.id} className="flex items-center gap-3 px-3 sm:px-4 py-3">
             <div className="flex flex-col items-center rounded-lg px-2 py-1 shrink-0" style={{ backgroundColor: cfg?.bg, color: cfg?.text }}>
@@ -398,11 +480,11 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
 }
 
 // ── Modal: detalle de cita ──
-function CitaDetalle({ cita, onClose, onEstado, onEliminar }: {
-  cita: CitaDTO; onClose: () => void; onEstado: (id: string, estado: string) => void; onEliminar: (id: string) => void
+function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar }: {
+  cita: CitaDTO; clinica: ClinicaConfigDTO | null; onClose: () => void; onEstado: (id: string, estado: string) => void; onEliminar: (id: string) => void
 }) {
   const next = siguienteEstado(cita.estado)
-  const waUrl = cita.pacienteTelefono ? `https://wa.me/${cita.pacienteTelefono.replace(/\D/g, '')}` : null
+  const waUrl = waLink(cita, clinica)
   return (
     <Modal title={cita.pacienteNombre} onClose={onClose}>
       <p className="text-sm text-slate-500 mb-4">{new Date(cita.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora(cita.inicio)}–{hora(cita.fin)}</p>

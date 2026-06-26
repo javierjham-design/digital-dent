@@ -2,7 +2,7 @@ import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
 import {
   actualizarClinica, actualizarPrestacion, crearPrestacion,
-  eliminarPrestacion, listarPrestaciones, obtenerClinica,
+  eliminarPrestacion, listarPrestaciones, dedupePrestaciones, obtenerClinica,
   listarMediosPago, crearMedioPago, actualizarMedioPago, eliminarMedioPago,
 } from '@/services/catalogo.service'
 import { crearPrestacionSchema } from '@/validators/schemas'
@@ -24,6 +24,10 @@ export async function patchPrestacion(req: Request, res: Response) {
 export async function deletePrestacion(req: Request, res: Response) {
   await eliminarPrestacion(tenantDb(req), req.params.id)
   res.json({ ok: true })
+}
+
+export async function postDedupePrestaciones(req: Request, res: Response) {
+  res.json(await dedupePrestaciones(tenantDb(req)))
 }
 
 // ── Medios de pago ──

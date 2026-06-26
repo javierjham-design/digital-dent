@@ -14,6 +14,7 @@ export const prestacionesService = {
     api.post<PrestacionDTO>('/prestaciones', input),
   actualizar: (id: string, patch: Partial<PrestacionDTO>) => api.patch<PrestacionDTO>(`/prestaciones/${id}`, patch),
   eliminar: (id: string) => api.del<{ ok: true }>(`/prestaciones/${id}`),
+  dedupe: () => api.post<{ duplicados: number; eliminadas: number; restantes: number }>('/prestaciones/dedupe', {}),
 }
 
 export const mediosPagoService = {
