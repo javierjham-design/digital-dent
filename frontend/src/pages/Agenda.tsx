@@ -47,7 +47,7 @@ export function Agenda() {
   const [horarios, setHorarios] = useState<HorarioDTO[]>([])
   const [clinica, setClinica] = useState<ClinicaConfigDTO | null>(null)
 
-  const [vista, setVista] = useState<Vista>('semanal')
+  const [vista, setVista] = useState<Vista>('diaria')
   const [currentDate, setCurrentDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })
   const [doctorId, setDoctorId] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(Object.keys(CITA_ESTADOS)))
@@ -63,10 +63,9 @@ export function Agenda() {
 
   // Carga inicial: doctores (los pacientes se buscan en el servidor al crear cita).
   useEffect(() => {
-    usuariosService.doctores().then((d) => {
-      setDoctores(d)
-      setDoctorId((cur) => cur || d[0]?.id || '')
-    }).catch(() => {})
+    // Por defecto se muestran TODOS los profesionales (doctorId vacío); la vista
+    // inicial es la diaria (lista), donde "Todos" es una opción válida.
+    usuariosService.doctores().then(setDoctores).catch(() => {})
     clinicaService.obtener().then(setClinica).catch(() => {})
   }, [])
 
@@ -219,7 +218,7 @@ export function Agenda() {
           <div className="flex items-center gap-2">
             <div className="flex bg-slate-100 rounded-lg p-0.5">
               {(['diaria', 'semanal'] as Vista[]).map((v) => (
-                <button key={v} onClick={() => setVista(v)}
+                <button key={v} onClick={() => { setVista(v); if (v === 'semanal' && !doctorId) setDoctorId(doctores[0]?.id ?? '') }}
                   className={`text-xs font-semibold px-3 py-1.5 rounded-md ${vista === v ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500'}`}>
                   {v === 'diaria' ? 'Diaria' : 'Semanal'}
                 </button>

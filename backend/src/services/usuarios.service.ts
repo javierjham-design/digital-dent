@@ -32,11 +32,13 @@ export async function listarUsuarios(db: TenantClient): Promise<UsuarioDTO[]> {
 }
 
 export async function listarDoctores(db: TenantClient): Promise<DoctorDTO[]> {
-  return db.user.findMany({
+  const docs = await db.user.findMany({
     where: { role: { in: ROLES_CON_AGENDA }, activo: true },
-    orderBy: { name: 'asc' },
     select: { id: true, name: true, email: true, especialidad: true },
   })
+  // Orden alfabético por apellido (última palabra del nombre).
+  const apellido = (n: string | null) => ((n ?? '').trim().split(/\s+/).pop() ?? '').toLowerCase()
+  return docs.sort((a, b) => apellido(a.name).localeCompare(apellido(b.name), 'es'))
 }
 
 export interface CrearUsuarioInput {
