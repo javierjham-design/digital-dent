@@ -220,18 +220,19 @@ export function Agenda() {
             {/* Estilo tipo Dentalink: espacios disponibles en verde, fuera de horario en gris,
                 bloques anchos con el nombre del paciente. En móvil el grid scrollea horizontal. */}
             <style>{`
-              .fc { min-width: 720px; --fc-border-color: #cbd5e1; }
+              .fc { min-width: 720px; --fc-border-color: #94a3b8; }
               .fc .fc-timegrid-slot { height: 1.95em; }
               .fc .fc-timegrid-slot-lane { background: #dcfce7; }
               .fc .fc-non-business { background: #eceef1 !important; }
               .fc .fc-day-today { background: transparent !important; }
-              /* Divisor vertical entre días (la capa de columnas va encima del verde) */
-              .fc .fc-timegrid-col { border-left: 1px solid #94a3b8 !important; }
-              .fc .fc-timegrid-axis { border-left: none !important; }
+              /* Divisor vertical entre días: box-shadow (rendea por encima del verde) en el mismo
+                 verde oscuro que las horizontales, con un pelín de separación. */
+              .fc .fc-timegrid-col { box-shadow: inset -1px 0 0 0 #74b18c, inset 1px 0 0 0 #ffffff; }
+              .fc .fc-timegrid-axis { box-shadow: none !important; }
               /* Divisor horizontal entre cada bloque */
-              .fc .fc-timegrid-slot { border-bottom: 1px solid #a7c9b4 !important; }
-              .fc .fc-timegrid-slot-minor { border-top: 1px dotted #bfe0cd !important; }
-              .fc .fc-col-header-cell { padding: 6px 0; background: #f1f5f9; border-left: 1px solid #94a3b8; }
+              .fc .fc-timegrid-slot { border-bottom: 1px solid #74b18c !important; }
+              .fc .fc-timegrid-slot-minor { border-top: 1px dotted #aed5bd !important; }
+              .fc .fc-col-header-cell { padding: 6px 0; background: #f1f5f9; }
               .fc .fc-col-header-cell-cushion { font-weight: 600; color: #334155; text-transform: capitalize; }
               .fc .fc-day-today .fc-col-header-cell-cushion { color: #0891b2; }
               .fc .fc-timegrid-now-indicator-line { border-color: #ef4444; }
