@@ -79,7 +79,12 @@ export async function obtenerPlan(db: TenantClient, id: string) {
     },
   })
   if (!plan) throw notFound('Plan no existe')
-  return plan
+  // Abonos libres (pagos al plan sin acción específica), ya cobrados y no anulados.
+  const abono = await db.cobroItem.aggregate({
+    where: { planId: id, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } },
+    _sum: { monto: true },
+  })
+  return { ...plan, abonoLibre: abono._sum.monto ?? 0 }
 }
 
 export async function actualizarPlan(db: TenantClient, id: string, body: Record<string, unknown>) {

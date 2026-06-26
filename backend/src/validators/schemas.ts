@@ -183,6 +183,7 @@ export const crearCobroSchema = z.object({
   notas: z.string().optional(),
   items: z.array(z.object({
     tratamientoId: z.string().optional(),
+    planId: z.string().optional(),
     descripcion: z.string().min(1),
     monto: z.number(),
   })).min(1, 'Agrega al menos un item.'),

@@ -4,12 +4,13 @@ import type { CitaDTO, DoctorDTO, PacienteDTO, PrestacionDTO } from '@shared/typ
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
 import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO } from '@/services/clinica.service'
 import { planesService, seccionesService, tratamientosService, evolucionesService, historialService, type HistorialEntry } from '@/services/clinico.service'
-import { prestacionesService } from '@/services/catalogo.service'
+import { prestacionesService, mediosPagoService, type MedioPagoDTO } from '@/services/catalogo.service'
+import { cobrosService, cajasService } from '@/services/caja.service'
 import { usuariosService } from '@/services/equipo.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
-const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Evoluciones', 'Historial', 'Comentarios', 'Mensajes'] as const
+const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Recaudación', 'Evoluciones', 'Historial', 'Comentarios', 'Mensajes'] as const
 type Tab = typeof TABS[number]
 
 // Numeración FDI. Permanente: cuadrantes 1/2 (superior) y 4/3 (inferior).
@@ -75,6 +76,7 @@ export function FichaPaciente() {
       {tab === 'Datos' && <DatosTab paciente={paciente} onSaved={setPaciente} />}
       {tab === 'Citas' && <CitasTab pacienteId={id} />}
       {tab === 'Planes de Tratamiento' && <PlanesTab pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} />}
+      {tab === 'Recaudación' && <RecaudacionTab pacienteId={id} />}
       {tab === 'Evoluciones' && <EvolucionesTab pacienteId={id} isAdmin={isAdmin} />}
       {tab === 'Historial' && <HistorialTab pacienteId={id} />}
       {tab === 'Comentarios' && <ComentariosTab pacienteId={id} />}
@@ -246,7 +248,7 @@ interface PlanCard {
 interface PlanDetalle {
   id: string; nombre: string; estado: string; bloqueado: boolean
   doctorTitularId: string | null; doctorTitular: DoctorRef | null
-  secciones: SeccionNode[]; tratamientos: TratNode[]
+  secciones: SeccionNode[]; tratamientos: TratNode[]; abonoLibre?: number
 }
 
 const netoTrat = (t: { precio: number; descuento: number }) => Math.round(t.precio * (1 - (t.descuento || 0) / 100))
@@ -439,6 +441,8 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
   const [agregando, setAgregando] = useState(false)
   const todas = [...plan.secciones.flatMap((s) => s.tratamientos), ...plan.tratamientos]
   const fin = planFinanzas(todas)
+  const abonado = fin.abonado + (plan.abonoLibre ?? 0)
+  const saldo = Math.max(0, fin.total - abonado)
   // Caras que ya tienen una acción, por pieza (para resaltarlas en el odontograma).
   const caraMap = new Map<number, Set<string>>()
   for (const t of todas) {
@@ -474,8 +478,8 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
             <p className="text-center text-[11px] uppercase tracking-wide text-slate-400">Presupuesto total</p>
             <p className="text-center text-2xl font-bold text-cyan-700 mb-3">{fmtCLP(fin.total)}</p>
             <Linea l="Realizado" v={fmtCLP(fin.realizado)} />
-            <Linea l="Abonado" v={fmtCLP(fin.abonado)} />
-            <Linea l="Saldo por abonar" v={fmtCLP(fin.saldo)} destacado={fin.saldo > 0} />
+            <Linea l="Abonado" v={fmtCLP(abonado)} />
+            <Linea l="Saldo por abonar" v={fmtCLP(saldo)} destacado={saldo > 0} />
           </div>
           <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
             <label className="block">
@@ -945,6 +949,126 @@ function AgregarSeccion({ planId, accion }: { planId: string; accion: (fn: () =>
       <button onClick={async () => { await accion(() => planesService.crearSeccion(planId, { titulo: titulo.trim() || undefined, diasDesdeAnterior: dias ? Number(dias) : undefined })); setAbierto(false); setTitulo(''); setDias('') }}
         className="px-3 py-1.5 bg-cyan-600 text-white text-sm rounded-lg">Crear</button>
       <button onClick={() => setAbierto(false)} className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg">Cancelar</button>
+    </div>
+  )
+}
+
+// ── Recaudación: pagar acciones pendientes o registrar un abono libre al plan ──
+function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
+  const [planes, setPlanes] = useState<PlanCard[]>([])
+  const [planId, setPlanId] = useState('')
+  const [detalle, setDetalle] = useState<PlanDetalle | null>(null)
+  const [cajas, setCajas] = useState<{ id: string; nombre: string }[]>([])
+  const [medios, setMedios] = useState<MedioPagoDTO[]>([])
+  const [cajaId, setCajaId] = useState('')
+  const [medioPagoId, setMedioPagoId] = useState('')
+  const [sel, setSel] = useState<Record<string, number>>({})
+  const [abono, setAbono] = useState('')
+  const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  const cargarDetalle = (id: string) => { if (id) planesService.obtener(id).then((d) => setDetalle(d as PlanDetalle)).catch(() => {}) }
+  useEffect(() => {
+    planesService.listar(pacienteId).then((p) => { const ps = p as PlanCard[]; setPlanes(ps); setPlanId((x) => x || ps[0]?.id || '') }).catch(() => {})
+    cajasService.listar().then((c) => { const cc = c as { id: string; nombre: string }[]; setCajas(cc); setCajaId((x) => x || cc[0]?.id || '') }).catch(() => {})
+    mediosPagoService.listar().then((m) => setMedios(m.filter((x) => x.activo))).catch(() => {})
+  }, [pacienteId])
+  useEffect(() => { cargarDetalle(planId); setSel({}); setAbono('') }, [planId])
+
+  const acciones = detalle ? [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos] : []
+  const restante = (t: TratNode) => Math.max(0, netoTrat(t) - pagadoTrat(t))
+  const pendientes = acciones.filter((t) => restante(t) > 0)
+  const totalSel = Object.values(sel).reduce((s, n) => s + n, 0) + (Number(abono) || 0)
+
+  function toggle(t: TratNode) {
+    setSel((s) => { const n = { ...s }; if (n[t.id] != null) delete n[t.id]; else n[t.id] = restante(t); return n })
+  }
+
+  async function recaudar() {
+    const items: Record<string, unknown>[] = []
+    for (const [tid, monto] of Object.entries(sel)) if (monto > 0) {
+      const t = acciones.find((a) => a.id === tid)
+      items.push({ tratamientoId: tid, descripcion: t?.prestacion.nombre ?? 'Acción', monto })
+    }
+    if (Number(abono) > 0) items.push({ planId, descripcion: 'Abono libre al plan', monto: Number(abono) })
+    if (items.length === 0) { setMsg({ t: 'Selecciona acciones o ingresa un abono.', ok: false }); return }
+    if (!cajaId) { setMsg({ t: 'Selecciona una caja.', ok: false }); return }
+    setSaving(true); setMsg(null)
+    try {
+      await cobrosService.crear({ pacienteId, cajaId, medioPagoId: medioPagoId || undefined, items })
+      setMsg({ t: `Recaudación de ${fmtCLP(totalSel)} registrada.`, ok: true })
+      setSel({}); setAbono(''); cargarDetalle(planId)
+    } catch (e) { setMsg({ t: e instanceof ApiError ? e.message : 'No se pudo recaudar', ok: false }) } finally { setSaving(false) }
+  }
+
+  if (planes.length === 0) return <p className="text-sm text-slate-500">Este paciente no tiene planes de tratamiento. Crea un plan con acciones clínicas antes de recaudar.</p>
+
+  return (
+    <div className="max-w-2xl space-y-4">
+      {planes.length > 1 && (
+        <label className="block">
+          <span className="text-sm font-medium text-slate-700">Plan de tratamiento</span>
+          <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm">
+            {planes.map((p) => <option key={p.id} value={p.id}>#{p.id.slice(-4)} · {p.nombre}</option>)}
+          </select>
+        </label>
+      )}
+
+      {acciones.length === 0 ? (
+        <p className="text-sm text-slate-500">El plan no tiene acciones clínicas. Agrega prestaciones antes de recaudar.</p>
+      ) : (
+        <>
+          <div className="bg-white rounded-2xl border border-slate-200 p-4">
+            <p className="text-sm font-semibold text-slate-800 mb-2">Pagar acciones pendientes</p>
+            {pendientes.length === 0 ? <p className="text-xs text-slate-400">No hay acciones pendientes de pago.</p> : (
+              <div className="space-y-1.5">
+                {pendientes.map((t) => (
+                  <div key={t.id} className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={sel[t.id] != null} onChange={() => toggle(t)} />
+                    <span className="flex-1 truncate text-slate-700">{t.prestacion.nombre}{t.diente ? ` · ${t.diente}` : ''}</span>
+                    <span className="text-xs text-slate-400 shrink-0">resta {fmtCLP(restante(t))}</span>
+                    {sel[t.id] != null && (
+                      <input type="number" value={sel[t.id]} onChange={(e) => setSel((s) => ({ ...s, [t.id]: Number(e.target.value) || 0 }))} className="w-24 px-2 py-1 border border-slate-200 rounded-lg text-sm text-right shrink-0" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-4">
+            <p className="text-sm font-semibold text-slate-800 mb-1">Abono libre al plan</p>
+            <p className="text-xs text-slate-400 mb-2">Un monto que queda abonado al plan, sin asociarlo a una acción específica.</p>
+            <input type="number" value={abono} onChange={(e) => setAbono(e.target.value)} placeholder="Monto" className="w-40 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+            <div className="grid sm:grid-cols-2 gap-3">
+              <label className="block">
+                <span className="text-xs font-medium text-slate-500">Caja</span>
+                <select value={cajaId} onChange={(e) => setCajaId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                  {cajas.length === 0 && <option value="">Sin cajas</option>}
+                  {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-xs font-medium text-slate-500">Medio de pago</span>
+                <select value={medioPagoId} onChange={(e) => setMedioPagoId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                  <option value="">Efectivo / sin comisión</option>
+                  {medios.map((m) => <option key={m.id} value={m.id}>{m.nombre}{m.comision ? ` (${m.comision}%)` : ''}</option>)}
+                </select>
+              </label>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-500">Total a recaudar</span>
+              <span className="text-lg font-bold text-cyan-700">{fmtCLP(totalSel)}</span>
+            </div>
+            <button onClick={recaudar} disabled={saving || totalSel <= 0} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
+            {msg && <p className={`text-sm ${msg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{msg.t}</p>}
+            <p className="text-[11px] text-slate-400">La caja debe estar abierta (ábrela en Cobros si hace falta).</p>
+          </div>
+        </>
+      )}
     </div>
   )
 }

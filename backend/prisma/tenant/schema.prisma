@@ -471,10 +471,13 @@ model CobroItem {
   id            String       @id @default(cuid())
   cobroId       String
   tratamientoId String?
+  planId        String?      // abono libre a un plan (sin acción específica)
   descripcion   String
   monto         Float
   cobro         Cobro        @relation(fields: [cobroId], references: [id], onDelete: Cascade)
   tratamiento   Tratamiento? @relation(fields: [tratamientoId], references: [id])
+
+  @@index([planId])
 }
 
 model Contrato {

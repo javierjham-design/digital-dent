@@ -12,7 +12,7 @@ interface PTrat {
   prestacion: { nombre: string }; cobroItems: { monto: number; cobro: { estado: string } | null }[]
 }
 interface PSeccion { id: string; titulo: string; tratamientos: PTrat[] }
-interface PPlan { id: string; nombre: string; pacienteId: string; doctorTitular: { name: string | null } | null; secciones: PSeccion[]; tratamientos: PTrat[] }
+interface PPlan { id: string; nombre: string; pacienteId: string; doctorTitular: { name: string | null } | null; secciones: PSeccion[]; tratamientos: PTrat[]; abonoLibre?: number }
 
 const neto = (t: PTrat) => Math.round(t.precio * (1 - (t.descuento || 0) / 100))
 const pagado = (t: PTrat) => (t.cobroItems || []).filter((ci) => ci.cobro?.estado === 'PAGADO').reduce((s, ci) => s + ci.monto, 0)
@@ -47,7 +47,7 @@ export function PlanPrint() {
 
   const total = todas.reduce((s, t) => s + neto(t), 0)
   const realizado = todas.filter((t) => t.estado === 'COMPLETADO').reduce((s, t) => s + neto(t), 0)
-  const abonado = todas.reduce((s, t) => s + pagado(t), 0)
+  const abonado = todas.reduce((s, t) => s + pagado(t), 0) + (plan.abonoLibre ?? 0)
   const saldo = Math.max(0, total - abonado)
 
   const secciones: PSeccion[] = [

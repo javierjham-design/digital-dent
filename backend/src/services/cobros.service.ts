@@ -25,7 +25,7 @@ export async function obtenerCobro(db: TenantClient, id: string) {
 export interface CrearCobroInput {
   pacienteId: string; cajaId: string; medioPagoId?: string; reciboUsuarioId?: string
   fechaPago?: string; notas?: string
-  items: { tratamientoId?: string; descripcion: string; monto: number }[]
+  items: { tratamientoId?: string; planId?: string; descripcion: string; monto: number }[]
 }
 
 export async function crearCobro(db: TenantClient, actor: JwtPayload, input: CrearCobroInput) {
@@ -66,7 +66,7 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
         pacienteId: input.pacienteId, numero, concepto, monto, montoNeto, comisionMonto,
         estado: 'PAGADO', medioPagoId: input.medioPagoId || null, reciboUsuarioId: input.reciboUsuarioId || actor.sub,
         cajaId: caja.id, fechaPago, notas: input.notas || null,
-        items: { create: items.map((i) => ({ tratamientoId: i.tratamientoId || null, descripcion: i.descripcion, monto: Number(i.monto) })) },
+        items: { create: items.map((i) => ({ tratamientoId: i.tratamientoId || null, planId: i.planId || null, descripcion: i.descripcion, monto: Number(i.monto) })) },
       },
       include: COBRO_INCLUDE,
     })
