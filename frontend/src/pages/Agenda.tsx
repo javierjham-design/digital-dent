@@ -99,7 +99,19 @@ export function Agenda() {
   const businessHours = useMemo(() => {
     const activos = horarios.filter((h) => h.activo)
     if (activos.length === 0) return false
-    return activos.map((h) => ({ daysOfWeek: [h.diaSemana], startTime: h.horaInicio, endTime: h.horaFin }))
+    // Si el día tiene receso activo, partimos las horas hábiles en dos bloques
+    // (antes y después del receso) para que el tramo de receso quede como "fuera
+    // de horario" (gris) y no aparezca disponible para atender.
+    const blocks: { daysOfWeek: number[]; startTime: string; endTime: string }[] = []
+    for (const h of activos) {
+      if (h.recesoActivo && h.recesoInicio && h.recesoFin && h.recesoInicio < h.recesoFin) {
+        blocks.push({ daysOfWeek: [h.diaSemana], startTime: h.horaInicio, endTime: h.recesoInicio })
+        blocks.push({ daysOfWeek: [h.diaSemana], startTime: h.recesoFin, endTime: h.horaFin })
+      } else {
+        blocks.push({ daysOfWeek: [h.diaSemana], startTime: h.horaInicio, endTime: h.horaFin })
+      }
+    }
+    return blocks
   }, [horarios])
 
   const citasVisibles = useMemo(
