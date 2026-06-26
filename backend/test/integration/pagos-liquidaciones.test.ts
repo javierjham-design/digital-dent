@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import request from 'supertest'
 import type { Express } from 'express'
 import { seedDosClinicas, PASSWORD, type TenantFixture } from './seed'
+import { tenantClient } from './tenant-test'
 
 // E2E del flujo de dinero punta a punta (stack completo: HTTP → service → tenant DB):
 //   medio de pago con % de retención → caja (abrir) → acción evolucionada →
@@ -172,6 +173,40 @@ describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, 
     const fila = after.body.find((c: { id: string }) => c.id === cajaId)
     expect(fila.sesionAbierta.resumen.saldoEsperado).toBe(saldoBefore - 5000)
     expect(fila.sesionAbierta.resumen.egresos).toBeGreaterThanOrEqual(5000)
+  })
+})
+
+describe('prestaciones: sin duplicados (creación idempotente + dedupe automática)', () => {
+  it('crear dos veces la misma prestación (mismo nombre+categoría) NO duplica, reutiliza', async () => {
+    const a = await post('/prestaciones', { nombre: 'Sellante Único', categoria: 'PREVENCIÓN', precio: 15000 })
+    expect(a.status).toBe(201)
+    const b = await post('/prestaciones', { nombre: '  sellante   único ', categoria: 'prevención', precio: 16000 })
+    expect(b.status).toBe(201)
+    expect(b.body.id).toBe(a.body.id) // reutiliza la existente, no crea otra
+    const list = await get('/prestaciones')
+    const matches = list.body.filter((p: { nombre: string }) => p.nombre.trim().toLowerCase() === 'sellante único')
+    expect(matches.length).toBe(1)
+  })
+
+  it('dedupe fusiona duplicados heredados y repunta los tratamientos a la conservada', async () => {
+    const db = tenantClient(A.dbName)
+    // Simula duplicados como los heredados del monolito (3 copias idénticas).
+    const p1 = await db.prestacion.create({ data: { nombre: 'Barniz Flúor', categoria: 'GENERAL', precio: 29900, duracion: 30, activo: true } })
+    const p2 = await db.prestacion.create({ data: { nombre: 'Barniz Flúor', categoria: 'GENERAL', precio: 29900, duracion: 30, activo: true } })
+    await db.prestacion.create({ data: { nombre: 'Barniz Flúor', categoria: 'GENERAL', precio: 29900, duracion: 30, activo: true } })
+    expect(p1.id).not.toBe(p2.id)
+    // Una acción usa la 2da copia → debe sobrevivir repuntada tras la fusión.
+    const trat = await post('/tratamientos', { pacienteId: A.pacienteId, prestacionId: p2.id, precio: 29900 })
+    expect(trat.status).toBe(201)
+    const tratId = trat.body[0].id
+
+    const r = await post('/prestaciones/dedupe', {})
+    expect(r.status).toBe(200)
+
+    const restantes = await db.prestacion.findMany({ where: { nombre: 'Barniz Flúor', categoria: 'GENERAL' } })
+    expect(restantes.length).toBe(1) // queda una sola
+    const t = await db.tratamiento.findUnique({ where: { id: tratId }, select: { prestacionId: true } })
+    expect(t?.prestacionId).toBe(restantes[0].id) // el tratamiento quedó apuntando a la conservada
   })
 })
 

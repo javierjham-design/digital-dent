@@ -73,9 +73,14 @@ export async function seedDemoTenant(dbName: string, verticalId: string): Promis
   const v = getVertical(verticalId)
   const db = tenantClient(dbName)
 
-  await db.prestacion.createMany({
-    data: v.seed.prestaciones.map((p) => ({ nombre: p.nombre, precio: p.precio, duracion: p.duracion, categoria: p.categoria, activo: true })),
-  })
+  // Idempotente: solo sembrar prestaciones si la base aún no tiene ninguna
+  // (evita duplicar el catálogo si el seed se ejecuta más de una vez).
+  const yaHayPrestaciones = await db.prestacion.count()
+  if (yaHayPrestaciones === 0) {
+    await db.prestacion.createMany({
+      data: v.seed.prestaciones.map((p) => ({ nombre: p.nombre, precio: p.precio, duracion: p.duracion, categoria: p.categoria, activo: true })),
+    })
+  }
 
   const hash = await bcrypt.hash('Demo' + Math.random().toString(36).slice(2, 10), 10)
   let i = 0

@@ -16,16 +16,22 @@ export async function listarPrestaciones(db: TenantClient): Promise<PrestacionDT
   return prestaciones.map(prestacionDTO)
 }
 
-// Deja una sola prestación por nombre: fusiona las duplicadas repuntando los
-// tratamientos e ítems de presupuesto a la que se conserva (la más referenciada).
+const normNombre = (s: string | null | undefined) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+// Clave de identidad de una prestación: nombre + categoría (ambos normalizados).
+// Solo se fusionan prestaciones realmente equivalentes (mismo nombre Y categoría).
+const prestacionKey = (nombre: string | null, categoria: string | null) => `${normNombre(nombre)}||${normNombre(categoria)}`
+
+// Deja una sola prestación por (nombre, categoría): fusiona las duplicadas
+// repuntando los tratamientos e ítems de presupuesto a la que se conserva (la
+// más referenciada, para no perder precios en uso). Idempotente y FK-safe:
+// Tratamiento e ItemPresupuesto son las ÚNICAS tablas que apuntan a Prestacion.
 export async function dedupePrestaciones(db: TenantClient): Promise<{ duplicados: number; eliminadas: number; restantes: number }> {
-  const norm = (s: string | null | undefined) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
   const prestaciones = await db.prestacion.findMany({
-    select: { id: true, nombre: true, _count: { select: { tratamientos: true, itemsPresupuesto: true } } },
+    select: { id: true, nombre: true, categoria: true, _count: { select: { tratamientos: true, itemsPresupuesto: true } } },
   })
   const grupos = new Map<string, typeof prestaciones>()
   for (const p of prestaciones) {
-    const key = norm(p.nombre)
+    const key = prestacionKey(p.nombre, p.categoria)
     const arr = grupos.get(key) ?? []; arr.push(p); grupos.set(key, arr)
   }
   let duplicados = 0
@@ -46,9 +52,19 @@ export async function dedupePrestaciones(db: TenantClient): Promise<{ duplicados
 
 export async function crearPrestacion(db: TenantClient, input: { nombre: string; categoria?: string | null; precio: number; descripcion?: string | null; duracion?: number }): Promise<PrestacionDTO> {
   if (!input.nombre?.trim() || input.precio == null) throw badRequest('Faltan campos requeridos')
+  const nombre = input.nombre.trim()
+  const categoria = input.categoria || null
+  // Idempotente: si ya existe una prestación con el mismo nombre y categoría, se
+  // reutiliza (reactivándola si estaba inactiva) en lugar de crear un duplicado.
+  const todas = await db.prestacion.findMany({ select: { id: true, nombre: true, categoria: true, activo: true } })
+  const dup = todas.find((p) => prestacionKey(p.nombre, p.categoria) === prestacionKey(nombre, categoria))
+  if (dup) {
+    const p = await db.prestacion.update({ where: { id: dup.id }, data: { activo: true, precio: Number(input.precio), ...(input.descripcion !== undefined ? { descripcion: input.descripcion || null } : {}) } })
+    return prestacionDTO(p)
+  }
   const p = await db.prestacion.create({
     data: {
-      nombre: input.nombre.trim(), categoria: input.categoria || null,
+      nombre, categoria,
       precio: Number(input.precio), descripcion: input.descripcion || null,
       duracion: input.duracion ?? 30, activo: true,
     },
