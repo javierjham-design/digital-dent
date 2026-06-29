@@ -245,7 +245,7 @@ interface DoctorRef { id: string; name: string | null; email?: string | null }
 interface PlanCard {
   id: string; nombre: string; estado: string; bloqueado?: boolean
   doctorTitular: DoctorRef | null; createdAt: string; updatedAt: string; fechaInicio: string | null
-  _count?: { tratamientos: number; secciones: number }; tratamientos: TratLite[]
+  _count?: { tratamientos: number; secciones: number }; tratamientos: TratLite[]; abonoLibre?: number
 }
 interface PlanDetalle {
   id: string; nombre: string; estado: string; bloqueado: boolean
@@ -262,6 +262,21 @@ const planFinanzas = (trats: TratLite[]) => {
   const abonado = trats.reduce((s, t) => s + pagadoTrat(t), 0)
   const hechas = trats.filter((t) => t.estado === 'COMPLETADO').length
   return { total, realizado, abonado, saldo: Math.max(0, total - abonado), progreso: trats.length ? Math.round((hechas / trats.length) * 100) : 0, hechas, n: trats.length }
+}
+
+// Estado financiero del plan, comparando lo REALIZADO (acciones evolucionadas)
+// con lo ABONADO (pagos de acciones + abono libre):
+//  · Sin comenzar  → nada realizado y nada abonado.
+//  · Hay saldo     → abonado > realizado (dinero a favor, sin acciones realizadas o de más).
+//  · Al día        → todo lo realizado está pagado (sin deuda ni saldo a favor).
+//  · Deuda         → hay acciones realizadas sin pagar (realizado > abonado).
+function estadoFinanciero(realizado: number, abonado: number): { label: string; cls: string; icon: string } {
+  const r = Math.round(realizado)
+  const a = Math.round(abonado)
+  if (r > a) return { label: 'Deuda', cls: 'text-rose-600', icon: '●' }
+  if (a > r) return { label: 'Hay saldo', cls: 'text-cyan-600', icon: '●' }
+  if (r > 0) return { label: 'Al día', cls: 'text-emerald-600', icon: '✓' }
+  return { label: 'Sin comenzar', cls: 'text-slate-400', icon: '○' }
 }
 
 function PlanesTab({ pacienteId, pacienteNombre }: { pacienteId: string; pacienteNombre: string }) {
@@ -379,6 +394,7 @@ function Campo({ l, v }: { l: string; v: string }) {
 
 function PlanTarjeta({ p, onAbrir, onEliminar }: { p: PlanCard; onAbrir: (id: string) => void; onEliminar: (id: string) => void }) {
   const fin = planFinanzas(p.tratamientos)
+  const ef = estadoFinanciero(fin.realizado, fin.abonado + (p.abonoLibre ?? 0))
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-4 hover:border-cyan-300 transition-colors">
       <div className="flex items-center justify-between gap-2">
@@ -391,9 +407,7 @@ function PlanTarjeta({ p, onAbrir, onEliminar }: { p: PlanCard; onAbrir: (id: st
         <div className="flex items-center gap-2"><ProgresoRing pct={fin.progreso} /><span className="text-[11px] uppercase tracking-wide text-slate-400">Progreso</span></div>
         <div>
           <p className="text-[11px] uppercase tracking-wide text-slate-400">Estado financiero</p>
-          {fin.saldo > 0
-            ? <p className="text-sm font-semibold text-amber-600">● Hay saldo</p>
-            : <p className="text-sm font-semibold text-emerald-600">✓ Sin saldo</p>}
+          <p className={`text-sm font-semibold ${ef.cls}`}>{ef.icon} {ef.label}</p>
         </div>
       </div>
       <p className="text-xs text-slate-400 mt-3 border-t border-slate-100 pt-2">

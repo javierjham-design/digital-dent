@@ -37,7 +37,7 @@ const TRAT_INCLUDE = {
 
 export async function listarPlanes(db: TenantClient, pacienteId: string) {
   if (!pacienteId) throw badRequest('Falta pacienteId')
-  return db.planTratamiento.findMany({
+  const planes = await db.planTratamiento.findMany({
     where: { pacienteId },
     orderBy: { createdAt: 'desc' },
     include: {
@@ -52,6 +52,18 @@ export async function listarPlanes(db: TenantClient, pacienteId: string) {
       },
     },
   })
+  // Abonos libres (pagos al plan sin acción específica), por plan, para que la
+  // tarjeta calcule el estado financiero (abonado total = acciones + abono libre).
+  const planIds = planes.map((p) => p.id)
+  const itemsLibres = planIds.length
+    ? await db.cobroItem.findMany({
+        where: { planId: { in: planIds }, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } },
+        select: { planId: true, monto: true },
+      })
+    : []
+  const abonoMap = new Map<string, number>()
+  for (const it of itemsLibres) if (it.planId) abonoMap.set(it.planId, (abonoMap.get(it.planId) ?? 0) + it.monto)
+  return planes.map((p) => ({ ...p, abonoLibre: abonoMap.get(p.id) ?? 0 }))
 }
 
 export async function crearPlan(db: TenantClient, input: { pacienteId: string; nombre?: string; notas?: string; fechaInicio?: string; doctorTitularId?: string }) {

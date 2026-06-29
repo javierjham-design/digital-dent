@@ -127,6 +127,9 @@ describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, 
     expect(cobro.status).toBe(201)
     const det = await get(`/planes-tratamiento/${planId}`)
     expect(det.body.abonoLibre).toBe(25000)
+    // El listado de planes también expone abonoLibre (lo usa el estado financiero de la tarjeta).
+    const lista = await get(`/planes-tratamiento?pacienteId=${A.pacienteId}`)
+    expect(lista.body.find((p: { id: string }) => p.id === planId)?.abonoLibre).toBe(25000)
     const pagos = await get(`/cobros?pacienteId=${A.pacienteId}`)
     expect(pagos.body.some((c: { id: string }) => c.id === cobro.body.id)).toBe(true)
   })
