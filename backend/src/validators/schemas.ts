@@ -11,6 +11,7 @@ export const crearPacienteSchema = z.object({
   nombre: z.string().min(1, 'Nombre obligatorio'),
   apellido: z.string().min(1, 'Apellido obligatorio'),
   rut: z.string().nullish(),
+  otroDocId: z.string().nullish(),
   telefono: z.string().nullish(),
   email: z.string().email().nullish().or(z.literal('')),
   prevision: z.string().nullish(),

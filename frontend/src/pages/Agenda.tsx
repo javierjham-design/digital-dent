@@ -16,6 +16,8 @@ import { clinicaService } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
+import { RutField } from '@/components/RutField'
+import { validarRut } from '@shared/utils/rut'
 
 // Link de WhatsApp con el mensaje de confirmación prellenado desde Configuración.
 // Variables disponibles: {nombre} (primer nombre), {nombrecompleto}, {profesional},
@@ -457,17 +459,18 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
   const [sobrecupo, setSobrecupo] = useState(false)
   const [modo, setModo] = useState<'existente' | 'nuevo'>('existente')
   const [pacienteId, setPacienteId] = useState('')
-  const [nuevo, setNuevo] = useState({ nombre: '', apellido: '', rut: '', telefono: '' })
+  const [nuevo, setNuevo] = useState({ nombre: '', apellido: '', rut: '', otroDoc: '', telefono: '' })
   const [guardando, setGuardando] = useState(false)
 
-  const puede = modo === 'existente' ? !!pacienteId : !!nuevo.nombre && !!nuevo.apellido
+  const rutInvalido = Boolean(nuevo.rut) && !validarRut(nuevo.rut)
+  const puede = modo === 'existente' ? !!pacienteId : (!!nuevo.nombre && !!nuevo.apellido && !rutInvalido)
 
   async function guardar() {
     setGuardando(true)
     try {
       let pid = pacienteId
       if (modo === 'nuevo') {
-        const p = await pacientesService.crear({ nombre: nuevo.nombre, apellido: nuevo.apellido, rut: nuevo.rut || undefined, telefono: nuevo.telefono || undefined })
+        const p = await pacientesService.crear({ nombre: nuevo.nombre, apellido: nuevo.apellido, rut: nuevo.rut || undefined, otroDocId: nuevo.otroDoc || undefined, telefono: nuevo.telefono || undefined })
         pid = p.id
       }
       await citasService.crear({ pacienteId: pid, doctorId: doc, fecha: slotISO, duracion, tipo: tipo || 'CONSULTA', sobrecupo })
@@ -511,7 +514,7 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
           <div className="grid grid-cols-2 gap-2">
             <input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Nombre *" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
             <input value={nuevo.apellido} onChange={(e) => setNuevo({ ...nuevo, apellido: e.target.value })} placeholder="Apellido *" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-            <input value={nuevo.rut} onChange={(e) => setNuevo({ ...nuevo, rut: e.target.value })} placeholder="RUT" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+            <div className="col-span-2"><RutField rut={nuevo.rut} otroDoc={nuevo.otroDoc} onChange={(v) => setNuevo({ ...nuevo, ...v })} /></div>
             <input value={nuevo.telefono} onChange={(e) => setNuevo({ ...nuevo, telefono: e.target.value })} placeholder="Teléfono" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
           </div>
         )}

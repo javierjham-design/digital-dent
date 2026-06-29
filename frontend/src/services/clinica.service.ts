@@ -52,7 +52,7 @@ export const pacientesService = {
     return api.get<PacientesPagina>(`/pacientes?${p.toString()}`)
   },
   obtener: (id: string) => api.get<PacienteDTO>(`/pacientes/${id}`),
-  crear: (input: { nombre: string; apellido: string; rut?: string; telefono?: string; email?: string; prevision?: string }) =>
+  crear: (input: { nombre: string; apellido: string; rut?: string; otroDocId?: string; telefono?: string; email?: string; prevision?: string }) =>
     api.post<PacienteDTO>('/pacientes', input),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<PacienteDTO>(`/pacientes/${id}`, patch),
   ficha: (id: string) => api.get<{ ficha: FichaClinica | null; odontograma: DienteDTO[] }>(`/pacientes/${id}/ficha`),

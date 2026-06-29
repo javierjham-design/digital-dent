@@ -225,6 +225,21 @@ describe('ficha del paciente: datos y registro de accesos', () => {
     expect(g.body.fechaNacimiento).toContain('1990-05-15')
   })
 
+  it('valida el RUT chileno (rechaza DV incorrecto) y normaliza el formato', async () => {
+    const malo = await post('/pacientes', { nombre: 'Test', apellido: 'RutMalo', rut: '12345678-0' })
+    expect(malo.status).toBe(400)
+    const bueno = await post('/pacientes', { nombre: 'Test', apellido: 'RutBueno', rut: '11111111-1' })
+    expect(bueno.status).toBe(201)
+    expect(bueno.body.rut).toBe('11.111.111-1')
+  })
+
+  it('permite "Otro documento" sin validación de RUT', async () => {
+    const r = await post('/pacientes', { nombre: 'Test', apellido: 'OtroDoc', otroDocId: 'PASAPORTE-AB123' })
+    expect(r.status).toBe(201)
+    expect(r.body.otroDocId).toBe('PASAPORTE-AB123')
+    expect(r.body.rut).toBeNull()
+  })
+
   it('registra el acceso a la ficha en el Historial (y no lo duplica dentro del minuto)', async () => {
     await get(`/pacientes/${A.pacienteId}`)
     const hist = await get(`/historial?pacienteId=${A.pacienteId}`)

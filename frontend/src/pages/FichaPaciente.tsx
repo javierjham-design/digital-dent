@@ -9,6 +9,8 @@ import { cobrosService, cajasService } from '@/services/caja.service'
 import { usuariosService } from '@/services/equipo.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
+import { RutField } from '@/components/RutField'
+import { validarRut } from '@shared/utils/rut'
 
 const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Recaudación', 'Evoluciones', 'Historial', 'Comentarios', 'Mensajes'] as const
 type Tab = typeof TABS[number]
@@ -154,11 +156,12 @@ function MensajesTab({ pacienteId }: { pacienteId: string }) {
 // ── Datos + ficha clínica ──
 function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: PacienteDTO) => void }) {
   const [form, setForm] = useState({
-    nombre: paciente.nombre, apellido: paciente.apellido, rut: paciente.rut ?? '',
+    nombre: paciente.nombre, apellido: paciente.apellido, rut: paciente.rut ?? '', otroDoc: paciente.otroDocId ?? '',
     fechaNacimiento: paciente.fechaNacimiento ? paciente.fechaNacimiento.slice(0, 10) : '',
     sexo: paciente.sexo ?? '', telefono: paciente.telefono ?? '', email: paciente.email ?? '',
     prevision: paciente.prevision ?? '', direccion: paciente.direccion ?? '', observaciones: paciente.observaciones ?? '',
   })
+  const rutInvalido = Boolean(form.rut) && !validarRut(form.rut)
   const [ficha, setFicha] = useState<FichaClinica | null>(null)
   const [flags, setFlags] = useState({ fumador: false, diabetico: false, hipertenso: false, cardiopatia: false, alertasMedicas: '', medicamentos: '' })
   const [msg, setMsg] = useState('')
@@ -172,13 +175,15 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
   }, [paciente.id])
 
   async function guardar() {
+    if (rutInvalido) { setMsg('Corrige el RUT (dígito verificador) o marca «Otro documento» antes de guardar.'); return }
     setSaving(true); setMsg('')
     try {
-      const p = await pacientesService.actualizar(paciente.id, form)
+      const { otroDoc, ...rest } = form
+      const p = await pacientesService.actualizar(paciente.id, { ...rest, otroDocId: otroDoc })
       await pacientesService.guardarFicha(paciente.id, flags)
       onSaved(p)
       setMsg('Cambios guardados')
-    } catch { setMsg('Error al guardar') } finally { setSaving(false) }
+    } catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error al guardar') } finally { setSaving(false) }
   }
 
   return (
@@ -186,7 +191,7 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
       <div className="bg-white rounded-2xl border border-slate-200 p-5 grid sm:grid-cols-2 gap-3">
         <In label="Nombres" v={form.nombre} on={(x) => setForm({ ...form, nombre: x })} />
         <In label="Apellidos" v={form.apellido} on={(x) => setForm({ ...form, apellido: x })} />
-        <In label="RUT" v={form.rut} on={(x) => setForm({ ...form, rut: x })} />
+        <RutField rut={form.rut} otroDoc={form.otroDoc} onChange={(v) => setForm({ ...form, ...v })} />
         <label className="block">
           <span className="block text-sm font-medium text-slate-700 mb-1">Fecha de nacimiento</span>
           <input type="date" value={form.fechaNacimiento} onChange={(e) => setForm({ ...form, fechaNacimiento: e.target.value })}
@@ -226,7 +231,7 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
         <In label="Medicamentos" v={flags.medicamentos} on={(x) => setFlags({ ...flags, medicamentos: x })} />
       </div>
       <div className="flex items-center gap-3">
-        <button onClick={guardar} disabled={saving} className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl">{saving ? 'Guardando…' : 'Guardar'}</button>
+        <button onClick={guardar} disabled={saving || rutInvalido} className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl">{saving ? 'Guardando…' : 'Guardar'}</button>
         {msg && <span className="text-sm text-emerald-600">{msg}</span>}
       </div>
     </div>

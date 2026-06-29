@@ -3,19 +3,30 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { buildXlsx, formatRUT, isoDate } from '@/lib/excel'
 import { audit } from '@/lib/audit'
+import { validarRut, formatRut } from '@shared/utils/rut'
 import type { PacienteDTO, PacientesPagina } from '@shared/types'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica
 // (req.tenant). Ya no hay clinicaId — la base ES la clínica.
 
+// Valida y normaliza el RUT al formato chileno (12.345.678-9). Devuelve null si
+// viene vacío; lanza error si el dígito verificador no corresponde.
+function normalizarRut(rut: unknown): string | null {
+  const v = typeof rut === 'string' ? rut.trim() : ''
+  if (!v) return null
+  if (!validarRut(v)) throw badRequest('RUT inválido. Revisa el dígito verificador, o marca "Otro documento".')
+  return formatRut(v)
+}
+
 function toDTO(p: {
   id: string; numero: number | null; rut: string | null; nombre: string; apellido: string
   telefono: string | null; email: string | null; prevision: string | null
   fechaNacimiento: Date | null; activo: boolean
-  sexo?: string | null; direccion?: string | null; observaciones?: string | null
+  otroDocId?: string | null; sexo?: string | null; direccion?: string | null; observaciones?: string | null
 }): PacienteDTO {
   return {
-    id: p.id, numero: p.numero, rut: p.rut, nombre: p.nombre, apellido: p.apellido,
+    id: p.id, numero: p.numero, rut: p.rut, otroDocId: p.otroDocId ?? null,
+    nombre: p.nombre, apellido: p.apellido,
     telefono: p.telefono, email: p.email, prevision: p.prevision,
     fechaNacimiento: p.fechaNacimiento?.toISOString() ?? null,
     sexo: p.sexo ?? null, direccion: p.direccion ?? null, observaciones: p.observaciones ?? null,
@@ -109,14 +120,15 @@ export async function registrarAccesoFicha(db: TenantClient, actorId: string, pa
 }
 
 export interface CrearPacienteInput {
-  nombre: string; apellido: string; rut?: string | null
+  nombre: string; apellido: string; rut?: string | null; otroDocId?: string | null
   telefono?: string | null; email?: string | null; prevision?: string | null
 }
 
 export async function crearPaciente(db: TenantClient, input: CrearPacienteInput): Promise<PacienteDTO> {
   if (!input.nombre?.trim() || !input.apellido?.trim()) throw badRequest('Nombre y apellido son obligatorios')
-  if (input.rut) {
-    const dup = await db.paciente.findFirst({ where: { rut: input.rut }, select: { id: true } })
+  const rut = normalizarRut(input.rut)
+  if (rut) {
+    const dup = await db.paciente.findFirst({ where: { rut }, select: { id: true } })
     if (dup) throw badRequest('Ya existe un paciente con ese RUT en la clínica')
   }
   const ultimo = await db.paciente.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
@@ -125,7 +137,8 @@ export async function crearPaciente(db: TenantClient, input: CrearPacienteInput)
       numero: (ultimo?.numero ?? 0) + 1,
       nombre: input.nombre.trim(),
       apellido: input.apellido.trim(),
-      rut: input.rut || null,
+      rut,
+      otroDocId: typeof input.otroDocId === 'string' && input.otroDocId.trim() ? input.otroDocId.trim() : null,
       telefono: input.telefono || null,
       email: input.email || null,
       prevision: input.prevision || null,
@@ -150,10 +163,15 @@ export async function actualizarPaciente(db: TenantClient, id: string, body: Rec
     if (!(k in body)) continue
     const v = body[k]
     if (k === 'fechaNacimiento') data[k] = v ? new Date(String(v)) : null
-    else if (k === 'rut') data[k] = (v as string)?.trim() ? (v as string).trim() : null
+    else if (k === 'rut') data[k] = normalizarRut(v) // valida el dígito verificador y normaliza el formato
     else if (k === 'activo') data[k] = Boolean(v)
     else if (typeof v === 'string') data[k] = v.trim() || null
     else data[k] = v
+  }
+  // Si se asigna un RUT distinto, evitar duplicados con otro paciente.
+  if (typeof data.rut === 'string') {
+    const dup = await db.paciente.findFirst({ where: { rut: data.rut, NOT: { id } }, select: { id: true } })
+    if (dup) throw badRequest('Ya existe otro paciente con ese RUT en la clínica')
   }
   const p = await db.paciente.update({ where: { id }, data })
   return toDTO(p)

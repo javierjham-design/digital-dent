@@ -37,6 +37,7 @@ export interface PacienteDTO {
   id: string
   numero: number | null
   rut: string | null
+  otroDocId: string | null
   nombre: string
   apellido: string
   telefono: string | null
