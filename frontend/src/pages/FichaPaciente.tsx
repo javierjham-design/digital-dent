@@ -819,13 +819,33 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
 }) {
   const completado = t.estado === 'COMPLETADO'
   const pagada = pagadaTrat(t)
+  const [edit, setEdit] = useState<null | 'precio' | 'dscto'>(null)
+  const [val, setVal] = useState('')
   const revertir = () => accion(() => tratamientosService.actualizar(t.id, { estado: 'PLANIFICADO', fechaCompletado: null }))
   const piezaLabel = t.diente
     ? `${t.diente}${t.cara ? ` (${t.cara.split('').join(',')})` : ''}`
     : (t.cara ? t.cara : (t.notas ? t.notas.replace(/^Piezas:\s*/, '') : '—'))
+
+  function abrir(campo: 'precio' | 'dscto') {
+    if (bloqueado) return
+    setVal(String(campo === 'precio' ? Math.round(t.precio) : (t.descuento || 0)))
+    setEdit(campo)
+  }
+  function guardar() {
+    const campo = edit
+    setEdit(null)
+    if (campo === 'precio') {
+      const n = Math.max(0, Math.round(Number(val)))
+      if (Number.isFinite(n) && n !== Math.round(t.precio)) accion(() => tratamientosService.actualizar(t.id, { precio: n }))
+    } else if (campo === 'dscto') {
+      const n = Math.max(0, Math.min(100, Math.round(Number(val))))
+      if (Number.isFinite(n) && n !== (t.descuento || 0)) accion(() => tratamientosService.actualizar(t.id, { descuento: n }))
+    }
+  }
+
   return (
-    <div className={`flex items-center gap-3 px-4 py-2.5 ${!bloqueado ? 'cursor-move' : ''}`}
-      draggable={!bloqueado}
+    <div className={`flex items-center gap-3 px-4 py-2.5 ${!bloqueado && !edit ? 'cursor-move' : ''}`}
+      draggable={!bloqueado && !edit}
       onDragStart={(e) => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move' }}>
       <button onClick={() => (completado ? revertir() : onEvolucionar(t))}
         title={completado ? 'Realizada (clic para revertir)' : 'Evolucionar / marcar como realizada'}
@@ -836,8 +856,26 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
         <p className="text-sm text-slate-800 truncate">{t.prestacion.nombre}</p>
       </div>
       <span className="w-28 text-sm text-slate-600 truncate" title={piezaLabel}>{piezaLabel}</span>
-      <span className="w-12 text-center text-sm text-slate-500">{t.descuento ? `${t.descuento}%` : '—'}</span>
-      <span className="w-24 text-right text-sm font-mono text-slate-700">{fmtCLP(netoTrat(t))}</span>
+
+      {/* Descuento (editable, 0% por defecto) */}
+      {edit === 'dscto' ? (
+        <input autoFocus type="number" min={0} max={100} value={val} onChange={(e) => setVal(e.target.value)} onBlur={guardar} onKeyDown={(e) => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEdit(null) }}
+          className="w-12 text-center text-sm border border-cyan-400 rounded px-1 py-0.5 focus:outline-none" />
+      ) : (
+        <button onClick={() => abrir('dscto')} disabled={bloqueado} title={bloqueado ? '' : 'Editar descuento'}
+          className="w-12 text-center text-sm text-slate-500 enabled:hover:text-cyan-600 disabled:cursor-default">{t.descuento ? `${t.descuento}%` : (bloqueado ? '—' : '0%')}</button>
+      )}
+
+      {/* Precio (editable: se edita el precio base; se muestra el neto con descuento) */}
+      {edit === 'precio' ? (
+        <input autoFocus type="number" min={0} value={val} onChange={(e) => setVal(e.target.value)} onBlur={guardar} onKeyDown={(e) => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEdit(null) }}
+          className="w-24 text-right text-sm font-mono border border-cyan-400 rounded px-1 py-0.5 focus:outline-none" />
+      ) : (
+        <button onClick={() => abrir('precio')} disabled={bloqueado}
+          title={bloqueado ? '' : (t.descuento ? `Precio base ${fmtCLP(t.precio)} · neto ${fmtCLP(netoTrat(t))}` : 'Editar precio')}
+          className="w-24 text-right text-sm font-mono text-slate-700 enabled:hover:text-cyan-600 disabled:cursor-default">{fmtCLP(netoTrat(t))}</button>
+      )}
+
       <span className="w-10 flex justify-center"><span className={`w-2.5 h-2.5 rounded-full ${pagada ? 'bg-emerald-500' : 'bg-rose-400'}`} title={pagada ? 'Pagada' : 'Pendiente de pago'} /></span>
       {!bloqueado
         ? <button onClick={() => accion(() => tratamientosService.eliminar(t.id))} className="w-4 text-slate-300 hover:text-rose-600 text-sm shrink-0" title="Quitar">×</button>
