@@ -519,7 +519,7 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
                   className={`px-3 py-1.5 text-sm font-semibold rounded-lg ${agregando ? 'bg-cyan-100 text-cyan-700' : 'bg-cyan-600 hover:bg-cyan-700 text-white'}`}>
                   + Agregar prestación
                 </button>
-                <AgregarSeccion planId={plan.id} accion={accion} />
+                <AgregarSeccion planId={plan.id} accion={accion} sinSeccionIds={plan.tratamientos.map((t) => t.id)} />
                 {!agregando && <span className="text-xs text-slate-400">Selecciona piezas o una zona arriba.</span>}
               </div>
               {agregando && <AgregarAccion planId={plan.id} seccionId="" pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />}
@@ -939,17 +939,36 @@ function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas,
   )
 }
 
-function AgregarSeccion({ planId, accion }: { planId: string; accion: (fn: () => Promise<unknown>) => Promise<void> }) {
+function AgregarSeccion({ planId, accion, sinSeccionIds }: { planId: string; accion: (fn: () => Promise<unknown>) => Promise<void>; sinSeccionIds: string[] }) {
   const [abierto, setAbierto] = useState(false)
   const [titulo, setTitulo] = useState('')
   const [dias, setDias] = useState('')
+  const [incorporar, setIncorporar] = useState(true)
+  const haySueltas = sinSeccionIds.length > 0
+
+  async function crear() {
+    await accion(async () => {
+      const sec = await planesService.crearSeccion(planId, { titulo: titulo.trim() || undefined, diasDesdeAnterior: dias ? Number(dias) : undefined }) as { id: string }
+      // Mueve automáticamente todas las prestaciones "sin sección" a la nueva sección.
+      if (incorporar && haySueltas && sec?.id) {
+        await Promise.all(sinSeccionIds.map((tid) => tratamientosService.actualizar(tid, { seccionId: sec.id })))
+      }
+    })
+    setAbierto(false); setTitulo(''); setDias('')
+  }
+
   if (!abierto) return <button onClick={() => setAbierto(true)} className="text-sm font-semibold text-cyan-700">+ Sección</button>
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-3 flex gap-2 flex-wrap items-center">
       <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Nombre de la sección" className="flex-1 min-w-[12rem] px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
       <input value={dias} onChange={(e) => setDias(e.target.value)} placeholder="Días estimados" inputMode="numeric" className="w-32 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
-      <button onClick={async () => { await accion(() => planesService.crearSeccion(planId, { titulo: titulo.trim() || undefined, diasDesdeAnterior: dias ? Number(dias) : undefined })); setAbierto(false); setTitulo(''); setDias('') }}
-        className="px-3 py-1.5 bg-cyan-600 text-white text-sm rounded-lg">Crear</button>
+      {haySueltas && (
+        <label className="flex items-center gap-1.5 text-xs text-slate-600 w-full">
+          <input type="checkbox" checked={incorporar} onChange={(e) => setIncorporar(e.target.checked)} />
+          Incorporar las {sinSeccionIds.length} prestación{sinSeccionIds.length === 1 ? '' : 'es'} sin sección a esta sección
+        </label>
+      )}
+      <button onClick={crear} className="px-3 py-1.5 bg-cyan-600 text-white text-sm rounded-lg">Crear</button>
       <button onClick={() => setAbierto(false)} className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg">Cancelar</button>
     </div>
   )
