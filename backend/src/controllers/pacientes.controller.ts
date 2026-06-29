@@ -3,7 +3,7 @@ import { tenantDb } from '@/middlewares/tenant'
 import {
   actualizarPaciente, crearPaciente, guardarFicha, listarPacientes, listarPacientesPaginado, obtenerFicha, obtenerPaciente,
   listarComentarios, crearComentario, listarMensajes, crearMensaje, resumenPaciente,
-  exportarPacientes, plantillaPacientes, importarPacientes,
+  exportarPacientes, plantillaPacientes, importarPacientes, registrarAccesoFicha,
 } from '@/services/pacientes.service'
 import { actorName } from '@/services/auth.service'
 import { crearPacienteSchema } from '@/validators/schemas'
@@ -22,7 +22,11 @@ export async function getPacientes(req: Request, res: Response) {
 }
 
 export async function getPaciente(req: Request, res: Response) {
-  res.json(await obtenerPaciente(tenantDb(req), req.params.id))
+  const db = tenantDb(req)
+  const dto = await obtenerPaciente(db, req.params.id)
+  // Registro legal de acceso a la ficha (queda en el Historial). No bloquea la respuesta.
+  if (req.auth) void registrarAccesoFicha(db, req.auth.sub, req.params.id)
+  res.json(dto)
 }
 
 export async function postPaciente(req: Request, res: Response) {

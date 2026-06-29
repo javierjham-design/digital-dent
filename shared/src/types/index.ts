@@ -43,6 +43,9 @@ export interface PacienteDTO {
   email: string | null
   prevision: string | null
   fechaNacimiento: string | null
+  sexo: string | null
+  direccion: string | null
+  observaciones: string | null
   activo: boolean
 }
 

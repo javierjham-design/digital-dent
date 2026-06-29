@@ -213,6 +213,31 @@ describe('prestaciones: sin duplicados (creación idempotente + dedupe automáti
   })
 })
 
+describe('ficha del paciente: datos y registro de accesos', () => {
+  it('guarda y devuelve sexo, dirección, observaciones y fecha de nacimiento', async () => {
+    const r = await request(app).patch(`/api/v1/pacientes/${A.pacienteId}`).set(auth())
+      .send({ sexo: 'Femenino', direccion: 'Av. Siempre Viva 742', observaciones: 'Alergia a la penicilina', fechaNacimiento: '1990-05-15' })
+    expect(r.status).toBe(200)
+    expect(r.body.sexo).toBe('Femenino')
+    expect(r.body.direccion).toBe('Av. Siempre Viva 742')
+    expect(r.body.observaciones).toBe('Alergia a la penicilina')
+    const g = await get(`/pacientes/${A.pacienteId}`)
+    expect(g.body.fechaNacimiento).toContain('1990-05-15')
+  })
+
+  it('registra el acceso a la ficha en el Historial (y no lo duplica dentro del minuto)', async () => {
+    await get(`/pacientes/${A.pacienteId}`)
+    const hist = await get(`/historial?pacienteId=${A.pacienteId}`)
+    const accesos1 = hist.body.filter((h: { accion: string }) => h.accion === 'ACCESO').length
+    expect(accesos1).toBeGreaterThanOrEqual(1)
+    // Segundo acceso inmediato del mismo usuario → throttle: no agrega otro.
+    await get(`/pacientes/${A.pacienteId}`)
+    const hist2 = await get(`/historial?pacienteId=${A.pacienteId}`)
+    const accesos2 = hist2.body.filter((h: { accion: string }) => h.accion === 'ACCESO').length
+    expect(accesos2).toBe(accesos1)
+  })
+})
+
 describe('configuración del profesional (contratos y horarios)', () => {
   it('crear contrato PORCENTAJE con montoFijo null NO falla (montoFijo no es obligatorio)', async () => {
     const r = await post('/contratos', { doctorId, tipo: 'PORCENTAJE', porcentaje: 40, montoFijo: null, descripcion: null, fechaFin: null })

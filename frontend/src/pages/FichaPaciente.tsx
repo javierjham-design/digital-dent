@@ -153,7 +153,12 @@ function MensajesTab({ pacienteId }: { pacienteId: string }) {
 
 // ── Datos + ficha clínica ──
 function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: PacienteDTO) => void }) {
-  const [form, setForm] = useState({ nombre: paciente.nombre, apellido: paciente.apellido, rut: paciente.rut ?? '', telefono: paciente.telefono ?? '', email: paciente.email ?? '', prevision: paciente.prevision ?? '' })
+  const [form, setForm] = useState({
+    nombre: paciente.nombre, apellido: paciente.apellido, rut: paciente.rut ?? '',
+    fechaNacimiento: paciente.fechaNacimiento ? paciente.fechaNacimiento.slice(0, 10) : '',
+    sexo: paciente.sexo ?? '', telefono: paciente.telefono ?? '', email: paciente.email ?? '',
+    prevision: paciente.prevision ?? '', direccion: paciente.direccion ?? '', observaciones: paciente.observaciones ?? '',
+  })
   const [ficha, setFicha] = useState<FichaClinica | null>(null)
   const [flags, setFlags] = useState({ fumador: false, diabetico: false, hipertenso: false, cardiopatia: false, alertasMedicas: '', medicamentos: '' })
   const [msg, setMsg] = useState('')
@@ -179,12 +184,33 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
   return (
     <div className="space-y-5">
       <div className="bg-white rounded-2xl border border-slate-200 p-5 grid sm:grid-cols-2 gap-3">
-        <In label="Nombre" v={form.nombre} on={(x) => setForm({ ...form, nombre: x })} />
-        <In label="Apellido" v={form.apellido} on={(x) => setForm({ ...form, apellido: x })} />
+        <In label="Nombres" v={form.nombre} on={(x) => setForm({ ...form, nombre: x })} />
+        <In label="Apellidos" v={form.apellido} on={(x) => setForm({ ...form, apellido: x })} />
         <In label="RUT" v={form.rut} on={(x) => setForm({ ...form, rut: x })} />
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Fecha de nacimiento</span>
+          <input type="date" value={form.fechaNacimiento} onChange={(e) => setForm({ ...form, fechaNacimiento: e.target.value })}
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        </label>
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Sexo</span>
+          <select value={form.sexo} onChange={(e) => setForm({ ...form, sexo: e.target.value })}
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+            <option value="">Sin especificar</option>
+            <option value="Masculino">Masculino</option>
+            <option value="Femenino">Femenino</option>
+            <option value="Otro">Otro</option>
+          </select>
+        </label>
         <In label="Teléfono" v={form.telefono} on={(x) => setForm({ ...form, telefono: x })} />
         <In label="Email" v={form.email} on={(x) => setForm({ ...form, email: x })} />
         <In label="Previsión" v={form.prevision} on={(x) => setForm({ ...form, prevision: x })} />
+        <In label="Dirección" v={form.direccion} on={(x) => setForm({ ...form, direccion: x })} />
+        <label className="block sm:col-span-2">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Observaciones</span>
+          <textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows={3}
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        </label>
       </div>
       <div className="bg-white rounded-2xl border border-slate-200 p-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Ficha clínica {ficha ? '' : '(sin datos aún)'}</p>
@@ -1339,6 +1365,7 @@ function HistorialTab({ pacienteId }: { pacienteId: string }) {
     EDITAR: { l: 'Editó', c: 'bg-amber-50 text-amber-700' },
     EVOLUCIONAR: { l: 'Evolucionó', c: 'bg-cyan-50 text-cyan-700' },
     ELIMINAR: { l: 'Eliminó', c: 'bg-rose-50 text-rose-700' },
+    ACCESO: { l: 'Accedió', c: 'bg-slate-100 text-slate-600' },
   }
   return (
     <div className="space-y-6">

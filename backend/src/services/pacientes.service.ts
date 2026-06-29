@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx'
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { buildXlsx, formatRUT, isoDate } from '@/lib/excel'
+import { audit } from '@/lib/audit'
 import type { PacienteDTO, PacientesPagina } from '@shared/types'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica
@@ -11,11 +12,14 @@ function toDTO(p: {
   id: string; numero: number | null; rut: string | null; nombre: string; apellido: string
   telefono: string | null; email: string | null; prevision: string | null
   fechaNacimiento: Date | null; activo: boolean
+  sexo?: string | null; direccion?: string | null; observaciones?: string | null
 }): PacienteDTO {
   return {
     id: p.id, numero: p.numero, rut: p.rut, nombre: p.nombre, apellido: p.apellido,
     telefono: p.telefono, email: p.email, prevision: p.prevision,
-    fechaNacimiento: p.fechaNacimiento?.toISOString() ?? null, activo: p.activo,
+    fechaNacimiento: p.fechaNacimiento?.toISOString() ?? null,
+    sexo: p.sexo ?? null, direccion: p.direccion ?? null, observaciones: p.observaciones ?? null,
+    activo: p.activo,
   }
 }
 
@@ -87,6 +91,21 @@ export async function obtenerPaciente(db: TenantClient, id: string): Promise<Pac
   const p = await db.paciente.findUnique({ where: { id } })
   if (!p) throw notFound('Paciente no encontrado')
   return toDTO(p)
+}
+
+// Registro legal de accesos a la ficha (queda en el Historial del paciente).
+// Best-effort y con throttle: no duplica si el mismo usuario accedió en el último
+// minuto (evita registrar cada re-carga de la página como una visita distinta).
+export async function registrarAccesoFicha(db: TenantClient, actorId: string, pacienteId: string): Promise<void> {
+  try {
+    const desde = new Date(Date.now() - 60_000)
+    const reciente = await db.auditLog.findFirst({
+      where: { pacienteId, userId: actorId, accion: 'ACCESO', fecha: { gte: desde } },
+      select: { id: true },
+    })
+    if (reciente) return
+    await audit(db, actorId, { accion: 'ACCESO', entidad: 'FichaClinica', pacienteId, resumen: 'Accedió a la ficha del paciente' })
+  } catch { /* best-effort: nunca rompe la carga de la ficha */ }
 }
 
 export interface CrearPacienteInput {

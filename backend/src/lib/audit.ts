@@ -1,7 +1,7 @@
 import type { TenantClient } from '@/db/tenant'
 
 export interface AuditEvent {
-  accion: 'CREAR' | 'EDITAR' | 'EVOLUCIONAR' | 'ELIMINAR'
+  accion: 'CREAR' | 'EDITAR' | 'EVOLUCIONAR' | 'ELIMINAR' | 'ACCESO'
   entidad: string
   entidadId?: string | null
   pacienteId?: string | null
