@@ -26,6 +26,7 @@ export interface HelpArticle {
 export type HelpCategory =
   | 'empezando'
   | 'agenda'
+  | 'agendamiento-online'
   | 'pacientes'
   | 'cobros'
   | 'tratamientos'
@@ -39,6 +40,7 @@ export type HelpCategory =
 export const HELP_CATEGORIES: { id: HelpCategory; label: string; emoji: string; description: string }[] = [
   { id: 'empezando',     label: 'Primeros pasos',         emoji: '🚀', description: 'Login, contraseña, navegación básica' },
   { id: 'agenda',        label: 'Agenda',                  emoji: '📅', description: 'Citas, sobrecupos, bloqueos, horarios' },
+  { id: 'agendamiento-online', label: 'Agendamiento online', emoji: '🔗', description: 'Links públicos de reserva, confirmar reservas' },
   { id: 'pacientes',     label: 'Pacientes',               emoji: '👤', description: 'Crear, buscar, importar, ficha clínica' },
   { id: 'cobros',        label: 'Cobros y caja',           emoji: '💵', description: 'Abrir caja, recaudar, cerrar, gastos' },
   { id: 'tratamientos',  label: 'Tratamientos y planes',   emoji: '🦷', description: 'Tratamientos, plan, odontograma' },
@@ -298,6 +300,86 @@ La cita desaparece de la base y, si había evento en Google Calendar, también s
 ⚠ Una vez eliminada no se recupera. No hay papelera.
     `,
     relatedIds: ['cancelar-cita'],
+  },
+
+  // ─── AGENDAMIENTO ONLINE ──────────────────────────────────────────────────
+  {
+    id: 'crear-link-agendamiento',
+    title: 'Cómo creo un link de agendamiento online',
+    category: 'agendamiento-online',
+    keywords: ['link', 'agendamiento online', 'reserva online', 'agenda online', 'agenda publica', 'reservar hora', 'online', 'pacientes reservan', 'auto agendamiento', 'enlace'],
+    body: `
+El agendamiento online es un **link público** que compartís con tus pacientes para que **reserven su hora solos**, dentro de tu disponibilidad. Las reservas entran a tu agenda en estado **Pendiente** para que las confirmes.
+
+1. Andá a **Administración → Agendamiento online**.
+2. Tocá **+ Nuevo link**.
+3. Completá:
+   - **Nombre del link** (ej. "Evaluaciones Dr. Aedo").
+   - **Profesionales disponibles**: marcá uno o varios (si marcás varios, el paciente elige con quién).
+   - **Tipo / etiqueta** (ej. EVALUACION) y **duración** de cada hora.
+   - **Antelación** mínima (horas) y **días a futuro** que se pueden reservar.
+   - **Disponibilidad**: usar el horario del profesional, o definir **ventanas propias** del link.
+   - (Opcional) **Mensaje de confirmación**.
+4. **Guardar**.
+5. En la tarjeta del link tocá **Copiar** para copiar la URL y compartirla (WhatsApp, Instagram, web, campañas), o **Abrir** para verla.
+
+Podés **pausar/activar** o **editar** un link cuando quieras, y ver sus **reservas**.
+    `,
+    relatedIds: ['link-varios-profesionales', 'disponibilidad-link', 'confirmar-reservas-online'],
+  },
+  {
+    id: 'link-varios-profesionales',
+    title: 'Cómo pongo varios profesionales en un link de agendamiento',
+    category: 'agendamiento-online',
+    keywords: ['varios profesionales', 'multiples doctores', 'campaña', 'elegir profesional', 'dos doctores', 'tres doctores', 'online'],
+    body: `
+Un link puede ofrecer **uno o varios profesionales** (útil para campañas donde atienden 2 o 3).
+
+1. Al crear o editar el link, en **Profesionales disponibles** marcá los que correspondan (lista con casillas).
+2. **Guardar**.
+
+En la página pública:
+- Si el link tiene **un** profesional, el paciente va directo a elegir día y hora.
+- Si tiene **varios**, el paciente primero **elige el profesional**, y la disponibilidad se ajusta a ese profesional (su horario menos sus citas y bloqueos). La cita queda con el profesional elegido.
+    `,
+    relatedIds: ['crear-link-agendamiento', 'disponibilidad-link'],
+  },
+  {
+    id: 'disponibilidad-link',
+    title: 'Cómo defino la disponibilidad de un link (horario o ventanas)',
+    category: 'agendamiento-online',
+    keywords: ['disponibilidad', 'ventanas', 'horario', 'cupos online', 'bloques', 'evaluaciones', 'cuando reservan', 'online'],
+    body: `
+La disponibilidad de un link es **híbrida**:
+
+- **Usar el horario del profesional** (recomendado para la mayoría): los cupos salen del horario semanal del profesional (descontando receso, citas y bloqueos).
+- **Ventanas propias del link**: definís días y rangos exclusivos para ese link (ej. "Evaluaciones: Lunes y Miércoles de 15:00 a 18:00"). Solo en esas franjas se ofrecen cupos. Ideal para reservar bloques dedicados a un tipo de atención.
+
+Para usar ventanas: en el link, **destildá** "Usar el horario del profesional" y agregá las ventanas (día + hora de inicio y fin).
+
+Los cupos se generan en pasos de la **duración** del link. El paciente puede tocar **"Ver más fechas"** en la página pública para abrir un calendario y mirar hacia adelante.
+    `,
+    relatedIds: ['crear-link-agendamiento', 'configurar-horario-doctor'],
+  },
+  {
+    id: 'confirmar-reservas-online',
+    title: 'Cómo confirmo las reservas online de los pacientes',
+    category: 'agendamiento-online',
+    keywords: ['confirmar reserva', 'reservas pendientes', 'aviso agenda', 'confirmar online', 'pendiente de confirmar', 'online'],
+    body: `
+Cuando un paciente reserva por un link, la cita entra a tu **Agenda** en estado **Pendiente** y aparece un **aviso** arriba de la agenda: "N reservas online por confirmar".
+
+1. Andá a **Agenda**.
+2. Tocá el aviso ámbar **"Ver y confirmar →"** (aparece solo si hay reservas pendientes).
+3. Se abre una ventana con cada reserva: paciente, teléfono, fecha y hora, profesional y motivo.
+4. Por cada una podés:
+   - **Confirmar** → la cita queda **Confirmada**.
+   - **WhatsApp** → escribirle al paciente para confirmar.
+   - **Cancelar** → libera el cupo.
+
+También podés ver las reservas de un link puntual desde **Administración → Agendamiento online → Ver reservas**.
+    `,
+    relatedIds: ['crear-link-agendamiento', 'cambiar-estado-cita'],
   },
 
   // ─── PACIENTES ───────────────────────────────────────────────────────────

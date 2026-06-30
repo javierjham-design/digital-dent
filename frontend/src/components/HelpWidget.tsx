@@ -17,18 +17,30 @@ const SUGERENCIAS = [
 
 const norm = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
 
-// Búsqueda liviana: puntúa por coincidencia de cada término en título/keywords/body.
+// Palabras vacías que no aportan a la relevancia (preguntas en lenguaje natural).
+const STOP = new Set([
+  'como', 'que', 'cual', 'cuales', 'donde', 'cuando', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas',
+  'de', 'del', 'en', 'y', 'o', 'a', 'al', 'con', 'para', 'por', 'mi', 'me', 'se', 'su', 'sus', 'tu', 'le', 'lo',
+  'es', 'son', 'esta', 'este', 'hago', 'hacer', 'puedo', 'pueden', 'quiero', 'necesito', 'tengo', 'hay',
+  'configuro', 'configurar', 'crear', 'creo', 'uso', 'usar', 'ver', 'poner', 'pongo', 'agregar', 'agrego',
+])
+
+// Búsqueda liviana: ignora palabras vacías y prioriza fuerte las coincidencias
+// en el título (con bonus cuadrático si el título cubre varios términos).
 function buscar(query: string, limit = 4): HelpArticle[] {
-  const terms = norm(query).split(/\s+/).filter((t) => t.length >= 2)
-  if (terms.length === 0) return []
+  const all = norm(query).split(/\s+/).filter((t) => t.length >= 2)
+  let terms = all.filter((t) => t.length >= 3 && !STOP.has(t))
+  if (terms.length === 0) terms = all // si todo era palabra vacía, usar lo que haya
   const scored = HELP_ARTICLES.map((a) => {
     const title = norm(a.title), keys = norm(a.keywords.join(' ')), body = norm(a.body)
     let score = 0
+    let enTitulo = 0
     for (const t of terms) {
-      if (title.includes(t)) score += 5
-      if (keys.includes(t)) score += 3
+      if (title.includes(t)) { score += 8; enTitulo++ }
+      if (keys.includes(t)) score += 4
       if (body.includes(t)) score += 1
     }
+    score += enTitulo * enTitulo // favorece artículos cuyo título cubre la consulta
     return { a, score }
   }).filter((x) => x.score > 0).sort((x, y) => y.score - x.score)
   return scored.slice(0, limit).map((x) => x.a)
