@@ -66,13 +66,13 @@ export function FichaPaciente() {
   return (
     <div>
       <Link to="/pacientes" className="text-sm text-cyan-600 hover:underline">← Volver a pacientes</Link>
-      <div className="mt-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-cyan-700 text-white p-6 mb-4">
-        <h1 className="text-2xl font-bold">{paciente.nombre} {paciente.apellido}</h1>
+      <div className="mt-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-cyan-700 text-white p-4 sm:p-6 mb-4">
+        <h1 className="text-xl sm:text-2xl font-bold leading-tight">{paciente.nombre} {paciente.apellido}</h1>
         <p className="text-cyan-100 text-sm mt-1">
           {paciente.rut ?? 'Sin RUT'} · {edadTexto(paciente.fechaNacimiento)}{paciente.prevision ? ` · ${paciente.prevision}` : ''}
         </p>
         {resumen && (
-          <div className="flex flex-wrap gap-x-6 gap-y-1 mt-4 text-sm">
+          <div className="grid grid-cols-3 gap-x-4 gap-y-2 mt-4 text-sm sm:flex sm:flex-wrap sm:gap-x-6">
             <KpiInline l="Tratamientos activos" v={String(resumen.activos)} />
             <KpiInline l="Finalizados" v={String(resumen.finalizados)} />
             <KpiInline l="Realizado" v={fmtCLP(resumen.realizado)} />
@@ -648,10 +648,10 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
           )}
 
           {todas.length > 0 && (
-            <div className="flex items-center gap-3 px-4 text-[11px] uppercase tracking-wide text-slate-400">
+            <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 text-[11px] uppercase tracking-wide text-slate-400">
               <span className="w-5" /><span className="flex-1">Prestación</span>
-              <span className="w-28">Pieza / zona</span><span className="w-12 text-center">Dscto</span>
-              <span className="w-24 text-right">Precio</span><span className="w-10 text-center">Pago</span><span className="w-4" />
+              <span className="hidden sm:block w-28">Pieza / zona</span><span className="w-11 sm:w-12 text-center">Dscto</span>
+              <span className="w-20 sm:w-24 text-right">Precio</span><span className="w-7 sm:w-10 text-center">Pago</span><span className="w-4" />
             </div>
           )}
 
@@ -965,7 +965,7 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
   }
 
   return (
-    <div className={`flex items-center gap-3 px-4 py-2.5 ${!bloqueado && !edit ? 'cursor-move' : ''}`}
+    <div className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 ${!bloqueado && !edit ? 'cursor-move' : ''}`}
       draggable={!bloqueado && !edit}
       onDragStart={(e) => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move' }}>
       <button onClick={() => (completado ? revertir() : onEvolucionar(t))}
@@ -975,29 +975,31 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
       </button>
       <div className="min-w-0 flex-1">
         <p className="text-sm text-slate-800 truncate">{t.prestacion.nombre}</p>
+        {/* En móvil la pieza/zona va bajo el nombre (la columna de la derecha se oculta). */}
+        <p className="sm:hidden text-xs text-slate-400 truncate">{piezaLabel}</p>
       </div>
-      <span className="w-28 text-sm text-slate-600 truncate" title={piezaLabel}>{piezaLabel}</span>
+      <span className="hidden sm:block w-28 text-sm text-slate-600 truncate" title={piezaLabel}>{piezaLabel}</span>
 
       {/* Descuento (editable, 0% por defecto) */}
       {edit === 'dscto' ? (
         <input autoFocus type="number" min={0} max={100} value={val} onChange={(e) => setVal(e.target.value)} onBlur={guardar} onKeyDown={(e) => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEdit(null) }}
-          className="w-12 text-center text-sm border border-cyan-400 rounded px-1 py-0.5 focus:outline-none" />
+          className="w-11 sm:w-12 text-center text-sm border border-cyan-400 rounded px-1 py-0.5 focus:outline-none shrink-0" />
       ) : (
         <button onClick={() => abrir('dscto')} disabled={bloqueado} title={bloqueado ? '' : 'Editar descuento'}
-          className="w-12 text-center text-sm text-slate-500 enabled:hover:text-cyan-600 disabled:cursor-default">{t.descuento ? `${t.descuento}%` : (bloqueado ? '—' : '0%')}</button>
+          className="w-11 sm:w-12 text-center text-sm text-slate-500 enabled:hover:text-cyan-600 disabled:cursor-default shrink-0">{t.descuento ? `${t.descuento}%` : (bloqueado ? '—' : '0%')}</button>
       )}
 
       {/* Precio (editable: se edita el precio base; se muestra el neto con descuento) */}
       {edit === 'precio' ? (
         <input autoFocus type="number" min={0} value={val} onChange={(e) => setVal(e.target.value)} onBlur={guardar} onKeyDown={(e) => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEdit(null) }}
-          className="w-24 text-right text-sm font-mono border border-cyan-400 rounded px-1 py-0.5 focus:outline-none" />
+          className="w-20 sm:w-24 text-right text-sm font-mono border border-cyan-400 rounded px-1 py-0.5 focus:outline-none shrink-0" />
       ) : (
         <button onClick={() => abrir('precio')} disabled={bloqueado}
           title={bloqueado ? '' : (t.descuento ? `Precio base ${fmtCLP(t.precio)} · neto ${fmtCLP(netoTrat(t))}` : 'Editar precio')}
-          className="w-24 text-right text-sm font-mono text-slate-700 enabled:hover:text-cyan-600 disabled:cursor-default">{fmtCLP(netoTrat(t))}</button>
+          className="w-20 sm:w-24 text-right text-sm font-mono text-slate-700 enabled:hover:text-cyan-600 disabled:cursor-default shrink-0">{fmtCLP(netoTrat(t))}</button>
       )}
 
-      <span className="w-10 flex justify-center"><span className={`w-2.5 h-2.5 rounded-full ${pagada ? 'bg-emerald-500' : 'bg-rose-400'}`} title={pagada ? 'Pagada' : 'Pendiente de pago'} /></span>
+      <span className="w-7 sm:w-10 flex justify-center shrink-0"><span className={`w-2.5 h-2.5 rounded-full ${pagada ? 'bg-emerald-500' : 'bg-rose-400'}`} title={pagada ? 'Pagada' : 'Pendiente de pago'} /></span>
       {!bloqueado
         ? <button onClick={() => accion(() => tratamientosService.eliminar(t.id))} className="w-4 text-slate-300 hover:text-rose-600 text-sm shrink-0" title="Quitar">×</button>
         : <span className="w-4" />}
