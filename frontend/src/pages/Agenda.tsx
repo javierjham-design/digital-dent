@@ -14,6 +14,7 @@ import { bloqueosService, citasService, horariosLectura } from '@/services/clini
 import { pacientesService } from '@/services/clinica.service'
 import { clinicaService } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
+import { agendaOnlineService, type ReservaOnline } from '@/services/agenda-online.service'
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
 import { RutField } from '@/components/RutField'
@@ -72,6 +73,8 @@ export function Agenda() {
   const [bloqueoForm, setBloqueoForm] = useState(false)
   const [slotAccion, setSlotAccion] = useState<null | { slotISO: string }>(null)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
+  const [pendientes, setPendientes] = useState<ReservaOnline[]>([])
+  const [verPendientes, setVerPendientes] = useState(false)
 
   function notify(t: string, ok = true) { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
 
@@ -102,6 +105,22 @@ export function Agenda() {
   }, [rango.from, rango.to, doctorId])
 
   useEffect(() => { recargar() }, [recargar])
+
+  // Reservas online por confirmar (origen ONLINE + estado PENDIENTE), para el aviso.
+  const cargarPendientes = useCallback(() => {
+    agendaOnlineService.reservas().then((rs) => setPendientes(rs.filter((r) => r.estado === 'PENDIENTE'))).catch(() => {})
+  }, [])
+  useEffect(() => { cargarPendientes() }, [cargarPendientes])
+
+  async function confirmarReserva(id: string) {
+    try { await citasService.cambiarEstado(id, 'CONFIRMADA'); notify('Reserva confirmada'); cargarPendientes(); recargar() }
+    catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo confirmar', false) }
+  }
+  async function rechazarReserva(id: string) {
+    if (!confirm('¿Cancelar esta reserva? El cupo quedará libre.')) return
+    try { await citasService.cambiarEstado(id, 'CANCELADA'); notify('Reserva cancelada'); cargarPendientes(); recargar() }
+    catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
+  }
 
   // Sincronizar FullCalendar (vista semanal en bloques) con la fecha actual.
   useEffect(() => {
@@ -234,6 +253,17 @@ export function Agenda() {
 
       {/* Calendario */}
       <div className="flex-1 min-w-0">
+        {/* Aviso de reservas online por confirmar */}
+        {pendientes.length > 0 && (
+          <button onClick={() => setVerPendientes(true)}
+            className="w-full mb-3 flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 transition-colors">
+            <span className="text-sm font-semibold flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" /><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" /></span>
+              {pendientes.length} reserva{pendientes.length === 1 ? '' : 's'} online por confirmar
+            </span>
+            <span className="text-xs font-semibold">Ver y confirmar →</span>
+          </button>
+        )}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex items-center gap-2">
             <button onClick={() => shiftDate(-1)} className="w-8 h-8 rounded-lg border border-slate-200 hover:bg-slate-50">‹</button>
@@ -360,7 +390,42 @@ export function Agenda() {
           onBloqueado={() => { setSlotAccion(null); notify('Horario bloqueado'); recargar() }}
           onError={(m) => notify(m, false)} />
       )}
+      {verPendientes && (
+        <ReservasPendientesModal reservas={pendientes} onConfirmar={confirmarReserva} onRechazar={rechazarReserva} onClose={() => setVerPendientes(false)} />
+      )}
     </div>
+  )
+}
+
+// ── Modal: reservas online por confirmar ──
+function ReservasPendientesModal({ reservas, onConfirmar, onRechazar, onClose }: {
+  reservas: ReservaOnline[]; onConfirmar: (id: string) => void; onRechazar: (id: string) => void; onClose: () => void
+}) {
+  return (
+    <Modal title={`Reservas online por confirmar (${reservas.length})`} onClose={onClose}>
+      {reservas.length === 0 ? <p className="text-sm text-slate-500">No hay reservas pendientes. ¡Todo confirmado!</p> : (
+        <div className="divide-y divide-slate-100 max-h-[65vh] overflow-y-auto">
+          {reservas.map((r) => {
+            const wa = r.paciente.telefono ? `https://wa.me/${r.paciente.telefono.replace(/\D/g, '')}` : null
+            return (
+              <div key={r.id} className="py-3">
+                <p className="text-sm font-semibold text-slate-800">{r.paciente.nombre} {r.paciente.apellido}</p>
+                <p className="text-xs text-slate-500 capitalize">
+                  {new Date(r.fecha).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })} h · {r.duracion} min
+                </p>
+                <p className="text-xs text-slate-500">{r.doctor.name ?? '—'}{r.paciente.telefono ? ` · ${r.paciente.telefono}` : ''}{r.paciente.rut ? ` · ${r.paciente.rut}` : ''}</p>
+                {r.notas && <p className="text-xs text-slate-400 mt-0.5">{r.notas}</p>}
+                <div className="flex items-center gap-2 mt-2">
+                  <button onClick={() => onConfirmar(r.id)} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg">Confirmar</button>
+                  {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 border border-emerald-200 text-emerald-600 hover:bg-emerald-50 text-xs font-semibold rounded-lg">WhatsApp</a>}
+                  <button onClick={() => onRechazar(r.id)} className="ml-auto px-3 py-1.5 border border-slate-200 text-slate-500 hover:text-rose-600 text-xs font-semibold rounded-lg">Cancelar</button>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </Modal>
   )
 }
 
