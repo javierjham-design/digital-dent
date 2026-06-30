@@ -10,7 +10,14 @@ import { wallClockToUtc, todayYmd, addDaysYmd, weekdayOfYmd, toMin, fromMin } fr
 const LINK_INCLUDE = {
   doctor: { select: { id: true, name: true, email: true, especialidad: true } },
   ventanas: { select: { id: true, diaSemana: true, horaInicio: true, horaFin: true } },
+  profesionales: { include: { user: { select: { id: true, name: true, email: true, especialidad: true } } } },
 } as const
+
+// IDs de los profesionales del link (la tabla de relación; si está vacía, el primario).
+function profesionalesIds(link: { doctorId: string; profesionales: { userId: string }[] }): string[] {
+  const ids = link.profesionales.map((p) => p.userId)
+  return ids.length > 0 ? ids : [link.doctorId]
+}
 
 type VentanaInput = { diaSemana: number; horaInicio: string; horaFin: string }
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -41,16 +48,25 @@ export async function listarLinks(db: TenantClient) {
 }
 
 export interface CrearLinkInput {
-  nombre: string; descripcion?: string | null; doctorId: string; tipoCita?: string; duracionMin?: number
+  nombre: string; descripcion?: string | null; doctorId?: string; profesionales?: string[]; tipoCita?: string; duracionMin?: number
   usaHorarioDoctor?: boolean; anticipacionHoras?: number; diasMaxFuturo?: number
   mensajeConfirmacion?: string | null; color?: string | null; ventanas?: unknown
+}
+
+// Valida que los profesionales existan y estén activos; devuelve la lista de ids
+// (al menos uno). Acepta `profesionales[]` o, por compatibilidad, `doctorId`.
+async function validarProfesionales(db: TenantClient, input: { profesionales?: string[]; doctorId?: string }): Promise<string[]> {
+  const ids = [...new Set((input.profesionales && input.profesionales.length ? input.profesionales : (input.doctorId ? [input.doctorId] : [])).filter(Boolean))]
+  if (ids.length === 0) throw badRequest('Selecciona al menos un profesional')
+  const activos = await db.user.findMany({ where: { id: { in: ids }, activo: true }, select: { id: true } })
+  if (activos.length !== ids.length) throw badRequest('Hay profesionales inválidos en la selección')
+  return ids
 }
 
 export async function crearLink(db: TenantClient, input: CrearLinkInput) {
   const nombre = (input.nombre ?? '').trim()
   if (!nombre) throw badRequest('Falta el nombre del link')
-  const doctor = await db.user.findFirst({ where: { id: input.doctorId, activo: true }, select: { id: true } })
-  if (!doctor) throw badRequest('Profesional inválido')
+  const ids = await validarProfesionales(db, input)
   const duracionMin = Number(input.duracionMin) || 30
   if (duracionMin < 5 || duracionMin > 480) throw badRequest('Duración inválida (5 a 480 minutos)')
   const usaHorarioDoctor = input.usaHorarioDoctor !== false
@@ -62,12 +78,13 @@ export async function crearLink(db: TenantClient, input: CrearLinkInput) {
 
   return db.linkAgenda.create({
     data: {
-      token: tk, nombre, descripcion: input.descripcion?.trim() || null, doctorId: input.doctorId,
+      token: tk, nombre, descripcion: input.descripcion?.trim() || null, doctorId: ids[0],
       tipoCita: (input.tipoCita || 'EVALUACION').trim().toUpperCase(), duracionMin, usaHorarioDoctor,
       anticipacionHoras: clampInt(input.anticipacionHoras, 0, 720, 12),
       diasMaxFuturo: clampInt(input.diasMaxFuturo, 1, 365, 30),
       mensajeConfirmacion: input.mensajeConfirmacion?.trim() || null, color: input.color || null,
       ventanas: { create: ventanas },
+      profesionales: { create: ids.map((userId) => ({ userId })) },
     },
     include: LINK_INCLUDE,
   })
@@ -87,10 +104,14 @@ export async function actualizarLink(db: TenantClient, id: string, body: Record<
   if (body.mensajeConfirmacion !== undefined) data.mensajeConfirmacion = body.mensajeConfirmacion ? String(body.mensajeConfirmacion).trim() : null
   if (body.color !== undefined) data.color = body.color ? String(body.color) : null
   if (body.activo !== undefined) data.activo = Boolean(body.activo)
-  if (typeof body.doctorId === 'string') {
-    const doctor = await db.user.findFirst({ where: { id: body.doctorId, activo: true }, select: { id: true } })
-    if (!doctor) throw badRequest('Profesional inválido')
-    data.doctorId = body.doctorId
+
+  let nuevosProfes: string[] | null = null
+  if (Array.isArray(body.profesionales)) {
+    nuevosProfes = await validarProfesionales(db, { profesionales: body.profesionales as string[] })
+    data.doctorId = nuevosProfes[0]
+  } else if (typeof body.doctorId === 'string') {
+    nuevosProfes = await validarProfesionales(db, { doctorId: body.doctorId })
+    data.doctorId = nuevosProfes[0]
   }
 
   const reemplazaVentanas = body.ventanas !== undefined
@@ -98,6 +119,10 @@ export async function actualizarLink(db: TenantClient, id: string, body: Record<
 
   return db.$transaction(async (tx) => {
     await tx.linkAgenda.update({ where: { id }, data })
+    if (nuevosProfes) {
+      await tx.linkAgendaProfesional.deleteMany({ where: { linkId: id } })
+      await tx.linkAgendaProfesional.createMany({ data: nuevosProfes.map((userId) => ({ linkId: id, userId })) })
+    }
     if (reemplazaVentanas) {
       await tx.linkAgendaVentana.deleteMany({ where: { linkId: id } })
       if (!usaHorario) {
@@ -167,12 +192,12 @@ function ventanasDelDia(link: Link, horarios: Awaited<ReturnType<typeof listarHo
   return link.ventanas.filter((v) => v.diaSemana === weekday).map((v) => ({ ini: v.horaInicio, fin: v.horaFin }))
 }
 
-export async function calcularSlots(db: TenantClient, link: Link, now = new Date()) {
+export async function calcularSlots(db: TenantClient, link: Link, doctorId: string, now = new Date()) {
   const minInicio = new Date(now.getTime() + link.anticipacionHoras * 3600_000)
-  const horarios = link.usaHorarioDoctor ? await listarHorarios(db, link.doctorId) : []
+  const horarios = link.usaHorarioDoctor ? await listarHorarios(db, doctorId) : []
   const startYmd = todayYmd(undefined, now)
   const finRango = new Date(now.getTime() + (link.diasMaxFuturo + 1) * 86400_000)
-  const busy = await busyIntervals(db, link.doctorId, minInicio, finRango)
+  const busy = await busyIntervals(db, doctorId, minInicio, finRango)
 
   const dias: { dia: string; slots: { inicio: string; hora: string }[] }[] = []
   for (let i = 0; i <= link.diasMaxFuturo; i++) {
@@ -203,7 +228,7 @@ export async function obtenerLinkPorToken(db: TenantClient, tk: string) {
 }
 
 export interface ReservarInput {
-  inicio: string; nombre: string; apellido: string; telefono: string; email?: string; rut?: string; motivo?: string
+  inicio: string; doctorId?: string; nombre: string; apellido: string; telefono: string; email?: string; rut?: string; motivo?: string
 }
 
 export async function reservarPublico(db: TenantClient, link: Link, input: ReservarInput) {
@@ -213,11 +238,16 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
   if (!nombre || !apellido) throw badRequest('Ingresa tu nombre y apellido.')
   if (telefono.replace(/\D/g, '').length < 8) throw badRequest('Ingresa un teléfono válido para confirmar tu hora.')
 
+  // Profesional elegido: debe ser uno de los del link (si no se indica y hay uno solo, ese).
+  const profes = profesionalesIds(link)
+  const doctorId = input.doctorId && profes.includes(input.doctorId) ? input.doctorId : (profes.length === 1 ? profes[0] : '')
+  if (!doctorId) throw badRequest('Selecciona un profesional para tu hora.')
+
   const inicio = new Date(input.inicio)
   if (Number.isNaN(inicio.getTime())) throw badRequest('Horario inválido.')
 
-  // El horario elegido debe ser uno de los slots disponibles (revalidación server-side).
-  const dias = await calcularSlots(db, link)
+  // El horario elegido debe ser uno de los slots disponibles del profesional (revalidación server-side).
+  const dias = await calcularSlots(db, link, doctorId)
   const disponible = dias.some((d) => d.slots.some((s) => s.inicio === inicio.toISOString()))
   if (!disponible) throw conflict('Ese horario ya no está disponible. Elige otro, por favor.')
 
@@ -250,12 +280,12 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
   }
 
   // Revalidación atómica de conflicto (carrera entre dos reservas del mismo cupo).
-  const bloqueo = await db.bloqueoAgenda.findFirst({ where: { doctorId: link.doctorId, inicio: { lt: fin }, fin: { gt: inicio } }, select: { id: true } })
+  const bloqueo = await db.bloqueoAgenda.findFirst({ where: { doctorId, inicio: { lt: fin }, fin: { gt: inicio } }, select: { id: true } })
   if (bloqueo) throw conflict('Ese horario ya no está disponible.')
   const ocupada = await db.cita.findFirst({
-    where: { doctorId: link.doctorId, estado: { notIn: ESTADOS_NO_OCUPAN }, fecha: { lt: fin, gte: new Date(inicio.getTime() - 12 * 3600_000) } },
+    where: { doctorId, estado: { notIn: ESTADOS_NO_OCUPAN }, fecha: { lt: fin, gte: new Date(inicio.getTime() - 12 * 3600_000) } },
     select: { fecha: true, duracion: true },
-  }).then((rows) => rows)
+  })
   if (ocupada && intervalsOverlap(ocupada.fecha, addMinutes(ocupada.fecha, ocupada.duracion), inicio, fin)) {
     throw conflict('Ese horario acaba de ser tomado. Elige otro, por favor.')
   }
@@ -263,7 +293,7 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
   const motivo = input.motivo?.trim()
   const cita = await db.cita.create({
     data: {
-      pacienteId: paciente.id, doctorId: link.doctorId, fecha: inicio, duracion: link.duracionMin,
+      pacienteId: paciente.id, doctorId, fecha: inicio, duracion: link.duracionMin,
       tipo: link.tipoCita, estado: 'PENDIENTE', origen: 'ONLINE', linkAgendaId: link.id,
       notas: motivo || `Reserva online · ${link.nombre}`,
       logs: { create: { tipo: 'AGENDADA', detalle: `Reserva online (${link.nombre})`, userName: `${nombre} ${apellido}` } },
@@ -271,12 +301,13 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     select: { id: true, fecha: true, duracion: true },
   })
 
+  const profe = link.profesionales.find((p) => p.userId === doctorId)?.user
   return {
     ok: true,
     citaId: cita.id,
     inicio: cita.fecha.toISOString(),
     duracionMin: cita.duracion,
-    profesional: link.doctor.name ?? link.doctor.email,
+    profesional: profe?.name ?? profe?.email ?? link.doctor.name ?? link.doctor.email,
     mensaje: link.mensajeConfirmacion || null,
   }
 }

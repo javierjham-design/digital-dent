@@ -43,14 +43,19 @@ export async function getPublicAgenda(req: Request, res: Response) {
     where: { id: 'singleton' },
     select: { nombre: true, logoUrl: true, direccion: true, telefono: true, ciudad: true },
   })
-  const dias = await svc.calcularSlots(db, link)
+  // Profesionales del link (uno o varios). El paciente elige; por defecto el primero.
+  const profes = (link.profesionales.length ? link.profesionales.map((p) => p.user) : [link.doctor])
+  const ids = profes.map((p) => p.id)
+  const sel = typeof req.query.doctorId === 'string' && ids.includes(req.query.doctorId) ? req.query.doctorId : ids[0]
+  const dias = await svc.calcularSlots(db, link, sel)
   res.json({
     clinica: { nombre: cfg?.nombre ?? 'Clínica', logoUrl: cfg?.logoUrl ?? null, direccion: cfg?.direccion ?? '', telefono: cfg?.telefono ?? '', ciudad: cfg?.ciudad ?? '' },
     link: {
       nombre: link.nombre, descripcion: link.descripcion, tipoCita: link.tipoCita, duracionMin: link.duracionMin,
-      profesional: link.doctor.name ?? link.doctor.email, especialidad: link.doctor.especialidad,
       color: link.color, mensajeConfirmacion: link.mensajeConfirmacion,
+      profesionales: profes.map((p) => ({ id: p.id, nombre: p.name ?? p.email, especialidad: p.especialidad })),
     },
+    doctorId: sel,
     dias,
   })
 }

@@ -10,6 +10,8 @@ const diaLabel = (ymd: string) => {
 export function AgendarPublico() {
   const { slug = '', token = '' } = useParams()
   const [data, setData] = useState<PublicAgendaDTO | null>(null)
+  const [dias, setDias] = useState<PublicAgendaDTO['dias']>([])
+  const [doctorSel, setDoctorSel] = useState('')
   const [error, setError] = useState('')
   const [cargando, setCargando] = useState(true)
   const [diaSel, setDiaSel] = useState<string>('')
@@ -21,10 +23,17 @@ export function AgendarPublico() {
 
   useEffect(() => {
     publicAgenda.obtener(slug, token)
-      .then((d) => { setData(d); setDiaSel(d.dias[0]?.dia ?? '') })
+      .then((d) => { setData(d); setDoctorSel(d.doctorId); setDias(d.dias); setDiaSel(d.dias[0]?.dia ?? '') })
       .catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar'))
       .finally(() => setCargando(false))
   }, [slug, token])
+
+  // Al cambiar de profesional, recarga la disponibilidad de ese profesional.
+  function cambiarProfesional(id: string) {
+    if (id === doctorSel) return
+    setDoctorSel(id); setSlotSel(null); setDias([])
+    publicAgenda.obtener(slug, token, id).then((d) => { setDias(d.dias); setDiaSel(d.dias[0]?.dia ?? '') }).catch(() => {})
+  }
 
   async function reservar() {
     if (!slotSel) return
@@ -33,7 +42,7 @@ export function AgendarPublico() {
     }
     setEnviando(true); setError('')
     try {
-      const r = await publicAgenda.reservar(slug, token, { inicio: slotSel.inicio, ...form })
+      const r = await publicAgenda.reservar(slug, token, { inicio: slotSel.inicio, doctorId: doctorSel, ...form })
       setResult(r)
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo reservar') } finally { setEnviando(false) }
   }
@@ -42,7 +51,8 @@ export function AgendarPublico() {
   if (error && !data) return <Centro><p className="text-rose-600 text-sm text-center">{error}</p></Centro>
   if (!data) return null
 
-  const { clinica, link, dias } = data
+  const { clinica, link } = data
+  const profeSel = link.profesionales.find((p) => p.id === doctorSel)
   const diaActual = dias.find((d) => d.dia === diaSel)
 
   return (
@@ -77,9 +87,26 @@ export function AgendarPublico() {
           <>
             <div className="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
               <h2 className="font-bold text-slate-900">{link.nombre}</h2>
-              <p className="text-sm text-slate-500">{link.profesional}{link.especialidad ? ` · ${link.especialidad}` : ''} · {link.duracionMin} min</p>
+              <p className="text-sm text-slate-500">
+                {link.profesionales.length > 1 ? `${link.profesionales.length} profesionales` : (profeSel?.nombre ?? '')}
+                {link.profesionales.length === 1 && profeSel?.especialidad ? ` · ${profeSel.especialidad}` : ''} · {link.duracionMin} min
+              </p>
               {link.descripcion && <p className="text-sm text-slate-600 mt-2">{link.descripcion}</p>}
             </div>
+
+            {link.profesionales.length > 1 && (
+              <div className="mb-4">
+                <p className="text-sm font-semibold text-slate-700 mb-2">Elige profesional</p>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {link.profesionales.map((p) => (
+                    <button key={p.id} onClick={() => cambiarProfesional(p.id)}
+                      className={`shrink-0 px-3 py-2 rounded-xl text-sm border ${doctorSel === p.id ? 'bg-cyan-600 border-cyan-600 text-white' : 'bg-white border-slate-200 text-slate-600'}`}>
+                      {p.nombre}{p.especialidad ? <span className="opacity-70"> · {p.especialidad}</span> : null}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {dias.length === 0 ? (
               <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500 text-sm">

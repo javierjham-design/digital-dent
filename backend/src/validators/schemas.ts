@@ -211,7 +211,8 @@ export const crearContratoSchema = z.object({
 export const crearLinkSchema = z.object({
   nombre: z.string().min(1, 'Falta el nombre'),
   descripcion: z.string().nullish(),
-  doctorId: z.string().min(1),
+  doctorId: z.string().optional(),
+  profesionales: z.array(z.string()).optional(),
   tipoCita: z.string().optional(),
   duracionMin: z.number().optional(),
   usaHorarioDoctor: z.boolean().optional(),
@@ -228,6 +229,7 @@ export const crearLinkSchema = z.object({
 
 export const reservarOnlineSchema = z.object({
   inicio: z.string().min(1),
+  doctorId: z.string().optional(),
   nombre: z.string().min(1),
   apellido: z.string().min(1),
   telefono: z.string().min(1),

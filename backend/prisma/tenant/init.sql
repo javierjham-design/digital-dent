@@ -728,7 +728,20 @@ CREATE TABLE "LinkAgendaVentana" (
 -- CreateIndex
 CREATE INDEX "LinkAgendaVentana_linkId_idx" ON "LinkAgendaVentana"("linkId");
 
+-- CreateTable
+CREATE TABLE "LinkAgendaProfesional" (
+    "linkId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+
+    CONSTRAINT "LinkAgendaProfesional_pkey" PRIMARY KEY ("linkId", "userId")
+);
+
+-- CreateIndex
+CREATE INDEX "LinkAgendaProfesional_userId_idx" ON "LinkAgendaProfesional"("userId");
+
 -- AddForeignKey
 ALTER TABLE "LinkAgenda" ADD CONSTRAINT "LinkAgenda_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "LinkAgendaVentana" ADD CONSTRAINT "LinkAgendaVentana_linkId_fkey" FOREIGN KEY ("linkId") REFERENCES "LinkAgenda"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "LinkAgendaProfesional" ADD CONSTRAINT "LinkAgendaProfesional_linkId_fkey" FOREIGN KEY ("linkId") REFERENCES "LinkAgenda"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "LinkAgendaProfesional" ADD CONSTRAINT "LinkAgendaProfesional_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

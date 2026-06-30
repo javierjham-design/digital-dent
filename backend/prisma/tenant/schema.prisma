@@ -89,6 +89,7 @@ model User {
   movimientosCaja    MovimientoCaja[]  @relation("MovimientoUsuario")
   bloqueosAgenda     BloqueoAgenda[]   @relation("DoctorBloqueos")
   linksAgenda        LinkAgenda[]
+  linksAgendaProf    LinkAgendaProfesional[]
 }
 
 model Paciente {
@@ -620,8 +621,21 @@ model LinkAgenda {
   updatedAt           DateTime @updatedAt
   doctor              User     @relation(fields: [doctorId], references: [id])
   ventanas            LinkAgendaVentana[]
+  profesionales       LinkAgendaProfesional[]
 
   @@index([doctorId])
+}
+
+// Profesionales disponibles en un link (uno o varios). doctorId es el primario;
+// esta tabla guarda el conjunto completo que el paciente puede elegir.
+model LinkAgendaProfesional {
+  linkId String
+  userId String
+  link   LinkAgenda @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([linkId, userId])
+  @@index([userId])
 }
 
 // Ventana semanal recurrente exclusiva de un link (cuando no usa el horario

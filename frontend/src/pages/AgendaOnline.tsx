@@ -6,6 +6,8 @@ import { ApiError } from '@/services/api'
 
 const DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 const fechaHora = (iso: string) => new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
+const nombresProfes = (l: LinkAgendaDTO) =>
+  (l.profesionales.length ? l.profesionales.map((p) => p.user.name ?? p.user.email) : [l.doctor.name ?? l.doctor.email]).join(', ')
 
 export function AgendaOnline() {
   const [slug, setSlug] = useState('')
@@ -59,7 +61,7 @@ export function AgendaOnline() {
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${l.activo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>{l.activo ? 'Activo' : 'Pausado'}</span>
                       <span className="text-xs text-slate-400">{l.tipoCita} · {l.duracionMin} min</span>
                     </div>
-                    <p className="text-sm text-slate-500 mt-0.5">{l.doctor.name ?? l.doctor.email} · {l.usaHorarioDoctor ? 'horario del profesional' : `${l.ventanas.length} ventana(s) propia(s)`} · {l.reservas} reserva(s)</p>
+                    <p className="text-sm text-slate-500 mt-0.5">{nombresProfes(l)} · {l.usaHorarioDoctor ? 'horario del profesional' : `${l.ventanas.length} ventana(s) propia(s)`} · {l.reservas} reserva(s)</p>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap shrink-0">
                     <button onClick={() => setReservasDe(l)} className="text-xs font-semibold text-cyan-700 hover:underline">Ver reservas</button>
@@ -94,7 +96,8 @@ function LinkModal({ link, doctores, onClose, onSaved, onError }: {
 }) {
   const [form, setForm] = useState({
     nombre: link?.nombre ?? '', descripcion: link?.descripcion ?? '',
-    doctorId: link?.doctorId ?? doctores[0]?.id ?? '', tipoCita: link?.tipoCita ?? 'EVALUACION',
+    profesionales: link?.profesionales?.length ? link.profesionales.map((p) => p.userId) : (link?.doctorId ? [link.doctorId] : []),
+    tipoCita: link?.tipoCita ?? 'EVALUACION',
     duracionMin: String(link?.duracionMin ?? 30), usaHorarioDoctor: link?.usaHorarioDoctor ?? true,
     anticipacionHoras: String(link?.anticipacionHoras ?? 12), diasMaxFuturo: String(link?.diasMaxFuturo ?? 30),
     mensajeConfirmacion: link?.mensajeConfirmacion ?? '',
@@ -105,10 +108,10 @@ function LinkModal({ link, doctores, onClose, onSaved, onError }: {
 
   async function guardar() {
     if (!form.nombre.trim()) { onError('Falta el nombre del link'); return }
-    if (!form.doctorId) { onError('Selecciona un profesional'); return }
+    if (form.profesionales.length === 0) { onError('Selecciona al menos un profesional'); return }
     setGuardando(true)
     const payload = {
-      nombre: form.nombre.trim(), descripcion: form.descripcion.trim() || null, doctorId: form.doctorId,
+      nombre: form.nombre.trim(), descripcion: form.descripcion.trim() || null, profesionales: form.profesionales,
       tipoCita: form.tipoCita.trim() || 'EVALUACION', duracionMin: Number(form.duracionMin) || 30,
       usaHorarioDoctor: form.usaHorarioDoctor, anticipacionHoras: Number(form.anticipacionHoras) || 0,
       diasMaxFuturo: Number(form.diasMaxFuturo) || 30, mensajeConfirmacion: form.mensajeConfirmacion.trim() || null,
@@ -125,14 +128,22 @@ function LinkModal({ link, doctores, onClose, onSaved, onError }: {
     <Modal title={link ? 'Editar link de agendamiento' : 'Nuevo link de agendamiento'} onClose={onClose}>
       <div className="space-y-3">
         <Campo label="Nombre del link"><input value={form.nombre} onChange={(e) => set({ nombre: e.target.value })} placeholder="Ej: Evaluaciones Dr. Aedo" className={inp} /></Campo>
-        <div className="grid grid-cols-2 gap-3">
-          <Campo label="Profesional">
-            <select value={form.doctorId} onChange={(e) => set({ doctorId: e.target.value })} className={inp}>
-              {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
-            </select>
-          </Campo>
-          <Campo label="Tipo / etiqueta"><input value={form.tipoCita} onChange={(e) => set({ tipoCita: e.target.value })} placeholder="EVALUACION" className={inp} /></Campo>
-        </div>
+        <Campo label="Profesionales disponibles (uno o varios)">
+          <div className="border border-slate-200 rounded-xl p-2 max-h-40 overflow-y-auto space-y-0.5">
+            {doctores.length === 0 && <p className="text-xs text-slate-400 px-1">No hay profesionales con agenda.</p>}
+            {doctores.map((d) => {
+              const on = form.profesionales.includes(d.id)
+              return (
+                <label key={d.id} className="flex items-center gap-2 text-sm text-slate-700 px-1.5 py-1 rounded-lg hover:bg-slate-50 cursor-pointer">
+                  <input type="checkbox" checked={on} onChange={() => set({ profesionales: on ? form.profesionales.filter((x) => x !== d.id) : [...form.profesionales, d.id] })} />
+                  {d.name ?? d.email}{d.especialidad ? <span className="text-xs text-slate-400">· {d.especialidad}</span> : null}
+                </label>
+              )
+            })}
+          </div>
+          <p className="text-[11px] text-slate-400 mt-1">Si eliges varios, el paciente podrá elegir con quién atenderse.</p>
+        </Campo>
+        <Campo label="Tipo / etiqueta"><input value={form.tipoCita} onChange={(e) => set({ tipoCita: e.target.value })} placeholder="EVALUACION" className={inp} /></Campo>
         <div className="grid grid-cols-3 gap-3">
           <Campo label="Duración (min)"><input value={form.duracionMin} onChange={(e) => set({ duracionMin: e.target.value })} inputMode="numeric" className={inp} /></Campo>
           <Campo label="Antelación (h)"><input value={form.anticipacionHoras} onChange={(e) => set({ anticipacionHoras: e.target.value })} inputMode="numeric" className={inp} /></Campo>

@@ -3,11 +3,13 @@ import { api } from './api'
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
 
 export interface Ventana { id?: string; diaSemana: number; horaInicio: string; horaFin: string }
+export interface ProfeRef { id: string; name: string | null; email: string | null; especialidad: string | null }
 export interface LinkAgendaDTO {
   id: string; token: string; nombre: string; descripcion: string | null; doctorId: string
   tipoCita: string; duracionMin: number; usaHorarioDoctor: boolean; anticipacionHoras: number
   diasMaxFuturo: number; mensajeConfirmacion: string | null; color: string | null; activo: boolean
-  doctor: { id: string; name: string | null; email: string | null; especialidad: string | null }
+  doctor: ProfeRef
+  profesionales: { userId: string; user: ProfeRef }[]
   ventanas: Ventana[]; reservas: number; createdAt: string
 }
 export interface ReservaOnline {
@@ -28,7 +30,8 @@ export const agendaOnlineService = {
 // ── Público (sin token, sin redirect a login) ──
 export interface PublicAgendaDTO {
   clinica: { nombre: string; logoUrl: string | null; direccion: string; telefono: string; ciudad: string }
-  link: { nombre: string; descripcion: string | null; tipoCita: string; duracionMin: number; profesional: string | null; especialidad: string | null; color: string | null; mensajeConfirmacion: string | null }
+  link: { nombre: string; descripcion: string | null; tipoCita: string; duracionMin: number; color: string | null; mensajeConfirmacion: string | null; profesionales: { id: string; nombre: string | null; especialidad: string | null }[] }
+  doctorId: string
   dias: { dia: string; slots: { inicio: string; hora: string }[] }[]
 }
 export interface ReservaResult { ok: true; citaId: string; inicio: string; duracionMin: number; profesional: string | null; mensaje: string | null }
@@ -44,6 +47,7 @@ async function pub<T>(method: string, path: string, body?: unknown): Promise<T> 
 }
 
 export const publicAgenda = {
-  obtener: (slug: string, token: string) => pub<PublicAgendaDTO>('GET', `/public/agenda/${encodeURIComponent(slug)}/${encodeURIComponent(token)}`),
+  obtener: (slug: string, token: string, doctorId?: string) =>
+    pub<PublicAgendaDTO>('GET', `/public/agenda/${encodeURIComponent(slug)}/${encodeURIComponent(token)}${doctorId ? `?doctorId=${encodeURIComponent(doctorId)}` : ''}`),
   reservar: (slug: string, token: string, body: Record<string, unknown>) => pub<ReservaResult>('POST', `/public/agenda/${encodeURIComponent(slug)}/${encodeURIComponent(token)}/reservar`, body),
 }

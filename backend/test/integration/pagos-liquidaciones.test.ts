@@ -342,6 +342,30 @@ describe('agendamiento online (links públicos + reserva)', () => {
     expect(sigue).toBe(false)
   })
 
+  it('soporta varios profesionales: el público elige y reserva con el seleccionado', async () => {
+    const doc2 = await post('/usuarios', { name: 'Dra. Dos', username: 'dra-dos', password: 'Password123', role: 'doctor' })
+    expect(doc2.status).toBe(201)
+    const doc2Id = doc2.body.id
+    const ventanas = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ diaSemana: d, horaInicio: '09:00', horaFin: '18:00' }))
+    const link = await post('/agenda-links', { nombre: 'Eval multi', profesionales: [doctorId, doc2Id], usaHorarioDoctor: false, duracionMin: 30, anticipacionHoras: 0, diasMaxFuturo: 7, ventanas })
+    expect(link.status).toBe(201)
+    expect(link.body.profesionales.length).toBe(2)
+    const token = link.body.token as string
+
+    const pub = await request(app).get(`/api/v1/public/agenda/${A.slug}/${token}?doctorId=${doc2Id}`)
+    expect(pub.status).toBe(200)
+    expect(pub.body.link.profesionales.length).toBe(2)
+    expect(pub.body.doctorId).toBe(doc2Id)
+    const slot = pub.body.dias[0].slots[0]
+
+    const reserva = await request(app).post(`/api/v1/public/agenda/${A.slug}/${token}/reservar`)
+      .send({ inicio: slot.inicio, doctorId: doc2Id, nombre: 'Ana', apellido: 'Multi', telefono: '+56 9 7777 6666' })
+    expect(reserva.status).toBe(201)
+    const db = tenantClient(A.dbName)
+    const cita = await db.cita.findUnique({ where: { id: reserva.body.citaId }, select: { doctorId: true } })
+    expect(cita?.doctorId).toBe(doc2Id)
+  })
+
   it('rechaza reservar un horario fuera de la disponibilidad', async () => {
     const link = await post('/agenda-links', { nombre: 'Solo lunes', doctorId, usaHorarioDoctor: false, duracionMin: 30, anticipacionHoras: 0, diasMaxFuturo: 7, ventanas: [{ diaSemana: 1, horaInicio: '09:00', horaFin: '10:00' }] })
     const token = link.body.token as string
