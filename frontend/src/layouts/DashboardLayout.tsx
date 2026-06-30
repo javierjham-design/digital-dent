@@ -5,6 +5,7 @@ import { useAuth } from '@/hooks/useAuth'
 import { pacientesService } from '@/services/clinica.service'
 import { clinicaService } from '@/services/catalogo.service'
 import { CambiarPasswordModal } from '@/components/CambiarPasswordModal'
+import { HelpWidget } from '@/components/HelpWidget'
 
 const NAV_PRE = [
   { to: '/agenda', label: 'Agenda' },
@@ -142,6 +143,7 @@ export function DashboardLayout() {
       <main className="max-w-7xl mx-auto px-4 py-8">
         <Outlet />
       </main>
+      <HelpWidget />
       {cambiarPass && <CambiarPasswordModal forzado={forzado} onClose={() => setCambiarPass(false)} />}
     </div>
   )
