@@ -57,16 +57,21 @@ export function AgendarPublico() {
   const profeSel = link.profesionales.find((p) => p.id === doctorSel)
   const diaActual = dias.find((d) => d.dia === diaSel)
 
-  // Calendario "Ver más fechas": días con cupo resaltados; navegación acotada al rango disponible.
+  // Calendario "Ver más fechas": días con cupo resaltados. La navegación abarca
+  // toda la ventana de reserva (hoy → hoy + diasMaxFuturo), aunque algún mes no
+  // tenga cupos (se ven en gris). Así el paciente puede mirar hacia adelante.
   const dispSet = new Set(dias.map((d) => d.dia))
   const ym = (s?: string) => { if (!s) return null; const [y, m] = s.split('-').map(Number); return { y, m: m - 1 } }
-  const minYM = ym(dias[0]?.dia), maxYM = ym(dias[dias.length - 1]?.dia)
+  const hoy = new Date()
+  const finVentana = new Date(hoy); finVentana.setDate(finVentana.getDate() + (link.diasMaxFuturo || 30))
+  const minYM = { y: hoy.getFullYear(), m: hoy.getMonth() }
+  const maxYM = { y: finVentana.getFullYear(), m: finVentana.getMonth() }
   const cmp = (a: { y: number; m: number }, b: { y: number; m: number }) => (a.y !== b.y ? a.y - b.y : a.m - b.m)
-  const puedeAnterior = Boolean(mesCal && minYM && cmp(mesCal, minYM) > 0)
-  const puedeSiguiente = Boolean(mesCal && maxYM && cmp(mesCal, maxYM) < 0)
+  const puedeAnterior = Boolean(mesCal && cmp(mesCal, minYM) > 0)
+  const puedeSiguiente = Boolean(mesCal && cmp(mesCal, maxYM) < 0)
   function abrirCal() {
-    const base = ym(diaSel) ?? minYM
-    if (base) setMesCal(base)
+    const base = ym(diaSel) ?? ym(dias[0]?.dia) ?? minYM
+    setMesCal(base)
     setVerCal(true)
   }
   function moverMes(dir: -1 | 1) {

@@ -52,7 +52,7 @@ export async function getPublicAgenda(req: Request, res: Response) {
     clinica: { nombre: cfg?.nombre ?? 'Clínica', logoUrl: cfg?.logoUrl ?? null, direccion: cfg?.direccion ?? '', telefono: cfg?.telefono ?? '', ciudad: cfg?.ciudad ?? '' },
     link: {
       nombre: link.nombre, descripcion: link.descripcion, tipoCita: link.tipoCita, duracionMin: link.duracionMin,
-      color: link.color, mensajeConfirmacion: link.mensajeConfirmacion,
+      diasMaxFuturo: link.diasMaxFuturo, color: link.color, mensajeConfirmacion: link.mensajeConfirmacion,
       profesionales: profes.map((p) => ({ id: p.id, nombre: p.name ?? p.email, especialidad: p.especialidad })),
     },
     doctorId: sel,

@@ -30,7 +30,7 @@ export const agendaOnlineService = {
 // ── Público (sin token, sin redirect a login) ──
 export interface PublicAgendaDTO {
   clinica: { nombre: string; logoUrl: string | null; direccion: string; telefono: string; ciudad: string }
-  link: { nombre: string; descripcion: string | null; tipoCita: string; duracionMin: number; color: string | null; mensajeConfirmacion: string | null; profesionales: { id: string; nombre: string | null; especialidad: string | null }[] }
+  link: { nombre: string; descripcion: string | null; tipoCita: string; duracionMin: number; diasMaxFuturo: number; color: string | null; mensajeConfirmacion: string | null; profesionales: { id: string; nombre: string | null; especialidad: string | null }[] }
   doctorId: string
   dias: { dia: string; slots: { inicio: string; hora: string }[] }[]
 }
