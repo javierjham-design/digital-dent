@@ -39,6 +39,7 @@ export interface FichaClinica {
   grupoSanguineo: string | null; fumador: boolean; embarazada: boolean; diabetico: boolean
   hipertenso: boolean; cardiopatia: boolean; medicamentos: string | null
   notasClinicas: string | null; alertasMedicas: string | null; enfermedadesNotas: string | null
+  motivoAtencion: string | null; impresionMedica: string | null; resumenDiagnostico: string | null
 }
 export interface DienteDTO { numero: number; cara: string; estado: string }
 

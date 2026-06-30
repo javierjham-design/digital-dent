@@ -258,6 +258,20 @@ describe('ficha del paciente: datos y registro de accesos', () => {
     expect(upd.body.telefonoEmergencia).toBe('+56 9 1234 5678')
   })
 
+  it('guarda y devuelve los campos clínicos ampliados de la ficha', async () => {
+    const r = await request(app).put(`/api/v1/pacientes/${A.pacienteId}/ficha`).set(auth()).send({
+      motivoAtencion: 'Dolor molar', enfermedadesNotas: 'Asma', impresionMedica: 'Caries extensa',
+      resumenDiagnostico: 'Plan: endodoncia', fumador: true,
+    })
+    expect(r.status).toBe(200)
+    const g = await get(`/pacientes/${A.pacienteId}/ficha`)
+    expect(g.body.ficha.motivoAtencion).toBe('Dolor molar')
+    expect(g.body.ficha.enfermedadesNotas).toBe('Asma')
+    expect(g.body.ficha.impresionMedica).toBe('Caries extensa')
+    expect(g.body.ficha.resumenDiagnostico).toBe('Plan: endodoncia')
+    expect(g.body.ficha.fumador).toBe(true)
+  })
+
   it('registra el acceso a la ficha en el Historial (y no lo duplica dentro del minuto)', async () => {
     await get(`/pacientes/${A.pacienteId}`)
     const hist = await get(`/historial?pacienteId=${A.pacienteId}`)

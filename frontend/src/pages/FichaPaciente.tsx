@@ -168,14 +168,23 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
   })
   const rutInvalido = Boolean(form.rut) && !validarRut(form.rut)
   const [ficha, setFicha] = useState<FichaClinica | null>(null)
-  const [flags, setFlags] = useState({ fumador: false, diabetico: false, hipertenso: false, cardiopatia: false, alertasMedicas: '', medicamentos: '' })
+  const [flags, setFlags] = useState({
+    fumador: false, diabetico: false, hipertenso: false, cardiopatia: false,
+    otras: false, enfermedadesNotas: '',
+    motivoAtencion: '', alertasMedicas: '', medicamentos: '', impresionMedica: '', resumenDiagnostico: '',
+  })
   const [msg, setMsg] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     pacientesService.ficha(paciente.id).then((f) => {
       setFicha(f.ficha)
-      if (f.ficha) setFlags({ fumador: f.ficha.fumador, diabetico: f.ficha.diabetico, hipertenso: f.ficha.hipertenso, cardiopatia: f.ficha.cardiopatia, alertasMedicas: f.ficha.alertasMedicas ?? '', medicamentos: f.ficha.medicamentos ?? '' })
+      if (f.ficha) setFlags({
+        fumador: f.ficha.fumador, diabetico: f.ficha.diabetico, hipertenso: f.ficha.hipertenso, cardiopatia: f.ficha.cardiopatia,
+        otras: !!f.ficha.enfermedadesNotas, enfermedadesNotas: f.ficha.enfermedadesNotas ?? '',
+        motivoAtencion: f.ficha.motivoAtencion ?? '', alertasMedicas: f.ficha.alertasMedicas ?? '', medicamentos: f.ficha.medicamentos ?? '',
+        impresionMedica: f.ficha.impresionMedica ?? '', resumenDiagnostico: f.ficha.resumenDiagnostico ?? '',
+      })
     }).catch(() => {})
   }, [paciente.id])
 
@@ -185,7 +194,8 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
     try {
       const { otroDoc, ...rest } = form
       const p = await pacientesService.actualizar(paciente.id, { ...rest, otroDocId: otroDoc })
-      await pacientesService.guardarFicha(paciente.id, flags)
+      const { otras, ...fichaData } = flags
+      await pacientesService.guardarFicha(paciente.id, { ...fichaData, enfermedadesNotas: otras ? flags.enfermedadesNotas : '' })
       onSaved(p)
       setMsg('Cambios guardados')
     } catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error al guardar') } finally { setSaving(false) }
@@ -237,18 +247,48 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
             className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
         </label>
       </div>
-      <div className="bg-white rounded-2xl border border-slate-200 p-5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-3">Ficha clínica {ficha ? '' : '(sin datos aún)'}</p>
-        <div className="flex flex-wrap gap-4 mb-3">
-          {([['fumador', 'Fumador'], ['diabetico', 'Diabético'], ['hipertenso', 'Hipertenso'], ['cardiopatia', 'Cardiopatía']] as const).map(([k, l]) => (
-            <label key={k} className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={flags[k]} onChange={(e) => setFlags({ ...flags, [k]: e.target.checked })} /> {l}
+      <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Ficha clínica {ficha ? '' : '(sin datos aún)'}</p>
+
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Motivo de atención inicial</span>
+          <textarea value={flags.motivoAtencion} onChange={(e) => setFlags({ ...flags, motivoAtencion: e.target.value })} rows={2}
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        </label>
+
+        <div>
+          <span className="block text-sm font-medium text-slate-700 mb-2">Condiciones</span>
+          <div className="flex flex-wrap gap-4">
+            {([['fumador', 'Fumador'], ['diabetico', 'Diabético'], ['hipertenso', 'Hipertenso'], ['cardiopatia', 'Cardiopatía']] as const).map(([k, l]) => (
+              <label key={k} className="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" checked={flags[k]} onChange={(e) => setFlags({ ...flags, [k]: e.target.checked })} /> {l}
+              </label>
+            ))}
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={flags.otras} onChange={(e) => setFlags({ ...flags, otras: e.target.checked, enfermedadesNotas: e.target.checked ? flags.enfermedadesNotas : '' })} /> Otras
             </label>
-          ))}
+          </div>
+          {flags.otras && (
+            <input value={flags.enfermedadesNotas} onChange={(e) => setFlags({ ...flags, enfermedadesNotas: e.target.value })}
+              placeholder="¿Cuáles? Especificar otras condiciones"
+              className="mt-2 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+          )}
         </div>
+
         <In label="Alertas médicas" v={flags.alertasMedicas} on={(x) => setFlags({ ...flags, alertasMedicas: x })} />
-        <div className="h-3" />
         <In label="Medicamentos" v={flags.medicamentos} on={(x) => setFlags({ ...flags, medicamentos: x })} />
+
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Impresión médica general</span>
+          <textarea value={flags.impresionMedica} onChange={(e) => setFlags({ ...flags, impresionMedica: e.target.value })} rows={3}
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        </label>
+
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Resumen diagnóstico integral</span>
+          <textarea value={flags.resumenDiagnostico} onChange={(e) => setFlags({ ...flags, resumenDiagnostico: e.target.value })} rows={3}
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        </label>
       </div>
       <div className="flex items-center gap-3">
         <button onClick={guardar} disabled={saving || rutInvalido} className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl">{saving ? 'Guardando…' : 'Guardar'}</button>

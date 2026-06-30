@@ -197,7 +197,7 @@ export async function obtenerFicha(db: TenantClient, pacienteId: string) {
   return { ficha: flags, odontograma }
 }
 
-const FICHA_FLAGS = ['grupoSanguineo', 'fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia', 'medicamentos', 'notasClinicas', 'alertasMedicas', 'enfermedadesNotas']
+const FICHA_FLAGS = ['grupoSanguineo', 'fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia', 'medicamentos', 'notasClinicas', 'alertasMedicas', 'enfermedadesNotas', 'motivoAtencion', 'impresionMedica', 'resumenDiagnostico']
 
 export async function guardarFicha(db: TenantClient, pacienteId: string, body: Record<string, unknown>) {
   const paciente = await db.paciente.findUnique({ where: { id: pacienteId }, select: { id: true } })

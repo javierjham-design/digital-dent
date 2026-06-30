@@ -173,6 +173,9 @@ CREATE TABLE "FichaClinica" (
     "notasClinicas" TEXT,
     "alertasMedicas" TEXT,
     "enfermedadesNotas" TEXT,
+    "motivoAtencion" TEXT,
+    "impresionMedica" TEXT,
+    "resumenDiagnostico" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
