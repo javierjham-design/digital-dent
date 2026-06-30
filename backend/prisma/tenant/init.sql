@@ -87,6 +87,8 @@ CREATE TABLE "Paciente" (
     "alergias" TEXT,
     "antecedentes" TEXT,
     "observaciones" TEXT,
+    "contactoEmergencia" TEXT,
+    "telefonoEmergencia" TEXT,
     "activo" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,

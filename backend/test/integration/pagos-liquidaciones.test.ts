@@ -240,6 +240,24 @@ describe('ficha del paciente: datos y registro de accesos', () => {
     expect(r.body.rut).toBeNull()
   })
 
+  it('numera la ficha clínica desde 1000 y guarda los campos legales', async () => {
+    const nuevo = await post('/pacientes', { nombre: 'Legal', apellido: 'Paciente' })
+    expect(nuevo.status).toBe(201)
+    expect(nuevo.body.numero).toBeGreaterThanOrEqual(1000)
+
+    const upd = await request(app).patch(`/api/v1/pacientes/${nuevo.body.id}`).set(auth()).send({
+      nombreSocial: 'Sol', actividad: 'Profesora', apoderado: 'María Pérez', rutApoderado: '9.876.543-3',
+      contactoEmergencia: 'Pedro Pérez', telefonoEmergencia: '+56 9 1234 5678',
+    })
+    expect(upd.status).toBe(200)
+    expect(upd.body.nombreSocial).toBe('Sol')
+    expect(upd.body.actividad).toBe('Profesora')
+    expect(upd.body.apoderado).toBe('María Pérez')
+    expect(upd.body.rutApoderado).toBe('9.876.543-3')
+    expect(upd.body.contactoEmergencia).toBe('Pedro Pérez')
+    expect(upd.body.telefonoEmergencia).toBe('+56 9 1234 5678')
+  })
+
   it('registra el acceso a la ficha en el Historial (y no lo duplica dentro del minuto)', async () => {
     await get(`/pacientes/${A.pacienteId}`)
     const hist = await get(`/historial?pacienteId=${A.pacienteId}`)

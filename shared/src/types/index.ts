@@ -40,12 +40,18 @@ export interface PacienteDTO {
   otroDocId: string | null
   nombre: string
   apellido: string
+  nombreSocial: string | null
   telefono: string | null
   email: string | null
   prevision: string | null
   fechaNacimiento: string | null
   sexo: string | null
   direccion: string | null
+  actividad: string | null
+  apoderado: string | null
+  rutApoderado: string | null
+  contactoEmergencia: string | null
+  telefonoEmergencia: string | null
   observaciones: string | null
   activo: boolean
 }

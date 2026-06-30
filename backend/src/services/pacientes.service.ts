@@ -22,14 +22,19 @@ function toDTO(p: {
   id: string; numero: number | null; rut: string | null; nombre: string; apellido: string
   telefono: string | null; email: string | null; prevision: string | null
   fechaNacimiento: Date | null; activo: boolean
-  otroDocId?: string | null; sexo?: string | null; direccion?: string | null; observaciones?: string | null
+  otroDocId?: string | null; nombreSocial?: string | null; sexo?: string | null; direccion?: string | null
+  actividad?: string | null; apoderado?: string | null; rutApoderado?: string | null
+  contactoEmergencia?: string | null; telefonoEmergencia?: string | null; observaciones?: string | null
 }): PacienteDTO {
   return {
     id: p.id, numero: p.numero, rut: p.rut, otroDocId: p.otroDocId ?? null,
-    nombre: p.nombre, apellido: p.apellido,
+    nombre: p.nombre, apellido: p.apellido, nombreSocial: p.nombreSocial ?? null,
     telefono: p.telefono, email: p.email, prevision: p.prevision,
     fechaNacimiento: p.fechaNacimiento?.toISOString() ?? null,
-    sexo: p.sexo ?? null, direccion: p.direccion ?? null, observaciones: p.observaciones ?? null,
+    sexo: p.sexo ?? null, direccion: p.direccion ?? null,
+    actividad: p.actividad ?? null, apoderado: p.apoderado ?? null, rutApoderado: p.rutApoderado ?? null,
+    contactoEmergencia: p.contactoEmergencia ?? null, telefonoEmergencia: p.telefonoEmergencia ?? null,
+    observaciones: p.observaciones ?? null,
     activo: p.activo,
   }
 }
@@ -131,10 +136,11 @@ export async function crearPaciente(db: TenantClient, input: CrearPacienteInput)
     const dup = await db.paciente.findFirst({ where: { rut }, select: { id: true } })
     if (dup) throw badRequest('Ya existe un paciente con ese RUT en la clínica')
   }
+  // La ficha clínica de cada paciente se numera desde 1000 (correlativo).
   const ultimo = await db.paciente.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
   const p = await db.paciente.create({
     data: {
-      numero: (ultimo?.numero ?? 0) + 1,
+      numero: Math.max(1000, (ultimo?.numero ?? 999) + 1),
       nombre: input.nombre.trim(),
       apellido: input.apellido.trim(),
       rut,
@@ -152,7 +158,8 @@ const PACIENTE_FIELDS = [
   'rut', 'otroDocId', 'nombre', 'apellido', 'nombreSocial', 'fechaNacimiento', 'genero', 'sexo',
   'nacionalidad', 'migrante', 'puebloOriginario', 'telefono', 'telefonoFijo', 'email', 'direccion',
   'ciudad', 'comuna', 'prevision', 'actividad', 'empleador', 'apoderado', 'rutApoderado', 'referencia',
-  'tipoPaciente', 'numeroInterno', 'alergias', 'antecedentes', 'observaciones', 'activo',
+  'tipoPaciente', 'numeroInterno', 'alergias', 'antecedentes', 'observaciones',
+  'contactoEmergencia', 'telefonoEmergencia', 'activo',
 ]
 
 export async function actualizarPaciente(db: TenantClient, id: string, body: Record<string, unknown>): Promise<PacienteDTO> {

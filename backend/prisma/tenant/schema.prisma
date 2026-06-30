@@ -121,6 +121,8 @@ model Paciente {
   alergias         String?
   antecedentes     String?
   observaciones    String?
+  contactoEmergencia String?
+  telefonoEmergencia String?
   activo           Boolean   @default(true)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

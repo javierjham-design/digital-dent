@@ -156,10 +156,15 @@ function MensajesTab({ pacienteId }: { pacienteId: string }) {
 // ── Datos + ficha clínica ──
 function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: PacienteDTO) => void }) {
   const [form, setForm] = useState({
-    nombre: paciente.nombre, apellido: paciente.apellido, rut: paciente.rut ?? '', otroDoc: paciente.otroDocId ?? '',
+    nombre: paciente.nombre, apellido: paciente.apellido, nombreSocial: paciente.nombreSocial ?? '',
+    rut: paciente.rut ?? '', otroDoc: paciente.otroDocId ?? '',
     fechaNacimiento: paciente.fechaNacimiento ? paciente.fechaNacimiento.slice(0, 10) : '',
-    sexo: paciente.sexo ?? '', telefono: paciente.telefono ?? '', email: paciente.email ?? '',
-    prevision: paciente.prevision ?? '', direccion: paciente.direccion ?? '', observaciones: paciente.observaciones ?? '',
+    sexo: paciente.sexo ?? '', actividad: paciente.actividad ?? '',
+    telefono: paciente.telefono ?? '', email: paciente.email ?? '',
+    prevision: paciente.prevision ?? '', direccion: paciente.direccion ?? '',
+    apoderado: paciente.apoderado ?? '', rutApoderado: paciente.rutApoderado ?? '',
+    contactoEmergencia: paciente.contactoEmergencia ?? '', telefonoEmergencia: paciente.telefonoEmergencia ?? '',
+    observaciones: paciente.observaciones ?? '',
   })
   const rutInvalido = Boolean(form.rut) && !validarRut(form.rut)
   const [ficha, setFicha] = useState<FichaClinica | null>(null)
@@ -189,8 +194,15 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
   return (
     <div className="space-y-5">
       <div className="bg-white rounded-2xl border border-slate-200 p-5 grid sm:grid-cols-2 gap-3">
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">N° ficha clínica</span>
+          <input value={paciente.numero ?? '—'} readOnly disabled
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-slate-50 text-slate-500 font-mono" />
+        </label>
+        <div className="hidden sm:block" />
         <In label="Nombres" v={form.nombre} on={(x) => setForm({ ...form, nombre: x })} />
         <In label="Apellidos" v={form.apellido} on={(x) => setForm({ ...form, apellido: x })} />
+        <In label="Nombre social" v={form.nombreSocial} on={(x) => setForm({ ...form, nombreSocial: x })} />
         <RutField rut={form.rut} otroDoc={form.otroDoc} onChange={(v) => setForm({ ...form, ...v })} />
         <label className="block">
           <span className="block text-sm font-medium text-slate-700 mb-1">Fecha de nacimiento</span>
@@ -207,10 +219,18 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
             <option value="Otro">Otro</option>
           </select>
         </label>
+        <In label="Ocupación" v={form.actividad} on={(x) => setForm({ ...form, actividad: x })} />
         <In label="Teléfono" v={form.telefono} on={(x) => setForm({ ...form, telefono: x })} />
         <In label="Email" v={form.email} on={(x) => setForm({ ...form, email: x })} />
         <In label="Previsión" v={form.prevision} on={(x) => setForm({ ...form, prevision: x })} />
         <In label="Dirección" v={form.direccion} on={(x) => setForm({ ...form, direccion: x })} />
+        <div className="sm:col-span-2 border-t border-slate-100 pt-3 mt-1">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Representante legal / Apoderado y contacto de emergencia</p>
+        </div>
+        <In label="Representante legal o Apoderado" v={form.apoderado} on={(x) => setForm({ ...form, apoderado: x })} />
+        <In label="RUT del apoderado / representante" v={form.rutApoderado} on={(x) => setForm({ ...form, rutApoderado: x })} />
+        <In label="Contacto de emergencia (nombre)" v={form.contactoEmergencia} on={(x) => setForm({ ...form, contactoEmergencia: x })} />
+        <In label="Teléfono de emergencia" v={form.telefonoEmergencia} on={(x) => setForm({ ...form, telefonoEmergencia: x })} />
         <label className="block sm:col-span-2">
           <span className="block text-sm font-medium text-slate-700 mb-1">Observaciones</span>
           <textarea value={form.observaciones} onChange={(e) => setForm({ ...form, observaciones: e.target.value })} rows={3}
