@@ -208,6 +208,34 @@ export const crearContratoSchema = z.object({
   fechaFin: z.string().nullish(),
 })
 
+export const crearLinkSchema = z.object({
+  nombre: z.string().min(1, 'Falta el nombre'),
+  descripcion: z.string().nullish(),
+  doctorId: z.string().min(1),
+  tipoCita: z.string().optional(),
+  duracionMin: z.number().optional(),
+  usaHorarioDoctor: z.boolean().optional(),
+  anticipacionHoras: z.number().optional(),
+  diasMaxFuturo: z.number().optional(),
+  mensajeConfirmacion: z.string().nullish(),
+  color: z.string().nullish(),
+  ventanas: z.array(z.object({
+    diaSemana: z.number().int().min(0).max(6),
+    horaInicio: z.string(),
+    horaFin: z.string(),
+  })).optional(),
+})
+
+export const reservarOnlineSchema = z.object({
+  inicio: z.string().min(1),
+  nombre: z.string().min(1),
+  apellido: z.string().min(1),
+  telefono: z.string().min(1),
+  email: z.string().optional(),
+  rut: z.string().optional(),
+  motivo: z.string().optional(),
+})
+
 export const crearLiquidacionSchema = z.object({
   doctorId: z.string().min(1),
   periodo: z.string().regex(/^\d{4}-\d{2}$/, 'periodo debe ser YYYY-MM'),

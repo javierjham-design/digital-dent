@@ -308,6 +308,50 @@ describe('seguridad: acciones realizadas (precio/descuento bloqueados, desrealiz
   })
 })
 
+describe('agendamiento online (links públicos + reserva)', () => {
+  it('crea un link, expone slots públicos y permite reservar (cita PENDIENTE origen ONLINE)', async () => {
+    const ventanas = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ diaSemana: d, horaInicio: '09:00', horaFin: '18:00' }))
+    const link = await post('/agenda-links', { nombre: 'Evaluaciones', doctorId, usaHorarioDoctor: false, duracionMin: 30, anticipacionHoras: 0, diasMaxFuturo: 7, ventanas })
+    expect(link.status).toBe(201)
+    const token = link.body.token as string
+
+    // GET público (sin auth) resolviendo por slug
+    const pub = await request(app).get(`/api/v1/public/agenda/${A.slug}/${token}`)
+    expect(pub.status).toBe(200)
+    expect(pub.body.dias.length).toBeGreaterThan(0)
+    const slot = pub.body.dias[0].slots[0]
+    expect(slot?.inicio).toBeTruthy()
+
+    // Reservar (sin auth)
+    const reserva = await request(app).post(`/api/v1/public/agenda/${A.slug}/${token}/reservar`)
+      .send({ inicio: slot.inicio, nombre: 'Pedro', apellido: 'Online', telefono: '+56 9 8888 7777', motivo: 'Dolor' })
+    expect(reserva.status).toBe(201)
+    expect(reserva.body.ok).toBe(true)
+
+    // Aparece en reservas-online (admin) y es una cita PENDIENTE / origen ONLINE
+    const reservas = await get('/reservas-online')
+    expect(reservas.body.some((r: { id: string }) => r.id === reserva.body.citaId)).toBe(true)
+    const db = tenantClient(A.dbName)
+    const cita = await db.cita.findUnique({ where: { id: reserva.body.citaId }, select: { estado: true, origen: true, linkAgendaId: true } })
+    expect(cita?.estado).toBe('PENDIENTE')
+    expect(cita?.origen).toBe('ONLINE')
+
+    // El mismo cupo ya no se ofrece
+    const pub2 = await request(app).get(`/api/v1/public/agenda/${A.slug}/${token}`)
+    const sigue = pub2.body.dias.some((d: { slots: { inicio: string }[] }) => d.slots.some((s) => s.inicio === slot.inicio))
+    expect(sigue).toBe(false)
+  })
+
+  it('rechaza reservar un horario fuera de la disponibilidad', async () => {
+    const link = await post('/agenda-links', { nombre: 'Solo lunes', doctorId, usaHorarioDoctor: false, duracionMin: 30, anticipacionHoras: 0, diasMaxFuturo: 7, ventanas: [{ diaSemana: 1, horaInicio: '09:00', horaFin: '10:00' }] })
+    const token = link.body.token as string
+    // Un instante arbitrario lejano (no es un slot generado)
+    const r = await request(app).post(`/api/v1/public/agenda/${A.slug}/${token}/reservar`)
+      .send({ inicio: '2030-01-01T03:00:00.000Z', nombre: 'X', apellido: 'Y', telefono: '+56 9 1234 5678' })
+    expect(r.status).toBe(409)
+  })
+})
+
 describe('configuración del profesional (contratos y horarios)', () => {
   it('crear contrato PORCENTAJE con montoFijo null NO falla (montoFijo no es obligatorio)', async () => {
     const r = await post('/contratos', { doctorId, tipo: 'PORCENTAJE', porcentaje: 40, montoFijo: null, descripcion: null, fechaFin: null })

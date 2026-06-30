@@ -137,6 +137,8 @@ CREATE TABLE "Cita" (
     "sala" TEXT,
     "sobrecupo" BOOLEAN NOT NULL DEFAULT false,
     "confirmadoWA" BOOLEAN NOT NULL DEFAULT false,
+    "origen" TEXT,
+    "linkAgendaId" TEXT,
     "googleEventId" TEXT,
     "googleSyncedAt" TIMESTAMP(3),
     "googleSyncError" TEXT,
@@ -686,4 +688,47 @@ ALTER TABLE "HorarioDoctor" ADD CONSTRAINT "HorarioDoctor_doctorId_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "BloqueoAgenda" ADD CONSTRAINT "BloqueoAgenda_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- CreateTable
+CREATE TABLE "LinkAgenda" (
+    "id" TEXT NOT NULL,
+    "token" TEXT NOT NULL,
+    "nombre" TEXT NOT NULL,
+    "descripcion" TEXT,
+    "doctorId" TEXT NOT NULL,
+    "tipoCita" TEXT NOT NULL DEFAULT 'EVALUACION',
+    "duracionMin" INTEGER NOT NULL DEFAULT 30,
+    "usaHorarioDoctor" BOOLEAN NOT NULL DEFAULT true,
+    "anticipacionHoras" INTEGER NOT NULL DEFAULT 12,
+    "diasMaxFuturo" INTEGER NOT NULL DEFAULT 30,
+    "mensajeConfirmacion" TEXT,
+    "color" TEXT,
+    "activo" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "LinkAgenda_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "LinkAgenda_token_key" ON "LinkAgenda"("token");
+CREATE INDEX "LinkAgenda_doctorId_idx" ON "LinkAgenda"("doctorId");
+
+-- CreateTable
+CREATE TABLE "LinkAgendaVentana" (
+    "id" TEXT NOT NULL,
+    "linkId" TEXT NOT NULL,
+    "diaSemana" INTEGER NOT NULL,
+    "horaInicio" TEXT NOT NULL,
+    "horaFin" TEXT NOT NULL,
+
+    CONSTRAINT "LinkAgendaVentana_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "LinkAgendaVentana_linkId_idx" ON "LinkAgendaVentana"("linkId");
+
+-- AddForeignKey
+ALTER TABLE "LinkAgenda" ADD CONSTRAINT "LinkAgenda_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "LinkAgendaVentana" ADD CONSTRAINT "LinkAgendaVentana_linkId_fkey" FOREIGN KEY ("linkId") REFERENCES "LinkAgenda"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

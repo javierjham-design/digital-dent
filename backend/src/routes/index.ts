@@ -28,6 +28,7 @@ import * as demo from '@/controllers/demo.controller'
 import * as whatsapp from '@/controllers/whatsapp.controller'
 import * as googlec from '@/controllers/google.controller'
 import { getPlanesPublicos } from '@/controllers/public.controller'
+import * as agendaOnline from '@/controllers/agenda-online.controller'
 import { requireSuperAdmin } from '@/middlewares/auth'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
@@ -49,6 +50,10 @@ apiRouter.post('/auth/cambiar-password', requireAuth, asyncHandler(postCambiarPa
 
 // ── Público: catálogo de planes para la landing ──────────────────────────────
 apiRouter.get('/planes', asyncHandler(getPlanesPublicos))
+
+// ── Público: agendamiento online (resuelve la clínica por slug, sin sesión) ──
+apiRouter.get('/public/agenda/:slug/:token', asyncHandler(agendaOnline.getPublicAgenda))
+apiRouter.post('/public/agenda/:slug/:token/reservar', asyncHandler(agendaOnline.postPublicReserva))
 
 // ── Público: demo + webhook WhatsApp (auth interna propia) ───────────────────
 apiRouter.post('/demo', asyncHandler(demo.postDemo))
@@ -98,6 +103,13 @@ apiRouter.patch('/usuarios/:id', tenant, asyncHandler(patchUsuario)) // self o a
 // ── Horarios (convertido a database-per-tenant) ──────────────────────────────
 apiRouter.get('/horarios', tenant, asyncHandler(getHorarios))
 apiRouter.post('/horarios', tenant, asyncHandler(postHorarios))
+
+// ── Agendamiento online: links (admin) + reservas ────────────────────────────
+apiRouter.get('/agenda-links', tenant, asyncHandler(agendaOnline.getLinks))
+apiRouter.post('/agenda-links', adminTenant, asyncHandler(agendaOnline.postLink))
+apiRouter.patch('/agenda-links/:id', adminTenant, asyncHandler(agendaOnline.patchLink))
+apiRouter.delete('/agenda-links/:id', adminTenant, asyncHandler(agendaOnline.deleteLink))
+apiRouter.get('/reservas-online', tenant, asyncHandler(agendaOnline.getReservas))
 
 // ── Bloqueos de agenda (convertido a database-per-tenant) ────────────────────
 apiRouter.get('/bloqueos', tenant, asyncHandler(getBloqueos))

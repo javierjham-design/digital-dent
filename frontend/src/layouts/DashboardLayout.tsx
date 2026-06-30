@@ -45,6 +45,7 @@ function AdministracionMenu({ puedeGestionar, esAdmin }: { puedeGestionar: boole
           <div className="bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
             {esAdmin && item('/configuracion', 'Configuración de la clínica')}
             {esAdmin && item('/equipo', 'Equipo')}
+            {esAdmin && item('/agendamiento-online', 'Agendamiento online')}
             {item('/prestaciones', 'Prestaciones')}
             {item('/reportes', 'Reportes')}
             {puedeGestionar && item('/liquidaciones', 'Gestión de liquidaciones')}

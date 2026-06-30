@@ -57,6 +57,8 @@ async function resetYSeedTenant(dbName: string, n: number) {
   await db.prestacion.deleteMany()
   await db.medioPago.deleteMany()
   await db.auditLog.deleteMany()
+  await db.linkAgendaVentana.deleteMany()
+  await db.linkAgenda.deleteMany()
   await db.horarioDoctor.deleteMany()
   await db.bloqueoAgenda.deleteMany()
   await db.mensajePaciente.deleteMany()

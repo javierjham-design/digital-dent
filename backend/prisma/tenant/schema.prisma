@@ -88,6 +88,7 @@ model User {
   cajas              CajaUsuario[]
   movimientosCaja    MovimientoCaja[]  @relation("MovimientoUsuario")
   bloqueosAgenda     BloqueoAgenda[]   @relation("DoctorBloqueos")
+  linksAgenda        LinkAgenda[]
 }
 
 model Paciente {
@@ -174,6 +175,8 @@ model Cita {
   sala         String?
   sobrecupo    Boolean  @default(false)
   confirmadoWA Boolean  @default(false)
+  origen       String?  // null = interna; "ONLINE" = reserva pública del paciente
+  linkAgendaId String?  // link de agendamiento online que la generó
   googleEventId   String?
   googleSyncedAt  DateTime?
   googleSyncError String?
@@ -594,4 +597,42 @@ model BloqueoAgenda {
 
   @@index([doctorId, inicio])
   @@index([googleEventId])
+}
+
+// Link público de agendamiento online. Cada link reserva citas para un
+// profesional, con un tipo/etiqueta y duración fijos. La disponibilidad es
+// híbrida: usa el horario del profesional, o ventanas exclusivas propias.
+model LinkAgenda {
+  id                  String   @id @default(cuid())
+  token               String   @unique          // identificador público en la URL
+  nombre              String
+  descripcion         String?
+  doctorId            String
+  tipoCita            String   @default("EVALUACION") // se guarda en Cita.tipo
+  duracionMin         Int      @default(30)
+  usaHorarioDoctor    Boolean  @default(true)   // false → usa solo sus ventanas
+  anticipacionHoras   Int      @default(12)     // antelación mínima para reservar
+  diasMaxFuturo       Int      @default(30)     // ventana de reserva hacia adelante
+  mensajeConfirmacion String?
+  color               String?
+  activo              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  doctor              User     @relation(fields: [doctorId], references: [id])
+  ventanas            LinkAgendaVentana[]
+
+  @@index([doctorId])
+}
+
+// Ventana semanal recurrente exclusiva de un link (cuando no usa el horario
+// del profesional). Ej: día 1 (lunes) 15:00–18:00 = solo evaluaciones online.
+model LinkAgendaVentana {
+  id         String     @id @default(cuid())
+  linkId     String
+  diaSemana  Int        // 0=domingo … 6=sábado
+  horaInicio String     // "15:00"
+  horaFin    String     // "18:00"
+  link       LinkAgenda @relation(fields: [linkId], references: [id], onDelete: Cascade)
+
+  @@index([linkId])
 }

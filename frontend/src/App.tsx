@@ -11,6 +11,8 @@ import { Equipo } from '@/pages/Equipo'
 import { Prestaciones } from '@/pages/Prestaciones'
 import { Configuracion } from '@/pages/Configuracion'
 import { Cobros } from '@/pages/Cobros'
+import { AgendaOnline } from '@/pages/AgendaOnline'
+import { AgendarPublico } from '@/pages/AgendarPublico'
 import { Liquidaciones } from '@/pages/Liquidaciones'
 import { MisLiquidaciones } from '@/pages/MisLiquidaciones'
 import { LiquidacionPrint } from '@/pages/LiquidacionPrint'
@@ -31,6 +33,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login />} />
+          {/* Página pública de reserva de hora (sin sesión). */}
+          <Route path="/c/:slug/agendar/:token" element={<AgendarPublico />} />
           <Route
             element={
               <ProtectedRoute>
@@ -43,6 +47,7 @@ export default function App() {
             <Route path="/pacientes/:id" element={<FichaPaciente />} />
             <Route path="/presupuestos" element={<Presupuestos />} />
             <Route path="/cobros" element={<Cobros />} />
+            <Route path="/agendamiento-online" element={<AgendaOnline />} />
             <Route path="/reportes" element={<Reportes />} />
             <Route path="/liquidaciones" element={<Liquidaciones />} />
             <Route path="/mis-liquidaciones" element={<MisLiquidaciones />} />
