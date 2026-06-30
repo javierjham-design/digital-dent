@@ -183,7 +183,9 @@ export async function registrarPago(ctx: AuditCtx, id: string, body: Record<stri
     control.pagoSuscripcion.create({
       data: { clinicaId: id, fechaPago, monto, periodoDesde, periodoHasta, metodoPago, comprobante: body.comprobante ? String(body.comprobante) : null, notas: body.notas ? String(body.notas) : null, registradoPor: ctx.actorId },
     }),
-    control.clinica.update({ where: { id }, data: { proximoCobro: nuevoProximoCobro, activo: true, plan: clinica.plan === 'TRIAL' ? 'BASICO' : clinica.plan } }),
+    // Un pago convierte una demo/trial en cliente permanente: deja de ser demo
+    // (no se auto-elimina) y, si estaba en TRIAL, pasa a BÁSICO.
+    control.clinica.update({ where: { id }, data: { proximoCobro: nuevoProximoCobro, activo: true, plan: clinica.plan === 'TRIAL' ? 'BASICO' : clinica.plan, esDemo: false, demoExpiraEn: null } }),
   ])
   await auditAdmin({ ...ctx, action: 'REGISTRAR_PAGO', targetType: 'PAGO', targetId: pago.id, details: { clinicaSlug: clinicaActualizada.slug, monto, metodoPago } })
   return { ok: true, pago, clinica: clinicaActualizada }
@@ -343,11 +345,13 @@ export async function resumenSuscripciones() {
   const priceMap: PlanPriceMap = {}
   for (const p of planes) priceMap[p.id] = p.precioMensual
 
+  // Incluimos las clínicas demo/trial autogestionadas (creadas desde la web) para
+  // que el dueño las vea y pueda convertirlas. Se distinguen con esDemo y NO
+  // suman a los KPIs de cartera ni al MRR (son sandboxes que expiran).
   const clinicas = await control.clinica.findMany({
-    where: { esDemo: false },
     select: {
       id: true, slug: true, nombre: true, plan: true, activo: true, trialHasta: true, proximoCobro: true,
-      precioAcordado: true, cicloFacturacion: true, createdAt: true,
+      precioAcordado: true, cicloFacturacion: true, createdAt: true, esDemo: true, demoExpiraEn: true,
       pagosSuscripcion: { orderBy: { fechaPago: 'desc' }, take: 1, select: { fechaPago: true, monto: true } },
       extras: { where: { activo: true }, select: { montoMensual: true } },
     },
@@ -358,23 +362,29 @@ export async function resumenSuscripciones() {
   let mrr = 0, arr = 0
   const contadores = { AL_DIA: 0, ATRASADO: 0, TRIAL: 0, SUSPENDIDO: 0 }
   let trialsPorVencer = 0
+  let demos = 0
   const lista = clinicas.map((c) => {
     const estado = getEstadoPago({ plan: c.plan, activo: c.activo, trialHasta: c.trialHasta, proximoCobro: c.proximoCobro, precioAcordado: c.precioAcordado, cicloFacturacion: c.cicloFacturacion }, now)
-    contadores[estado]++
     const montoExtras = c.extras.reduce((s, e) => s + e.montoMensual, 0)
     const precio = precioMensualEfectivo({ plan: c.plan, precioAcordado: c.precioAcordado }, priceMap) + montoExtras
-    if (estado === 'AL_DIA' && c.plan !== 'TRIAL') { mrr += precio; arr += precio * 12 }
-    if (estado === 'TRIAL' && c.trialHasta && c.trialHasta.getTime() <= en7dias.getTime()) trialsPorVencer++
+    if (c.esDemo) {
+      demos++
+    } else {
+      contadores[estado]++
+      if (estado === 'AL_DIA' && c.plan !== 'TRIAL') { mrr += precio; arr += precio * 12 }
+      if (estado === 'TRIAL' && c.trialHasta && c.trialHasta.getTime() <= en7dias.getTime()) trialsPorVencer++
+    }
     return {
       id: c.id, slug: c.slug, nombre: c.nombre, plan: c.plan, activo: c.activo,
       trialHasta: c.trialHasta?.toISOString() ?? null, proximoCobro: c.proximoCobro?.toISOString() ?? null,
       precioAcordado: c.precioAcordado, precioMensual: precio, cicloFacturacion: c.cicloFacturacion, estado,
+      esDemo: c.esDemo, demoExpiraEn: c.demoExpiraEn?.toISOString() ?? null,
       ultimoPago: c.pagosSuscripcion[0] ? { fecha: c.pagosSuscripcion[0].fechaPago.toISOString(), monto: c.pagosSuscripcion[0].monto } : null,
       createdAt: c.createdAt.toISOString(),
     }
   })
   return {
-    kpis: { totalClinicas: clinicas.length, mrr, arr, alDia: contadores.AL_DIA, atrasadas: contadores.ATRASADO, enTrial: contadores.TRIAL, suspendidas: contadores.SUSPENDIDO, trialsPorVencer },
+    kpis: { totalClinicas: clinicas.length - demos, mrr, arr, alDia: contadores.AL_DIA, atrasadas: contadores.ATRASADO, enTrial: contadores.TRIAL, suspendidas: contadores.SUSPENDIDO, trialsPorVencer, demos },
     clinicas: lista,
   }
 }

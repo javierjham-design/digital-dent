@@ -11,8 +11,9 @@ interface ClinicaResumen {
   id: string; slug: string; nombre: string; plan: string; activo: boolean
   trialHasta: string | null; proximoCobro: string | null; precioMensual: number
   estado: Estado; ultimoPago: { fecha: string; monto: number } | null; createdAt: string
+  esDemo: boolean; demoExpiraEn: string | null
 }
-interface Kpis { totalClinicas: number; mrr: number; arr: number; alDia: number; atrasadas: number; enTrial: number; suspendidas: number; trialsPorVencer: number }
+interface Kpis { totalClinicas: number; mrr: number; arr: number; alDia: number; atrasadas: number; enTrial: number; suspendidas: number; trialsPorVencer: number; demos: number }
 
 const ESTADO_TONE: Record<Estado, string> = {
   AL_DIA: 'bg-emerald-500/15 text-emerald-300',
@@ -42,6 +43,7 @@ export function AdminClinicas() {
     { l: 'Atrasadas', v: kpis.atrasadas },
     { l: 'En trial', v: kpis.enTrial },
     { l: 'Suspendidas', v: kpis.suspendidas },
+    { l: 'Demos', v: kpis.demos },
   ] : []
 
   return (
@@ -79,11 +81,17 @@ export function AdminClinicas() {
               <tbody className="divide-y divide-slate-800">
                 {clinicas.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-800/40">
-                    <td className="px-6 py-3"><p className="text-white font-medium">{c.nombre}</p><span className="text-xs text-slate-500 font-mono">{c.slug}</span></td>
+                    <td className="px-6 py-3">
+                      <p className="text-white font-medium flex items-center gap-2">
+                        {c.nombre}
+                        {c.esDemo && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-300">DEMO</span>}
+                      </p>
+                      <span className="text-xs text-slate-500 font-mono">{c.slug}</span>
+                    </td>
                     <td className="px-6 py-3 text-slate-300">{c.plan}</td>
                     <td className="px-6 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_TONE[c.estado]}`}>{ESTADO_LABEL[c.estado]}</span></td>
                     <td className="px-6 py-3 text-right text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : fmtCLP(c.precioMensual)}</td>
-                    <td className="px-6 py-3 text-right text-slate-400 text-xs whitespace-nowrap">{c.estado === 'TRIAL' ? `trial ${fmtFecha(c.trialHasta)}` : fmtFecha(c.proximoCobro)}</td>
+                    <td className="px-6 py-3 text-right text-slate-400 text-xs whitespace-nowrap">{c.esDemo ? `demo · expira ${fmtFecha(c.demoExpiraEn)}` : c.estado === 'TRIAL' ? `trial ${fmtFecha(c.trialHasta)}` : fmtFecha(c.proximoCobro)}</td>
                     <td className="px-6 py-3 text-right"><Link to={`/plataforma/clinicas/${c.id}`} className="text-xs text-purple-300 hover:text-purple-200">Gestionar →</Link></td>
                   </tr>
                 ))}
