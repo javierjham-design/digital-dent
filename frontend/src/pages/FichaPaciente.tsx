@@ -29,7 +29,19 @@ const SEXTANTES: [string, string][] = [
 ]
 const fmtCLP = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(n)
 const hoyISO = () => new Date().toISOString().slice(0, 10)
-const edad = (iso: string | null) => { if (!iso) return null; const d = new Date(iso); return Math.floor((Date.now() - d.getTime()) / (365.25 * 864e5)) }
+// Edad en años y meses (ej: "24 años 4 meses"). Sin fecha → "Sin edad ingresada".
+function edadTexto(iso: string | null): string {
+  if (!iso) return 'Sin edad ingresada'
+  const nac = new Date(iso)
+  if (Number.isNaN(nac.getTime())) return 'Sin edad ingresada'
+  const hoy = new Date()
+  let anios = hoy.getFullYear() - nac.getFullYear()
+  let meses = hoy.getMonth() - nac.getMonth()
+  if (hoy.getDate() < nac.getDate()) meses--
+  if (meses < 0) { anios--; meses += 12 }
+  if (anios < 0) return 'Sin edad ingresada'
+  return `${anios} ${anios === 1 ? 'año' : 'años'} ${meses} ${meses === 1 ? 'mes' : 'meses'}`
+}
 
 export function FichaPaciente() {
   const { id = '' } = useParams()
@@ -48,16 +60,13 @@ export function FichaPaciente() {
   if (error) return <p className="text-rose-600 text-sm">{error}</p>
   if (!paciente) return <p className="text-slate-500 text-sm">Cargando…</p>
 
-  const ed = edad(paciente.fechaNacimiento)
-
   return (
     <div className="max-w-4xl">
       <Link to="/pacientes" className="text-sm text-cyan-600 hover:underline">← Volver a pacientes</Link>
       <div className="mt-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-cyan-700 text-white p-6 mb-4">
         <h1 className="text-2xl font-bold">{paciente.nombre} {paciente.apellido}</h1>
         <p className="text-cyan-100 text-sm mt-1">
-          {paciente.rut ?? 'Sin RUT'}{ed != null ? ` · ${ed} años` : ''}{paciente.prevision ? ` · ${paciente.prevision}` : ''}
-          {paciente.telefono ? ` · ${paciente.telefono}` : ''}
+          {paciente.rut ?? 'Sin RUT'} · {edadTexto(paciente.fechaNacimiento)}{paciente.prevision ? ` · ${paciente.prevision}` : ''}
         </p>
         {resumen && (
           <div className="flex flex-wrap gap-x-6 gap-y-1 mt-4 text-sm">
