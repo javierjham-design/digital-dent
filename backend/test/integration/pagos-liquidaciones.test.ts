@@ -285,6 +285,29 @@ describe('ficha del paciente: datos y registro de accesos', () => {
   })
 })
 
+describe('seguridad: acciones realizadas (precio/descuento bloqueados, desrealizar)', () => {
+  it('una acción realizada bloquea precio y descuento; al desrealizarla se puede editar de nuevo', async () => {
+    const prest = await post('/prestaciones', { nombre: 'Sellante seguridad', precio: 20000 })
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })
+    const trat = await post('/tratamientos', { pacienteId: A.pacienteId, prestacionId: prest.body.id, planId: plan.body.id, precio: 20000 })
+    const tratId = trat.body[0].id
+    await post(`/tratamientos/${tratId}/evolucionar`, { texto: 'Hecho', profesionalId: doctorId })
+
+    // Realizada → precio y descuento bloqueados (aunque el admin tenga el permiso).
+    const p1 = await request(app).patch(`/api/v1/tratamientos/${tratId}`).set(auth()).send({ precio: 30000 })
+    expect(p1.status).toBe(403)
+    const d1 = await request(app).patch(`/api/v1/tratamientos/${tratId}`).set(auth()).send({ descuento: 10 })
+    expect(d1.status).toBe(403)
+
+    // Desrealizar (el admin tiene puedeRevertirCompletado) y ahora sí se puede editar.
+    const rev = await request(app).patch(`/api/v1/tratamientos/${tratId}`).set(auth()).send({ estado: 'PLANIFICADO', fechaCompletado: null })
+    expect(rev.status).toBe(200)
+    const p2 = await request(app).patch(`/api/v1/tratamientos/${tratId}`).set(auth()).send({ precio: 30000 })
+    expect(p2.status).toBe(200)
+    expect(p2.body.precio).toBe(30000)
+  })
+})
+
 describe('configuración del profesional (contratos y horarios)', () => {
   it('crear contrato PORCENTAJE con montoFijo null NO falla (montoFijo no es obligatorio)', async () => {
     const r = await post('/contratos', { doctorId, tipo: 'PORCENTAJE', porcentaje: 40, montoFijo: null, descripcion: null, fechaFin: null })

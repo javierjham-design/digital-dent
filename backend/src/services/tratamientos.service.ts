@@ -239,6 +239,13 @@ export async function actualizarTratamiento(db: TenantClient, actorId: string, i
   const me = await actorPermisos(db, actorId)
   const data: Record<string, unknown> = {}
 
+  // Una acción YA REALIZADA (COMPLETADO) tiene su precio y descuento bloqueados:
+  // para corregirlos hay que "desrealizarla" primero (revertir su estado), lo que
+  // exige el permiso puedeRevertirCompletado.
+  if (existing.estado === 'COMPLETADO' && (typeof body.precio === 'number' || typeof body.descuento === 'number')) {
+    throw forbidden('No se puede modificar el precio ni aplicar descuento a una acción ya realizada. Desrealízala primero.')
+  }
+
   if (typeof body.estado === 'string') {
     const saliendoDeCompletado = existing.estado === 'COMPLETADO' && body.estado !== 'COMPLETADO'
     if (saliendoDeCompletado && !me.permisos.puedeRevertirCompletado) {

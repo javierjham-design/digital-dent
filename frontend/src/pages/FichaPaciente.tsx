@@ -938,17 +938,26 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
 function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
   t: TratNode; bloqueado: boolean; accion: (fn: () => Promise<unknown>) => Promise<void>; onEvolucionar: (t: TratNode) => void
 }) {
+  const { user } = useAuth()
+  const esAdmin = user?.role === 'admin'
+  const puedeRevertir = esAdmin || Boolean(user?.permisos?.puedeRevertirCompletado)
+  const puedeModificarPrecio = esAdmin || Boolean(user?.permisos?.puedeModificarPrecio)
+  const puedeAplicarDescuento = esAdmin || Boolean(user?.permisos?.puedeAplicarDescuento)
   const completado = t.estado === 'COMPLETADO'
   const pagada = pagadaTrat(t)
+  // Una acción realizada bloquea precio y descuento (hay que desrealizarla primero).
+  const precioEditable = !bloqueado && !completado && puedeModificarPrecio
+  const dsctoEditable = !bloqueado && !completado && puedeAplicarDescuento
   const [edit, setEdit] = useState<null | 'precio' | 'dscto'>(null)
   const [val, setVal] = useState('')
-  const revertir = () => accion(() => tratamientosService.actualizar(t.id, { estado: 'PLANIFICADO', fechaCompletado: null }))
+  // Desrealizar (revertir a planificada): solo usuarios con el permiso.
+  const revertir = () => { if (puedeRevertir) accion(() => tratamientosService.actualizar(t.id, { estado: 'PLANIFICADO', fechaCompletado: null })) }
   const piezaLabel = t.diente
     ? `${t.diente}${t.cara ? ` (${t.cara.split('').join(',')})` : ''}`
     : (t.cara ? t.cara : (t.notas ? t.notas.replace(/^Piezas:\s*/, '') : '—'))
 
   function abrir(campo: 'precio' | 'dscto') {
-    if (bloqueado) return
+    if (campo === 'precio' ? !precioEditable : !dsctoEditable) return
     setVal(String(campo === 'precio' ? Math.round(t.precio) : (t.descuento || 0)))
     setEdit(campo)
   }
@@ -969,8 +978,9 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
       draggable={!bloqueado && !edit}
       onDragStart={(e) => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move' }}>
       <button onClick={() => (completado ? revertir() : onEvolucionar(t))}
-        title={completado ? 'Realizada (clic para revertir)' : 'Evolucionar / marcar como realizada'}
-        className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] shrink-0 ${completado ? 'bg-emerald-500 text-white' : 'border-2 border-slate-300 hover:border-cyan-400'}`}>
+        disabled={completado && !puedeRevertir}
+        title={completado ? (puedeRevertir ? 'Realizada — clic para desrealizar' : 'Realizada (no tienes permiso para desrealizar)') : 'Evolucionar / marcar como realizada'}
+        className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] shrink-0 ${completado ? `bg-emerald-500 text-white ${puedeRevertir ? '' : 'cursor-default opacity-90'}` : 'border-2 border-slate-300 hover:border-cyan-400'}`}>
         {completado ? '✓' : ''}
       </button>
       <div className="min-w-0 flex-1">
@@ -985,8 +995,8 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
         <input autoFocus type="number" min={0} max={100} value={val} onChange={(e) => setVal(e.target.value)} onBlur={guardar} onKeyDown={(e) => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEdit(null) }}
           className="w-11 sm:w-12 text-center text-sm border border-cyan-400 rounded px-1 py-0.5 focus:outline-none shrink-0" />
       ) : (
-        <button onClick={() => abrir('dscto')} disabled={bloqueado} title={bloqueado ? '' : 'Editar descuento'}
-          className="w-11 sm:w-12 text-center text-sm text-slate-500 enabled:hover:text-cyan-600 disabled:cursor-default shrink-0">{t.descuento ? `${t.descuento}%` : (bloqueado ? '—' : '0%')}</button>
+        <button onClick={() => abrir('dscto')} disabled={!dsctoEditable} title={completado ? 'Acción realizada: descuento bloqueado' : (dsctoEditable ? 'Editar descuento' : '')}
+          className="w-11 sm:w-12 text-center text-sm text-slate-500 enabled:hover:text-cyan-600 disabled:cursor-default shrink-0">{t.descuento ? `${t.descuento}%` : (dsctoEditable ? '0%' : '—')}</button>
       )}
 
       {/* Precio (editable: se edita el precio base; se muestra el neto con descuento) */}
@@ -994,8 +1004,8 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
         <input autoFocus type="number" min={0} value={val} onChange={(e) => setVal(e.target.value)} onBlur={guardar} onKeyDown={(e) => { if (e.key === 'Enter') guardar(); if (e.key === 'Escape') setEdit(null) }}
           className="w-20 sm:w-24 text-right text-sm font-mono border border-cyan-400 rounded px-1 py-0.5 focus:outline-none shrink-0" />
       ) : (
-        <button onClick={() => abrir('precio')} disabled={bloqueado}
-          title={bloqueado ? '' : (t.descuento ? `Precio base ${fmtCLP(t.precio)} · neto ${fmtCLP(netoTrat(t))}` : 'Editar precio')}
+        <button onClick={() => abrir('precio')} disabled={!precioEditable}
+          title={completado ? 'Acción realizada: precio bloqueado' : (t.descuento ? `Precio base ${fmtCLP(t.precio)} · neto ${fmtCLP(netoTrat(t))}` : (precioEditable ? 'Editar precio' : ''))}
           className="w-20 sm:w-24 text-right text-sm font-mono text-slate-700 enabled:hover:text-cyan-600 disabled:cursor-default shrink-0">{fmtCLP(netoTrat(t))}</button>
       )}
 
