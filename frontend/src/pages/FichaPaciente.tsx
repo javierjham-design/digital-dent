@@ -50,6 +50,9 @@ export function FichaPaciente() {
   const isAdmin = user?.role === 'admin'
   // Permite entrar directo a una pestaña vía ?tab= (p.ej. desde la agenda → planes).
   const [tab, setTab] = useState<Tab>(searchParams.get('tab') === 'planes' ? 'Planes de Tratamiento' : 'Datos')
+  // Al pinchar la pestaña "Planes de Tratamiento" estando dentro de un plan, se
+  // remonta el módulo (cambia el key) para volver a la lista de planes.
+  const [planesNonce, setPlanesNonce] = useState(0)
   const [paciente, setPaciente] = useState<PacienteDTO | null>(null)
   const [resumen, setResumen] = useState<ResumenPaciente | null>(null)
   const [error, setError] = useState('')
@@ -81,14 +84,14 @@ export function FichaPaciente() {
 
       <div className="flex gap-1 border-b border-slate-200 mb-5 overflow-x-auto">
         {TABS.map((t) => (
-          <button key={t} onClick={() => setTab(t)}
+          <button key={t} onClick={() => { if (t === 'Planes de Tratamiento' && tab === t) setPlanesNonce((n) => n + 1); setTab(t) }}
             className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap ${tab === t ? 'text-cyan-700 border-b-2 border-cyan-600' : 'text-slate-500 hover:text-slate-700'}`}>{t}</button>
         ))}
       </div>
 
       {tab === 'Datos' && <DatosTab paciente={paciente} onSaved={setPaciente} />}
       {tab === 'Citas' && <CitasTab pacienteId={id} />}
-      {tab === 'Planes de Tratamiento' && <PlanesTab pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} />}
+      {tab === 'Planes de Tratamiento' && <PlanesTab key={planesNonce} pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} />}
       {tab === 'Recaudación' && <RecaudacionTab pacienteId={id} />}
       {tab === 'Evoluciones' && <EvolucionesTab pacienteId={id} isAdmin={isAdmin} />}
       {tab === 'Historial' && <HistorialTab pacienteId={id} />}
@@ -496,10 +499,12 @@ function PlanTarjeta({ p, onAbrir, onEliminar }: { p: PlanCard; onAbrir: (id: st
   const fin = planFinanzas(p.tratamientos)
   const ef = estadoFinanciero(fin.realizado, fin.abonado + (p.abonoLibre ?? 0))
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-4 hover:border-cyan-300 transition-colors">
+    <div onClick={() => onAbrir(p.id)} role="button" tabIndex={0}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onAbrir(p.id) }}
+      className="bg-white rounded-2xl border border-slate-200 p-4 cursor-pointer hover:border-cyan-400 hover:shadow-sm transition-colors">
       <div className="flex items-center justify-between gap-2">
-        <button onClick={() => onAbrir(p.id)} className="text-cyan-700 font-semibold hover:underline truncate">#{p.id.slice(-4)}: {p.nombre}</button>
-        <button onClick={() => onEliminar(p.id)} className="text-slate-300 hover:text-rose-600 shrink-0" title="Eliminar plan">🗑</button>
+        <span className="text-cyan-700 font-semibold truncate">#{p.id.slice(-4)}: {p.nombre}</span>
+        <button onClick={(e) => { e.stopPropagation(); onEliminar(p.id) }} className="text-slate-300 hover:text-rose-600 shrink-0" title="Eliminar plan">🗑</button>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-3 items-center">
         <Campo l="Profesional" v={p.doctorTitular?.name ?? '—'} />
