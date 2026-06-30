@@ -14,6 +14,7 @@ interface Clinica {
 }
 interface Pago { id: string; fechaPago: string; monto: number; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
+interface Plan { id: string; nombre: string; precioMensual: number; orden: number; activo: boolean }
 interface Wa { waEnabled: boolean; waTwilioSid: string | null; waNumero: string | null; waTemplateSid: string | null; waHorasAntes: number; tokenConfigurado: boolean }
 
 export function AdminClinicaDetalle() {
@@ -71,10 +72,16 @@ const btnCls = 'px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 
 
 function PlanCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) {
   const [plan, setPlan] = useState(c.plan)
+  const [planes, setPlanes] = useState<Plan[]>([])
   const [ciclo, setCiclo] = useState(c.cicloFacturacion ?? 'MENSUAL')
   const [precio, setPrecio] = useState(c.precioAcordado != null ? String(c.precioAcordado) : '')
   const [proximo, setProximo] = useState(toInput(c.proximoCobro))
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  // Trae los planes creados en la sección "Planes" (los mismos de la página de venta).
+  useEffect(() => { adminService.planes().then((r) => setPlanes((r.planes as Plan[]).slice().sort((a, b) => a.orden - b.orden))).catch(() => {}) }, [])
+  // Planes activos + el plan actual de la clínica (aunque esté inactivo) para no perderlo.
+  const opciones = planes.filter((p) => p.activo || p.id === c.plan)
+  const actualEnLista = opciones.some((p) => p.id === c.plan)
   async function guardar() {
     setBusy(true); setErr('')
     try {
@@ -90,7 +97,13 @@ function PlanCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) 
     <Card title="Plan y facturación">
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">
-          <label><L>Plan</L><select value={plan} onChange={(e) => setPlan(e.target.value)} className={inpCls}><option value="TRIAL">Trial</option><option value="BASICO">Básico</option><option value="PRO">Pro</option></select></label>
+          <label><L>Plan</L>
+            <select value={plan} onChange={(e) => setPlan(e.target.value)} className={inpCls}>
+              {!actualEnLista && c.plan && <option value={c.plan}>{c.plan}</option>}
+              {opciones.map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.precioMensual > 0 ? ` · ${fmtCLP(p.precioMensual)}/mes` : ''}</option>)}
+              {opciones.length === 0 && <option value={c.plan}>{c.plan}</option>}
+            </select>
+          </label>
           <label><L>Ciclo</L><select value={ciclo} onChange={(e) => setCiclo(e.target.value)} className={inpCls}><option value="MENSUAL">Mensual</option><option value="ANUAL">Anual</option></select></label>
         </div>
         <label><L>Precio acordado (opcional, sobrescribe el del plan)</L><input value={precio} onChange={(e) => setPrecio(e.target.value)} inputMode="numeric" placeholder="usar precio del plan" className={`${inpCls} font-mono`} /></label>
@@ -220,29 +233,44 @@ function ExtrasCard({ id }: { id: string }) {
   const [extras, setExtras] = useState<Extra[]>([])
   const [form, setForm] = useState({ nombre: '', montoMensual: '' })
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  const [editId, setEditId] = useState<string | null>(null); const [editVal, setEditVal] = useState('')
   const cargar = () => adminService.extras(id).then((r) => setExtras(r.extras as Extra[])).catch(() => {})
   useEffect(() => { cargar() }, [id])
   async function crear() {
     setBusy(true); setErr('')
-    try { await adminService.crearExtra(id, { nombre: form.nombre, montoMensual: Number(form.montoMensual) }); setForm({ nombre: '', montoMensual: '' }); cargar() }
+    try { await adminService.crearExtra(id, { nombre: form.nombre, montoMensual: Number(form.montoMensual) || 0 }); setForm({ nombre: '', montoMensual: '' }); cargar() }
     catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
   }
   async function toggle(x: Extra) { await adminService.actualizarExtra(id, x.id, { activo: !x.activo }).catch(() => {}); cargar() }
   async function eliminar(xid: string) { if (!confirm('¿Eliminar este extra?')) return; await adminService.eliminarExtra(id, xid).catch(() => {}); cargar() }
+  async function guardarMonto(x: Extra) {
+    const m = Number(editVal); setEditId(null)
+    if (Number.isFinite(m) && m >= 0 && m !== x.montoMensual) { await adminService.actualizarExtra(id, x.id, { montoMensual: m }).catch(() => {}); cargar() }
+  }
   return (
     <Card title="Extras facturables">
+      <p className="text-xs text-slate-500 -mt-2 mb-3">Cargos mensuales adicionales para esta clínica (se suman al MRR). Ej: recordatorios WhatsApp, módulos extra.</p>
       <div className="flex flex-wrap items-end gap-2 mb-4">
         <label className="flex-1 min-w-[160px]"><L>Concepto</L><input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Recordatorios WhatsApp" className={inpCls} /></label>
-        <label><L>Monto mensual</L><input value={form.montoMensual} onChange={(e) => setForm({ ...form, montoMensual: e.target.value })} inputMode="numeric" className={`${inpCls} font-mono w-32`} /></label>
+        <label><L>Monto mensual</L><input value={form.montoMensual} onChange={(e) => setForm({ ...form, montoMensual: e.target.value })} inputMode="numeric" placeholder="0" className={`${inpCls} font-mono w-32`} /></label>
         <button onClick={crear} disabled={busy || !form.nombre} className={btnCls}>Agregar</button>
       </div>
       {err && <p className="text-rose-400 text-sm mb-2">{err}</p>}
       {extras.length === 0 ? <p className="text-slate-500 text-sm">Sin extras.</p> : (
         <div className="divide-y divide-slate-800">
           {extras.map((x) => (
-            <div key={x.id} className="flex items-center justify-between py-2.5">
-              <div><p className={`text-sm ${x.activo ? 'text-white' : 'text-slate-500 line-through'}`}>{x.nombre}</p><p className="text-xs text-slate-500 font-mono">{fmtCLP(x.montoMensual)}/mes</p></div>
-              <div className="flex items-center gap-3 text-xs">
+            <div key={x.id} className="flex items-center justify-between py-2.5 gap-3">
+              <div className="min-w-0">
+                <p className={`text-sm ${x.activo ? 'text-white' : 'text-slate-500 line-through'}`}>{x.nombre}</p>
+                {editId === x.id ? (
+                  <input autoFocus type="number" value={editVal} onChange={(e) => setEditVal(e.target.value)} onBlur={() => guardarMonto(x)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') guardarMonto(x); if (e.key === 'Escape') setEditId(null) }}
+                    className="mt-1 w-28 px-2 py-1 bg-slate-800 border border-purple-500 rounded-lg text-xs text-white font-mono" />
+                ) : (
+                  <button onClick={() => { setEditId(x.id); setEditVal(String(x.montoMensual)) }} className="text-xs text-slate-500 font-mono hover:text-white" title="Editar monto">{fmtCLP(x.montoMensual)}/mes ✎</button>
+                )}
+              </div>
+              <div className="flex items-center gap-3 text-xs shrink-0">
                 <button onClick={() => toggle(x)} className="text-slate-400 hover:text-white">{x.activo ? 'Pausar' : 'Activar'}</button>
                 <button onClick={() => eliminar(x.id)} className="text-rose-400 hover:text-rose-300">Eliminar</button>
               </div>
