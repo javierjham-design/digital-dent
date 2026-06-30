@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+/* Tailwind v4 quitó el cursor por defecto de los botones. Lo restauramos para
+   que todo lo clickeable (pestañas, botones, tarjetas con role="button") muestre
+   la manito y no haya dudas de que se puede pinchar. */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  summary {
+    cursor: pointer;
+  }
+}
+
 :root {
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
