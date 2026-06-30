@@ -64,7 +64,7 @@ export function FichaPaciente() {
   if (!paciente) return <p className="text-slate-500 text-sm">Cargando…</p>
 
   return (
-    <div className="max-w-4xl">
+    <div>
       <Link to="/pacientes" className="text-sm text-cyan-600 hover:underline">← Volver a pacientes</Link>
       <div className="mt-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-cyan-700 text-white p-6 mb-4">
         <h1 className="text-2xl font-bold">{paciente.nombre} {paciente.apellido}</h1>
@@ -89,14 +89,16 @@ export function FichaPaciente() {
         ))}
       </div>
 
-      {tab === 'Datos' && <DatosTab paciente={paciente} onSaved={setPaciente} />}
-      {tab === 'Citas' && <CitasTab pacienteId={id} />}
+      {/* Las pestañas de contenido tipo formulario/lista se acotan a un ancho
+          cómodo de lectura; Planes de Tratamiento usa todo el ancho disponible. */}
+      {tab === 'Datos' && <div className="max-w-5xl"><DatosTab paciente={paciente} onSaved={setPaciente} /></div>}
+      {tab === 'Citas' && <div className="max-w-4xl"><CitasTab pacienteId={id} /></div>}
       {tab === 'Planes de Tratamiento' && <PlanesTab key={planesNonce} pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} />}
       {tab === 'Recaudación' && <RecaudacionTab pacienteId={id} />}
-      {tab === 'Evoluciones' && <EvolucionesTab pacienteId={id} isAdmin={isAdmin} />}
-      {tab === 'Historial' && <HistorialTab pacienteId={id} />}
-      {tab === 'Comentarios' && <ComentariosTab pacienteId={id} />}
-      {tab === 'Mensajes' && <MensajesTab pacienteId={id} />}
+      {tab === 'Evoluciones' && <div className="max-w-4xl"><EvolucionesTab pacienteId={id} isAdmin={isAdmin} /></div>}
+      {tab === 'Historial' && <div className="max-w-4xl"><HistorialTab pacienteId={id} /></div>}
+      {tab === 'Comentarios' && <div className="max-w-4xl"><ComentariosTab pacienteId={id} /></div>}
+      {tab === 'Mensajes' && <div className="max-w-4xl"><MensajesTab pacienteId={id} /></div>}
     </div>
   )
 }
