@@ -16,6 +16,8 @@ export function AgendarPublico() {
   const [cargando, setCargando] = useState(true)
   const [diaSel, setDiaSel] = useState<string>('')
   const [slotSel, setSlotSel] = useState<{ inicio: string; hora: string } | null>(null)
+  const [verCal, setVerCal] = useState(false)
+  const [mesCal, setMesCal] = useState<{ y: number; m: number } | null>(null)
   const [form, setForm] = useState({ nombre: '', apellido: '', telefono: '', email: '', rut: '', motivo: '' })
   const [enviando, setEnviando] = useState(false)
   const [result, setResult] = useState<ReservaResult | null>(null)
@@ -54,6 +56,22 @@ export function AgendarPublico() {
   const { clinica, link } = data
   const profeSel = link.profesionales.find((p) => p.id === doctorSel)
   const diaActual = dias.find((d) => d.dia === diaSel)
+
+  // Calendario "Ver más fechas": días con cupo resaltados; navegación acotada al rango disponible.
+  const dispSet = new Set(dias.map((d) => d.dia))
+  const ym = (s?: string) => { if (!s) return null; const [y, m] = s.split('-').map(Number); return { y, m: m - 1 } }
+  const minYM = ym(dias[0]?.dia), maxYM = ym(dias[dias.length - 1]?.dia)
+  const cmp = (a: { y: number; m: number }, b: { y: number; m: number }) => (a.y !== b.y ? a.y - b.y : a.m - b.m)
+  const puedeAnterior = Boolean(mesCal && minYM && cmp(mesCal, minYM) > 0)
+  const puedeSiguiente = Boolean(mesCal && maxYM && cmp(mesCal, maxYM) < 0)
+  function abrirCal() {
+    const base = ym(diaSel) ?? minYM
+    if (base) setMesCal(base)
+    setVerCal(true)
+  }
+  function moverMes(dir: -1 | 1) {
+    setMesCal((p) => { if (!p) return p; let m = p.m + dir, y = p.y; if (m < 0) { m = 11; y-- } if (m > 11) { m = 0; y++ } return { y, m } })
+  }
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -116,14 +134,24 @@ export function AgendarPublico() {
               <>
                 {/* 1) Día */}
                 <p className="text-sm font-semibold text-slate-700 mb-2">1. Elige el día</p>
-                <div className="flex gap-2 overflow-x-auto pb-2 mb-4">
-                  {dias.map((d) => (
-                    <button key={d.dia} onClick={() => { setDiaSel(d.dia); setSlotSel(null) }}
-                      className={`shrink-0 px-3 py-2 rounded-xl text-sm border ${diaSel === d.dia ? 'bg-cyan-600 border-cyan-600 text-white' : 'bg-white border-slate-200 text-slate-600'}`}>
-                      <span className="capitalize">{diaLabel(d.dia)}</span>
-                    </button>
-                  ))}
-                </div>
+                {!verCal && (
+                  <div className="flex gap-2 overflow-x-auto pb-2 mb-2">
+                    {dias.map((d) => (
+                      <button key={d.dia} onClick={() => { setDiaSel(d.dia); setSlotSel(null) }}
+                        className={`shrink-0 px-3 py-2 rounded-xl text-sm border ${diaSel === d.dia ? 'bg-cyan-600 border-cyan-600 text-white' : 'bg-white border-slate-200 text-slate-600'}`}>
+                        <span className="capitalize">{diaLabel(d.dia)}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {verCal && mesCal && (
+                  <MiniCalendario y={mesCal.y} m={mesCal.m} disponibles={dispSet} sel={diaSel}
+                    puedeAnterior={puedeAnterior} puedeSiguiente={puedeSiguiente} onMes={moverMes}
+                    onPick={(ymd) => { setDiaSel(ymd); setSlotSel(null) }} />
+                )}
+                <button onClick={() => (verCal ? setVerCal(false) : abrirCal())} className="text-sm font-semibold text-cyan-700 mb-4">
+                  {verCal ? '‹ Ver menos' : '📅 Ver más fechas'}
+                </button>
 
                 {/* 2) Hora */}
                 <p className="text-sm font-semibold text-slate-700 mb-2">2. Elige la hora</p>
@@ -161,6 +189,48 @@ export function AgendarPublico() {
         )}
         <p className="text-center text-[11px] text-slate-400 mt-6">Agendamiento online de {clinica.nombre} · vía Cláriva</p>
       </div>
+    </div>
+  )
+}
+
+// Calendario mensual: resalta los días con cupo, deshabilita el resto. La
+// navegación entre meses está acotada al rango con disponibilidad.
+function MiniCalendario({ y, m, disponibles, sel, puedeAnterior, puedeSiguiente, onMes, onPick }: {
+  y: number; m: number; disponibles: Set<string>; sel: string
+  puedeAnterior: boolean; puedeSiguiente: boolean; onMes: (dir: -1 | 1) => void; onPick: (ymd: string) => void
+}) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const primero = new Date(y, m, 1)
+  const offset = primero.getDay() // 0=domingo
+  const total = new Date(y, m + 1, 0).getDate()
+  const nombreMes = primero.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })
+  const celdas: (string | null)[] = []
+  for (let i = 0; i < offset; i++) celdas.push(null)
+  for (let d = 1; d <= total; d++) celdas.push(`${y}-${pad(m + 1)}-${pad(d)}`)
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-3 mb-2">
+      <div className="flex items-center justify-between mb-2">
+        <button disabled={!puedeAnterior} onClick={() => onMes(-1)} className="w-8 h-8 rounded-lg border border-slate-200 disabled:opacity-30 hover:bg-slate-50">‹</button>
+        <span className="text-sm font-semibold text-slate-700 capitalize">{nombreMes}</span>
+        <button disabled={!puedeSiguiente} onClick={() => onMes(1)} className="w-8 h-8 rounded-lg border border-slate-200 disabled:opacity-30 hover:bg-slate-50">›</button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 text-center text-[11px] text-slate-400 mb-1">
+        {['Do', 'Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sa'].map((d) => <span key={d}>{d}</span>)}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {celdas.map((ymd, i) => {
+          if (!ymd) return <span key={i} />
+          const disp = disponibles.has(ymd)
+          const on = sel === ymd
+          return (
+            <button key={i} disabled={!disp} onClick={() => onPick(ymd)}
+              className={`h-9 rounded-lg text-sm ${on ? 'bg-cyan-600 text-white font-semibold' : disp ? 'bg-cyan-50 text-cyan-700 hover:bg-cyan-100' : 'text-slate-300 cursor-default'}`}>
+              {Number(ymd.split('-')[2])}
+            </button>
+          )
+        })}
+      </div>
+      <p className="text-[11px] text-slate-400 mt-2">Los días con cupo aparecen resaltados.</p>
     </div>
   )
 }
