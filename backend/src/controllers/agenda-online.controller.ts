@@ -41,7 +41,7 @@ export async function getPublicAgenda(req: Request, res: Response) {
   if (!link) throw notFound('Link de agendamiento no encontrado o inactivo')
   const cfg = await db.configuracion.findUnique({
     where: { id: 'singleton' },
-    select: { nombre: true, logoUrl: true, direccion: true, telefono: true, ciudad: true },
+    select: { nombre: true, logoUrl: true, direccion: true, telefono: true, ciudad: true, metaEnabled: true, metaPixelId: true },
   })
   // Profesionales del link (uno o varios). El paciente elige; por defecto el primero.
   const profes = (link.profesionales.length ? link.profesionales.map((p) => p.user) : [link.doctor])
@@ -50,6 +50,7 @@ export async function getPublicAgenda(req: Request, res: Response) {
   const dias = await svc.calcularSlots(db, link, sel)
   res.json({
     clinica: { nombre: cfg?.nombre ?? 'Clínica', logoUrl: cfg?.logoUrl ?? null, direccion: cfg?.direccion ?? '', telefono: cfg?.telefono ?? '', ciudad: cfg?.ciudad ?? '' },
+    pixelId: cfg?.metaEnabled ? (cfg?.metaPixelId ?? null) : null,
     link: {
       nombre: link.nombre, descripcion: link.descripcion, tipoCita: link.tipoCita, duracionMin: link.duracionMin,
       diasMaxFuturo: link.diasMaxFuturo, color: link.color, mensajeConfirmacion: link.mensajeConfirmacion,

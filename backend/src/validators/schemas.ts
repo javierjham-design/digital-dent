@@ -236,6 +236,9 @@ export const reservarOnlineSchema = z.object({
   email: z.string().optional(),
   rut: z.string().optional(),
   motivo: z.string().optional(),
+  eventId: z.string().optional(),
+  fbp: z.string().optional(),
+  fbc: z.string().optional(),
 })
 
 export const crearLeadSchema = z.object({

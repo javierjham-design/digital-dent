@@ -39,7 +39,7 @@ export async function deleteLead(req: Request, res: Response) {
   res.json({ ok: true })
 }
 export async function getConfig(req: Request, res: Response) {
-  res.json(await svc.obtenerConfigCrm(tenantDb(req)))
+  res.json({ slug: req.clinica?.slug ?? '', ...(await svc.obtenerConfigCrm(tenantDb(req))) })
 }
 export async function patchConfig(req: Request, res: Response) {
   res.json(await svc.guardarConfigCrm(tenantDb(req), req.body ?? {}))

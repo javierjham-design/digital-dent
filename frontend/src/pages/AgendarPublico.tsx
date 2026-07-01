@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { publicAgenda, type PublicAgendaDTO, type ReservaResult } from '@/services/agenda-online.service'
+import { initPixel, trackPixel, fbCookies, genEventId } from '@/lib/pixel'
 
 const diaLabel = (ymd: string) => {
   const d = new Date(`${ymd}T12:00:00`)
@@ -25,7 +26,7 @@ export function AgendarPublico() {
 
   useEffect(() => {
     publicAgenda.obtener(slug, token)
-      .then((d) => { setData(d); setDoctorSel(d.doctorId); setDias(d.dias); setDiaSel(d.dias[0]?.dia ?? '') })
+      .then((d) => { setData(d); setDoctorSel(d.doctorId); setDias(d.dias); setDiaSel(d.dias[0]?.dia ?? ''); if (d.pixelId) initPixel(d.pixelId) })
       .catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar'))
       .finally(() => setCargando(false))
   }, [slug, token])
@@ -43,8 +44,11 @@ export function AgendarPublico() {
       setError('Completa tu nombre, apellido y un teléfono válido.'); return
     }
     setEnviando(true); setError('')
+    const eventId = genEventId()
+    const fb = fbCookies()
     try {
-      const r = await publicAgenda.reservar(slug, token, { inicio: slotSel.inicio, doctorId: doctorSel, ...form })
+      if (data?.pixelId) trackPixel('Schedule', { content_name: data.link.tipoCita }, eventId)
+      const r = await publicAgenda.reservar(slug, token, { inicio: slotSel.inicio, doctorId: doctorSel, ...form, eventId, fbp: fb.fbp, fbc: fb.fbc })
       setResult(r)
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo reservar') } finally { setEnviando(false) }
   }

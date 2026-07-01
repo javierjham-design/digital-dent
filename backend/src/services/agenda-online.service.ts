@@ -231,6 +231,7 @@ export async function obtenerLinkPorToken(db: TenantClient, tk: string) {
 
 export interface ReservarInput {
   inicio: string; doctorId?: string; nombre: string; apellido: string; telefono: string; email?: string; rut?: string; motivo?: string
+  eventId?: string; fbp?: string; fbc?: string
 }
 
 export async function reservarPublico(db: TenantClient, link: Link, input: ReservarInput) {
@@ -306,12 +307,13 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
   // CRM: registrar la reserva como lead (origen agenda online) + evento Schedule a
   // Meta (best-effort; nunca hace fallar la reserva).
   try {
-    const eventId = randomUUID()
+    const eventId = input.eventId?.trim() || randomUUID() // dedup con el Pixel del navegador
     const cfg = await getMetaConfig(db)
     await db.lead.create({
       data: {
         nombre, apellido, telefono, email: input.email?.trim() || null, rut, motivo: motivo || null,
         origen: 'AGENDA_ONLINE', estado: 'AGENDADO', pacienteId: paciente.id, citaId: cita.id,
+        fbp: input.fbp || null, fbc: input.fbc || null,
         metaEventId: eventId, metaEnviado: metaHabilitado(cfg),
         notas: { create: { tipo: 'SISTEMA', texto: `Reserva online · ${link.nombre}` } },
       },
@@ -319,7 +321,7 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     if (metaHabilitado(cfg)) {
       void enviarEventoMeta(cfg, {
         eventName: 'Schedule', eventId, email: input.email, telefono, nombre, apellido,
-        custom: { content_name: link.tipoCita },
+        fbp: input.fbp, fbc: input.fbc, custom: { content_name: link.tipoCita },
       })
     }
   } catch { /* best-effort */ }
