@@ -238,6 +238,30 @@ export const reservarOnlineSchema = z.object({
   motivo: z.string().optional(),
 })
 
+export const crearLeadSchema = z.object({
+  nombre: z.string().min(1, 'Falta el nombre'),
+  apellido: z.string().optional(),
+  telefono: z.string().optional(),
+  email: z.string().optional(),
+  rut: z.string().optional(),
+  motivo: z.string().optional(),
+  origen: z.string().optional(),
+  campana: z.string().optional(),
+  utmSource: z.string().optional(),
+  utmMedium: z.string().optional(),
+  utmCampaign: z.string().optional(),
+  utmContent: z.string().optional(),
+  utmTerm: z.string().optional(),
+  fbclid: z.string().optional(),
+  fbp: z.string().optional(),
+  fbc: z.string().optional(),
+  referrer: z.string().optional(),
+  landing: z.string().optional(),
+  eventId: z.string().optional(),
+})
+
+export const notaSchema = z.object({ texto: z.string().min(1, 'La nota no puede quedar vacía') })
+
 export const crearLiquidacionSchema = z.object({
   doctorId: z.string().min(1),
   periodo: z.string().regex(/^\d{4}-\d{2}$/, 'periodo debe ser YYYY-MM'),

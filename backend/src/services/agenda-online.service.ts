@@ -1,7 +1,9 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { listarHorarios } from '@/services/horarios.service'
+import { getMetaConfig } from '@/services/crm.service'
+import { enviarEventoMeta, metaHabilitado } from '@/lib/meta'
 import { ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
 import { validarRut, formatRut } from '@shared/utils/rut'
@@ -300,6 +302,27 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     },
     select: { id: true, fecha: true, duracion: true },
   })
+
+  // CRM: registrar la reserva como lead (origen agenda online) + evento Schedule a
+  // Meta (best-effort; nunca hace fallar la reserva).
+  try {
+    const eventId = randomUUID()
+    const cfg = await getMetaConfig(db)
+    await db.lead.create({
+      data: {
+        nombre, apellido, telefono, email: input.email?.trim() || null, rut, motivo: motivo || null,
+        origen: 'AGENDA_ONLINE', estado: 'AGENDADO', pacienteId: paciente.id, citaId: cita.id,
+        metaEventId: eventId, metaEnviado: metaHabilitado(cfg),
+        notas: { create: { tipo: 'SISTEMA', texto: `Reserva online · ${link.nombre}` } },
+      },
+    })
+    if (metaHabilitado(cfg)) {
+      void enviarEventoMeta(cfg, {
+        eventName: 'Schedule', eventId, email: input.email, telefono, nombre, apellido,
+        custom: { content_name: link.tipoCita },
+      })
+    }
+  } catch { /* best-effort */ }
 
   const profe = link.profesionales.find((p) => p.userId === doctorId)?.user
   return {

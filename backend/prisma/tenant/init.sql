@@ -22,6 +22,11 @@ CREATE TABLE "Configuracion" (
     "googleConnectedAt" TIMESTAMP(3),
     "googleConnectedById" TEXT,
     "googleConnectedByName" TEXT,
+    "metaEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "metaPixelId" TEXT,
+    "metaCapiToken" TEXT,
+    "metaTestCode" TEXT,
+    "crmToken" TEXT,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Configuracion_pkey" PRIMARY KEY ("id")
@@ -744,4 +749,62 @@ ALTER TABLE "LinkAgenda" ADD CONSTRAINT "LinkAgenda_doctorId_fkey" FOREIGN KEY (
 ALTER TABLE "LinkAgendaVentana" ADD CONSTRAINT "LinkAgendaVentana_linkId_fkey" FOREIGN KEY ("linkId") REFERENCES "LinkAgenda"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "LinkAgendaProfesional" ADD CONSTRAINT "LinkAgendaProfesional_linkId_fkey" FOREIGN KEY ("linkId") REFERENCES "LinkAgenda"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 ALTER TABLE "LinkAgendaProfesional" ADD CONSTRAINT "LinkAgendaProfesional_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- CreateTable
+CREATE TABLE "Lead" (
+    "id" TEXT NOT NULL,
+    "nombre" TEXT NOT NULL,
+    "apellido" TEXT,
+    "telefono" TEXT,
+    "email" TEXT,
+    "rut" TEXT,
+    "motivo" TEXT,
+    "estado" TEXT NOT NULL DEFAULT 'NUEVO',
+    "origen" TEXT NOT NULL DEFAULT 'FORMULARIO',
+    "campana" TEXT,
+    "utmSource" TEXT,
+    "utmMedium" TEXT,
+    "utmCampaign" TEXT,
+    "utmContent" TEXT,
+    "utmTerm" TEXT,
+    "fbclid" TEXT,
+    "fbp" TEXT,
+    "fbc" TEXT,
+    "referrer" TEXT,
+    "landing" TEXT,
+    "ip" TEXT,
+    "userAgent" TEXT,
+    "pacienteId" TEXT,
+    "citaId" TEXT,
+    "responsableId" TEXT,
+    "metaEventId" TEXT,
+    "metaEnviado" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Lead_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "Lead_estado_createdAt_idx" ON "Lead"("estado", "createdAt");
+CREATE INDEX "Lead_origen_idx" ON "Lead"("origen");
+
+-- CreateTable
+CREATE TABLE "LeadNota" (
+    "id" TEXT NOT NULL,
+    "leadId" TEXT NOT NULL,
+    "autorId" TEXT,
+    "autorNombre" TEXT,
+    "tipo" TEXT NOT NULL DEFAULT 'NOTA',
+    "texto" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "LeadNota_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE INDEX "LeadNota_leadId_createdAt_idx" ON "LeadNota"("leadId", "createdAt");
+
+-- AddForeignKey
+ALTER TABLE "LeadNota" ADD CONSTRAINT "LeadNota_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

@@ -335,6 +335,9 @@ describe('agendamiento online (links públicos + reserva)', () => {
     const cita = await db.cita.findUnique({ where: { id: reserva.body.citaId }, select: { estado: true, origen: true, linkAgendaId: true } })
     expect(cita?.estado).toBe('PENDIENTE')
     expect(cita?.origen).toBe('ONLINE')
+    // La reserva también genera un lead en el CRM (origen agenda online).
+    const leadReserva = await db.lead.findFirst({ where: { citaId: reserva.body.citaId }, select: { origen: true, estado: true } })
+    expect(leadReserva?.origen).toBe('AGENDA_ONLINE')
 
     // El mismo cupo ya no se ofrece
     const pub2 = await request(app).get(`/api/v1/public/agenda/${A.slug}/${token}`)
@@ -373,6 +376,36 @@ describe('agendamiento online (links públicos + reserva)', () => {
     const r = await request(app).post(`/api/v1/public/agenda/${A.slug}/${token}/reservar`)
       .send({ inicio: '2030-01-01T03:00:00.000Z', nombre: 'X', apellido: 'Y', telefono: '+56 9 1234 5678' })
     expect(r.status).toBe(409)
+  })
+})
+
+describe('CRM: captación de leads + conversión a paciente', () => {
+  it('capta un lead por el formulario público y lo convierte a paciente', async () => {
+    const cfg = await get('/crm/config')
+    expect(cfg.status).toBe(200)
+    const token = cfg.body.crmToken as string
+    expect(token).toBeTruthy()
+
+    const intake = await request(app).post(`/api/v1/public/crm/${A.slug}/${token}/lead`)
+      .send({ nombre: 'Camila', apellido: 'Prospecto', telefono: '+56 9 5555 4444', email: 'camila@test.cl', motivo: 'Ortodoncia', utmCampaign: 'meta-julio' })
+    expect(intake.status).toBe(201)
+    const leadId = intake.body.leadId as string
+
+    const leads = await get('/crm/leads')
+    expect(leads.body.some((l: { id: string }) => l.id === leadId)).toBe(true)
+
+    const conv = await post(`/crm/leads/${leadId}/convertir`, {})
+    expect(conv.status).toBe(200)
+    expect(conv.body.pacienteId).toBeTruthy()
+    const db = tenantClient(A.dbName)
+    const lead = await db.lead.findUnique({ where: { id: leadId }, select: { estado: true, pacienteId: true } })
+    expect(lead?.estado).toBe('CONVERTIDO')
+    expect(lead?.pacienteId).toBe(conv.body.pacienteId)
+  })
+
+  it('rechaza el intake con token inválido', async () => {
+    const r = await request(app).post(`/api/v1/public/crm/${A.slug}/token-malo/lead`).send({ nombre: 'X' })
+    expect(r.status).toBe(404)
   })
 })
 

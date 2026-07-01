@@ -47,6 +47,15 @@ model Configuracion {
   googleConnectedById   String?
   googleConnectedByName String?
 
+  // Marketing / Meta (CRM). Pixel ID es público (se inyecta en el navegador);
+  // el token de Conversions API es secreto (server-side). crmToken autentica el
+  // endpoint público de captación de formularios web.
+  metaEnabled   Boolean @default(false)
+  metaPixelId   String?
+  metaCapiToken String?
+  metaTestCode  String?
+  crmToken      String?
+
   updatedAt DateTime @updatedAt
 }
 
@@ -649,4 +658,55 @@ model LinkAgendaVentana {
   link       LinkAgenda @relation(fields: [linkId], references: [id], onDelete: Cascade)
 
   @@index([linkId])
+}
+
+// CRM: prospecto captado por formulario web, campaña de Meta, reserva online, etc.
+model Lead {
+  id            String     @id @default(cuid())
+  nombre        String
+  apellido      String?
+  telefono      String?
+  email         String?
+  rut           String?
+  motivo        String?
+  estado        String     @default("NUEVO")      // NUEVO | CONTACTADO | AGENDADO | CONVERTIDO | PERDIDO
+  origen        String     @default("FORMULARIO")  // FORMULARIO | META | INSTAGRAM | AGENDA_ONLINE | MANUAL | OTRO
+  campana       String?
+  utmSource     String?
+  utmMedium     String?
+  utmCampaign   String?
+  utmContent    String?
+  utmTerm       String?
+  fbclid        String?
+  fbp           String?
+  fbc           String?
+  referrer      String?
+  landing       String?
+  ip            String?
+  userAgent     String?
+  pacienteId    String?    // si se convierte en paciente
+  citaId        String?    // si agenda una cita
+  responsableId String?    // usuario a cargo del seguimiento
+  metaEventId   String?    // id de evento para deduplicar con el Pixel del navegador
+  metaEnviado   Boolean    @default(false)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  notas         LeadNota[]
+
+  @@index([estado, createdAt])
+  @@index([origen])
+}
+
+// Timeline de un lead: notas manuales y cambios de estado.
+model LeadNota {
+  id          String   @id @default(cuid())
+  leadId      String
+  autorId     String?
+  autorNombre String?
+  tipo        String   @default("NOTA") // NOTA | ESTADO | SISTEMA
+  texto       String
+  createdAt   DateTime @default(now())
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  @@index([leadId, createdAt])
 }

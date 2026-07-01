@@ -29,6 +29,7 @@ import * as whatsapp from '@/controllers/whatsapp.controller'
 import * as googlec from '@/controllers/google.controller'
 import { getPlanesPublicos } from '@/controllers/public.controller'
 import * as agendaOnline from '@/controllers/agenda-online.controller'
+import * as crm from '@/controllers/crm.controller'
 import { requireSuperAdmin } from '@/middlewares/auth'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
@@ -54,6 +55,10 @@ apiRouter.get('/planes', asyncHandler(getPlanesPublicos))
 // ── Público: agendamiento online (resuelve la clínica por slug, sin sesión) ──
 apiRouter.get('/public/agenda/:slug/:token', asyncHandler(agendaOnline.getPublicAgenda))
 apiRouter.post('/public/agenda/:slug/:token/reservar', asyncHandler(agendaOnline.postPublicReserva))
+
+// ── Público: CRM (formulario web hospedado + intake de leads) ────────────────
+apiRouter.get('/public/crm/:slug/:token', asyncHandler(crm.getPublicForm))
+apiRouter.post('/public/crm/:slug/:token/lead', asyncHandler(crm.postPublicLead))
 
 // ── Público: demo + webhook WhatsApp (auth interna propia) ───────────────────
 apiRouter.post('/demo', asyncHandler(demo.postDemo))
@@ -110,6 +115,18 @@ apiRouter.post('/agenda-links', adminTenant, asyncHandler(agendaOnline.postLink)
 apiRouter.patch('/agenda-links/:id', adminTenant, asyncHandler(agendaOnline.patchLink))
 apiRouter.delete('/agenda-links/:id', adminTenant, asyncHandler(agendaOnline.deleteLink))
 apiRouter.get('/reservas-online', tenant, asyncHandler(agendaOnline.getReservas))
+
+// ── CRM: leads (admin) + config de Meta/captación ────────────────────────────
+apiRouter.get('/crm/config', tenant, asyncHandler(crm.getConfig))
+apiRouter.patch('/crm/config', adminTenant, asyncHandler(crm.patchConfig))
+apiRouter.get('/crm/leads', tenant, asyncHandler(crm.getLeads))
+apiRouter.get('/crm/resumen', tenant, asyncHandler(crm.getResumen))
+apiRouter.post('/crm/leads', tenant, asyncHandler(crm.postLead))
+apiRouter.get('/crm/leads/:id', tenant, asyncHandler(crm.getLead))
+apiRouter.patch('/crm/leads/:id', tenant, asyncHandler(crm.patchLead))
+apiRouter.post('/crm/leads/:id/notas', tenant, asyncHandler(crm.postNota))
+apiRouter.post('/crm/leads/:id/convertir', tenant, asyncHandler(crm.postConvertir))
+apiRouter.delete('/crm/leads/:id', adminTenant, asyncHandler(crm.deleteLead))
 
 // ── Bloqueos de agenda (convertido a database-per-tenant) ────────────────────
 apiRouter.get('/bloqueos', tenant, asyncHandler(getBloqueos))
