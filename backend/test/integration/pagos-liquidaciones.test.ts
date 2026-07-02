@@ -408,6 +408,30 @@ describe('CRM: captación de leads + conversión a paciente', () => {
     expect(r.status).toBe(404)
   })
 
+  it('genera una API key (MCP) y permite leer leads/stats por /ext; rechaza key inválida', async () => {
+    const rot = await post('/crm/api-key/rotate', {})
+    expect(rot.status).toBe(201)
+    const apiKey = rot.body.apiKey as string
+    expect(apiKey).toMatch(/^clv_/)
+
+    // Lectura read-only sin JWT, sólo con la API key
+    const leads = await request(app).get('/api/v1/ext/leads').set('X-API-Key', apiKey)
+    expect(leads.status).toBe(200)
+    expect(Array.isArray(leads.body)).toBe(true)
+
+    const stats = await request(app).get('/api/v1/ext/stats').set('X-API-Key', apiKey)
+    expect(stats.status).toBe(200)
+    expect(stats.body.leads).toBeTruthy()
+    expect(typeof stats.body.pacientes.total).toBe('number')
+
+    // Key inválida → 401
+    const bad = await request(app).get('/api/v1/ext/leads').set('X-API-Key', 'clv_no-existe')
+    expect(bad.status).toBe(401)
+    // Sin key → 401
+    const sin = await request(app).get('/api/v1/ext/leads')
+    expect(sin.status).toBe(401)
+  })
+
   it('agenda una hora para el lead: crea paciente + cita y deja el lead AGENDADO', async () => {
     const nuevo = await post('/crm/leads', { nombre: 'Tomás', apellido: 'Agenda', telefono: '+56 9 7777 8888', motivo: 'Implantes' })
     expect(nuevo.status).toBe(201)

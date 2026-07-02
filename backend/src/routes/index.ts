@@ -30,6 +30,8 @@ import * as googlec from '@/controllers/google.controller'
 import { getPlanesPublicos } from '@/controllers/public.controller'
 import * as agendaOnline from '@/controllers/agenda-online.controller'
 import * as crm from '@/controllers/crm.controller'
+import * as ext from '@/controllers/ext.controller'
+import { requireApiKey } from '@/middlewares/api-key'
 import { requireSuperAdmin } from '@/middlewares/auth'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
@@ -120,6 +122,19 @@ apiRouter.get('/reservas-online', tenant, asyncHandler(agendaOnline.getReservas)
 apiRouter.get('/crm/config', tenant, asyncHandler(crm.getConfig))
 apiRouter.patch('/crm/config', adminTenant, asyncHandler(crm.patchConfig))
 apiRouter.post('/crm/meta/test', adminTenant, asyncHandler(crm.postProbarMeta))
+
+// Gestión de la API key de acceso externo (MCP) — admin de la clínica.
+apiRouter.get('/crm/api-key', adminTenant, asyncHandler(ext.getApiKey))
+apiRouter.post('/crm/api-key/rotate', adminTenant, asyncHandler(ext.postRotarApiKey))
+apiRouter.delete('/crm/api-key', adminTenant, asyncHandler(ext.deleteApiKey))
+
+// Acceso externo read-only (servidor MCP de Claude / integraciones), autenticado
+// por API key (X-API-Key). Scope de 1 clínica; sólo lectura.
+const apiKeyScope = [requireApiKey]
+apiRouter.get('/ext/leads', apiKeyScope, asyncHandler(ext.getExtLeads))
+apiRouter.get('/ext/leads/:id', apiKeyScope, asyncHandler(ext.getExtLead))
+apiRouter.get('/ext/resumen', apiKeyScope, asyncHandler(ext.getExtResumen))
+apiRouter.get('/ext/stats', apiKeyScope, asyncHandler(ext.getExtStats))
 apiRouter.get('/crm/leads', tenant, asyncHandler(crm.getLeads))
 apiRouter.get('/crm/resumen', tenant, asyncHandler(crm.getResumen))
 apiRouter.post('/crm/leads', tenant, asyncHandler(crm.postLead))

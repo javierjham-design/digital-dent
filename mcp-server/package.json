@@ -1,0 +1,20 @@
+{
+  "name": "clariva-mcp",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Servidor MCP de Cláriva: acceso read-only a leads y estadísticas de la clínica para Claude.",
+  "bin": {
+    "clariva-mcp": "src/index.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.4.0",
+    "zod": "^3.23.8"
+  }
+}

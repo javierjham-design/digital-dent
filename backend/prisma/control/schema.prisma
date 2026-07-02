@@ -32,6 +32,11 @@ model Clinica {
   activo     Boolean  @default(true)
   trialHasta DateTime?
 
+  // Hash (sha256) de la API key read-only de la clínica, para integraciones
+  // externas (servidor MCP de Claude). Permite resolver la clínica por su key
+  // sin abrir cada base. Se guarda hasheada; el token se muestra sólo al generarlo.
+  apiKeyHash String? @unique
+
   // Facturación de la suscripción (gestionado por super-admin).
   cicloFacturacion String    @default("MENSUAL") // MENSUAL | ANUAL
   precioAcordado   Float?

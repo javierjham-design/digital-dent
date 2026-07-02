@@ -419,7 +419,22 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const [editToken, setEditToken] = useState(false)
   const [probando, setProbando] = useState(false)
   const [testRes, setTestRes] = useState<{ ok: boolean; msg: string } | null>(null)
-  useEffect(() => { crmService.config().then((c) => { setCfg(c); setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled) }).catch(() => {}) }, [])
+  const [apiKeyOn, setApiKeyOn] = useState(false)
+  const [nuevaKey, setNuevaKey] = useState<string | null>(null)
+  useEffect(() => {
+    crmService.config().then((c) => { setCfg(c); setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled) }).catch(() => {})
+    crmService.apiKeyEstado().then((r) => setApiKeyOn(r.hasApiKey)).catch(() => {})
+  }, [])
+
+  async function generarKey() {
+    if (apiKeyOn && !confirm('Ya hay una API key activa. Al generar una nueva, la anterior deja de funcionar de inmediato. ¿Continuar?')) return
+    try { const r = await crmService.rotarApiKey(); setNuevaKey(r.apiKey); setApiKeyOn(true); notify('API key generada') } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
+  }
+  async function revocarKey() {
+    if (!confirm('¿Revocar la API key? Las integraciones (incluido el MCP de Claude) dejarán de funcionar.')) return
+    try { await crmService.revocarApiKey(); setApiKeyOn(false); setNuevaKey(null); notify('API key revocada') } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
+  }
+  const mcpBase = `${window.location.origin}/api/v1`
 
   async function probar() {
     setProbando(true); setTestRes(null)
@@ -520,6 +535,31 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
               {testRes && <span className={`text-xs font-medium ${testRes.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{testRes.ok ? '✓' : '✗'} {testRes.msg}</span>}
             </div>
             <p className="text-[11px] text-slate-400 mt-2">El token se guarda oculto por seguridad (por eso no se vuelve a mostrar). "Probar conexión" envía un evento de prueba marcado como test — <span className="font-medium">no afecta tus métricas ni tu reporte</span>. Ingresa tu Test Event Code (de Meta → Eventos de prueba) para verlo entrar en vivo. Los eventos reales (Lead, Schedule) se deduplican con el Pixel por event_id.</p>
+          </div>
+
+          <div className="border-t border-slate-100 pt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">Acceso para Claude (MCP)</p>
+            <p className="text-[11px] text-slate-500 mb-2">Acceso de <span className="font-medium">solo lectura</span> para que Claude (Desktop/Code) consulte tus leads y estadísticas vía el servidor MCP de Cláriva.</p>
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`text-xs font-medium ${apiKeyOn ? 'text-emerald-600' : 'text-slate-500'}`}>{apiKeyOn ? '✓ API key activa' : 'Sin API key'}</span>
+              <button type="button" onClick={generarKey} className="ml-auto px-3 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-lg">{apiKeyOn ? 'Rotar key' : 'Generar API key'}</button>
+              {apiKeyOn && <button type="button" onClick={revocarKey} className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 text-rose-600 text-xs font-semibold rounded-lg">Revocar</button>}
+            </div>
+            {nuevaKey && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 mb-2">
+                <p className="text-[11px] text-amber-700 mb-1 font-semibold">Cópiala ahora — no se vuelve a mostrar:</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-mono text-slate-700 truncate flex-1">{nuevaKey}</span>
+                  <button type="button" onClick={() => copiar(nuevaKey)} className="text-xs font-semibold text-cyan-700 shrink-0">Copiar</button>
+                </div>
+              </div>
+            )}
+            <p className="text-[11px] text-slate-500 mb-1">Base URL para el MCP:</p>
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+              <span className="text-xs font-mono text-slate-500 truncate flex-1">{mcpBase}</span>
+              <button type="button" onClick={() => copiar(mcpBase)} className="text-xs font-semibold text-cyan-700 shrink-0">Copiar</button>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">Configura la carpeta <span className="font-mono">mcp-server</span> con esta Base URL y tu API key (ver su README).</p>
           </div>
 
           <div className="flex gap-2 pt-1">

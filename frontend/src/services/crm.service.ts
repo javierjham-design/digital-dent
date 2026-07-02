@@ -42,6 +42,9 @@ export const crmService = {
   config: () => api.get<CrmConfig>('/crm/config'),
   guardarConfig: (patch: Record<string, unknown>) => api.patch<CrmConfig>('/crm/config', patch),
   probarMeta: () => api.post<MetaTestResult>('/crm/meta/test', {}),
+  apiKeyEstado: () => api.get<{ hasApiKey: boolean }>('/crm/api-key'),
+  rotarApiKey: () => api.post<{ apiKey: string }>('/crm/api-key/rotate', {}),
+  revocarApiKey: () => api.del<{ ok: true }>('/crm/api-key'),
 }
 
 // ── Público: formulario hospedado (sin token de auth) ──
