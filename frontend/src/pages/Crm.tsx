@@ -416,7 +416,17 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const [test, setTest] = useState('')
   const [enabled, setEnabled] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [probando, setProbando] = useState(false)
+  const [testRes, setTestRes] = useState<{ ok: boolean; msg: string } | null>(null)
   useEffect(() => { crmService.config().then((c) => { setCfg(c); setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled) }).catch(() => {}) }, [])
+
+  async function probar() {
+    setProbando(true); setTestRes(null)
+    try {
+      const r = await crmService.probarMeta()
+      setTestRes(r.ok ? { ok: true, msg: `Conectado correctamente${r.nombre ? ` · Pixel "${r.nombre}"` : ''}.` } : { ok: false, msg: r.error ?? 'No se pudo validar el token.' })
+    } catch (e) { setTestRes({ ok: false, msg: e instanceof ApiError ? e.message : 'Error al probar la conexión.' }) } finally { setProbando(false) }
+  }
 
   const formUrl = cfg ? `${window.location.origin}/c/${cfg.slug}/formulario/${cfg.crmToken}` : ''
   const intakeUrl = cfg ? `${window.location.origin.replace(/^http/, 'http')}/api/v1/public/crm/${cfg.slug}/${cfg.crmToken}/lead` : ''
@@ -458,6 +468,7 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
               </p>
               <p className="text-[11px] text-slate-400 mt-1">Manda los mismos nombres de tu planilla mapeados a estos. Cuantos más identificadores (email, teléfono, external_id, _fbp/_fbc), mejor el match quality de Meta.</p>
             </details>
+            <p className="text-[11px] text-slate-400 mt-2">El código al final de estas URLs (~12 caracteres) es el <span className="font-medium">token del formulario</span> — es normal que sea corto y <span className="font-medium">no</span> es el token de Meta.</p>
           </div>
 
           <div className="border-t border-slate-100 pt-3">
@@ -467,11 +478,26 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
             </label>
             <label className="block mb-2"><span className="text-xs font-medium text-slate-500">Pixel ID</span>
               <input value={pixel} onChange={(e) => setPixel(e.target.value)} placeholder="123456789012345" className={`${inp} font-mono`} /></label>
-            <label className="block mb-2"><span className="text-xs font-medium text-slate-500">Conversions API — Access Token {cfg.hasCapiToken ? '(configurado, dejar vacío para mantener)' : ''}</span>
-              <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={cfg.hasCapiToken ? '••••••••' : 'Pegar token'} className={`${inp} font-mono`} /></label>
+            <label className="block mb-1"><span className="text-xs font-medium text-slate-500">Conversions API — Access Token {cfg.hasCapiToken ? '(deja vacío para mantener el actual)' : ''}</span>
+              <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={cfg.hasCapiToken ? 'Pegar solo si quieres reemplazarlo' : 'Pegar token'} className={`${inp} font-mono`} /></label>
+            {cfg.hasCapiToken && !token && (
+              <p className="text-[11px] text-emerald-600 mb-2 flex items-center gap-1">
+                <span>✓ Token cargado</span>
+                <span className="text-slate-400">· {cfg.capiTokenLen} caracteres · termina en …{cfg.capiTokenLast4}</span>
+              </p>
+            )}
+            {!cfg.hasCapiToken && <p className="text-[11px] text-amber-600 mb-2">Aún no hay token de Conversions API guardado.</p>}
             <label className="block"><span className="text-xs font-medium text-slate-500">Test Event Code (opcional, para probar)</span>
               <input value={test} onChange={(e) => setTest(e.target.value)} placeholder="TEST12345" className={`${inp} font-mono`} /></label>
-            <p className="text-[11px] text-slate-400 mt-2">El Pixel se inyecta en el formulario y las páginas de reserva. Los eventos server-side (Lead, Schedule) se deduplican con el Pixel por event_id.</p>
+
+            <div className="mt-3 flex items-center gap-2">
+              <button onClick={probar} disabled={probando || !cfg.hasCapiToken || !pixel.trim()}
+                className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-lg">
+                {probando ? 'Probando…' : 'Probar conexión con Meta'}
+              </button>
+              {testRes && <span className={`text-xs font-medium ${testRes.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{testRes.ok ? '✓' : '✗'} {testRes.msg}</span>}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">El token se guarda oculto por seguridad (por eso no se vuelve a mostrar). "Probar conexión" valida el token guardado contra Meta sin enviar eventos. El Pixel se inyecta en el formulario y las páginas de reserva; los eventos server-side (Lead, Schedule) se deduplican con el Pixel por event_id.</p>
           </div>
 
           <div className="flex gap-2 pt-1">

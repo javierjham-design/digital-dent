@@ -17,7 +17,8 @@ export interface Lead {
   notas?: LeadNota[]
 }
 export interface CrmResumen { total: number; estados: Record<string, number>; origenes: { origen: string; n: number }[] }
-export interface CrmConfig { slug: string; metaEnabled: boolean; metaPixelId: string | null; hasCapiToken: boolean; metaTestCode: string | null; crmToken: string }
+export interface CrmConfig { slug: string; metaEnabled: boolean; metaPixelId: string | null; hasCapiToken: boolean; capiTokenLen: number; capiTokenLast4: string | null; metaTestCode: string | null; crmToken: string }
+export interface MetaTestResult { ok: boolean; status: number; nombre?: string; error?: string }
 
 function qs(p?: Record<string, string | undefined>): string {
   if (!p) return ''
@@ -40,6 +41,7 @@ export const crmService = {
   eliminar: (id: string) => api.del<{ ok: true }>(`/crm/leads/${id}`),
   config: () => api.get<CrmConfig>('/crm/config'),
   guardarConfig: (patch: Record<string, unknown>) => api.patch<CrmConfig>('/crm/config', patch),
+  probarMeta: () => api.post<MetaTestResult>('/crm/meta/test', {}),
 }
 
 // ── Público: formulario hospedado (sin token de auth) ──

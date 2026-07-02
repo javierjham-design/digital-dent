@@ -48,6 +48,9 @@ export async function getConfig(req: Request, res: Response) {
 export async function patchConfig(req: Request, res: Response) {
   res.json(await svc.guardarConfigCrm(tenantDb(req), req.body ?? {}))
 }
+export async function postProbarMeta(req: Request, res: Response) {
+  res.json(await svc.probarMeta(tenantDb(req)))
+}
 
 // ── Público (formulario hospedado + intake por slug/token) ───────────────────
 async function resolverTenant(slug: string): Promise<TenantClient> {

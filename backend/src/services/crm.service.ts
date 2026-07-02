@@ -2,7 +2,7 @@ import { randomUUID, randomBytes } from 'node:crypto'
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
-import { enviarEventoMeta, metaHabilitado, type MetaConfig } from '@/lib/meta'
+import { enviarEventoMeta, metaHabilitado, probarConexionMeta, type MetaConfig } from '@/lib/meta'
 import { crearCita } from '@/services/citas.service'
 
 const ESTADOS = ['NUEVO', 'CONTACTADO', 'AGENDADO', 'CONVERTIDO', 'PERDIDO']
@@ -261,10 +261,17 @@ export async function obtenerConfigCrm(db: TenantClient) {
   })
   let crmToken = c?.crmToken ?? null
   if (!crmToken) { crmToken = nuevoToken(); await db.configuracion.update({ where: { id: 'singleton' }, data: { crmToken } }) }
+  const rawTok = c?.metaCapiToken ?? null
   return {
     metaEnabled: Boolean(c?.metaEnabled), metaPixelId: c?.metaPixelId ?? null,
-    hasCapiToken: Boolean(c?.metaCapiToken), metaTestCode: c?.metaTestCode ?? null, crmToken,
+    hasCapiToken: Boolean(rawTok), capiTokenLen: rawTok ? rawTok.length : 0, capiTokenLast4: rawTok ? rawTok.slice(-4) : null,
+    metaTestCode: c?.metaTestCode ?? null, crmToken,
   }
+}
+
+// Valida el token de Meta guardado (Pixel + Conversions API) sin enviar eventos.
+export async function probarMeta(db: TenantClient) {
+  return probarConexionMeta(await getMetaConfig(db))
 }
 
 export async function guardarConfigCrm(db: TenantClient, body: Record<string, unknown>) {

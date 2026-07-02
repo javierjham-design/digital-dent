@@ -119,6 +119,7 @@ apiRouter.get('/reservas-online', tenant, asyncHandler(agendaOnline.getReservas)
 // ── CRM: leads (admin) + config de Meta/captación ────────────────────────────
 apiRouter.get('/crm/config', tenant, asyncHandler(crm.getConfig))
 apiRouter.patch('/crm/config', adminTenant, asyncHandler(crm.patchConfig))
+apiRouter.post('/crm/meta/test', adminTenant, asyncHandler(crm.postProbarMeta))
 apiRouter.get('/crm/leads', tenant, asyncHandler(crm.getLeads))
 apiRouter.get('/crm/resumen', tenant, asyncHandler(crm.getResumen))
 apiRouter.post('/crm/leads', tenant, asyncHandler(crm.postLead))
