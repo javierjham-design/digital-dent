@@ -416,6 +416,7 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const [test, setTest] = useState('')
   const [enabled, setEnabled] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [editToken, setEditToken] = useState(false)
   const [probando, setProbando] = useState(false)
   const [testRes, setTestRes] = useState<{ ok: boolean; msg: string } | null>(null)
   useEffect(() => { crmService.config().then((c) => { setCfg(c); setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled) }).catch(() => {}) }, [])
@@ -433,12 +434,16 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const formUrl = cfg ? `${window.location.origin}/c/${cfg.slug}/formulario/${cfg.crmToken}` : ''
   const intakeUrl = cfg ? `${window.location.origin.replace(/^http/, 'http')}/api/v1/public/crm/${cfg.slug}/${cfg.crmToken}/lead` : ''
 
+  const editandoToken = !cfg?.hasCapiToken || editToken // el input del token está visible
+
   async function guardar() {
     setBusy(true)
     try {
       const payload: Record<string, unknown> = { metaEnabled: enabled, metaPixelId: pixel.trim() || null, metaTestCode: test.trim() || null }
-      if (token.trim()) payload.metaCapiToken = token.trim()
-      const c = await crmService.guardarConfig(payload); setCfg(c); setToken(''); notify('Configuración guardada')
+      // Solo tocamos el token si el campo estaba visible y el usuario escribió algo:
+      // así un autocompletado del navegador nunca puede sobrescribir el token real.
+      if (editandoToken && token.trim()) payload.metaCapiToken = token.trim()
+      const c = await crmService.guardarConfig(payload); setCfg(c); setToken(''); setEditToken(false); setTestRes(null); notify('Configuración guardada')
     } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) } finally { setBusy(false) }
   }
   const copiar = (t: string) => { navigator.clipboard.writeText(t).then(() => notify('Copiado')).catch(() => {}) }
@@ -480,15 +485,30 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
             </label>
             <label className="block mb-2"><span className="text-xs font-medium text-slate-500">Pixel ID</span>
               <input value={pixel} onChange={(e) => setPixel(e.target.value)} placeholder="123456789012345" className={`${inp} font-mono`} /></label>
-            <label className="block mb-1"><span className="text-xs font-medium text-slate-500">Conversions API — Access Token {cfg.hasCapiToken ? '(deja vacío para mantener el actual)' : ''}</span>
-              <input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={cfg.hasCapiToken ? 'Pegar solo si quieres reemplazarlo' : 'Pegar token'} className={`${inp} font-mono`} /></label>
-            {cfg.hasCapiToken && !token && (
-              <p className="text-[11px] text-emerald-600 mb-2 flex items-center gap-1">
-                <span>✓ Token cargado</span>
-                <span className="text-slate-400">· {cfg.capiTokenLen} caracteres · termina en …{cfg.capiTokenLast4}</span>
-              </p>
+            <span className="block text-xs font-medium text-slate-500 mb-1">Conversions API — Access Token</span>
+            {cfg.hasCapiToken && !editToken ? (
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 mb-2">
+                <span className="text-xs text-emerald-700 font-semibold">✓ Token cargado correctamente</span>
+                <span className="text-[11px] text-slate-500 truncate">· {cfg.capiTokenLen} caracteres · termina en …{cfg.capiTokenLast4}</span>
+                <button type="button" onClick={() => { setEditToken(true); setToken('') }} className="ml-auto shrink-0 text-xs font-semibold text-cyan-700 hover:text-cyan-800">Modificar</button>
+              </div>
+            ) : (
+              <div className="mb-2">
+                {/* Señuelos + new-password: evitan que el navegador/gestores autocompleten una contraseña guardada aquí. */}
+                <input type="text" name="clariva-user-decoy" autoComplete="username" tabIndex={-1} aria-hidden className="hidden" />
+                <input
+                  type="password" value={token} onChange={(e) => setToken(e.target.value)}
+                  name="clariva-meta-capi-token" id="clariva-meta-capi-token"
+                  autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                  data-lpignore="true" data-1p-ignore data-form-type="other"
+                  placeholder={cfg.hasCapiToken ? 'Pega el nuevo token' : 'Pega el token de Conversions API'}
+                  className={`${inp} font-mono`} />
+                {cfg.hasCapiToken && editToken && (
+                  <button type="button" onClick={() => { setEditToken(false); setToken('') }} className="mt-1 text-xs text-slate-500 hover:text-slate-700">Cancelar (mantener el token actual)</button>
+                )}
+                {!cfg.hasCapiToken && <p className="text-[11px] text-amber-600 mt-1">Aún no hay token de Conversions API guardado.</p>}
+              </div>
             )}
-            {!cfg.hasCapiToken && <p className="text-[11px] text-amber-600 mb-2">Aún no hay token de Conversions API guardado.</p>}
             <label className="block"><span className="text-xs font-medium text-slate-500">Test Event Code (opcional, para probar)</span>
               <input value={test} onChange={(e) => setTest(e.target.value)} placeholder="TEST12345" className={`${inp} font-mono`} /></label>
 
