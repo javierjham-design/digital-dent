@@ -126,6 +126,7 @@ apiRouter.get('/crm/leads/:id', tenant, asyncHandler(crm.getLead))
 apiRouter.patch('/crm/leads/:id', tenant, asyncHandler(crm.patchLead))
 apiRouter.post('/crm/leads/:id/notas', tenant, asyncHandler(crm.postNota))
 apiRouter.post('/crm/leads/:id/convertir', tenant, asyncHandler(crm.postConvertir))
+apiRouter.post('/crm/leads/:id/agendar', tenant, asyncHandler(crm.postAgendar))
 apiRouter.delete('/crm/leads/:id', adminTenant, asyncHandler(crm.deleteLead))
 
 // ── Bloqueos de agenda (convertido a database-per-tenant) ────────────────────

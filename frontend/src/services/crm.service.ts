@@ -35,6 +35,8 @@ export const crmService = {
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<Lead>(`/crm/leads/${id}`, patch),
   nota: (id: string, texto: string) => api.post<LeadNota>(`/crm/leads/${id}/notas`, { texto }),
   convertir: (id: string) => api.post<{ pacienteId: string; yaExistia: boolean }>(`/crm/leads/${id}/convertir`, {}),
+  agendar: (id: string, body: { doctorId: string; fecha: string; duracion?: number; tipo?: string; notas?: string; sobrecupo?: boolean }) =>
+    api.post<{ pacienteId: string; citaId: string; inicio: string }>(`/crm/leads/${id}/agendar`, body),
   eliminar: (id: string) => api.del<{ ok: true }>(`/crm/leads/${id}`),
   config: () => api.get<CrmConfig>('/crm/config'),
   guardarConfig: (patch: Record<string, unknown>) => api.patch<CrmConfig>('/crm/config', patch),

@@ -286,6 +286,15 @@ export const crearLeadSchema = z.object({
 
 export const notaSchema = z.object({ texto: z.string().min(1, 'La nota no puede quedar vacía') })
 
+export const agendarLeadSchema = z.object({
+  doctorId: z.string().min(1, 'Selecciona un profesional'),
+  fecha: z.string().min(1, 'Selecciona fecha y hora'),
+  duracion: z.number().int().positive().optional(),
+  tipo: z.string().optional(),
+  notas: z.string().optional(),
+  sobrecupo: z.boolean().optional(),
+})
+
 export const crearLiquidacionSchema = z.object({
   doctorId: z.string().min(1),
   periodo: z.string().regex(/^\d{4}-\d{2}$/, 'periodo debe ser YYYY-MM'),

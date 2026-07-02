@@ -5,7 +5,7 @@ import { tenantClient, type TenantClient } from '@/db/tenant'
 import { notFound, tooMany } from '@/lib/errors'
 import { rateLimit } from '@/lib/rate-limit'
 import * as svc from '@/services/crm.service'
-import { crearLeadSchema, notaSchema } from '@/validators/schemas'
+import { crearLeadSchema, notaSchema, agendarLeadSchema } from '@/validators/schemas'
 
 // ── Admin (tenant) ────────────────────────────────────────────────────────────
 export async function getLeads(req: Request, res: Response) {
@@ -33,6 +33,10 @@ export async function postNota(req: Request, res: Response) {
 }
 export async function postConvertir(req: Request, res: Response) {
   res.json(await svc.convertirEnPaciente(tenantDb(req), req.auth!, req.params.id))
+}
+export async function postAgendar(req: Request, res: Response) {
+  const input = agendarLeadSchema.parse(req.body)
+  res.status(201).json(await svc.agendarLead(tenantDb(req), req.auth!, req.params.id, input))
 }
 export async function deleteLead(req: Request, res: Response) {
   await svc.eliminarLead(tenantDb(req), req.params.id)

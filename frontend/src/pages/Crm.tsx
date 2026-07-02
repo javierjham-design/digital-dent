@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, type NavigateFunction } from 'react-router-dom'
 import { crmService, type Lead, type CrmResumen, type CrmConfig } from '@/services/crm.service'
+import { usuariosService } from '@/services/equipo.service'
+import type { DoctorDTO } from '@shared/types'
 import { ApiError } from '@/services/api'
+
+const MOTIVOS = ['Consulta diagnóstico', 'Control', 'Detartraje / Profilaxis', 'Obturación', 'Endodoncia', 'Exodoncia', 'Ortodoncia', 'Blanqueamiento', 'Implantes', 'Urgencia', 'Otro']
+const DURACIONES = [15, 30, 45, 60, 90, 120]
 
 const ESTADOS = [
   { k: 'NUEVO', l: 'Nuevo', c: 'bg-sky-100 text-sky-700' },
@@ -113,6 +118,7 @@ function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose
   const [full, setFull] = useState<Lead>(lead)
   const [nota, setNota] = useState('')
   const [busy, setBusy] = useState(false)
+  const [agendando, setAgendando] = useState(false)
   const [verTracking, setVerTracking] = useState(false)
   const [ed, setEd] = useState({ tratamiento: '', piezasReemplazar: '', tiempoDesdePerdida: '', fechaAgenda: '' })
   const refrescar = () => crmService.lead(lead.id).then((l) => { setFull(l); setEd({ tratamiento: l.tratamiento ?? '', piezasReemplazar: l.piezasReemplazar ?? '', tiempoDesdePerdida: l.tiempoDesdePerdida ?? '', fechaAgenda: toLocalInput(l.fechaAgenda) }) }).catch(() => {})
@@ -235,11 +241,13 @@ function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose
       </div>
 
       <div className="flex gap-2 mb-4">
+        <button onClick={() => setAgendando(true)} className="flex-1 px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Agendar hora</button>
         {full.pacienteId
-          ? <button onClick={() => navigate(`/pacientes/${full.pacienteId}`)} className="flex-1 px-3 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Ver ficha del paciente</button>
-          : <button onClick={convertir} disabled={busy} className="flex-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">Convertir en paciente</button>}
+          ? <button onClick={() => navigate(`/pacientes/${full.pacienteId}`)} className="px-3 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 text-sm font-medium rounded-xl">Ver ficha</button>
+          : <button onClick={convertir} disabled={busy} className="px-3 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 text-sm font-medium rounded-xl">Solo crear paciente</button>}
         <button onClick={eliminar} className="px-3 py-2 border border-slate-200 text-slate-400 hover:text-rose-600 text-sm rounded-xl">Eliminar</button>
       </div>
+      {agendando && <AgendarLeadModal lead={full} navigate={navigate} notify={notify} onClose={() => setAgendando(false)} onDone={() => { setAgendando(false); refrescar() }} />}
 
       <div className="border-t border-slate-100 pt-3">
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Notas</p>
@@ -256,6 +264,98 @@ function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose
           ))}
           {(full.notas ?? []).length === 0 && <p className="text-xs text-slate-400">Sin notas aún.</p>}
         </div>
+      </div>
+    </Modal>
+  )
+}
+
+function AgendarLeadModal({ lead, navigate, notify, onClose, onDone }: {
+  lead: Lead; navigate: NavigateFunction; notify: (t: string, ok?: boolean) => void; onClose: () => void; onDone: () => void
+}) {
+  const [doctores, setDoctores] = useState<DoctorDTO[]>([])
+  const [doctorId, setDoctorId] = useState('')
+  const [fechaLocal, setFechaLocal] = useState('')
+  const [duracion, setDuracion] = useState(30)
+  const [tipo, setTipo] = useState(lead.tratamiento || '')
+  const [notas, setNotas] = useState(lead.motivo || '')
+  const [sobrecupo, setSobrecupo] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [res, setRes] = useState<{ pacienteId: string; inicio: string } | null>(null)
+
+  useEffect(() => { usuariosService.doctores().then((d) => { setDoctores(d); setDoctorId((prev) => prev || d[0]?.id || '') }).catch(() => {}) }, [])
+  useEffect(() => {
+    if (lead.fechaAgenda) { setFechaLocal(toLocalInput(lead.fechaAgenda)); return }
+    const d = new Date(); d.setMinutes(Math.ceil((d.getMinutes() + 1) / 15) * 15, 0, 0)
+    setFechaLocal(toLocalInput(d.toISOString()))
+  }, [lead.fechaAgenda])
+
+  async function agendar() {
+    if (!doctorId || !fechaLocal) { notify('Selecciona profesional, fecha y hora', false); return }
+    setBusy(true)
+    try {
+      const r = await crmService.agendar(lead.id, {
+        doctorId, fecha: new Date(fechaLocal).toISOString(), duracion,
+        tipo: tipo || undefined, notas: notas.trim() || undefined, sobrecupo,
+      })
+      setRes({ pacienteId: r.pacienteId, inicio: r.inicio })
+      notify('Hora agendada')
+    } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo agendar', false) } finally { setBusy(false) }
+  }
+
+  if (res) {
+    const cuando = new Date(res.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })
+    return (
+      <Modal title="Hora agendada" onClose={onDone}>
+        <div className="text-center py-2">
+          <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 text-2xl flex items-center justify-center mx-auto mb-3">✓</div>
+          <p className="text-sm text-slate-700">Cita creada para <span className="font-semibold">{lead.nombre} {lead.apellido ?? ''}</span></p>
+          <p className="text-sm text-slate-500 mt-1 capitalize">{cuando}</p>
+        </div>
+        <div className="grid grid-cols-2 gap-2 pt-4">
+          <button onClick={() => navigate('/agenda')} className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Ir a la agenda</button>
+          <button onClick={() => navigate(`/pacientes/${res.pacienteId}`)} className="px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-medium">Ver ficha</button>
+        </div>
+        <button onClick={onDone} className="w-full mt-2 px-4 py-2 text-slate-500 hover:text-slate-700 text-sm">Cerrar</button>
+      </Modal>
+    )
+  }
+
+  return (
+    <Modal title={`Agendar hora · ${lead.nombre} ${lead.apellido ?? ''}`} onClose={onClose}>
+      <p className="text-xs text-slate-500 mb-3">Se creará (o reutilizará) el paciente con los datos del lead y quedará la cita en la agenda.</p>
+      <div className="space-y-3">
+        <label className="block"><span className="text-xs font-medium text-slate-500">Profesional</span>
+          <select value={doctorId} onChange={(e) => setDoctorId(e.target.value)} className={inp}>
+            <option value="">Selecciona…</option>
+            {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
+          </select>
+        </label>
+        <label className="block"><span className="text-xs font-medium text-slate-500">Fecha y hora</span>
+          <input type="datetime-local" value={fechaLocal} onChange={(e) => setFechaLocal(e.target.value)} className={inp} />
+        </label>
+        <div>
+          <span className="block text-xs font-medium text-slate-500 mb-1">Duración</span>
+          <div className="flex gap-2 flex-wrap">
+            {DURACIONES.map((d) => (
+              <button key={d} type="button" onClick={() => setDuracion(d)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border-2 ${duracion === d ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-200 text-slate-600'}`}>{d}m</button>
+            ))}
+          </div>
+        </div>
+        <label className="block"><span className="text-xs font-medium text-slate-500">Motivo</span>
+          <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={inp}>
+            <option value="">Consulta</option>
+            {MOTIVOS.map((m) => <option key={m} value={m}>{m}</option>)}
+          </select>
+        </label>
+        <input value={notas} onChange={(e) => setNotas(e.target.value)} placeholder="Notas de la cita" className={inp} />
+        <label className="flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" checked={sobrecupo} onChange={(e) => setSobrecupo(e.target.checked)} /> Sobrecupo (permite solaparse)
+        </label>
+      </div>
+      <div className="flex gap-2 pt-4">
+        <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+        <button onClick={agendar} disabled={busy} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{busy ? 'Agendando…' : 'Agendar cita'}</button>
       </div>
     </Modal>
   )

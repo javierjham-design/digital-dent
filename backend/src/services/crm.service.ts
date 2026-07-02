@@ -3,6 +3,7 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import { enviarEventoMeta, metaHabilitado, type MetaConfig } from '@/lib/meta'
+import { crearCita } from '@/services/citas.service'
 
 const ESTADOS = ['NUEVO', 'CONTACTADO', 'AGENDADO', 'CONVERTIDO', 'PERDIDO']
 const nuevoToken = () => randomBytes(9).toString('base64url')
@@ -149,15 +150,28 @@ export async function agregarNota(db: TenantClient, actor: JwtPayload, id: strin
   return db.leadNota.create({ data: { leadId: id, tipo: 'NOTA', texto: texto.trim(), autorId: actor.sub, autorNombre: actorName(actor) } })
 }
 
-export async function convertirEnPaciente(db: TenantClient, actor: JwtPayload, id: string) {
-  const lead = await db.lead.findUnique({ where: { id } })
-  if (!lead) throw notFound('Lead no encontrado')
+// Datos del lead que necesitamos para resolver/crear su paciente.
+type LeadPaciente = { pacienteId: string | null; nombre: string; apellido: string | null; telefono: string | null; email: string | null; rut: string | null; motivo: string | null }
+
+// Reutiliza el paciente del lead: por vínculo previo, por RUT o por teléfono; si
+// no hay coincidencia, lo crea (numeración desde 1000). Devuelve si fue creado.
+async function pacienteDesdeLead(db: TenantClient, lead: LeadPaciente): Promise<{ id: string; creado: boolean }> {
   if (lead.pacienteId) {
     const p = await db.paciente.findUnique({ where: { id: lead.pacienteId }, select: { id: true } })
-    if (p) return { pacienteId: p.id, yaExistia: true }
+    if (p) return { id: p.id, creado: false }
+  }
+  if (lead.rut) {
+    const p = await db.paciente.findFirst({ where: { rut: lead.rut }, select: { id: true } })
+    if (p) return { id: p.id, creado: false }
+  }
+  const dig = (lead.telefono ?? '').replace(/\D/g, '')
+  if (dig) {
+    const cands = await db.paciente.findMany({ where: { telefono: { not: null } }, select: { id: true, telefono: true } })
+    const hit = cands.find((c) => (c.telefono ?? '').replace(/\D/g, '') === dig)
+    if (hit) return { id: hit.id, creado: false }
   }
   const ultimo = await db.paciente.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-  const paciente = await db.paciente.create({
+  const p = await db.paciente.create({
     data: {
       numero: Math.max(1000, (ultimo?.numero ?? 999) + 1),
       nombre: lead.nombre, apellido: lead.apellido || '—', telefono: lead.telefono || null,
@@ -165,9 +179,46 @@ export async function convertirEnPaciente(db: TenantClient, actor: JwtPayload, i
     },
     select: { id: true },
   })
-  await db.lead.update({ where: { id }, data: { pacienteId: paciente.id, estado: lead.estado === 'PERDIDO' ? lead.estado : 'CONVERTIDO' } })
-  await db.leadNota.create({ data: { leadId: id, tipo: 'SISTEMA', texto: 'Convertido en paciente', autorId: actor.sub, autorNombre: actorName(actor) } })
-  return { pacienteId: paciente.id, yaExistia: false }
+  return { id: p.id, creado: true }
+}
+
+export async function convertirEnPaciente(db: TenantClient, actor: JwtPayload, id: string) {
+  const lead = await db.lead.findUnique({ where: { id } })
+  if (!lead) throw notFound('Lead no encontrado')
+  const { id: pacienteId, creado } = await pacienteDesdeLead(db, lead)
+  if (!creado && lead.pacienteId === pacienteId) return { pacienteId, yaExistia: true }
+  await db.lead.update({ where: { id }, data: { pacienteId, estado: lead.estado === 'PERDIDO' ? lead.estado : 'CONVERTIDO' } })
+  await db.leadNota.create({ data: { leadId: id, tipo: 'SISTEMA', texto: creado ? 'Convertido en paciente' : 'Vinculado a paciente existente', autorId: actor.sub, autorNombre: actorName(actor) } })
+  return { pacienteId, yaExistia: !creado }
+}
+
+export interface AgendarLeadInput { doctorId: string; fecha: string; duracion?: number; tipo?: string; notas?: string; sobrecupo?: boolean }
+
+// Agenda una hora para el lead: crea/reutiliza el paciente y crea la cita (con
+// control de solapamiento y bloqueos vía crearCita), y deja el lead vinculado y
+// en estado AGENDADO con la fecha de la cita.
+export async function agendarLead(db: TenantClient, actor: JwtPayload, id: string, input: AgendarLeadInput) {
+  const lead = await db.lead.findUnique({ where: { id } })
+  if (!lead) throw notFound('Lead no encontrado')
+  if (!input.doctorId || !input.fecha) throw badRequest('Selecciona profesional, fecha y hora')
+
+  const { id: pacienteId } = await pacienteDesdeLead(db, lead)
+  const cita = await crearCita(db, actorName(actor), {
+    pacienteId, doctorId: input.doctorId, fecha: input.fecha,
+    duracion: input.duracion, tipo: input.tipo || lead.tratamiento || 'CONSULTA',
+    notas: input.notas ?? (lead.motivo || null), sobrecupo: input.sobrecupo,
+  })
+
+  const cuando = new Date(cita.inicio).toLocaleString('es-CL', { timeZone: 'America/Santiago', dateStyle: 'medium', timeStyle: 'short' })
+  await db.lead.update({
+    where: { id },
+    data: {
+      pacienteId, citaId: cita.id, fechaAgenda: new Date(cita.inicio), agendaFuente: 'CRM',
+      estado: lead.estado === 'CONVERTIDO' ? lead.estado : 'AGENDADO',
+    },
+  })
+  await db.leadNota.create({ data: { leadId: id, tipo: 'SISTEMA', texto: `Hora agendada: ${cuando}${cita.doctor ? ` · ${cita.doctor}` : ''}`, autorId: actor.sub, autorNombre: actorName(actor) } })
+  return { pacienteId, citaId: cita.id, inicio: cita.inicio }
 }
 
 export async function eliminarLead(db: TenantClient, id: string) {

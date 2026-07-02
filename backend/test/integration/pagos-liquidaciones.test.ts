@@ -407,6 +407,28 @@ describe('CRM: captación de leads + conversión a paciente', () => {
     const r = await request(app).post(`/api/v1/public/crm/${A.slug}/token-malo/lead`).send({ nombre: 'X' })
     expect(r.status).toBe(404)
   })
+
+  it('agenda una hora para el lead: crea paciente + cita y deja el lead AGENDADO', async () => {
+    const nuevo = await post('/crm/leads', { nombre: 'Tomás', apellido: 'Agenda', telefono: '+56 9 7777 8888', motivo: 'Implantes' })
+    expect(nuevo.status).toBe(201)
+    const leadId = nuevo.body.id as string
+
+    const fecha = new Date(Date.now() + 3 * 24 * 3600_000); fecha.setHours(10, 0, 0, 0)
+    const ag = await post(`/crm/leads/${leadId}/agendar`, { doctorId, fecha: fecha.toISOString(), duracion: 45 })
+    expect(ag.status).toBe(201)
+    expect(ag.body.pacienteId).toBeTruthy()
+    expect(ag.body.citaId).toBeTruthy()
+
+    const db = tenantClient(A.dbName)
+    const lead = await db.lead.findUnique({ where: { id: leadId }, select: { estado: true, pacienteId: true, citaId: true, fechaAgenda: true, agendaFuente: true } })
+    expect(lead?.estado).toBe('AGENDADO')
+    expect(lead?.pacienteId).toBe(ag.body.pacienteId)
+    expect(lead?.citaId).toBe(ag.body.citaId)
+    expect(lead?.agendaFuente).toBe('CRM')
+    const cita = await db.cita.findUnique({ where: { id: ag.body.citaId }, select: { pacienteId: true, doctorId: true, duracion: true } })
+    expect(cita?.pacienteId).toBe(ag.body.pacienteId)
+    expect(cita?.duracion).toBe(45)
+  })
 })
 
 describe('configuración del profesional (contratos y horarios)', () => {
