@@ -24,14 +24,36 @@ export function createApp() {
   // real del cliente (rate-limit por IP, logs).
   app.set('trust proxy', 1)
   app.use(helmet())
-  app.use(cors({
+
+  // CORS ABIERTO para las rutas públicas (/api/v1/public/*): el intake de leads y
+  // la reserva/formulario se llaman desde landings y formularios EXTERNOS
+  // (cross-origin, p. ej. https://digital-dent.cl), sin cookies ni credenciales.
+  // Va ANTES del CORS estricto y resuelve el preflight (OPTIONS → 204); el CORS
+  // con credenciales del resto de la app se salta para estas rutas para no pisarlo.
+  const publicCors = cors({
+    origin: true, // refleja el Origin de quien llama: permite cualquier landing externa
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type'],
+    credentials: false,
+  })
+  app.use('/api/v1/public', publicCors)
+
+  // CORS ESTRICTO (con credenciales) para el panel y las rutas autenticadas:
+  // solo el dominio de la plataforma, sus subdominios o la lista explícita.
+  const strictCors = cors({
     origin: (origin, cb) => {
       // Sin Origin (curl, server-to-server, healthcheck) → permitir.
       if (!origin) return cb(null, true)
       cb(null, corsOriginAllowed(origin))
     },
     credentials: true,
-  }))
+  })
+  app.use((req, res, next) => {
+    // Las rutas públicas ya las manejó publicCors; no aplicar el CORS estricto.
+    if (req.path.startsWith('/api/v1/public/')) return next()
+    return strictCors(req, res, next)
+  })
+
   app.use(express.json({ limit: '1mb' }))
   // Twilio postea el webhook como application/x-www-form-urlencoded.
   app.use(express.urlencoded({ extended: false }))

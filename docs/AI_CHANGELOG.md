@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-07-02 — CORS abierto para el intake público del CRM (landings externas)
+
+Las landings externas (p. ej. `https://digital-dent.cl`) que postean leads al intake público
+`POST /api/v1/public/crm/:slug/:token/lead` eran bloqueadas por CORS: el middleware global usa
+`credentials: true` y sólo permite el dominio de la plataforma + subdominios, así que un
+`Origin` externo no recibía `Access-Control-Allow-Origin` y el preflight fallaba.
+
+- **`backend/src/app.ts`:** se separó el CORS en dos. `publicCors` (abierto, `origin: true` que
+  refleja el Origin, `credentials: false`, métodos GET/POST/OPTIONS, header `Content-Type`) montado
+  en `/api/v1/public` — resuelve el preflight (OPTIONS → 204). El CORS estricto con credenciales
+  se aplica al resto vía un middleware que **se salta** las rutas `/api/v1/public/*` para no pisar
+  los headers. Las rutas autenticadas quedan igual (sólo dominio/subdominios de la plataforma).
+- **Test:** `pagos-liquidaciones.test.ts` — preflight 204 + `Access-Control-Allow-Origin` reflejado,
+  POST cross-origin crea el lead, y una ruta autenticada NO se abre a ese origin. 39/39.
+- Rama de deploy: `arch/split-frontend-backend` (backend split en Railway). No se toca `master`.
+
+---
+
 ## 2026-06-20 — CUTOVER EJECUTADO: stack split + DB-por-tenant en PRODUCCIÓN
 
 Se ejecutó el cutover completo (Railway, proyecto `amused-recreation`, desde la rama

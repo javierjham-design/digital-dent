@@ -408,6 +408,31 @@ describe('CRM: captación de leads + conversión a paciente', () => {
     expect(r.status).toBe(404)
   })
 
+  it('CORS: el intake público responde el preflight y permite un origin externo', async () => {
+    // Preflight OPTIONS desde una landing externa → 204 con headers CORS
+    const pre = await request(app).options(`/api/v1/public/crm/${A.slug}/lo-que-sea/lead`)
+      .set('Origin', 'https://digital-dent.cl')
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type')
+    expect(pre.status).toBe(204)
+    expect(pre.headers['access-control-allow-origin']).toBe('https://digital-dent.cl')
+
+    // El POST real también incluye el header CORS y crea el lead
+    const cfg = await get('/crm/config')
+    const token = cfg.body.crmToken as string
+    const post = await request(app).post(`/api/v1/public/crm/${A.slug}/${token}/lead`)
+      .set('Origin', 'https://digital-dent.cl')
+      .send({ nombre: 'CORS', apellido: 'Externo', telefono: '+56 9 1010 2020' })
+    expect(post.status).toBe(201)
+    expect(post.headers['access-control-allow-origin']).toBe('https://digital-dent.cl')
+
+    // Una ruta AUTENTICADA no debe abrirse a ese origin externo (CORS estricto)
+    const priv = await request(app).options('/api/v1/crm/leads')
+      .set('Origin', 'https://digital-dent.cl')
+      .set('Access-Control-Request-Method', 'GET')
+    expect(priv.headers['access-control-allow-origin']).toBeUndefined()
+  })
+
   it('genera una API key (MCP) y permite leer leads/stats por /ext; rechaza key inválida', async () => {
     const rot = await post('/crm/api-key/rotate', {})
     expect(rot.status).toBe(201)
