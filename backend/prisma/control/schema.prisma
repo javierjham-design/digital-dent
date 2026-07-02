@@ -35,7 +35,9 @@ model Clinica {
   // Hash (sha256) de la API key read-only de la clínica, para integraciones
   // externas (servidor MCP de Claude). Permite resolver la clínica por su key
   // sin abrir cada base. Se guarda hasheada; el token se muestra sólo al generarlo.
-  apiKeyHash String? @unique
+  // Índice NO único a propósito: el hash es aleatorio de 256 bits (colisión
+  // imposible) y un @unique haría que `prisma db push` exija --accept-data-loss.
+  apiKeyHash String?
 
   // Facturación de la suscripción (gestionado por super-admin).
   cicloFacturacion String    @default("MENSUAL") // MENSUAL | ANUAL
@@ -61,6 +63,7 @@ model Clinica {
 
   @@index([esDemo])
   @@index([activo, plan])
+  @@index([apiKeyHash])
 }
 
 // Prospecto capturado desde la landing/demo. Queda para ventas aunque la

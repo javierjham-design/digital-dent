@@ -12,7 +12,7 @@ export async function requireApiKey(req: Request, _res: Response, next: NextFunc
     const auth = req.get('authorization') ?? ''
     const raw = (req.get('x-api-key') ?? auth.replace(/^Bearer\s+/i, '')).trim()
     if (!raw) throw unauthorized('Falta la API key (header X-API-Key o Authorization: Bearer).')
-    const c = await control.clinica.findUnique({
+    const c = await control.clinica.findFirst({
       where: { apiKeyHash: hashApiKey(raw) },
       select: { id: true, slug: true, dbName: true, activo: true },
     })
