@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { listarHorarios } from '@/services/horarios.service'
-import { getMetaConfig } from '@/services/crm.service'
+import { getMetaConfig, buscarLeadParaReserva } from '@/services/crm.service'
 import { enviarEventoMeta, metaHabilitado } from '@/lib/meta'
 import { ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
@@ -315,22 +315,49 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     const cfg = await getMetaConfig(db)
     const t = (v?: string) => (v && v.trim() ? v.trim() : null)
     const enviado = metaHabilitado(cfg)
-    const lead = await db.lead.create({
-      data: {
-        nombre, apellido, telefono, email: input.email?.trim() || null, rut, motivo: motivo || null,
-        origen: 'AGENDA_ONLINE', estado: 'AGENDADO', pacienteId: paciente.id, citaId: cita.id,
-        fechaAgenda: cita.fecha, agendaFuente: link.nombre,
-        externalId: t(input.externalId), campana: t(input.campana),
-        utmSource: t(input.utmSource), utmMedium: t(input.utmMedium), utmCampaign: t(input.utmCampaign),
-        utmContent: t(input.utmContent), utmTerm: t(input.utmTerm),
-        fbclid: t(input.fbclid), ctwaClid: t(input.ctwaClid), gclid: t(input.gclid), msclkid: t(input.msclkid),
-        ttclid: t(input.ttclid), twclid: t(input.twclid), liFatId: t(input.liFatId), igclid: t(input.igclid), dclid: t(input.dclid),
-        fbp: t(input.fbp), fbc: t(input.fbc), referrer: t(input.referrer), landing: t(input.landing),
-        tituloPagina: t(input.tituloPagina), pantalla: t(input.pantalla), locale: t(input.locale),
-        scheduleEventId: eventId, scheduleCapiEnviado: enviado, metaEnviado: enviado,
-        notas: { create: { tipo: 'SISTEMA', texto: `Reserva online · ${link.nombre}` } },
-      },
-    })
+    const emailNorm = input.email?.trim() || null
+
+    // ¿La persona ya era un lead (formulario/campaña)? Si es así, lo AVANZAMOS a
+    // Agendado en vez de duplicarlo → se cierra el embudo y el Schedule de Meta
+    // queda atado al mismo external_id que su Lead original.
+    const existente = await buscarLeadParaReserva(db, { rut, telefono, email: emailNorm, fbp: input.fbp, fbc: input.fbc, externalId: input.externalId })
+
+    let lead
+    if (existente) {
+      lead = await db.lead.update({
+        where: { id: existente.id },
+        data: {
+          estado: 'AGENDADO', pacienteId: existente.pacienteId ?? paciente.id, citaId: cita.id,
+          fechaAgenda: cita.fecha, agendaFuente: link.nombre,
+          // Completar identificadores/tracking que ahora tenemos y al lead le faltaban
+          telefono: existente.telefono ?? telefono, email: existente.email ?? emailNorm, rut: existente.rut ?? rut,
+          externalId: existente.externalId ?? t(input.externalId),
+          fbp: existente.fbp ?? t(input.fbp), fbc: existente.fbc ?? t(input.fbc),
+          fbclid: existente.fbclid ?? t(input.fbclid), ctwaClid: existente.ctwaClid ?? t(input.ctwaClid),
+          landing: existente.landing ?? t(input.landing),
+          scheduleEventId: eventId, scheduleCapiEnviado: enviado,
+          notas: { create: { tipo: 'SISTEMA', texto: `Agendó por el link online · ${link.nombre}` } },
+        },
+      })
+    } else {
+      lead = await db.lead.create({
+        data: {
+          nombre, apellido, telefono, email: emailNorm, rut, motivo: motivo || null,
+          origen: 'AGENDA_ONLINE', estado: 'AGENDADO', pacienteId: paciente.id, citaId: cita.id,
+          fechaAgenda: cita.fecha, agendaFuente: link.nombre,
+          externalId: t(input.externalId), campana: t(input.campana),
+          utmSource: t(input.utmSource), utmMedium: t(input.utmMedium), utmCampaign: t(input.utmCampaign),
+          utmContent: t(input.utmContent), utmTerm: t(input.utmTerm),
+          fbclid: t(input.fbclid), ctwaClid: t(input.ctwaClid), gclid: t(input.gclid), msclkid: t(input.msclkid),
+          ttclid: t(input.ttclid), twclid: t(input.twclid), liFatId: t(input.liFatId), igclid: t(input.igclid), dclid: t(input.dclid),
+          fbp: t(input.fbp), fbc: t(input.fbc), referrer: t(input.referrer), landing: t(input.landing),
+          tituloPagina: t(input.tituloPagina), pantalla: t(input.pantalla), locale: t(input.locale),
+          scheduleEventId: eventId, scheduleCapiEnviado: enviado, metaEnviado: enviado,
+          notas: { create: { tipo: 'SISTEMA', texto: `Reserva online · ${link.nombre}` } },
+        },
+      })
+    }
+
     const externalId = lead.externalId || rut || lead.id
     if (enviado) {
       void enviarEventoMeta(cfg, {

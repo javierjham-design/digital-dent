@@ -50,6 +50,30 @@ export async function obtenerLead(db: TenantClient, id: string) {
   return lead
 }
 
+// Busca un lead existente que sea la MISMA persona (para no duplicar cuando
+// alguien que ya llegó por una campaña/formulario agenda luego por el link
+// online). Match por external_id → RUT → teléfono → email → cookies de Meta.
+// Devuelve el más reciente no cerrado (dentro de 180 días).
+export interface IdentLead { rut?: string | null; telefono?: string | null; email?: string | null; fbp?: string | null; fbc?: string | null; externalId?: string | null }
+export async function buscarLeadParaReserva(db: TenantClient, ident: IdentLead) {
+  const dig = (ident.telefono ?? '').replace(/\D/g, '')
+  const email = ident.email?.trim().toLowerCase() || null
+  const desde = new Date(Date.now() - 180 * 24 * 3600_000)
+  const candidatos = await db.lead.findMany({
+    where: { createdAt: { gte: desde }, estado: { not: 'CONVERTIDO' } },
+    orderBy: { createdAt: 'desc' },
+    take: 500,
+  })
+  return candidatos.find((l) =>
+    (!!ident.externalId && l.externalId === ident.externalId) ||
+    (!!ident.rut && !!l.rut && l.rut === ident.rut) ||
+    (!!dig && (l.telefono ?? '').replace(/\D/g, '') === dig) ||
+    (!!email && (l.email ?? '').trim().toLowerCase() === email) ||
+    (!!ident.fbp && !!l.fbp && l.fbp === ident.fbp) ||
+    (!!ident.fbc && !!l.fbc && l.fbc === ident.fbc),
+  ) ?? null
+}
+
 // ── Captación (intake público o alta manual) ─────────────────────────────────
 
 export interface CrearLeadInput {

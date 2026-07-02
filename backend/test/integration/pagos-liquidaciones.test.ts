@@ -429,6 +429,39 @@ describe('CRM: captación de leads + conversión a paciente', () => {
     expect(cita?.pacienteId).toBe(ag.body.pacienteId)
     expect(cita?.duracion).toBe(45)
   })
+
+  it('sincroniza el agendamiento online con un lead existente: no duplica, lo avanza a Agendado', async () => {
+    const tel = '+56 9 3333 2211'
+    // 1) Lead previo captado por campaña/formulario (origen META)
+    const cfg = await get('/crm/config')
+    const crmToken = cfg.body.crmToken as string
+    const intake = await request(app).post(`/api/v1/public/crm/${A.slug}/${crmToken}/lead`)
+      .send({ nombre: 'Lucía', apellido: 'Campaña', telefono: tel, email: 'lucia@test.cl', utmCampaign: 'meta-agosto', origen: 'META' })
+    expect(intake.status).toBe(201)
+    const leadId = intake.body.leadId as string
+
+    // 2) Link online + primer slot
+    const ventanas = [0, 1, 2, 3, 4, 5, 6].map((d) => ({ diaSemana: d, horaInicio: '09:00', horaFin: '18:00' }))
+    const link = await post('/agenda-links', { nombre: 'Sync Eval', doctorId, usaHorarioDoctor: false, duracionMin: 30, anticipacionHoras: 0, diasMaxFuturo: 7, ventanas })
+    const linkToken = link.body.token as string
+    const pub = await request(app).get(`/api/v1/public/agenda/${A.slug}/${linkToken}`)
+    const slot = pub.body.dias[0].slots[0]
+
+    // 3) La MISMA persona (mismo teléfono) reserva por el link online
+    const reserva = await request(app).post(`/api/v1/public/agenda/${A.slug}/${linkToken}/reservar`)
+      .send({ inicio: slot.inicio, nombre: 'Lucía', apellido: 'Campaña', telefono: tel })
+    expect(reserva.status).toBe(201)
+
+    // 4) No se duplicó: el lead original se avanzó a Agendado conservando su origen
+    const db = tenantClient(A.dbName)
+    const mismos = await db.lead.findMany({ where: { telefono: tel } })
+    expect(mismos.length).toBe(1)
+    expect(mismos[0].id).toBe(leadId)
+    expect(mismos[0].estado).toBe('AGENDADO')
+    expect(mismos[0].origen).toBe('META')
+    expect(mismos[0].agendaFuente).toBe('Sync Eval')
+    expect(mismos[0].citaId).toBe(reserva.body.citaId)
+  })
 })
 
 describe('configuración del profesional (contratos y horarios)', () => {
