@@ -61,19 +61,32 @@ export function metaHabilitado(cfg: MetaConfig): boolean {
   return Boolean(cfg.enabled && cfg.pixelId && cfg.capiToken)
 }
 
-// Valida contra Meta que el Pixel ID + token de Conversions API sean correctos y
-// que el token tenga acceso a ese pixel/dataset. No envía ningún evento (no
-// contamina métricas): sólo lee el nodo del pixel.
-export interface MetaTestResult { ok: boolean; status: number; nombre?: string; error?: string }
+// Valida el Pixel ID + token de Conversions API ENVIANDO un evento de prueba a
+// /events (que es el permiso que realmente usa el token de CAPI; leer el nodo
+// del pixel suele dar "#100 Missing Permission" con estos tokens). El evento va
+// marcado con test_event_code, así Meta lo trata como prueba y NO afecta el
+// reporte ni la optimización.
+export interface MetaTestResult { ok: boolean; status: number; recibidos?: number; testCode?: string; error?: string }
 export async function probarConexionMeta(cfg: MetaConfig): Promise<MetaTestResult> {
   if (!cfg.pixelId) return { ok: false, status: 0, error: 'Falta el Pixel ID.' }
   if (!cfg.capiToken) return { ok: false, status: 0, error: 'Falta el token de Conversions API.' }
+  const testCode = cfg.testCode?.trim() || 'CLARIVA_PING'
   try {
-    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(cfg.pixelId)}?fields=name,id&access_token=${encodeURIComponent(cfg.capiToken)}`
-    const r = await fetch(url)
-    const data = (await r.json().catch(() => ({}))) as { id?: string; name?: string; error?: { message?: string } }
-    if (r.ok && data?.id) return { ok: true, status: r.status, nombre: data.name ?? data.id }
-    return { ok: false, status: r.status, error: data?.error?.message ?? `Meta respondió ${r.status}.` }
+    const body = {
+      data: [{
+        event_name: 'Lead',
+        event_time: Math.floor(Date.now() / 1000),
+        action_source: 'website',
+        event_id: `clariva-test-${Date.now()}`,
+        user_data: { em: [shaNorm('test@clariva.cl')], client_user_agent: 'Clariva-Test/1.0' },
+      }],
+      test_event_code: testCode,
+    }
+    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(cfg.pixelId)}/events?access_token=${encodeURIComponent(cfg.capiToken)}`
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const data = (await r.json().catch(() => ({}))) as { events_received?: number; error?: { message?: string; code?: number }; fbtrace_id?: string }
+    if (r.ok && (data.events_received ?? 0) >= 1) return { ok: true, status: r.status, recibidos: data.events_received, testCode }
+    return { ok: false, status: r.status, error: data.error?.message ?? `Meta respondió ${r.status}.` }
   } catch (e) {
     return { ok: false, status: 0, error: e instanceof Error ? e.message : 'No se pudo conectar con Meta.' }
   }
