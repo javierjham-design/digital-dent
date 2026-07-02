@@ -16,7 +16,14 @@ import { control } from '@/db/control'
 import { tenantUrl } from '@/db/tenant'
 
 async function main() {
-  const clinicas = await control.clinica.findMany({ select: { slug: true, dbName: true }, orderBy: { createdAt: 'asc' } })
+  const ahora = new Date()
+  // Saltamos demos ya expirados: su base pudo haber sido eliminada y no debe
+  // hacer fallar el deploy.
+  const clinicas = await control.clinica.findMany({
+    where: { OR: [{ esDemo: false }, { demoExpiraEn: null }, { demoExpiraEn: { gt: ahora } }] },
+    select: { slug: true, dbName: true },
+    orderBy: { createdAt: 'asc' },
+  })
   console.log(`[migrate-tenants] ${clinicas.length} base(s) de clínica a migrar`)
 
   let ok = 0
@@ -26,6 +33,7 @@ async function main() {
     try {
       execSync('npx prisma db push --schema prisma/tenant/schema.prisma --skip-generate', {
         stdio: ['ignore', 'ignore', 'inherit'],
+        timeout: 90_000, // una base lenta/colgada no debe estancar el arranque
         env: { ...process.env, TENANT_DATABASE_URL: tenantUrl(c.dbName) },
       })
       console.log('OK')
@@ -37,9 +45,15 @@ async function main() {
   }
 
   console.log(`\n[migrate-tenants] ${ok}/${clinicas.length} OK`)
-  if (fallidas.length > 0) console.error(`[migrate-tenants] fallaron: ${fallidas.join(', ')}`)
+  if (fallidas.length > 0) {
+    console.error(`[migrate-tenants] ⚠️ fallaron (revisar manualmente): ${fallidas.join(', ')}`)
+  }
   await control.$disconnect()
-  process.exit(fallidas.length > 0 ? 1 : 0)
+  // IMPORTANTE: una migración de tenant fallida NO debe tumbar TODA la plataforma
+  // (p. ej. un demo expirado cuya base ya no existe, o una base inalcanzable). El
+  // server arranca igual; las bases fallidas quedan registradas arriba para
+  // arreglarlas aparte. Sólo un error del control-plane (catch de abajo) es fatal.
+  process.exit(0)
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })
