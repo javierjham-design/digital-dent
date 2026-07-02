@@ -434,7 +434,12 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
     if (!confirm('¿Revocar la API key? Las integraciones (incluido el MCP de Claude) dejarán de funcionar.')) return
     try { await crmService.revocarApiKey(); setApiKeyOn(false); setNuevaKey(null); notify('API key revocada') } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
-  const mcpBase = `${window.location.origin}/api/v1`
+  // Base ABSOLUTA del backend (api.clariva.cl), NO window.location.origin: el panel
+  // corre en el subdominio del frontend (<slug>.clariva.cl), pero la API pública y
+  // el MCP viven en el backend. Usar el origin del navegador apuntaría al SPA.
+  const apiBase = import.meta.env.VITE_API_URL ?? '/api/v1'
+  const apiAbs = apiBase.startsWith('http') ? apiBase.replace(/\/$/, '') : `${window.location.origin}${apiBase}`
+  const mcpBase = apiAbs
 
   async function probar() {
     setProbando(true); setTestRes(null)
@@ -446,8 +451,10 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
     } catch (e) { setTestRes({ ok: false, msg: e instanceof ApiError ? e.message : 'Error al probar la conexión.' }) } finally { setProbando(false) }
   }
 
+  // El formulario hospedado es una ruta del SPA → va en el origin del frontend.
   const formUrl = cfg ? `${window.location.origin}/c/${cfg.slug}/formulario/${cfg.crmToken}` : ''
-  const intakeUrl = cfg ? `${window.location.origin.replace(/^http/, 'http')}/api/v1/public/crm/${cfg.slug}/${cfg.crmToken}/lead` : ''
+  // El intake es una ruta del BACKEND → va en api.clariva.cl (apiAbs), no en el frontend.
+  const intakeUrl = cfg ? `${apiAbs}/public/crm/${cfg.slug}/${cfg.crmToken}/lead` : ''
 
   const editandoToken = !cfg?.hasCapiToken || editToken // el input del token está visible
 
