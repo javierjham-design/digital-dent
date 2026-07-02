@@ -18,6 +18,20 @@ const ESTADOS = [
 const estadoCfg = (k: string) => ESTADOS.find((e) => e.k === k) ?? { k, l: k, c: 'bg-slate-100 text-slate-600' }
 const fecha = (iso: string) => new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
 
+// Origen de captación (de dónde vino el lead) → etiqueta + color.
+const ORIGENES: Record<string, { l: string; c: string }> = {
+  META: { l: 'Meta Ads', c: 'bg-violet-100 text-violet-700' },
+  INSTAGRAM: { l: 'Instagram', c: 'bg-pink-100 text-pink-700' },
+  FORMULARIO: { l: 'Formulario', c: 'bg-sky-100 text-sky-700' },
+  AGENDA_ONLINE: { l: 'Link online', c: 'bg-cyan-100 text-cyan-700' },
+  MANUAL: { l: 'Manual', c: 'bg-slate-100 text-slate-600' },
+  OTRO: { l: 'Otro', c: 'bg-slate-100 text-slate-600' },
+}
+const origenCfg = (o: string) => ORIGENES[o] ?? { l: o, c: 'bg-slate-100 text-slate-600' }
+const chip = 'shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full'
+// "Agendó por el link online" = tiene fuente de agenda y NO fue agendado desde el CRM/recepción.
+const agendoOnline = (l: Lead) => Boolean(l.agendaFuente && l.agendaFuente !== 'CRM')
+
 // Click-ids por plataforma para mostrar en el detalle (campo → etiqueta).
 const CLICK_LABELS: { k: keyof Lead; l: string }[] = [
   { k: 'fbclid', l: 'fbclid (Meta)' }, { k: 'ctwaClid', l: 'ctwa_clid (WhatsApp Ads)' },
@@ -83,12 +97,18 @@ export function Crm() {
           : leads.length === 0 ? <p className="px-5 py-10 text-center text-slate-500 text-sm">Sin leads {estado ? 'en este estado' : 'todavía'}. Comparte tu formulario o conecta tus campañas.</p>
           : leads.map((l) => {
             const ec = estadoCfg(l.estado)
+            const oc = origenCfg(l.origen)
             return (
               <button key={l.id} onClick={() => setSel(l)} className="w-full flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50 text-left">
                 <div className="min-w-0">
-                  <p className="font-semibold text-slate-800 truncate">{l.nombre} {l.apellido ?? ''}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="font-semibold text-slate-800 truncate">{l.nombre} {l.apellido ?? ''}</p>
+                    <span className={`${chip} ${oc.c}`}>{oc.l}</span>
+                    {agendoOnline(l) && <span className={`${chip} bg-emerald-100 text-emerald-700`}>Agendó online</span>}
+                    {l.pacienteId && <span className={`${chip} bg-slate-100 text-slate-500`}>Paciente</span>}
+                  </div>
                   <p className="text-xs text-slate-500 truncate">
-                    {l.telefono ?? l.email ?? '—'} · {l.origen}{l.campana ? ` · ${l.campana}` : ''} · {fecha(l.createdAt)}
+                    {l.telefono ?? l.email ?? '—'}{l.campana ? ` · ${l.campana}` : ''} · {fecha(l.createdAt)}
                   </p>
                 </div>
                 <span className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${ec.c}`}>{ec.l}</span>
