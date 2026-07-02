@@ -13,6 +13,25 @@ const ESTADOS = [
 const estadoCfg = (k: string) => ESTADOS.find((e) => e.k === k) ?? { k, l: k, c: 'bg-slate-100 text-slate-600' }
 const fecha = (iso: string) => new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
 
+// Click-ids por plataforma para mostrar en el detalle (campo → etiqueta).
+const CLICK_LABELS: { k: keyof Lead; l: string }[] = [
+  { k: 'fbclid', l: 'fbclid (Meta)' }, { k: 'ctwaClid', l: 'ctwa_clid (WhatsApp Ads)' },
+  { k: 'gclid', l: 'gclid (Google)' }, { k: 'msclkid', l: 'msclkid (Microsoft)' },
+  { k: 'ttclid', l: 'ttclid (TikTok)' }, { k: 'twclid', l: 'twclid (X)' },
+  { k: 'liFatId', l: 'li_fat_id (LinkedIn)' }, { k: 'igclid', l: 'igclid (Instagram)' },
+  { k: 'dclid', l: 'dclid (Display)' },
+]
+// Señales de identidad que Meta usa para el Event Match Quality.
+function emqSignals(l: Lead): number {
+  return [l.email, l.telefono, l.nombre, l.apellido, l.externalId, l.fbp, l.fbc].filter(Boolean).length
+}
+const toLocalInput = (iso: string | null) => {
+  if (!iso) return ''
+  const d = new Date(iso); if (Number.isNaN(d.getTime())) return ''
+  const off = d.getTimezoneOffset()
+  return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16)
+}
+
 export function Crm() {
   const [leads, setLeads] = useState<Lead[]>([])
   const [resumen, setResumen] = useState<CrmResumen | null>(null)
@@ -94,14 +113,29 @@ function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose
   const [full, setFull] = useState<Lead>(lead)
   const [nota, setNota] = useState('')
   const [busy, setBusy] = useState(false)
-  useEffect(() => { crmService.lead(lead.id).then(setFull).catch(() => {}) }, [lead.id])
+  const [verTracking, setVerTracking] = useState(false)
+  const [ed, setEd] = useState({ tratamiento: '', piezasReemplazar: '', tiempoDesdePerdida: '', fechaAgenda: '' })
+  const refrescar = () => crmService.lead(lead.id).then((l) => { setFull(l); setEd({ tratamiento: l.tratamiento ?? '', piezasReemplazar: l.piezasReemplazar ?? '', tiempoDesdePerdida: l.tiempoDesdePerdida ?? '', fechaAgenda: toLocalInput(l.fechaAgenda) }) }).catch(() => {})
+  useEffect(() => { refrescar() }, [lead.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function cambiarEstado(e: string) {
-    try { await crmService.actualizar(lead.id, { estado: e }); crmService.lead(lead.id).then(setFull); notify('Estado actualizado') } catch (err) { notify(err instanceof ApiError ? err.message : 'Error', false) }
+    try { await crmService.actualizar(lead.id, { estado: e }); refrescar(); notify('Estado actualizado') } catch (err) { notify(err instanceof ApiError ? err.message : 'Error', false) }
+  }
+  async function guardarDatos() {
+    try {
+      await crmService.actualizar(lead.id, {
+        tratamiento: ed.tratamiento.trim() || null, piezasReemplazar: ed.piezasReemplazar.trim() || null,
+        tiempoDesdePerdida: ed.tiempoDesdePerdida.trim() || null, fechaAgenda: ed.fechaAgenda ? new Date(ed.fechaAgenda).toISOString() : null,
+      })
+      refrescar(); notify('Datos guardados')
+    } catch (err) { notify(err instanceof ApiError ? err.message : 'Error', false) }
+  }
+  async function marcarAsistio(v: boolean | null) {
+    try { await crmService.actualizar(lead.id, { asistio: v }); refrescar() } catch (err) { notify(err instanceof ApiError ? err.message : 'Error', false) }
   }
   async function agregarNota() {
     if (!nota.trim()) return
-    try { await crmService.nota(lead.id, nota.trim()); setNota(''); crmService.lead(lead.id).then(setFull) } catch (err) { notify(err instanceof ApiError ? err.message : 'Error', false) }
+    try { await crmService.nota(lead.id, nota.trim()); setNota(''); refrescar() } catch (err) { notify(err instanceof ApiError ? err.message : 'Error', false) }
   }
   async function convertir() {
     setBusy(true)
@@ -112,6 +146,10 @@ function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose
     if (!confirm('¿Eliminar este lead?')) return
     try { await crmService.eliminar(lead.id); onChanged() } catch (err) { notify(err instanceof ApiError ? err.message : 'Error', false) }
   }
+
+  const emq = emqSignals(full)
+  const emqTone = emq >= 6 ? 'text-emerald-600' : emq >= 4 ? 'text-amber-600' : 'text-rose-500'
+  const clicksPresentes = CLICK_LABELS.filter((c) => full[c.k])
 
   return (
     <Modal title={`${full.nombre} ${full.apellido ?? ''}`} onClose={onClose}>
@@ -130,8 +168,71 @@ function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose
         {full.campana && <Row k="Campaña" v={full.campana} />}
         {full.utmCampaign && <Row k="UTM campaign" v={full.utmCampaign} />}
         {full.utmSource && <Row k="UTM source" v={`${full.utmSource}${full.utmMedium ? ` / ${full.utmMedium}` : ''}`} />}
+        {full.fechaAgenda && <Row k="Hora agendada" v={fecha(full.fechaAgenda)} />}
+        {full.agendaFuente && <Row k="Agenda vía" v={full.agendaFuente} />}
         <Row k="Recibido" v={fecha(full.createdAt)} />
       </dl>
+
+      {/* Datos de la campaña dental (editables) + asistencia */}
+      <div className="border-t border-slate-100 pt-3 mb-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Datos de seguimiento</p>
+        <div className="grid grid-cols-2 gap-2">
+          <input value={ed.tratamiento} onChange={(e) => setEd((s) => ({ ...s, tratamiento: e.target.value }))} placeholder="Tratamiento de interés" className={inp} />
+          <input value={ed.piezasReemplazar} onChange={(e) => setEd((s) => ({ ...s, piezasReemplazar: e.target.value }))} placeholder="Piezas a reemplazar" className={inp} />
+          <input value={ed.tiempoDesdePerdida} onChange={(e) => setEd((s) => ({ ...s, tiempoDesdePerdida: e.target.value }))} placeholder="Tiempo desde pérdida" className={inp} />
+          <input type="datetime-local" value={ed.fechaAgenda} onChange={(e) => setEd((s) => ({ ...s, fechaAgenda: e.target.value }))} className={inp} />
+        </div>
+        <div className="flex items-center justify-between mt-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-500">¿Asistió?</span>
+            {([['Sí', true], ['No', false], ['—', null]] as const).map(([l, v]) => (
+              <button key={l} onClick={() => marcarAsistio(v)} className={`text-xs font-semibold px-2 py-1 rounded-lg border ${full.asistio === v ? 'border-cyan-400 bg-cyan-50 text-cyan-700' : 'border-slate-200 text-slate-500'}`}>{l}</button>
+            ))}
+          </div>
+          <button onClick={guardarDatos} className="text-xs font-semibold px-3 py-1.5 bg-slate-900 text-white rounded-lg">Guardar datos</button>
+        </div>
+      </div>
+
+      {/* Calidad de datos para Meta + estado de envío */}
+      <div className="border-t border-slate-100 pt-3 mb-3">
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Meta</p>
+          <span className={`text-xs font-semibold ${emqTone}`}>Señales de match: {emq}/7</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mt-2 text-[11px]">
+          <span className={`px-2 py-0.5 rounded-full ${full.metaEnviado ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Lead {full.metaEnviado ? 'enviado' : 'no enviado'}</span>
+          {(full.origen === 'AGENDA_ONLINE' || full.scheduleEventId) && (
+            <span className={`px-2 py-0.5 rounded-full ${full.scheduleCapiEnviado ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Schedule {full.scheduleCapiEnviado ? 'enviado' : 'no enviado'}</span>
+          )}
+          {full.externalId && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">external_id ✓</span>}
+          {full.fbp && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">_fbp ✓</span>}
+          {full.fbc && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">_fbc ✓</span>}
+        </div>
+      </div>
+
+      {/* Tracking completo (colapsable) */}
+      <div className="border-t border-slate-100 pt-3 mb-3">
+        <button onClick={() => setVerTracking((v) => !v)} className="text-xs font-semibold uppercase tracking-wide text-slate-400 hover:text-slate-600">
+          {verTracking ? '▾' : '▸'} Tracking y atribución {clicksPresentes.length > 0 ? `· ${clicksPresentes.length} click-id${clicksPresentes.length > 1 ? 's' : ''}` : ''}
+        </button>
+        {verTracking && (
+          <dl className="text-sm space-y-1 mt-2">
+            {full.externalId && <Row k="External ID" v={full.externalId} />}
+            {full.utmMedium && <Row k="UTM medium" v={full.utmMedium} />}
+            {full.utmContent && <Row k="UTM content" v={full.utmContent} />}
+            {full.utmTerm && <Row k="UTM term" v={full.utmTerm} />}
+            {clicksPresentes.map((c) => <Row key={c.k} k={c.l} v={String(full[c.k])} />)}
+            {full.landing && <Row k="Landing" v={full.landing} />}
+            {full.referrer && <Row k="Referrer" v={full.referrer} />}
+            {full.tituloPagina && <Row k="Título página" v={full.tituloPagina} />}
+            {full.pantalla && <Row k="Pantalla" v={full.pantalla} />}
+            {full.locale && <Row k="Idioma" v={full.locale} />}
+            {full.primeraVisita && <Row k="Primera visita" v={fecha(full.primeraVisita)} />}
+            {full.ultimaVisita && <Row k="Última visita" v={fecha(full.ultimaVisita)} />}
+            {clicksPresentes.length === 0 && !full.externalId && <p className="text-xs text-slate-400">Sin datos de atribución.</p>}
+          </dl>
+        )}
+      </div>
 
       <div className="flex gap-2 mb-4">
         {full.pacienteId
@@ -141,7 +242,7 @@ function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose
       </div>
 
       <div className="border-t border-slate-100 pt-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Seguimiento</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Notas</p>
         <div className="flex gap-2 mb-3">
           <input value={nota} onChange={(e) => setNota(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') agregarNota() }} placeholder="Agregar nota…" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm" />
           <button onClick={agregarNota} className="px-3 py-2 bg-slate-900 text-white text-sm rounded-lg">Nota</button>
@@ -161,7 +262,7 @@ function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose
 }
 
 function NuevoLeadModal({ onClose, onCreated, onError }: { onClose: () => void; onCreated: () => void; onError: (m: string) => void }) {
-  const [f, setF] = useState({ nombre: '', apellido: '', telefono: '', email: '', motivo: '', campana: '' })
+  const [f, setF] = useState({ nombre: '', apellido: '', telefono: '', email: '', motivo: '', tratamiento: '', campana: '' })
   const [busy, setBusy] = useState(false)
   const set = (p: Partial<typeof f>) => setF((x) => ({ ...x, ...p }))
   async function crear() {
@@ -176,8 +277,9 @@ function NuevoLeadModal({ onClose, onCreated, onError }: { onClose: () => void; 
         <input value={f.apellido} onChange={(e) => set({ apellido: e.target.value })} placeholder="Apellido" className={inp} />
         <input value={f.telefono} onChange={(e) => set({ telefono: e.target.value })} placeholder="Teléfono" className={inp} />
         <input value={f.email} onChange={(e) => set({ email: e.target.value })} placeholder="Email" className={inp} />
+        <input value={f.tratamiento} onChange={(e) => set({ tratamiento: e.target.value })} placeholder="Tratamiento de interés" className={inp} />
         <input value={f.motivo} onChange={(e) => set({ motivo: e.target.value })} placeholder="Motivo / interés" className={inp} />
-        <input value={f.campana} onChange={(e) => set({ campana: e.target.value })} placeholder="Campaña" className={inp} />
+        <input value={f.campana} onChange={(e) => set({ campana: e.target.value })} placeholder="Campaña" className={`${inp} col-span-2`} />
       </div>
       <div className="flex gap-2 pt-4">
         <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
@@ -226,6 +328,16 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
               <span className="text-xs font-mono text-slate-500 truncate flex-1">{intakeUrl}</span>
               <button onClick={() => copiar(intakeUrl)} className="text-xs font-semibold text-cyan-700 shrink-0">Copiar</button>
             </div>
+            <details className="mt-2">
+              <summary className="text-xs font-semibold text-slate-500 cursor-pointer">Campos que acepta (JSON)</summary>
+              <p className="text-[11px] text-slate-400 mt-1 leading-relaxed font-mono break-words">
+                nombre*, apellido, telefono, email, rut, motivo, tratamiento, piezasReemplazar, tiempoDesdePerdida,
+                externalId, campana, utmSource, utmMedium, utmCampaign, utmContent, utmTerm,
+                fbclid, ctwaClid, gclid, msclkid, ttclid, twclid, liFatId, igclid, dclid, fbp, fbc,
+                referrer, landing, tituloPagina, pantalla, locale, primeraVisita, ultimaVisita, eventId
+              </p>
+              <p className="text-[11px] text-slate-400 mt-1">Manda los mismos nombres de tu planilla mapeados a estos. Cuantos más identificadores (email, teléfono, external_id, _fbp/_fbc), mejor el match quality de Meta.</p>
+            </details>
           </div>
 
           <div className="border-t border-slate-100 pt-3">

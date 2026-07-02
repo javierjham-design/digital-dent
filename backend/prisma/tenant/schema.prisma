@@ -669,26 +669,49 @@ model Lead {
   email         String?
   rut           String?
   motivo        String?
+  tratamiento   String?    // tratamiento de interés (Implantes, Ortodoncia, etc.)
+  piezasReemplazar   String? // dato dental de la campaña (piezas a reemplazar)
+  tiempoDesdePerdida String? // hace cuánto perdió la(s) pieza(s)
   estado        String     @default("NUEVO")      // NUEVO | CONTACTADO | AGENDADO | CONVERTIDO | PERDIDO
   origen        String     @default("FORMULARIO")  // FORMULARIO | META | INSTAGRAM | AGENDA_ONLINE | MANUAL | OTRO
   campana       String?
+  externalId    String?    // id externo del lead — mejora el Event Match Quality de Meta
   utmSource     String?
   utmMedium     String?
   utmCampaign   String?
   utmContent    String?
   utmTerm       String?
+  // Click-ids por plataforma (multi-canal)
   fbclid        String?
+  ctwaClid      String?    // Click-to-WhatsApp (Meta)
+  gclid         String?    // Google Ads
+  msclkid       String?    // Microsoft Ads
+  ttclid        String?    // TikTok
+  twclid        String?    // X / Twitter
+  liFatId       String?    // LinkedIn
+  igclid        String?    // Instagram
+  dclid         String?    // Google Display / DV360
   fbp           String?
   fbc           String?
   referrer      String?
   landing       String?
+  tituloPagina  String?
+  pantalla      String?    // resolución de pantalla (px)
+  locale        String?
   ip            String?
   userAgent     String?
+  primeraVisita DateTime?
+  ultimaVisita  DateTime?
+  fechaAgenda   DateTime?  // fecha/hora de la cita agendada
+  agendaFuente  String?    // fuente del agendamiento (link, recepción, etc.)
+  asistio       Boolean?   // asistió a la cita (null = desconocido)
   pacienteId    String?    // si se convierte en paciente
   citaId        String?    // si agenda una cita
   responsableId String?    // usuario a cargo del seguimiento
-  metaEventId   String?    // id de evento para deduplicar con el Pixel del navegador
+  metaEventId   String?    // id de evento (Lead) para deduplicar con el Pixel del navegador
   metaEnviado   Boolean    @default(false)
+  scheduleEventId     String?  // event_id del evento Schedule (dedup con el Pixel)
+  scheduleCapiEnviado Boolean @default(false)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   notas         LeadNota[]

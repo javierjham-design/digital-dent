@@ -52,12 +52,19 @@ export async function obtenerLead(db: TenantClient, id: string) {
 // ── Captación (intake público o alta manual) ─────────────────────────────────
 
 export interface CrearLeadInput {
-  nombre: string; apellido?: string; telefono?: string; email?: string; rut?: string; motivo?: string
-  origen?: string; campana?: string
+  nombre: string; apellido?: string; telefono?: string; email?: string; rut?: string
+  motivo?: string; tratamiento?: string; piezasReemplazar?: string; tiempoDesdePerdida?: string
+  origen?: string; campana?: string; externalId?: string
   utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmTerm?: string
-  fbclid?: string; fbp?: string; fbc?: string; referrer?: string; landing?: string
+  fbclid?: string; ctwaClid?: string; gclid?: string; msclkid?: string; ttclid?: string
+  twclid?: string; liFatId?: string; igclid?: string; dclid?: string
+  fbp?: string; fbc?: string; referrer?: string; landing?: string; tituloPagina?: string; pantalla?: string; locale?: string
+  primeraVisita?: string; ultimaVisita?: string
   eventId?: string
 }
+
+const clean = (v?: string | null) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+const fecha = (v?: string | null) => { if (!v) return null; const d = new Date(v); return Number.isNaN(d.getTime()) ? null : d }
 
 export async function crearLead(
   db: TenantClient,
@@ -74,26 +81,39 @@ export async function crearLead(
 
   const lead = await db.lead.create({
     data: {
-      nombre, apellido: input.apellido?.trim() || null, telefono: input.telefono?.trim() || null,
-      email: input.email?.trim() || null, rut: input.rut?.trim() || null, motivo: input.motivo?.trim() || null,
-      origen: (input.origen || 'FORMULARIO').toUpperCase(), campana: input.campana?.trim() || null,
-      utmSource: input.utmSource || null, utmMedium: input.utmMedium || null, utmCampaign: input.utmCampaign || null,
-      utmContent: input.utmContent || null, utmTerm: input.utmTerm || null,
-      fbclid: input.fbclid || null, fbp: input.fbp || null, fbc: input.fbc || null,
-      referrer: input.referrer || null, landing: input.landing || null,
+      nombre, apellido: clean(input.apellido), telefono: clean(input.telefono),
+      email: clean(input.email), rut: clean(input.rut), motivo: clean(input.motivo),
+      tratamiento: clean(input.tratamiento), piezasReemplazar: clean(input.piezasReemplazar),
+      tiempoDesdePerdida: clean(input.tiempoDesdePerdida),
+      origen: (input.origen || 'FORMULARIO').toUpperCase(), campana: clean(input.campana),
+      externalId: clean(input.externalId),
+      utmSource: clean(input.utmSource), utmMedium: clean(input.utmMedium), utmCampaign: clean(input.utmCampaign),
+      utmContent: clean(input.utmContent), utmTerm: clean(input.utmTerm),
+      fbclid: clean(input.fbclid), ctwaClid: clean(input.ctwaClid), gclid: clean(input.gclid),
+      msclkid: clean(input.msclkid), ttclid: clean(input.ttclid), twclid: clean(input.twclid),
+      liFatId: clean(input.liFatId), igclid: clean(input.igclid), dclid: clean(input.dclid),
+      fbp: clean(input.fbp), fbc: clean(input.fbc),
+      referrer: clean(input.referrer), landing: clean(input.landing), tituloPagina: clean(input.tituloPagina),
+      pantalla: clean(input.pantalla), locale: clean(input.locale),
+      primeraVisita: fecha(input.primeraVisita), ultimaVisita: fecha(input.ultimaVisita),
       ip: ctx?.ip || null, userAgent: ctx?.userAgent || null,
       metaEventId: eventId, metaEnviado,
       notas: { create: { tipo: 'SISTEMA', texto: `Lead recibido · origen ${(input.origen || 'FORMULARIO').toUpperCase()}`, autorNombre: ctx?.autorNombre ?? null, autorId: ctx?.autorId ?? null } },
     },
   })
 
+  // external_id estable para Meta: el que venga, o el RUT, o el id del lead.
+  const externalId = lead.externalId || lead.rut || lead.id
+  if (!lead.externalId) await db.lead.update({ where: { id: lead.id }, data: { externalId } })
+
   // Evento "Lead" a Meta (server-side), deduplicado con el Pixel por event_id.
   if (cfg && metaHabilitado(cfg)) {
     void enviarEventoMeta(cfg, {
       eventName: 'Lead', eventId, eventSourceUrl: input.landing ?? null,
       email: lead.email, telefono: lead.telefono, nombre: lead.nombre, apellido: lead.apellido,
+      externalId, ctwaClid: lead.ctwaClid, pais: 'cl',
       fbp: lead.fbp, fbc: lead.fbc, ip: lead.ip, userAgent: lead.userAgent,
-      custom: { content_name: lead.motivo ?? undefined, source: lead.origen },
+      custom: { content_name: lead.tratamiento ?? lead.motivo ?? undefined, source: lead.origen },
     })
   }
   return lead
@@ -105,9 +125,11 @@ export async function actualizarLead(db: TenantClient, actor: JwtPayload, id: st
   const existing = await db.lead.findUnique({ where: { id }, select: { id: true, estado: true } })
   if (!existing) throw notFound('Lead no encontrado')
   const data: Record<string, unknown> = {}
-  for (const k of ['nombre', 'apellido', 'telefono', 'email', 'rut', 'motivo', 'campana', 'responsableId'] as const) {
+  for (const k of ['nombre', 'apellido', 'telefono', 'email', 'rut', 'motivo', 'tratamiento', 'piezasReemplazar', 'tiempoDesdePerdida', 'campana', 'agendaFuente', 'responsableId'] as const) {
     if (body[k] !== undefined) data[k] = body[k] ? String(body[k]).trim() : null
   }
+  if (body.fechaAgenda !== undefined) { const d = body.fechaAgenda ? new Date(String(body.fechaAgenda)) : null; data.fechaAgenda = d && !Number.isNaN(d.getTime()) ? d : null }
+  if (body.asistio !== undefined) data.asistio = body.asistio === null ? null : Boolean(body.asistio)
   let cambioEstado: string | null = null
   if (typeof body.estado === 'string') {
     if (!ESTADOS.includes(body.estado)) throw badRequest(`Estado inválido. Use: ${ESTADOS.join(', ')}`)

@@ -231,7 +231,11 @@ export async function obtenerLinkPorToken(db: TenantClient, tk: string) {
 
 export interface ReservarInput {
   inicio: string; doctorId?: string; nombre: string; apellido: string; telefono: string; email?: string; rut?: string; motivo?: string
-  eventId?: string; fbp?: string; fbc?: string
+  eventId?: string
+  campana?: string; externalId?: string
+  utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmTerm?: string
+  fbclid?: string; ctwaClid?: string; gclid?: string; msclkid?: string; ttclid?: string; twclid?: string; liFatId?: string; igclid?: string; dclid?: string
+  fbp?: string; fbc?: string; referrer?: string; landing?: string; tituloPagina?: string; pantalla?: string; locale?: string
 }
 
 export async function reservarPublico(db: TenantClient, link: Link, input: ReservarInput) {
@@ -309,18 +313,29 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
   try {
     const eventId = input.eventId?.trim() || randomUUID() // dedup con el Pixel del navegador
     const cfg = await getMetaConfig(db)
-    await db.lead.create({
+    const t = (v?: string) => (v && v.trim() ? v.trim() : null)
+    const enviado = metaHabilitado(cfg)
+    const lead = await db.lead.create({
       data: {
         nombre, apellido, telefono, email: input.email?.trim() || null, rut, motivo: motivo || null,
         origen: 'AGENDA_ONLINE', estado: 'AGENDADO', pacienteId: paciente.id, citaId: cita.id,
-        fbp: input.fbp || null, fbc: input.fbc || null,
-        metaEventId: eventId, metaEnviado: metaHabilitado(cfg),
+        fechaAgenda: cita.fecha, agendaFuente: link.nombre,
+        externalId: t(input.externalId), campana: t(input.campana),
+        utmSource: t(input.utmSource), utmMedium: t(input.utmMedium), utmCampaign: t(input.utmCampaign),
+        utmContent: t(input.utmContent), utmTerm: t(input.utmTerm),
+        fbclid: t(input.fbclid), ctwaClid: t(input.ctwaClid), gclid: t(input.gclid), msclkid: t(input.msclkid),
+        ttclid: t(input.ttclid), twclid: t(input.twclid), liFatId: t(input.liFatId), igclid: t(input.igclid), dclid: t(input.dclid),
+        fbp: t(input.fbp), fbc: t(input.fbc), referrer: t(input.referrer), landing: t(input.landing),
+        tituloPagina: t(input.tituloPagina), pantalla: t(input.pantalla), locale: t(input.locale),
+        scheduleEventId: eventId, scheduleCapiEnviado: enviado, metaEnviado: enviado,
         notas: { create: { tipo: 'SISTEMA', texto: `Reserva online · ${link.nombre}` } },
       },
     })
-    if (metaHabilitado(cfg)) {
+    const externalId = lead.externalId || rut || lead.id
+    if (enviado) {
       void enviarEventoMeta(cfg, {
         eventName: 'Schedule', eventId, email: input.email, telefono, nombre, apellido,
+        externalId, ctwaClid: t(input.ctwaClid), pais: 'cl',
         fbp: input.fbp, fbc: input.fbc, custom: { content_name: link.tipoCita },
       })
     }

@@ -1,5 +1,8 @@
-// Meta Pixel (client-side) para las páginas públicas. El evento se dispara con
-// un event_id que también viaja al backend (Conversions API) para deduplicar.
+// Meta Pixel (client-side) + captura de atribución para las páginas públicas.
+// El evento se dispara con un event_id que también viaja al backend (Conversions
+// API) para deduplicar. Además persistimos los parámetros de campaña (UTM +
+// click-ids de todas las plataformas) en localStorage, para no perder la
+// atribución si el usuario navega antes de enviar el formulario / reservar.
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global { interface Window { fbq?: any; _fbq?: any } }
@@ -36,18 +39,67 @@ export function fbCookies(): { fbp?: string; fbc?: string } {
   return { fbp: get('_fbp'), fbc }
 }
 
-// Parámetros de campaña de la URL (UTM + fbclid) + referrer + landing.
-export function trackingParams() {
+// Click-ids por plataforma: nombre en la URL → campo del backend.
+const CLICK_IDS: Record<string, string> = {
+  fbclid: 'fbclid',
+  ctwa_clid: 'ctwaClid',
+  gclid: 'gclid',
+  msclkid: 'msclkid',
+  ttclid: 'ttclid',
+  twclid: 'twclid',
+  li_fat_id: 'liFatId',
+  igclid: 'igclid',
+  dclid: 'dclid',
+}
+const UTMS: Record<string, string> = {
+  utm_source: 'utmSource',
+  utm_medium: 'utmMedium',
+  utm_campaign: 'utmCampaign',
+  utm_content: 'utmContent',
+  utm_term: 'utmTerm',
+}
+const LS_KEY = 'clariva_track'
+
+type Store = Record<string, string | undefined>
+const load = (): Store => { try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}') } catch { return {} } }
+const save = (s: Store) => { try { localStorage.setItem(LS_KEY, JSON.stringify(s)) } catch { /* modo incógnito */ } }
+
+// Captura y persiste la atribución en cada carga de página pública.
+// Primera visita = primer touch; los UTM / click-ids se refrescan al último touch.
+export function captureTracking(): Store {
   const p = new URLSearchParams(window.location.search)
+  const s = load()
+  const now = new Date().toISOString()
+  if (!s.primeraVisita) s.primeraVisita = now
+  s.ultimaVisita = now
+  if (!s.landing) s.landing = window.location.href
+  for (const [urlKey, field] of Object.entries({ ...CLICK_IDS, ...UTMS })) {
+    const v = p.get(urlKey)
+    if (v) s[field] = v
+  }
+  save(s)
+  return s
+}
+
+// Payload de tracking completo (atribución persistida + contexto de página +
+// cookies de Meta) listo para el formulario / la reserva. Nombres = campos del backend.
+export function trackingParams(): Record<string, string | undefined> {
+  const s = captureTracking()
+  const cookies = fbCookies()
+  const pantalla = window.screen ? `${window.screen.width}x${window.screen.height}` : undefined
   return {
-    utmSource: p.get('utm_source') ?? undefined,
-    utmMedium: p.get('utm_medium') ?? undefined,
-    utmCampaign: p.get('utm_campaign') ?? undefined,
-    utmContent: p.get('utm_content') ?? undefined,
-    utmTerm: p.get('utm_term') ?? undefined,
-    fbclid: p.get('fbclid') ?? undefined,
+    utmSource: s.utmSource, utmMedium: s.utmMedium, utmCampaign: s.utmCampaign,
+    utmContent: s.utmContent, utmTerm: s.utmTerm,
+    fbclid: s.fbclid, ctwaClid: s.ctwaClid, gclid: s.gclid, msclkid: s.msclkid,
+    ttclid: s.ttclid, twclid: s.twclid, liFatId: s.liFatId, igclid: s.igclid, dclid: s.dclid,
+    fbp: cookies.fbp, fbc: cookies.fbc,
     referrer: document.referrer || undefined,
-    landing: window.location.href,
+    landing: s.landing || window.location.href,
+    tituloPagina: document.title || undefined,
+    pantalla,
+    locale: navigator.language || undefined,
+    primeraVisita: s.primeraVisita,
+    ultimaVisita: s.ultimaVisita,
   }
 }
 

@@ -4,10 +4,15 @@ const BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
 
 export interface LeadNota { id: string; tipo: string; texto: string; autorNombre: string | null; createdAt: string }
 export interface Lead {
-  id: string; nombre: string; apellido: string | null; telefono: string | null; email: string | null; rut: string | null; motivo: string | null
-  estado: string; origen: string; campana: string | null
+  id: string; nombre: string; apellido: string | null; telefono: string | null; email: string | null; rut: string | null
+  motivo: string | null; tratamiento: string | null; piezasReemplazar: string | null; tiempoDesdePerdida: string | null
+  estado: string; origen: string; campana: string | null; externalId: string | null
   utmSource: string | null; utmMedium: string | null; utmCampaign: string | null; utmContent: string | null; utmTerm: string | null
-  fbclid: string | null; referrer: string | null; landing: string | null
+  fbclid: string | null; ctwaClid: string | null; gclid: string | null; msclkid: string | null; ttclid: string | null
+  twclid: string | null; liFatId: string | null; igclid: string | null; dclid: string | null; fbp: string | null; fbc: string | null
+  referrer: string | null; landing: string | null; tituloPagina: string | null; pantalla: string | null; locale: string | null
+  primeraVisita: string | null; ultimaVisita: string | null; fechaAgenda: string | null; agendaFuente: string | null; asistio: boolean | null
+  metaEventId: string | null; metaEnviado: boolean; scheduleEventId: string | null; scheduleCapiEnviado: boolean
   pacienteId: string | null; citaId: string | null; responsableId: string | null; createdAt: string
   notas?: LeadNota[]
 }

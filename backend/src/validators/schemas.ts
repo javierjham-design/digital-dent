@@ -227,6 +227,33 @@ export const crearLinkSchema = z.object({
   })).optional(),
 })
 
+// Parámetros de tracking compartidos (form de captación + reserva online).
+const trackingFields = {
+  campana: z.string().optional(),
+  externalId: z.string().optional(),
+  utmSource: z.string().optional(),
+  utmMedium: z.string().optional(),
+  utmCampaign: z.string().optional(),
+  utmContent: z.string().optional(),
+  utmTerm: z.string().optional(),
+  fbclid: z.string().optional(),
+  ctwaClid: z.string().optional(),
+  gclid: z.string().optional(),
+  msclkid: z.string().optional(),
+  ttclid: z.string().optional(),
+  twclid: z.string().optional(),
+  liFatId: z.string().optional(),
+  igclid: z.string().optional(),
+  dclid: z.string().optional(),
+  fbp: z.string().optional(),
+  fbc: z.string().optional(),
+  referrer: z.string().optional(),
+  landing: z.string().optional(),
+  tituloPagina: z.string().optional(),
+  pantalla: z.string().optional(),
+  locale: z.string().optional(),
+}
+
 export const reservarOnlineSchema = z.object({
   inicio: z.string().min(1),
   doctorId: z.string().optional(),
@@ -237,8 +264,7 @@ export const reservarOnlineSchema = z.object({
   rut: z.string().optional(),
   motivo: z.string().optional(),
   eventId: z.string().optional(),
-  fbp: z.string().optional(),
-  fbc: z.string().optional(),
+  ...trackingFields,
 })
 
 export const crearLeadSchema = z.object({
@@ -248,19 +274,14 @@ export const crearLeadSchema = z.object({
   email: z.string().optional(),
   rut: z.string().optional(),
   motivo: z.string().optional(),
+  tratamiento: z.string().optional(),
+  piezasReemplazar: z.string().optional(),
+  tiempoDesdePerdida: z.string().optional(),
   origen: z.string().optional(),
-  campana: z.string().optional(),
-  utmSource: z.string().optional(),
-  utmMedium: z.string().optional(),
-  utmCampaign: z.string().optional(),
-  utmContent: z.string().optional(),
-  utmTerm: z.string().optional(),
-  fbclid: z.string().optional(),
-  fbp: z.string().optional(),
-  fbc: z.string().optional(),
-  referrer: z.string().optional(),
-  landing: z.string().optional(),
+  primeraVisita: z.string().optional(),
+  ultimaVisita: z.string().optional(),
   eventId: z.string().optional(),
+  ...trackingFields,
 })
 
 export const notaSchema = z.object({ texto: z.string().min(1, 'La nota no puede quedar vacía') })
