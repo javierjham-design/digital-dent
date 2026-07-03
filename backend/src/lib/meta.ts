@@ -92,8 +92,11 @@ export async function probarConexionMeta(cfg: MetaConfig): Promise<MetaTestResul
   }
 }
 
-export async function enviarEventoMeta(cfg: MetaConfig, ev: MetaEvent): Promise<void> {
-  if (!metaHabilitado(cfg)) return
+// Resultado real del envío a Meta (para confirmar recepción, no best-effort ciego).
+export interface MetaSendResult { ok: boolean; recibidos?: number; error?: string }
+
+export async function enviarEventoMeta(cfg: MetaConfig, ev: MetaEvent): Promise<MetaSendResult> {
+  if (!metaHabilitado(cfg)) return { ok: false, error: 'Meta no está configurado' }
   try {
     const user_data: Record<string, unknown> = {}
     if (ev.email) user_data.em = [shaNorm(ev.email)]
@@ -126,8 +129,13 @@ export async function enviarEventoMeta(cfg: MetaConfig, ev: MetaEvent): Promise<
       ...(cfg.testCode ? { test_event_code: cfg.testCode } : {}),
     }
     const url = `https://graph.facebook.com/v19.0/${cfg.pixelId}/events?access_token=${encodeURIComponent(cfg.capiToken!)}`
-    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-  } catch {
-    // best-effort: no rompemos la operación por un problema con Meta.
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const data = (await r.json().catch(() => ({}))) as { events_received?: number; error?: { message?: string } }
+    if (r.ok && (data.events_received ?? 0) >= 1) return { ok: true, recibidos: data.events_received }
+    return { ok: false, error: data.error?.message ?? `Meta respondió ${r.status}.` }
+  } catch (e) {
+    // best-effort: no rompemos la operación por un problema con Meta, pero
+    // devolvemos el error para registrarlo como confirmación negativa.
+    return { ok: false, error: e instanceof Error ? e.message : 'error de red con Meta' }
   }
 }

@@ -2,7 +2,7 @@ import { randomUUID, randomBytes } from 'node:crypto'
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
-import { enviarEventoMeta, metaHabilitado, probarConexionMeta, type MetaConfig } from '@/lib/meta'
+import { enviarEventoMeta, metaHabilitado, probarConexionMeta, type MetaConfig, type MetaSendResult } from '@/lib/meta'
 import { crearCita } from '@/services/citas.service'
 
 const ESTADOS = ['NUEVO', 'CONTACTADO', 'AGENDADO', 'CONVERTIDO', 'PERDIDO']
@@ -16,6 +16,27 @@ export async function getMetaConfig(db: TenantClient): Promise<MetaConfig> {
     select: { metaEnabled: true, metaPixelId: true, metaCapiToken: true, metaTestCode: true },
   })
   return { enabled: Boolean(c?.metaEnabled), pixelId: c?.metaPixelId ?? null, capiToken: c?.metaCapiToken ?? null, testCode: c?.metaTestCode ?? null }
+}
+
+// Registra el RESULTADO real del envío a Meta en el lead: el flag queda en true
+// SÓLO si Meta confirmó la recepción (events_received ≥ 1), y deja una nota de
+// confirmación en el timeline (✅ recibido / ⚠️ error). Es el "confirmador".
+export async function registrarEnvioMeta(
+  db: TenantClient, leadId: string, evento: string, res: MetaSendResult,
+  campo: 'metaEnviado' | 'scheduleCapiEnviado',
+) {
+  try {
+    const texto = res.ok
+      ? `✅ Meta: evento ${evento} recibido${res.recibidos ? ` (events_received: ${res.recibidos})` : ''}`
+      : `⚠️ Meta: no se pudo enviar el evento ${evento} — ${res.error ?? 'error desconocido'}`
+    await db.lead.update({
+      where: { id: leadId },
+      data: {
+        ...(campo === 'metaEnviado' ? { metaEnviado: res.ok } : { scheduleCapiEnviado: res.ok }),
+        notas: { create: { tipo: 'SISTEMA', texto } },
+      },
+    })
+  } catch { /* best-effort: no rompe la operación */ }
 }
 
 // ── Listado + detalle ─────────────────────────────────────────────────────────
@@ -102,7 +123,6 @@ export async function crearLead(
   const emitir = ctx?.emitirMeta !== false
 
   const cfg = emitir ? await getMetaConfig(db) : null
-  const metaEnviado = Boolean(cfg && metaHabilitado(cfg))
 
   const lead = await db.lead.create({
     data: {
@@ -122,7 +142,7 @@ export async function crearLead(
       pantalla: clean(input.pantalla), locale: clean(input.locale),
       primeraVisita: fecha(input.primeraVisita), ultimaVisita: fecha(input.ultimaVisita),
       ip: ctx?.ip || null, userAgent: ctx?.userAgent || null,
-      metaEventId: eventId, metaEnviado,
+      metaEventId: eventId, metaEnviado: false, // se confirma abajo con la respuesta real de Meta
       notas: { create: { tipo: 'SISTEMA', texto: `Lead recibido · origen ${(input.origen || 'FORMULARIO').toUpperCase()}`, autorNombre: ctx?.autorNombre ?? null, autorId: ctx?.autorId ?? null } },
     },
   })
@@ -132,6 +152,7 @@ export async function crearLead(
   if (!lead.externalId) await db.lead.update({ where: { id: lead.id }, data: { externalId } })
 
   // Evento "Lead" a Meta (server-side), deduplicado con el Pixel por event_id.
+  // Se registra el RESULTADO real (confirmador) sin bloquear la respuesta.
   if (cfg && metaHabilitado(cfg)) {
     void enviarEventoMeta(cfg, {
       eventName: 'Lead', eventId, eventSourceUrl: input.landing ?? null,
@@ -139,7 +160,7 @@ export async function crearLead(
       externalId, ctwaClid: lead.ctwaClid, pais: 'cl',
       fbp: lead.fbp, fbc: lead.fbc, ip: lead.ip, userAgent: lead.userAgent,
       custom: { content_name: lead.tratamiento ?? lead.motivo ?? undefined, source: lead.origen },
-    })
+    }).then((res) => registrarEnvioMeta(db, lead.id, 'Lead', res, 'metaEnviado'))
   }
   return lead
 }
@@ -242,6 +263,21 @@ export async function agendarLead(db: TenantClient, actor: JwtPayload, id: strin
     },
   })
   await db.leadNota.create({ data: { leadId: id, tipo: 'SISTEMA', texto: `Hora agendada: ${cuando}${cita.doctor ? ` · ${cita.doctor}` : ''}`, autorId: actor.sub, autorNombre: actorName(actor) } })
+
+  // Evento "Schedule" a Meta (conversión: el lead agendó, aunque sea por recepción).
+  // Usa la identidad guardada del lead para atribución; confirmador sin bloquear.
+  const cfg = await getMetaConfig(db)
+  if (metaHabilitado(cfg)) {
+    const eventId = randomUUID()
+    await db.lead.update({ where: { id }, data: { scheduleEventId: eventId, scheduleCapiEnviado: false } })
+    const externalId = lead.externalId || lead.rut || lead.id
+    void enviarEventoMeta(cfg, {
+      eventName: 'Schedule', eventId,
+      email: lead.email, telefono: lead.telefono, nombre: lead.nombre, apellido: lead.apellido,
+      externalId, ctwaClid: lead.ctwaClid, pais: 'cl', fbp: lead.fbp, fbc: lead.fbc,
+      custom: { content_name: lead.tratamiento ?? lead.motivo ?? undefined, source: lead.origen },
+    }).then((res) => registrarEnvioMeta(db, id, 'Schedule', res, 'scheduleCapiEnviado'))
+  }
   return { pacienteId, citaId: cita.id, inicio: cita.inicio }
 }
 

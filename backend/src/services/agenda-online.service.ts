@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { listarHorarios } from '@/services/horarios.service'
-import { getMetaConfig, buscarLeadParaReserva } from '@/services/crm.service'
+import { getMetaConfig, buscarLeadParaReserva, registrarEnvioMeta } from '@/services/crm.service'
 import { enviarEventoMeta, metaHabilitado } from '@/lib/meta'
 import { ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
@@ -335,7 +335,7 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
           fbp: existente.fbp ?? t(input.fbp), fbc: existente.fbc ?? t(input.fbc),
           fbclid: existente.fbclid ?? t(input.fbclid), ctwaClid: existente.ctwaClid ?? t(input.ctwaClid),
           landing: existente.landing ?? t(input.landing),
-          scheduleEventId: eventId, scheduleCapiEnviado: enviado,
+          scheduleEventId: eventId, scheduleCapiEnviado: false, // se confirma con la respuesta real de Meta
           notas: { create: { tipo: 'SISTEMA', texto: `Agendó por el link online · ${link.nombre}` } },
         },
       })
@@ -352,7 +352,7 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
           ttclid: t(input.ttclid), twclid: t(input.twclid), liFatId: t(input.liFatId), igclid: t(input.igclid), dclid: t(input.dclid),
           fbp: t(input.fbp), fbc: t(input.fbc), referrer: t(input.referrer), landing: t(input.landing),
           tituloPagina: t(input.tituloPagina), pantalla: t(input.pantalla), locale: t(input.locale),
-          scheduleEventId: eventId, scheduleCapiEnviado: enviado, metaEnviado: enviado,
+          scheduleEventId: eventId, scheduleCapiEnviado: false, metaEnviado: false, // se confirma con la respuesta real
           notas: { create: { tipo: 'SISTEMA', texto: `Reserva online · ${link.nombre}` } },
         },
       })
@@ -360,11 +360,12 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
 
     const externalId = lead.externalId || rut || lead.id
     if (enviado) {
+      // Confirmador: registramos el resultado real (events_received) en el lead.
       void enviarEventoMeta(cfg, {
         eventName: 'Schedule', eventId, email: input.email, telefono, nombre, apellido,
         externalId, ctwaClid: t(input.ctwaClid), pais: 'cl',
         fbp: input.fbp, fbc: input.fbc, custom: { content_name: link.tipoCita },
-      })
+      }).then((res) => registrarEnvioMeta(db, lead.id, 'Schedule', res, 'scheduleCapiEnviado'))
     }
   } catch { /* best-effort */ }
 

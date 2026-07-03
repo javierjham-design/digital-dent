@@ -226,9 +226,9 @@ function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose
           <span className={`text-xs font-semibold ${emqTone}`}>Señales de match: {emq}/7</span>
         </div>
         <div className="flex flex-wrap gap-1.5 mt-2 text-[11px]">
-          <span className={`px-2 py-0.5 rounded-full ${full.metaEnviado ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Lead {full.metaEnviado ? 'enviado' : 'no enviado'}</span>
+          <span className={`px-2 py-0.5 rounded-full ${full.metaEnviado ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Lead {full.metaEnviado ? '✓ confirmado en Meta' : 'sin confirmar'}</span>
           {(full.origen === 'AGENDA_ONLINE' || full.scheduleEventId) && (
-            <span className={`px-2 py-0.5 rounded-full ${full.scheduleCapiEnviado ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Schedule {full.scheduleCapiEnviado ? 'enviado' : 'no enviado'}</span>
+            <span className={`px-2 py-0.5 rounded-full ${full.scheduleCapiEnviado ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Schedule {full.scheduleCapiEnviado ? '✓ confirmado en Meta' : 'sin confirmar'}</span>
           )}
           {full.externalId && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">external_id ✓</span>}
           {full.fbp && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">_fbp ✓</span>}
