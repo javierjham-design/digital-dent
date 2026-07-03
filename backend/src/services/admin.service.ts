@@ -6,7 +6,8 @@ import { badRequest, conflict, notFound } from '@/lib/errors'
 import { auditAdmin } from '@/lib/audit-admin'
 import { encryptNullable } from '@/lib/crypto'
 import { getPlanes } from '@/lib/plans'
-import { crearClinicaConProvision } from '@/services/clinicas-registry.service'
+import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/clinicas-registry.service'
+import { invalidateClinicaCache } from '@/middlewares/tenant'
 import {
   calcularProximoCobro, getEstadoPago, precioMensualEfectivo, type CicloFacturacion, type PlanPriceMap,
 } from '@/lib/billing'
@@ -101,6 +102,36 @@ export async function cambiarPlan(ctx: AuditCtx, id: string, body: Record<string
   const clinica = await control.clinica.update({ where: { id }, data })
   await auditAdmin({ ...ctx, action: 'CAMBIAR_PLAN', targetType: 'CLINICA', targetId: clinica.id, details: { clinicaSlug: clinica.slug, planNuevo: body.plan } })
   return clinica
+}
+
+// Cambia el slug (= subdominio / link definitivo). El dbName NO cambia, así que
+// no se toca ningún dato de la clínica: sólo su dirección de acceso.
+export async function cambiarSlug(ctx: AuditCtx, id: string, rawSlug: string) {
+  const nuevo = slugify(rawSlug || '')
+  if (!nuevo || nuevo.length < 3) throw badRequest('El link debe tener al menos 3 caracteres (letras, números y guiones).')
+  if (RESERVED_SLUGS.has(nuevo)) throw badRequest(`El link "${nuevo}" está reservado por la plataforma. Elige otro.`)
+  const clinica = await control.clinica.findUnique({ where: { id }, select: { slug: true } })
+  if (!clinica) throw notFound('Clínica no existe')
+  if (clinica.slug === nuevo) return control.clinica.findUnique({ where: { id } })
+  const ocupado = await control.clinica.findUnique({ where: { slug: nuevo }, select: { id: true } })
+  if (ocupado) throw conflict(`El link "${nuevo}" ya está en uso por otra clínica.`)
+  const actualizada = await control.clinica.update({ where: { id }, data: { slug: nuevo } })
+  invalidateClinicaCache(id)
+  await auditAdmin({ ...ctx, action: 'CAMBIAR_SLUG', targetType: 'CLINICA', targetId: id, details: { anterior: clinica.slug, nuevo } })
+  return actualizada
+}
+
+// Convierte un demo en clínica definitiva: quita las banderas de demo, opcionalmente
+// asigna el link (slug) definitivo y el plan/facturación.
+export async function convertirADefinitiva(ctx: AuditCtx, id: string, body: { slug?: string; plan?: string; precioAcordado?: number; cicloFacturacion?: string }) {
+  const clinica = await control.clinica.findUnique({ where: { id } })
+  if (!clinica) throw notFound('Clínica no existe')
+  if (body.slug && slugify(body.slug) !== clinica.slug) await cambiarSlug(ctx, id, body.slug)
+  if (body.plan) await cambiarPlan(ctx, id, { plan: body.plan, precioAcordado: body.precioAcordado, cicloFacturacion: body.cicloFacturacion })
+  const actualizada = await control.clinica.update({ where: { id }, data: { esDemo: false, demoExpiraEn: null, activo: true } })
+  invalidateClinicaCache(id)
+  await auditAdmin({ ...ctx, action: 'CONVERTIR_DEMO', targetType: 'CLINICA', targetId: id, details: { slug: actualizada.slug, plan: actualizada.plan } })
+  return actualizada
 }
 
 export async function cambiarEstado(ctx: AuditCtx, id: string, body: { activo: unknown; notasInternas?: string }) {

@@ -20,6 +20,8 @@ export const patchClinica = async (req: Request, res: Response) => res.json(awai
 export const postCambiarPlan = async (req: Request, res: Response) => res.json(await svc.cambiarPlan(audit(req), req.params.id, req.body ?? {}))
 export const postEstado = async (req: Request, res: Response) => res.json(await svc.cambiarEstado(audit(req), req.params.id, req.body ?? {}))
 export const postExtenderTrial = async (req: Request, res: Response) => res.json(await svc.extenderTrial(audit(req), req.params.id, req.body ?? {}))
+export const patchSlug = async (req: Request, res: Response) => res.json(await svc.cambiarSlug(audit(req), req.params.id, String((req.body ?? {}).slug ?? '')))
+export const postConvertir = async (req: Request, res: Response) => res.json(await svc.convertirADefinitiva(audit(req), req.params.id, req.body ?? {}))
 export const postResetPassword = async (req: Request, res: Response) => res.json(await svc.resetAdminPassword(audit(req), req.params.id, req.body ?? {}))
 
 // ── Pagos ──

@@ -96,3 +96,37 @@ describe('catálogo público de planes', () => {
     expect(r.body.planes.length).toBeGreaterThan(0)
   })
 })
+
+// Nota: estos tests van al FINAL porque cambian el slug/clave de la clínica A.
+describe('super-admin: link definitivo (slug) + clave del admin', () => {
+  const sa = () => ({ Authorization: `Bearer ${tokenSuper}` })
+  let idA = ''
+
+  it('el super-admin obtiene el id de la clínica A', async () => {
+    const r = await request(app).get('/api/v1/admin/clinicas').set(sa())
+    expect(r.status).toBe(200)
+    const found = (r.body as { id: string; slug: string }[]).find((c) => c.slug === A.slug)
+    expect(found).toBeTruthy(); idA = found!.id
+  })
+
+  it('asigna una clave ELEGIDA al admin y permite loguear con ella', async () => {
+    const r = await request(app).post(`/api/v1/admin/clinicas/${idA}/reset-admin-password`).set(sa())
+      .send({ username: 'admin', newPassword: 'ClaveNueva123', forceChange: false })
+    expect(r.status).toBe(200)
+    expect(r.body.nuevaPassword).toBe('ClaveNueva123')
+    expect((await login({ slug: A.slug, username: 'admin', password: 'ClaveNueva123' })).status).toBe(200)
+  })
+
+  it('cambia el slug (link definitivo) y permite loguear con el nuevo', async () => {
+    const nuevo = 'clinica-a-definitiva'
+    const r = await request(app).patch(`/api/v1/admin/clinicas/${idA}/slug`).set(sa()).send({ slug: nuevo })
+    expect(r.status).toBe(200)
+    expect(r.body.slug).toBe(nuevo)
+    expect((await login({ slug: nuevo, username: 'admin', password: 'ClaveNueva123' })).status).toBe(200)
+  })
+
+  it('rechaza un slug reservado', async () => {
+    const r = await request(app).patch(`/api/v1/admin/clinicas/${idA}/slug`).set(sa()).send({ slug: 'api' })
+    expect(r.status).toBe(400)
+  })
+})

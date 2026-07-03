@@ -12,7 +12,7 @@ import { seedTenantBasics } from '@/lib/tenant-seed'
 const PLANES_VALIDOS = ['TRIAL', 'BASICO', 'PRO']
 const DEFAULT_ADMIN_USERNAME = 'Administrador'
 
-const RESERVED_SLUGS = new Set([
+export const RESERVED_SLUGS = new Set([
   'super-admin', 'www', 'admin', 'api', 'app', 'mail', 'login', 'auth', 'panel',
   'dashboard', 'support', 'soporte', 'help', 'ayuda', 'blog', 'docs', 'status', 'cdn', 'assets', 'static',
 ])

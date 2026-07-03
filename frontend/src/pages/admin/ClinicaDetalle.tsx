@@ -11,6 +11,7 @@ interface Clinica {
   id: string; slug: string; nombre: string; email: string | null; telefono: string | null; ciudad: string | null
   plan: string; activo: boolean; trialHasta: string | null; proximoCobro: string | null
   precioAcordado: number | null; cicloFacturacion: string | null; notasInternas: string | null; createdAt: string
+  esDemo: boolean; demoExpiraEn: string | null
 }
 interface Pago { id: string; fechaPago: string; monto: number; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
@@ -39,16 +40,20 @@ export function AdminClinicaDetalle() {
           <span className="text-sm text-slate-500 font-mono">{c.slug}</span>
           {c.activo ? <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-500/15 text-emerald-300">{c.plan}</span>
             : <span className="px-2 py-0.5 rounded-full text-xs bg-rose-500/15 text-rose-300">Suspendida</span>}
+          {c.esDemo && <span className="px-2 py-0.5 rounded-full text-xs bg-sky-500/15 text-sky-300">DEMO{c.demoExpiraEn ? ` · expira ${fmtFecha(c.demoExpiraEn)}` : ''}</span>}
         </div>
         <p className="text-xs text-slate-500 mt-1">Creada el {fmtFecha(c.createdAt)} · {c.email || 'sin email'} · {c.telefono || 'sin teléfono'}</p>
       </div>
 
       {aviso && <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm rounded-xl px-4 py-2">{aviso}</div>}
 
+      {c.esDemo && <ConvertirCard c={c} onSaved={(m) => { flash(m); recargar() }} />}
+
       <div className="grid md:grid-cols-2 gap-5">
         <PlanCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <EstadoCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <TrialCard c={c} onSaved={(m) => { flash(m); recargar() }} />
+        <LinkCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <AccesoCard id={c.id} />
       </div>
       <PagosCard id={c.id} onChange={() => { flash('Pago registrado'); recargar() }} />
@@ -157,27 +162,138 @@ function TrialCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void })
   )
 }
 
+// Deriva el dominio base (ej. clariva.cl) desde el host actual del panel.
+function baseDomain(): string {
+  const h = window.location.hostname
+  const parts = h.split('.')
+  return parts.length >= 2 ? parts.slice(-2).join('.') : h
+}
+
+function ConvertirCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) {
+  const base = baseDomain()
+  const [slug, setSlug] = useState(c.slug)
+  const [plan, setPlan] = useState(c.plan === 'TRIAL' ? 'BASICO' : c.plan)
+  const [precio, setPrecio] = useState(c.precioAcordado != null ? String(c.precioAcordado) : '')
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+
+  async function convertir() {
+    if (!slug.trim()) { setErr('Ingresa el link definitivo'); return }
+    if (!confirm(`Convertir "${c.nombre}" en clínica definitiva con el link ${slug.trim()}.${base}?`)) return
+    setBusy(true); setErr('')
+    try {
+      await adminService.convertir(c.id, { slug: slug.trim(), plan, precioAcordado: precio ? Number(precio) : undefined })
+      onSaved('Clínica convertida a definitiva ✓')
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
+  }
+
+  return (
+    <div className="bg-sky-500/5 border border-sky-500/30 rounded-2xl p-5">
+      <h2 className="text-sm font-semibold text-sky-300 mb-1 uppercase tracking-wider">Convertir demo a definitiva</h2>
+      <p className="text-sm text-slate-400 mb-4">Quita el estado de demo y asigna el link definitivo + el plan. No se pierde ningún dato de la clínica.</p>
+      <div className="grid md:grid-cols-3 gap-3">
+        <label className="block md:col-span-1"><L>Link definitivo</L>
+          <div className="flex items-center gap-1">
+            <input value={slug} onChange={(e) => setSlug(e.target.value)} className={inpCls} />
+            <span className="text-xs text-slate-500 shrink-0">.{base}</span>
+          </div>
+        </label>
+        <label className="block"><L>Plan</L>
+          <select value={plan} onChange={(e) => setPlan(e.target.value)} className={inpCls}>
+            <option value="BASICO">Básico</option><option value="PRO">Pro</option><option value="TRIAL">Trial</option>
+          </select>
+        </label>
+        <label className="block"><L>Precio mensual (opcional)</L>
+          <input value={precio} onChange={(e) => setPrecio(e.target.value)} inputMode="numeric" placeholder="0" className={`${inpCls} font-mono`} />
+        </label>
+      </div>
+      {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
+      <button onClick={convertir} disabled={busy} className={`${btnCls} mt-4`}>{busy ? 'Convirtiendo…' : 'Convertir a definitiva'}</button>
+    </div>
+  )
+}
+
+function LinkCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) {
+  const base = baseDomain()
+  const [slug, setSlug] = useState(c.slug)
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  const loginUrl = `https://${c.slug}.${base}`
+  const copiar = (t: string) => { navigator.clipboard.writeText(t).then(() => onSaved('Copiado')).catch(() => {}) }
+
+  async function guardar() {
+    const nuevo = slug.trim()
+    if (!nuevo || nuevo === c.slug) return
+    if (!confirm(`Cambiar el link de acceso a ${nuevo}.${base}? El link anterior dejará de funcionar.`)) return
+    setBusy(true); setErr('')
+    try { await adminService.cambiarSlug(c.id, nuevo); onSaved('Link de acceso actualizado ✓') }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
+  }
+
+  return (
+    <Card title="Link de acceso">
+      <p className="text-xs text-slate-500 mb-1">Enlace de ingreso de la clínica:</p>
+      <div className="flex items-center gap-2 bg-slate-800 rounded-lg px-3 py-2 mb-4">
+        <span className="text-xs font-mono text-slate-300 truncate flex-1">{loginUrl}</span>
+        <button onClick={() => copiar(loginUrl)} className="text-xs font-semibold text-purple-300 shrink-0">Copiar</button>
+        <a href={loginUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-slate-500 shrink-0">Abrir</a>
+      </div>
+      <label className="block"><L>Cambiar link (subdominio)</L>
+        <div className="flex items-center gap-1">
+          <input value={slug} onChange={(e) => setSlug(e.target.value)} className={inpCls} />
+          <span className="text-xs text-slate-500 shrink-0">.{base}</span>
+        </div>
+      </label>
+      {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
+      <button onClick={guardar} disabled={busy || !slug.trim() || slug.trim() === c.slug} className={`${btnCls} mt-3`}>{busy ? 'Guardando…' : 'Actualizar link'}</button>
+    </Card>
+  )
+}
+
 function AccesoCard({ id }: { id: string }) {
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
   const [res, setRes] = useState<{ username: string; nuevaPassword: string } | null>(null)
-  async function reset() {
-    if (!confirm('¿Generar una nueva contraseña para el administrador de esta clínica?')) return
+  const [modo, setModo] = useState<'auto' | 'manual'>('auto')
+  const [pass, setPass] = useState('')
+
+  async function aplicar() {
+    if (modo === 'manual' && pass.trim().length < 8) { setErr('La clave debe tener al menos 8 caracteres'); return }
+    if (!confirm('¿Asignar una nueva contraseña al administrador de esta clínica?')) return
     setBusy(true); setErr('')
-    try { const r = await adminService.resetPassword(id, { forceChange: true }) as { username: string; nuevaPassword: string }; setRes(r) }
-    catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
+    try {
+      const input: Record<string, unknown> = { forceChange: modo === 'auto' } // manual = clave definitiva (no forzar cambio)
+      if (modo === 'manual') input.newPassword = pass.trim()
+      const r = await adminService.resetPassword(id, input) as { username: string; nuevaPassword: string }
+      setRes(r); setPass('')
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
   }
+
   return (
     <Card title="Acceso del administrador">
       {res ? (
-        <div className="bg-slate-800 rounded-xl p-4 text-sm font-mono space-y-1">
-          <p><span className="text-slate-500">Usuario:</span> <span className="text-white">{res.username}</span></p>
-          <p><span className="text-slate-500">Nueva contraseña:</span> <span className="text-emerald-300">{res.nuevaPassword}</span></p>
-          <p className="text-xs text-slate-500 font-sans pt-1">Se forzará el cambio en el primer ingreso. No se vuelve a mostrar.</p>
+        <div>
+          <div className="bg-slate-800 rounded-xl p-4 text-sm font-mono space-y-1">
+            <p><span className="text-slate-500">Usuario:</span> <span className="text-white">{res.username}</span></p>
+            <p><span className="text-slate-500">Nueva contraseña:</span> <span className="text-emerald-300">{res.nuevaPassword}</span></p>
+          </div>
+          <p className="text-xs text-slate-500 mt-2">{modo === 'auto' ? 'Se forzará el cambio en el primer ingreso. ' : ''}Guárdala: no se vuelve a mostrar.</p>
+          <button onClick={() => setRes(null)} className="mt-3 text-xs text-slate-400 hover:text-white">Asignar otra</button>
         </div>
       ) : (
         <>
-          <p className="text-sm text-slate-400 mb-3">Genera una contraseña temporal para el usuario <span className="font-mono">Administrador</span>.</p>
-          <button onClick={reset} disabled={busy} className={btnCls}>Restablecer contraseña</button>
+          <p className="text-sm text-slate-400 mb-3">Contraseña del usuario <span className="font-mono">Administrador</span> de esta clínica.</p>
+          <div className="flex gap-2 mb-3">
+            {(['auto', 'manual'] as const).map((m) => (
+              <button key={m} type="button" onClick={() => { setModo(m); setErr('') }}
+                className={`flex-1 px-3 py-2 rounded-lg text-xs font-medium border ${modo === m ? 'border-purple-500 bg-purple-500/10 text-purple-200' : 'border-slate-700 text-slate-400'}`}>
+                {m === 'auto' ? 'Generar automática' : 'Asignar una clave'}
+              </button>
+            ))}
+          </div>
+          {modo === 'manual' && (
+            <label className="block mb-3"><L>Nueva clave (mín. 8 caracteres)</L>
+              <input type="text" value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="new-password" placeholder="Escribe la clave" className={`${inpCls} font-mono`} />
+            </label>
+          )}
+          <button onClick={aplicar} disabled={busy} className={btnCls}>{busy ? 'Aplicando…' : modo === 'auto' ? 'Generar y aplicar' : 'Asignar clave'}</button>
           {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
         </>
       )}
