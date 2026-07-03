@@ -26,12 +26,12 @@ export function AdminDashboard() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">Panel de control</h1>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+      <h1 className="text-2xl md:text-3xl font-bold mb-6">Panel de control</h1>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-6">
         {kpis.map((k) => (
-          <div key={k.l} className={`rounded-2xl border p-5 ${tone[k.c]}`}>
+          <div key={k.l} className={`rounded-2xl border p-4 md:p-5 ${tone[k.c]}`}>
             <p className="text-xs uppercase tracking-wider opacity-70">{k.l}</p>
-            <p className="text-3xl font-bold mt-1 text-white">{k.v}</p>
+            <p className="text-2xl md:text-3xl font-bold mt-1 text-white">{k.v}</p>
           </div>
         ))}
       </div>

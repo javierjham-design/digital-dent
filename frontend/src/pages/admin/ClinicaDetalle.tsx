@@ -34,8 +34,8 @@ export function AdminClinicaDetalle() {
     <div className="space-y-5">
       <div>
         <Link to="/plataforma/clinicas" className="text-xs text-slate-500 hover:text-slate-300">← Clínicas</Link>
-        <div className="flex items-center gap-3 mt-1">
-          <h1 className="text-3xl font-bold">{c.nombre}</h1>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1">
+          <h1 className="text-2xl md:text-3xl font-bold">{c.nombre}</h1>
           <span className="text-sm text-slate-500 font-mono">{c.slug}</span>
           {c.activo ? <span className="px-2 py-0.5 rounded-full text-xs bg-emerald-500/15 text-emerald-300">{c.plan}</span>
             : <span className="px-2 py-0.5 rounded-full text-xs bg-rose-500/15 text-rose-300">Suspendida</span>}
@@ -210,7 +210,8 @@ function PagosCard({ id, onChange }: { id: string; onChange: () => void }) {
       </div>
       {err && <p className="text-rose-400 text-sm mb-2">{err}</p>}
       {pagos.length === 0 ? <p className="text-slate-500 text-sm">Sin pagos registrados.</p> : (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto -mx-1 px-1">
+        <table className="w-full text-sm min-w-[440px]">
           <thead><tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500"><th className="text-left py-2">Fecha</th><th className="text-left py-2">Período</th><th className="text-left py-2">Método</th><th className="text-right py-2">Monto</th><th></th></tr></thead>
           <tbody className="divide-y divide-slate-800">
             {pagos.map((p) => (
@@ -224,6 +225,7 @@ function PagosCard({ id, onChange }: { id: string; onChange: () => void }) {
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </Card>
   )

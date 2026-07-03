@@ -48,9 +48,9 @@ export function AdminClinicas() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Clínicas</h1>
-        <button onClick={() => setCrear(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg">+ Nueva clínica</button>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+        <h1 className="text-2xl md:text-3xl font-bold">Clínicas</h1>
+        <button onClick={() => setCrear(true)} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg shrink-0">+ Nueva clínica</button>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
@@ -68,37 +68,66 @@ export function AdminClinicas() {
         )}
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-        {cargando ? <p className="px-6 py-10 text-center text-slate-500 text-sm">Cargando…</p>
-          : clinicas.length === 0 ? <p className="px-6 py-10 text-center text-slate-500 text-sm">No hay clínicas.</p>
-          : (
-            <table className="w-full text-sm">
-              <thead><tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
-                <th className="text-left px-6 py-3">Clínica</th><th className="text-left px-6 py-3">Plan</th>
-                <th className="text-left px-6 py-3">Estado</th><th className="text-right px-6 py-3">Precio/mes</th>
-                <th className="text-right px-6 py-3">Próx. cobro</th><th className="px-6 py-3"></th>
-              </tr></thead>
-              <tbody className="divide-y divide-slate-800">
-                {clinicas.map((c) => (
-                  <tr key={c.id} className="hover:bg-slate-800/40">
-                    <td className="px-6 py-3">
+      {cargando ? <p className="px-6 py-10 text-center text-slate-500 text-sm">Cargando…</p>
+        : clinicas.length === 0 ? <p className="px-6 py-10 text-center text-slate-500 text-sm">No hay clínicas.</p>
+        : (
+          <>
+            {/* Móvil: tarjetas (la tabla se desborda en pantallas chicas) */}
+            <div className="md:hidden space-y-3">
+              {clinicas.map((c) => (
+                <Link key={c.id} to={`/plataforma/clinicas/${c.id}`} className="block bg-slate-900 border border-slate-800 rounded-xl p-4 hover:border-slate-700">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
                       <p className="text-white font-medium flex items-center gap-2">
-                        {c.nombre}
-                        {c.esDemo && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-300">DEMO</span>}
+                        <span className="truncate">{c.nombre}</span>
+                        {c.esDemo && <span className="shrink-0 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-300">DEMO</span>}
                       </p>
                       <span className="text-xs text-slate-500 font-mono">{c.slug}</span>
-                    </td>
-                    <td className="px-6 py-3 text-slate-300">{c.plan}</td>
-                    <td className="px-6 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_TONE[c.estado]}`}>{ESTADO_LABEL[c.estado]}</span></td>
-                    <td className="px-6 py-3 text-right text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : fmtCLP(c.precioMensual)}</td>
-                    <td className="px-6 py-3 text-right text-slate-400 text-xs whitespace-nowrap">{c.esDemo ? `demo · expira ${fmtFecha(c.demoExpiraEn)}` : c.estado === 'TRIAL' ? `trial ${fmtFecha(c.trialHasta)}` : fmtFecha(c.proximoCobro)}</td>
-                    <td className="px-6 py-3 text-right"><Link to={`/plataforma/clinicas/${c.id}`} className="text-xs text-purple-300 hover:text-purple-200">Gestionar →</Link></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-      </div>
+                    </div>
+                    <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_TONE[c.estado]}`}>{ESTADO_LABEL[c.estado]}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+                    <div><span className="text-slate-500">Plan</span><p className="text-slate-300">{c.plan}</p></div>
+                    <div className="text-right"><span className="text-slate-500">Precio/mes</span><p className="text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : fmtCLP(c.precioMensual)}</p></div>
+                    <div className="col-span-2 border-t border-slate-800 pt-2 flex items-center justify-between">
+                      <span className="text-slate-400">{c.esDemo ? `demo · expira ${fmtFecha(c.demoExpiraEn)}` : c.estado === 'TRIAL' ? `trial ${fmtFecha(c.trialHasta)}` : `cobro ${fmtFecha(c.proximoCobro)}`}</span>
+                      <span className="text-purple-300 font-medium">Gestionar →</span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+
+            {/* Desktop: tabla */}
+            <div className="hidden md:block bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
+                  <th className="text-left px-6 py-3">Clínica</th><th className="text-left px-6 py-3">Plan</th>
+                  <th className="text-left px-6 py-3">Estado</th><th className="text-right px-6 py-3">Precio/mes</th>
+                  <th className="text-right px-6 py-3">Próx. cobro</th><th className="px-6 py-3"></th>
+                </tr></thead>
+                <tbody className="divide-y divide-slate-800">
+                  {clinicas.map((c) => (
+                    <tr key={c.id} className="hover:bg-slate-800/40">
+                      <td className="px-6 py-3">
+                        <p className="text-white font-medium flex items-center gap-2">
+                          {c.nombre}
+                          {c.esDemo && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-sky-500/15 text-sky-300">DEMO</span>}
+                        </p>
+                        <span className="text-xs text-slate-500 font-mono">{c.slug}</span>
+                      </td>
+                      <td className="px-6 py-3 text-slate-300">{c.plan}</td>
+                      <td className="px-6 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_TONE[c.estado]}`}>{ESTADO_LABEL[c.estado]}</span></td>
+                      <td className="px-6 py-3 text-right text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : fmtCLP(c.precioMensual)}</td>
+                      <td className="px-6 py-3 text-right text-slate-400 text-xs whitespace-nowrap">{c.esDemo ? `demo · expira ${fmtFecha(c.demoExpiraEn)}` : c.estado === 'TRIAL' ? `trial ${fmtFecha(c.trialHasta)}` : fmtFecha(c.proximoCobro)}</td>
+                      <td className="px-6 py-3 text-right"><Link to={`/plataforma/clinicas/${c.id}`} className="text-xs text-purple-300 hover:text-purple-200">Gestionar →</Link></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
 
       {crear && <CrearClinicaModal onClose={() => setCrear(false)} onCreada={() => { setCrear(false); cargar() }} />}
     </div>

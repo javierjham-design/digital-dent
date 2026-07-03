@@ -23,9 +23,9 @@ export function AdminPlanes() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">Planes de suscripción</h1>
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden mb-6">
-        <table className="w-full text-sm">
+      <h1 className="text-2xl md:text-3xl font-bold mb-6">Planes de suscripción</h1>
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto mb-6">
+        <table className="w-full text-sm min-w-[520px]">
           <thead><tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
             <th className="text-left px-6 py-3">Plan</th><th className="text-left px-6 py-3">Precio mensual</th><th className="text-left px-6 py-3">Estado</th><th className="px-6 py-3"></th>
           </tr></thead>
@@ -49,10 +49,10 @@ export function AdminPlanes() {
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5">
         <p className="text-sm font-semibold mb-3">Nuevo plan</p>
         <div className="flex flex-wrap gap-2">
-          <input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value.toUpperCase() })} placeholder="CÓDIGO (ej PREMIUM)" className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white" />
-          <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre comercial" className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white" />
-          <input value={form.precioMensual} onChange={(e) => setForm({ ...form, precioMensual: e.target.value })} placeholder="Precio mensual" inputMode="numeric" className="px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white font-mono" />
-          <button onClick={crear} disabled={!form.id || !form.nombre} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg">Crear</button>
+          <input value={form.id} onChange={(e) => setForm({ ...form, id: e.target.value.toUpperCase() })} placeholder="CÓDIGO (ej PREMIUM)" className="flex-1 min-w-[140px] px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white" />
+          <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre comercial" className="flex-1 min-w-[140px] px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white" />
+          <input value={form.precioMensual} onChange={(e) => setForm({ ...form, precioMensual: e.target.value })} placeholder="Precio mensual" inputMode="numeric" className="flex-1 min-w-[140px] px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-white font-mono" />
+          <button onClick={crear} disabled={!form.id || !form.nombre} className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg shrink-0">Crear</button>
         </div>
         {msg && <p className="text-rose-400 text-sm mt-2">{msg}</p>}
       </div>
