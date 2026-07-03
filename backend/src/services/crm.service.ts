@@ -6,6 +6,10 @@ import { enviarEventoMeta, metaHabilitado, probarConexionMeta, type MetaConfig, 
 import { crearCita } from '@/services/citas.service'
 
 const ESTADOS = ['NUEVO', 'CONTACTADO', 'AGENDADO', 'CONVERTIDO', 'PERDIDO']
+// Leads "abiertos" que requieren seguimiento; si pasan de N días sin gestión humana, alertan.
+const ESTADOS_ABIERTOS = ['NUEVO', 'CONTACTADO']
+const DIAS_SIN_GESTION = 4
+const cutoffSinGestion = () => new Date(Date.now() - DIAS_SIN_GESTION * 86400_000)
 const nuevoToken = () => randomBytes(9).toString('base64url')
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -51,17 +55,24 @@ export async function listarLeads(db: TenantClient, f: { estado?: string; origen
   const filtrados = needle
     ? leads.filter((l) => norm(`${l.nombre} ${l.apellido ?? ''} ${l.telefono ?? ''} ${l.email ?? ''} ${l.campana ?? ''}`).includes(needle))
     : leads
-  return filtrados
+  // Marca los leads abiertos sin gestión humana hace más de N días (para alertar).
+  const cutoff = cutoffSinGestion()
+  return filtrados.map((l) => ({ ...l, sinGestionar: ESTADOS_ABIERTOS.includes(l.estado) && l.ultimaGestionAt < cutoff }))
 }
 
 export async function resumenCrm(db: TenantClient) {
-  const porEstado = await db.lead.groupBy({ by: ['estado'], _count: { _all: true } })
-  const porOrigen = await db.lead.groupBy({ by: ['origen'], _count: { _all: true } })
+  const [porEstado, porOrigen, sinGestionar] = await Promise.all([
+    db.lead.groupBy({ by: ['estado'], _count: { _all: true } }),
+    db.lead.groupBy({ by: ['origen'], _count: { _all: true } }),
+    db.lead.count({ where: { estado: { in: ESTADOS_ABIERTOS }, ultimaGestionAt: { lt: cutoffSinGestion() } } }),
+  ])
   const total = porEstado.reduce((s, r) => s + r._count._all, 0)
   return {
     total,
     estados: Object.fromEntries(porEstado.map((r) => [r.estado, r._count._all])),
     origenes: porOrigen.map((r) => ({ origen: r.origen, n: r._count._all })).sort((a, b) => b.n - a.n),
+    sinGestionar,
+    diasSinGestion: DIAS_SIN_GESTION,
   }
 }
 
@@ -176,6 +187,7 @@ export async function actualizarLead(db: TenantClient, actor: JwtPayload, id: st
   }
   if (body.fechaAgenda !== undefined) { const d = body.fechaAgenda ? new Date(String(body.fechaAgenda)) : null; data.fechaAgenda = d && !Number.isNaN(d.getTime()) ? d : null }
   if (body.asistio !== undefined) data.asistio = body.asistio === null ? null : Boolean(body.asistio)
+  data.ultimaGestionAt = new Date() // toda edición manual cuenta como gestión
   let cambioEstado: string | null = null
   if (typeof body.estado === 'string') {
     if (!ESTADOS.includes(body.estado)) throw badRequest(`Estado inválido. Use: ${ESTADOS.join(', ')}`)
@@ -192,7 +204,9 @@ export async function agregarNota(db: TenantClient, actor: JwtPayload, id: strin
   if (!texto?.trim()) throw badRequest('La nota no puede quedar vacía')
   const existing = await db.lead.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Lead no encontrado')
-  return db.leadNota.create({ data: { leadId: id, tipo: 'NOTA', texto: texto.trim(), autorId: actor.sub, autorNombre: actorName(actor) } })
+  const nota = await db.leadNota.create({ data: { leadId: id, tipo: 'NOTA', texto: texto.trim(), autorId: actor.sub, autorNombre: actorName(actor) } })
+  await db.lead.update({ where: { id }, data: { ultimaGestionAt: new Date() } }) // agregar nota = gestión
+  return nota
 }
 
 // Datos del lead que necesitamos para resolver/crear su paciente.
@@ -232,7 +246,7 @@ export async function convertirEnPaciente(db: TenantClient, actor: JwtPayload, i
   if (!lead) throw notFound('Lead no encontrado')
   const { id: pacienteId, creado } = await pacienteDesdeLead(db, lead)
   if (!creado && lead.pacienteId === pacienteId) return { pacienteId, yaExistia: true }
-  await db.lead.update({ where: { id }, data: { pacienteId, estado: lead.estado === 'PERDIDO' ? lead.estado : 'CONVERTIDO' } })
+  await db.lead.update({ where: { id }, data: { pacienteId, estado: lead.estado === 'PERDIDO' ? lead.estado : 'CONVERTIDO', ultimaGestionAt: new Date() } })
   await db.leadNota.create({ data: { leadId: id, tipo: 'SISTEMA', texto: creado ? 'Convertido en paciente' : 'Vinculado a paciente existente', autorId: actor.sub, autorNombre: actorName(actor) } })
   return { pacienteId, yaExistia: !creado }
 }
@@ -259,7 +273,7 @@ export async function agendarLead(db: TenantClient, actor: JwtPayload, id: strin
     where: { id },
     data: {
       pacienteId, citaId: cita.id, fechaAgenda: new Date(cita.inicio), agendaFuente: 'CRM',
-      estado: lead.estado === 'CONVERTIDO' ? lead.estado : 'AGENDADO',
+      estado: lead.estado === 'CONVERTIDO' ? lead.estado : 'AGENDADO', ultimaGestionAt: new Date(),
     },
   })
   await db.leadNota.create({ data: { leadId: id, tipo: 'SISTEMA', texto: `Hora agendada: ${cuando}${cita.doctor ? ` · ${cita.doctor}` : ''}`, autorId: actor.sub, autorNombre: actorName(actor) } })

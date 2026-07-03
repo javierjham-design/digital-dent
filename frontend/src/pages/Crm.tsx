@@ -50,6 +50,13 @@ const toLocalInput = (iso: string | null) => {
   const off = d.getTimezoneOffset()
   return new Date(d.getTime() - off * 60000).toISOString().slice(0, 16)
 }
+// Fechas locales YYYY-MM-DD para el selector de rango.
+const ymdLocal = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+const hoyYmd = () => ymdLocal(new Date())
+const ymdHace = (dias: number) => ymdLocal(new Date(Date.now() - dias * 86400_000))
+const inicioMesYmd = () => { const d = new Date(); return ymdLocal(new Date(d.getFullYear(), d.getMonth(), 1)) }
+const diasDesde = (iso?: string) => (iso ? Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86400_000)) : 0)
+type Preset = '30' | '7' | 'mes' | 'todo' | 'custom'
 
 export function Crm() {
   const [leads, setLeads] = useState<Lead[]>([])
@@ -57,16 +64,32 @@ export function Crm() {
   const [cargando, setCargando] = useState(true)
   const [estado, setEstado] = useState<string>('')
   const [q, setQ] = useState('')
+  const [desde, setDesde] = useState(ymdHace(30)) // siempre visible: últimos 30 días
+  const [hasta, setHasta] = useState(hoyYmd())
+  const [preset, setPreset] = useState<Preset>('30')
+  const [soloSinGestionar, setSoloSinGestionar] = useState(false)
   const [sel, setSel] = useState<Lead | null>(null)
   const [modal, setModal] = useState<null | 'nuevo' | 'config'>(null)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
   const notify = (t: string, ok = true) => { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
 
+  const aplicarPreset = (p: Preset) => {
+    setPreset(p)
+    if (p === '30') { setDesde(ymdHace(30)); setHasta(hoyYmd()) }
+    else if (p === '7') { setDesde(ymdHace(7)); setHasta(hoyYmd()) }
+    else if (p === 'mes') { setDesde(inicioMesYmd()); setHasta(hoyYmd()) }
+    else if (p === 'todo') { setDesde(''); setHasta('') }
+  }
+
   const cargar = () => {
-    crmService.leads({ estado: estado || undefined, q: q.trim().length >= 2 ? q.trim() : undefined }).then(setLeads).catch(() => {}).finally(() => setCargando(false))
+    crmService.leads({ estado: estado || undefined, q: q.trim().length >= 2 ? q.trim() : undefined, desde: desde || undefined, hasta: hasta || undefined })
+      .then(setLeads).catch(() => {}).finally(() => setCargando(false))
     crmService.resumen().then(setResumen).catch(() => {})
   }
-  useEffect(() => { const t = setTimeout(cargar, 250); return () => clearTimeout(t) }, [estado, q]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { const t = setTimeout(cargar, 250); return () => clearTimeout(t) }, [estado, q, desde, hasta]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const visibles = soloSinGestionar ? leads.filter((l) => l.sinGestionar) : leads
+  const verSinGestionar = () => { setSoloSinGestionar(true); aplicarPreset('todo') } // amplía el rango para ver todos
 
   return (
     <div>
@@ -81,6 +104,18 @@ export function Crm() {
 
       {aviso && <div className={`mb-4 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>}
 
+      {/* Alerta: leads sin gestionar hace más de N días */}
+      {resumen && resumen.sinGestionar > 0 && (
+        <button onClick={verSinGestionar}
+          className="w-full mb-4 flex items-center gap-2 text-left bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-4 py-3 hover:bg-rose-100 transition-colors">
+          <span className="text-lg leading-none">⏰</span>
+          <span className="text-sm font-medium flex-1">
+            {resumen.sinGestionar} {resumen.sinGestionar === 1 ? 'lead sin gestionar' : 'leads sin gestionar'} hace más de {resumen.diasSinGestion} días.
+          </span>
+          <span className="text-xs font-semibold shrink-0">Ver →</span>
+        </button>
+      )}
+
       {/* Embudo */}
       <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 mb-5">
         <FunnelCard label="Total" v={resumen?.total ?? 0} activo={estado === ''} onClick={() => setEstado('')} />
@@ -89,21 +124,42 @@ export function Crm() {
         ))}
       </div>
 
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, teléfono, email o campaña…"
-        className="w-full max-w-md mb-4 px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+      {/* Rango de fechas + búsqueda */}
+      <div className="flex flex-wrap items-center gap-2 mb-3">
+        {([['30', 'Últimos 30 días'], ['7', '7 días'], ['mes', 'Este mes'], ['todo', 'Todo']] as [Preset, string][]).map(([k, l]) => (
+          <button key={k} onClick={() => aplicarPreset(k)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${preset === k ? 'border-cyan-400 bg-cyan-50 text-cyan-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>{l}</button>
+        ))}
+        <div className="flex items-center gap-1 ml-auto sm:ml-0">
+          <input type="date" value={desde} max={hasta || undefined} onChange={(e) => { setDesde(e.target.value); setPreset('custom') }} className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600" />
+          <span className="text-slate-400 text-xs">→</span>
+          <input type="date" value={hasta} min={desde || undefined} onChange={(e) => { setHasta(e.target.value); setPreset('custom') }} className="px-2 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600" />
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, teléfono, email o campaña…"
+          className="flex-1 min-w-[220px] max-w-md px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        {soloSinGestionar && (
+          <button onClick={() => setSoloSinGestionar(false)} className="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-100 text-rose-700 border border-rose-200">
+            Solo sin gestionar ✕
+          </button>
+        )}
+      </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
         {cargando ? <p className="px-5 py-10 text-center text-slate-500 text-sm">Cargando…</p>
-          : leads.length === 0 ? <p className="px-5 py-10 text-center text-slate-500 text-sm">Sin leads {estado ? 'en este estado' : 'todavía'}. Comparte tu formulario o conecta tus campañas.</p>
-          : leads.map((l) => {
+          : visibles.length === 0 ? <p className="px-5 py-10 text-center text-slate-500 text-sm">{soloSinGestionar ? 'No hay leads sin gestionar 🎉' : `Sin leads ${estado ? 'en este estado' : 'en este período'}. Ajusta el rango o comparte tu formulario.`}</p>
+          : visibles.map((l) => {
             const ec = estadoCfg(l.estado)
             const oc = origenCfg(l.origen)
             return (
-              <button key={l.id} onClick={() => setSel(l)} className="w-full flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50 text-left">
+              <button key={l.id} onClick={() => setSel(l)} className={`w-full flex items-center justify-between gap-3 px-5 py-3 text-left hover:bg-slate-50 ${l.sinGestionar ? 'bg-rose-50/40' : ''}`}>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <p className="font-semibold text-slate-800 truncate">{l.nombre} {l.apellido ?? ''}</p>
                     <span className={`${chip} ${oc.c}`}>{oc.l}</span>
+                    {l.sinGestionar && <span className={`${chip} bg-rose-100 text-rose-700`}>⏰ Sin gestionar{l.ultimaGestionAt ? ` · ${diasDesde(l.ultimaGestionAt)}d` : ''}</span>}
                     {agendoOnline(l) && <span className={`${chip} bg-emerald-100 text-emerald-700`}>Agendó online</span>}
                     {l.pacienteId && <span className={`${chip} bg-slate-100 text-slate-500`}>Paciente</span>}
                   </div>

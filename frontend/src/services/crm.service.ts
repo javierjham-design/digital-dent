@@ -14,9 +14,10 @@ export interface Lead {
   primeraVisita: string | null; ultimaVisita: string | null; fechaAgenda: string | null; agendaFuente: string | null; asistio: boolean | null
   metaEventId: string | null; metaEnviado: boolean; scheduleEventId: string | null; scheduleCapiEnviado: boolean
   pacienteId: string | null; citaId: string | null; responsableId: string | null; createdAt: string
+  ultimaGestionAt?: string; sinGestionar?: boolean
   notas?: LeadNota[]
 }
-export interface CrmResumen { total: number; estados: Record<string, number>; origenes: { origen: string; n: number }[] }
+export interface CrmResumen { total: number; estados: Record<string, number>; origenes: { origen: string; n: number }[]; sinGestionar: number; diasSinGestion: number }
 export interface CrmConfig { slug: string; metaEnabled: boolean; metaPixelId: string | null; hasCapiToken: boolean; capiTokenLen: number; capiTokenLast4: string | null; metaTestCode: string | null; crmToken: string }
 export interface MetaTestResult { ok: boolean; status: number; recibidos?: number; testCode?: string; error?: string }
 

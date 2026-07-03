@@ -408,6 +408,27 @@ describe('CRM: captación de leads + conversión a paciente', () => {
     expect(r.status).toBe(404)
   })
 
+  it('marca y cuenta los leads abiertos sin gestión hace más de 4 días', async () => {
+    const nuevo = await post('/crm/leads', { nombre: 'Olvidado', telefono: '+56 9 4444 3333' })
+    const leadId = nuevo.body.id as string
+    const db = tenantClient(A.dbName)
+    // Backdatea la última gestión a 6 días atrás (sigue en estado NUEVO)
+    await db.lead.update({ where: { id: leadId }, data: { ultimaGestionAt: new Date(Date.now() - 6 * 86400_000), estado: 'NUEVO' } })
+
+    const resumen = await get('/crm/resumen')
+    expect(resumen.body.sinGestionar).toBeGreaterThanOrEqual(1)
+    expect(resumen.body.diasSinGestion).toBe(4)
+
+    const leads = await get('/crm/leads')
+    const found = (leads.body as { id: string; sinGestionar: boolean }[]).find((l) => l.id === leadId)
+    expect(found?.sinGestionar).toBe(true)
+
+    // Al agregar una nota (gestión), deja de estar sin gestionar
+    await post(`/crm/leads/${leadId}/notas`, { texto: 'Llamada realizada' })
+    const leads2 = await get('/crm/leads')
+    expect((leads2.body as { id: string; sinGestionar: boolean }[]).find((l) => l.id === leadId)?.sinGestionar).toBe(false)
+  })
+
   it('CORS: el intake público responde el preflight y permite un origin externo', async () => {
     // Preflight OPTIONS desde una landing externa → 204 con headers CORS
     const pre = await request(app).options(`/api/v1/public/crm/${A.slug}/lo-que-sea/lead`)

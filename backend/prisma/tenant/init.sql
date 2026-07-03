@@ -801,6 +801,7 @@ CREATE TABLE "Lead" (
     "metaEnviado" BOOLEAN NOT NULL DEFAULT false,
     "scheduleEventId" TEXT,
     "scheduleCapiEnviado" BOOLEAN NOT NULL DEFAULT false,
+    "ultimaGestionAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -809,6 +810,7 @@ CREATE TABLE "Lead" (
 
 -- CreateIndex
 CREATE INDEX "Lead_estado_createdAt_idx" ON "Lead"("estado", "createdAt");
+CREATE INDEX "Lead_estado_ultimaGestionAt_idx" ON "Lead"("estado", "ultimaGestionAt");
 CREATE INDEX "Lead_origen_idx" ON "Lead"("origen");
 
 -- CreateTable
