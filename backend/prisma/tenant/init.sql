@@ -27,6 +27,7 @@ CREATE TABLE "Configuracion" (
     "metaCapiToken" TEXT,
     "metaTestCode" TEXT,
     "crmToken" TEXT,
+    "crmDiasSinGestion" INTEGER NOT NULL DEFAULT 4,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Configuracion_pkey" PRIMARY KEY ("id")

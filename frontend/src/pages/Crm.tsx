@@ -471,6 +471,7 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const [token, setToken] = useState('')
   const [test, setTest] = useState('')
   const [enabled, setEnabled] = useState(false)
+  const [dias, setDias] = useState('4')
   const [busy, setBusy] = useState(false)
   const [editToken, setEditToken] = useState(false)
   const [probando, setProbando] = useState(false)
@@ -478,7 +479,7 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const [apiKeyOn, setApiKeyOn] = useState(false)
   const [nuevaKey, setNuevaKey] = useState<string | null>(null)
   useEffect(() => {
-    crmService.config().then((c) => { setCfg(c); setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled) }).catch(() => {})
+    crmService.config().then((c) => { setCfg(c); setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled); setDias(String(c.diasSinGestion)) }).catch(() => {})
     crmService.apiKeyEstado().then((r) => setApiKeyOn(r.hasApiKey)).catch(() => {})
   }, [])
 
@@ -517,7 +518,7 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   async function guardar() {
     setBusy(true)
     try {
-      const payload: Record<string, unknown> = { metaEnabled: enabled, metaPixelId: pixel.trim() || null, metaTestCode: test.trim() || null }
+      const payload: Record<string, unknown> = { metaEnabled: enabled, metaPixelId: pixel.trim() || null, metaTestCode: test.trim() || null, diasSinGestion: Number(dias) || 4 }
       // Solo tocamos el token si el campo estaba visible y el usuario escribió algo:
       // así un autocompletado del navegador nunca puede sobrescribir el token real.
       if (editandoToken && token.trim()) payload.metaCapiToken = token.trim()
@@ -554,6 +555,18 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
               <p className="text-[11px] text-slate-400 mt-1">Manda los mismos nombres de tu planilla mapeados a estos. Cuantos más identificadores (email, teléfono, external_id, _fbp/_fbc), mejor el match quality de Meta.</p>
             </details>
             <p className="text-[11px] text-slate-400 mt-2">El código al final de estas URLs (~12 caracteres) es el <span className="font-medium">token del formulario</span> — es normal que sea corto y <span className="font-medium">no</span> es el token de Meta.</p>
+          </div>
+
+          <div className="border-t border-slate-100 pt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Seguimiento</p>
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">Alertar leads sin gestionar después de (días)</span>
+              <div className="flex items-center gap-2 mt-1">
+                <input type="number" min={1} max={90} value={dias} onChange={(e) => setDias(e.target.value)} className={`${inp} font-mono w-24`} />
+                <span className="text-xs text-slate-400">días (1–90)</span>
+              </div>
+            </label>
+            <p className="text-[11px] text-slate-400 mt-1">Un lead en estado Nuevo/Contactado sin gestión humana (nota, cambio de estado, agendar) por más de este tiempo aparece en la alerta.</p>
           </div>
 
           <div className="border-t border-slate-100 pt-3">

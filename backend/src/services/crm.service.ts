@@ -8,8 +8,13 @@ import { crearCita } from '@/services/citas.service'
 const ESTADOS = ['NUEVO', 'CONTACTADO', 'AGENDADO', 'CONVERTIDO', 'PERDIDO']
 // Leads "abiertos" que requieren seguimiento; si pasan de N días sin gestión humana, alertan.
 const ESTADOS_ABIERTOS = ['NUEVO', 'CONTACTADO']
-const DIAS_SIN_GESTION = 4
-const cutoffSinGestion = () => new Date(Date.now() - DIAS_SIN_GESTION * 86400_000)
+const DIAS_SIN_GESTION_DEFAULT = 4
+const clampDias = (n: unknown) => { const v = Math.round(Number(n)); return Number.isFinite(v) ? Math.min(90, Math.max(1, v)) : DIAS_SIN_GESTION_DEFAULT }
+// Umbral de días sin gestión, configurable por clínica (Configuracion.crmDiasSinGestion).
+async function getDiasSinGestion(db: TenantClient): Promise<number> {
+  const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { crmDiasSinGestion: true } })
+  return clampDias(c?.crmDiasSinGestion ?? DIAS_SIN_GESTION_DEFAULT)
+}
 const nuevoToken = () => randomBytes(9).toString('base64url')
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
@@ -56,15 +61,17 @@ export async function listarLeads(db: TenantClient, f: { estado?: string; origen
     ? leads.filter((l) => norm(`${l.nombre} ${l.apellido ?? ''} ${l.telefono ?? ''} ${l.email ?? ''} ${l.campana ?? ''}`).includes(needle))
     : leads
   // Marca los leads abiertos sin gestión humana hace más de N días (para alertar).
-  const cutoff = cutoffSinGestion()
+  const cutoff = new Date(Date.now() - (await getDiasSinGestion(db)) * 86400_000)
   return filtrados.map((l) => ({ ...l, sinGestionar: ESTADOS_ABIERTOS.includes(l.estado) && l.ultimaGestionAt < cutoff }))
 }
 
 export async function resumenCrm(db: TenantClient) {
+  const dias = await getDiasSinGestion(db)
+  const cutoff = new Date(Date.now() - dias * 86400_000)
   const [porEstado, porOrigen, sinGestionar] = await Promise.all([
     db.lead.groupBy({ by: ['estado'], _count: { _all: true } }),
     db.lead.groupBy({ by: ['origen'], _count: { _all: true } }),
-    db.lead.count({ where: { estado: { in: ESTADOS_ABIERTOS }, ultimaGestionAt: { lt: cutoffSinGestion() } } }),
+    db.lead.count({ where: { estado: { in: ESTADOS_ABIERTOS }, ultimaGestionAt: { lt: cutoff } } }),
   ])
   const total = porEstado.reduce((s, r) => s + r._count._all, 0)
   return {
@@ -72,7 +79,7 @@ export async function resumenCrm(db: TenantClient) {
     estados: Object.fromEntries(porEstado.map((r) => [r.estado, r._count._all])),
     origenes: porOrigen.map((r) => ({ origen: r.origen, n: r._count._all })).sort((a, b) => b.n - a.n),
     sinGestionar,
-    diasSinGestion: DIAS_SIN_GESTION,
+    diasSinGestion: dias,
   }
 }
 
@@ -307,7 +314,7 @@ export async function eliminarLead(db: TenantClient, id: string) {
 export async function obtenerConfigCrm(db: TenantClient) {
   const c = await db.configuracion.findUnique({
     where: { id: 'singleton' },
-    select: { metaEnabled: true, metaPixelId: true, metaCapiToken: true, metaTestCode: true, crmToken: true },
+    select: { metaEnabled: true, metaPixelId: true, metaCapiToken: true, metaTestCode: true, crmToken: true, crmDiasSinGestion: true },
   })
   let crmToken = c?.crmToken ?? null
   if (!crmToken) { crmToken = nuevoToken(); await db.configuracion.update({ where: { id: 'singleton' }, data: { crmToken } }) }
@@ -316,6 +323,7 @@ export async function obtenerConfigCrm(db: TenantClient) {
     metaEnabled: Boolean(c?.metaEnabled), metaPixelId: c?.metaPixelId ?? null,
     hasCapiToken: Boolean(rawTok), capiTokenLen: rawTok ? rawTok.length : 0, capiTokenLast4: rawTok ? rawTok.slice(-4) : null,
     metaTestCode: c?.metaTestCode ?? null, crmToken,
+    diasSinGestion: clampDias(c?.crmDiasSinGestion ?? DIAS_SIN_GESTION_DEFAULT),
   }
 }
 
@@ -331,6 +339,7 @@ export async function guardarConfigCrm(db: TenantClient, body: Record<string, un
   if (typeof body.metaCapiToken === 'string' && body.metaCapiToken.trim()) data.metaCapiToken = body.metaCapiToken.trim()
   if (body.metaCapiToken === null || body.metaCapiToken === '') data.metaCapiToken = null
   if (body.metaTestCode !== undefined) data.metaTestCode = body.metaTestCode ? String(body.metaTestCode).trim() : null
+  if (body.diasSinGestion !== undefined) data.crmDiasSinGestion = clampDias(body.diasSinGestion)
   await db.configuracion.update({ where: { id: 'singleton' }, data })
   return obtenerConfigCrm(db)
 }

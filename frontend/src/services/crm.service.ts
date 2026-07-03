@@ -18,7 +18,7 @@ export interface Lead {
   notas?: LeadNota[]
 }
 export interface CrmResumen { total: number; estados: Record<string, number>; origenes: { origen: string; n: number }[]; sinGestionar: number; diasSinGestion: number }
-export interface CrmConfig { slug: string; metaEnabled: boolean; metaPixelId: string | null; hasCapiToken: boolean; capiTokenLen: number; capiTokenLast4: string | null; metaTestCode: string | null; crmToken: string }
+export interface CrmConfig { slug: string; metaEnabled: boolean; metaPixelId: string | null; hasCapiToken: boolean; capiTokenLen: number; capiTokenLast4: string | null; metaTestCode: string | null; crmToken: string; diasSinGestion: number }
 export interface MetaTestResult { ok: boolean; status: number; recibidos?: number; testCode?: string; error?: string }
 
 function qs(p?: Record<string, string | undefined>): string {

@@ -55,6 +55,7 @@ model Configuracion {
   metaCapiToken String?
   metaTestCode  String?
   crmToken      String?
+  crmDiasSinGestion Int @default(4) // umbral de días para alertar leads sin gestionar
 
   updatedAt DateTime @updatedAt
 }
