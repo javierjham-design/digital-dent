@@ -18,7 +18,7 @@ const linkCls = ({ isActive }: { isActive: boolean }) =>
 
 // Menú "Administración": agrupa todo lo de gestión (config, equipo, prestaciones,
 // reportes, liquidaciones) para no saturar el header.
-function AdministracionMenu({ puedeGestionar, esAdmin }: { puedeGestionar: boolean; esAdmin: boolean }) {
+function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm }: { puedeGestionar: boolean; esAdmin: boolean; puedeCrm: boolean }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
@@ -47,7 +47,7 @@ function AdministracionMenu({ puedeGestionar, esAdmin }: { puedeGestionar: boole
             {esAdmin && item('/configuracion', 'Configuración de la clínica')}
             {esAdmin && item('/equipo', 'Equipo')}
             {esAdmin && item('/agendamiento-online', 'Agendamiento online')}
-            {esAdmin && item('/crm', 'CRM · Leads')}
+            {(esAdmin || puedeCrm) && item('/crm', 'CRM · Leads')}
             {item('/prestaciones', 'Prestaciones')}
             {item('/reportes', 'Reportes')}
             {puedeGestionar && item('/liquidaciones', 'Gestión de liquidaciones')}
@@ -117,6 +117,7 @@ export function DashboardLayout() {
 
   if (user?.isPlatformAdmin) return <Navigate to="/plataforma" replace />
   const puedeGestionarLiq = Boolean(user?.permisos?.puedeGestionarLiquidaciones)
+  const puedeCrm = Boolean(user?.permisos?.puedeGestionarCrm)
   const esAdmin = user?.role === 'admin'
   return (
     <div className="min-h-screen">
@@ -137,7 +138,7 @@ export function DashboardLayout() {
         </div>
         <nav className="flex flex-wrap items-center gap-1 w-full order-4 sm:order-3 sm:w-auto sm:flex-1">
           {NAV_PRE.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
-          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} />
+          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} puedeCrm={puedeCrm} />
           <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
         </nav>
       </header>

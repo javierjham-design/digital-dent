@@ -81,6 +81,7 @@ model User {
   puedeRevertirCompletado     Boolean @default(false)
   puedeEditarPagos            Boolean @default(false)
   puedeGestionarLiquidaciones Boolean @default(false)
+  puedeGestionarCrm           Boolean @default(false)
 
   // Mapeo a un calendario de Google (dentro de la cuenta de la clínica).
   googleCalendarId String?

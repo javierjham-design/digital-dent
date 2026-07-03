@@ -44,7 +44,7 @@ export function verifyToken(token: string): JwtPayload {
 type TenantUserRow = {
   id: string; name: string | null; email: string | null; role: string; passwordChangedAt: Date | null
   puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean
-  puedeEditarPagos: boolean; puedeGestionarLiquidaciones: boolean
+  puedeEditarPagos: boolean; puedeGestionarLiquidaciones: boolean; puedeGestionarCrm: boolean
 }
 function tenantUserDTO(u: TenantUserRow, clinicaId: string): SessionUserDTO {
   const isAdmin = u.role === 'admin'
@@ -57,6 +57,7 @@ function tenantUserDTO(u: TenantUserRow, clinicaId: string): SessionUserDTO {
       puedeRevertirCompletado: isAdmin || u.puedeRevertirCompletado,
       puedeEditarPagos: isAdmin || u.puedeEditarPagos,
       puedeGestionarLiquidaciones: isAdmin || u.puedeGestionarLiquidaciones,
+      puedeGestionarCrm: isAdmin || u.puedeGestionarCrm,
     },
   }
 }
@@ -67,7 +68,7 @@ function platformAdminDTO(a: { id: string; name: string | null; email: string; p
     requirePasswordChange: a.passwordChangedAt === null,
     permisos: {
       puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
-      puedeEditarPagos: true, puedeGestionarLiquidaciones: true,
+      puedeEditarPagos: true, puedeGestionarLiquidaciones: true, puedeGestionarCrm: true,
     },
   }
 }

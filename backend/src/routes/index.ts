@@ -32,6 +32,7 @@ import * as agendaOnline from '@/controllers/agenda-online.controller'
 import * as crm from '@/controllers/crm.controller'
 import * as ext from '@/controllers/ext.controller'
 import { requireApiKey } from '@/middlewares/api-key'
+import { requirePermiso } from '@/middlewares/permiso'
 import { requireSuperAdmin } from '@/middlewares/auth'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
@@ -42,6 +43,8 @@ export const apiRouter = Router()
 // `adminTenant` además exige rol admin. Todos los dominios usan ya este modelo.
 const tenant = [requireAuth, requireTenant]
 const adminTenant = [requireAuth, requireTenant, requireAdmin]
+// CRM: admin o usuario con el permiso "puedeGestionarCrm".
+const crmTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarCrm')]
 
 // Subida de archivos en memoria (import de pacientes XLSX, máx 5MB).
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
@@ -119,7 +122,7 @@ apiRouter.delete('/agenda-links/:id', adminTenant, asyncHandler(agendaOnline.del
 apiRouter.get('/reservas-online', tenant, asyncHandler(agendaOnline.getReservas))
 
 // ── CRM: leads (admin) + config de Meta/captación ────────────────────────────
-apiRouter.get('/crm/config', tenant, asyncHandler(crm.getConfig))
+apiRouter.get('/crm/config', crmTenant, asyncHandler(crm.getConfig))
 apiRouter.patch('/crm/config', adminTenant, asyncHandler(crm.patchConfig))
 apiRouter.post('/crm/meta/test', adminTenant, asyncHandler(crm.postProbarMeta))
 
@@ -135,14 +138,14 @@ apiRouter.get('/ext/leads', apiKeyScope, asyncHandler(ext.getExtLeads))
 apiRouter.get('/ext/leads/:id', apiKeyScope, asyncHandler(ext.getExtLead))
 apiRouter.get('/ext/resumen', apiKeyScope, asyncHandler(ext.getExtResumen))
 apiRouter.get('/ext/stats', apiKeyScope, asyncHandler(ext.getExtStats))
-apiRouter.get('/crm/leads', tenant, asyncHandler(crm.getLeads))
-apiRouter.get('/crm/resumen', tenant, asyncHandler(crm.getResumen))
-apiRouter.post('/crm/leads', tenant, asyncHandler(crm.postLead))
-apiRouter.get('/crm/leads/:id', tenant, asyncHandler(crm.getLead))
-apiRouter.patch('/crm/leads/:id', tenant, asyncHandler(crm.patchLead))
-apiRouter.post('/crm/leads/:id/notas', tenant, asyncHandler(crm.postNota))
-apiRouter.post('/crm/leads/:id/convertir', tenant, asyncHandler(crm.postConvertir))
-apiRouter.post('/crm/leads/:id/agendar', tenant, asyncHandler(crm.postAgendar))
+apiRouter.get('/crm/leads', crmTenant, asyncHandler(crm.getLeads))
+apiRouter.get('/crm/resumen', crmTenant, asyncHandler(crm.getResumen))
+apiRouter.post('/crm/leads', crmTenant, asyncHandler(crm.postLead))
+apiRouter.get('/crm/leads/:id', crmTenant, asyncHandler(crm.getLead))
+apiRouter.patch('/crm/leads/:id', crmTenant, asyncHandler(crm.patchLead))
+apiRouter.post('/crm/leads/:id/notas', crmTenant, asyncHandler(crm.postNota))
+apiRouter.post('/crm/leads/:id/convertir', crmTenant, asyncHandler(crm.postConvertir))
+apiRouter.post('/crm/leads/:id/agendar', crmTenant, asyncHandler(crm.postAgendar))
 apiRouter.delete('/crm/leads/:id', adminTenant, asyncHandler(crm.deleteLead))
 
 // ── Bloqueos de agenda (convertido a database-per-tenant) ────────────────────

@@ -88,6 +88,32 @@ describe('gating de roles', () => {
   })
 })
 
+describe('permiso CRM: habilitar el módulo a otros usuarios', () => {
+  let userToken = ''
+  let userId = ''
+  it('crea un usuario no-admin (sin permiso CRM) y lo loguea', async () => {
+    const r = await request(app).post('/api/v1/usuarios').set('Authorization', `Bearer ${tokenA}`)
+      .send({ name: 'Recepción', username: 'recep-crm', password: 'Password123', role: 'staff' })
+    expect(r.status).toBe(201)
+    userId = r.body.id
+    const l = await login({ slug: A.slug, username: 'recep-crm', password: 'Password123' })
+    expect(l.status).toBe(200)
+    userToken = l.token!
+    expect(l.user.permisos.puedeGestionarCrm).toBe(false)
+  })
+  it('sin permiso → 403 en /crm/leads', async () => {
+    const r = await request(app).get('/api/v1/crm/leads').set('Authorization', `Bearer ${userToken}`)
+    expect(r.status).toBe(403)
+  })
+  it('el admin habilita puedeGestionarCrm → el usuario ahora accede (200)', async () => {
+    const g = await request(app).patch(`/api/v1/usuarios/${userId}`).set('Authorization', `Bearer ${tokenA}`).send({ puedeGestionarCrm: true })
+    expect(g.status).toBe(200)
+    expect(g.body.puedeGestionarCrm).toBe(true)
+    const r = await request(app).get('/api/v1/crm/leads').set('Authorization', `Bearer ${userToken}`)
+    expect(r.status).toBe(200)
+  })
+})
+
 describe('catálogo público de planes', () => {
   it('GET /planes sin token → 200', async () => {
     const r = await request(app).get('/api/v1/planes')

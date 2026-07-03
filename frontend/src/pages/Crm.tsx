@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, type NavigateFunction } from 'react-router-dom'
+import { Link, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { crmService, type Lead, type CrmResumen, type CrmConfig } from '@/services/crm.service'
 import { usuariosService } from '@/services/equipo.service'
 import type { DoctorDTO } from '@shared/types'
+import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
 const MOTIVOS = ['Consulta diagnóstico', 'Control', 'Detartraje / Profilaxis', 'Obturación', 'Endodoncia', 'Exodoncia', 'Ortodoncia', 'Blanqueamiento', 'Implantes', 'Urgencia', 'Otro']
@@ -59,6 +60,9 @@ const diasDesde = (iso?: string) => (iso ? Math.max(0, Math.floor((Date.now() - 
 type Preset = '30' | '7' | 'mes' | 'todo' | 'custom'
 
 export function Crm() {
+  const { user } = useAuth()
+  const esAdmin = user?.role === 'admin'
+  const puedeCrm = esAdmin || Boolean(user?.permisos?.puedeGestionarCrm)
   const [leads, setLeads] = useState<Lead[]>([])
   const [resumen, setResumen] = useState<CrmResumen | null>(null)
   const [cargando, setCargando] = useState(true)
@@ -91,12 +95,19 @@ export function Crm() {
   const visibles = soloSinGestionar ? leads.filter((l) => l.sinGestionar) : leads
   const verSinGestionar = () => { setSoloSinGestionar(true); aplicarPreset('todo') } // amplía el rango para ver todos
 
+  if (!puedeCrm) return (
+    <div className="max-w-md mx-auto text-center py-16">
+      <p className="text-slate-500 text-sm">No tienes acceso al CRM. Pídele a un administrador que te habilite el permiso <span className="font-medium">“Gestionar CRM”</span> en Equipo.</p>
+      <Link to="/agenda" className="inline-block mt-3 text-sm text-cyan-700 font-semibold">Volver a la agenda</Link>
+    </div>
+  )
+
   return (
     <div>
       <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
         <h1 className="text-2xl font-bold text-slate-900">CRM · Leads</h1>
         <div className="flex gap-2">
-          <button onClick={() => setModal('config')} className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl">Configuración / Formulario</button>
+          {esAdmin && <button onClick={() => setModal('config')} className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl">Configuración / Formulario</button>}
           <button onClick={() => setModal('nuevo')} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">+ Nuevo lead</button>
         </div>
       </div>

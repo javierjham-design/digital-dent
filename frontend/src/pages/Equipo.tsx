@@ -19,6 +19,7 @@ const PERMISOS: [keyof UsuarioDTO, string][] = [
   ['puedeAplicarDescuento', 'Aplicar descuentos'],
   ['puedeRevertirCompletado', 'Revertir acciones ya realizadas'],
   ['puedeGestionarLiquidaciones', 'Gestionar liquidaciones (de todo el equipo)'],
+  ['puedeGestionarCrm', 'Gestionar CRM (leads y seguimiento)'],
 ]
 const DIAS: [number, string][] = [[1, 'Lunes'], [2, 'Martes'], [3, 'Miércoles'], [4, 'Jueves'], [5, 'Viernes'], [6, 'Sábado'], [0, 'Domingo']]
 const hoyISO = () => new Date().toISOString().slice(0, 10)
