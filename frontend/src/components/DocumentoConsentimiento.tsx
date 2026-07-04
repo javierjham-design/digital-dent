@@ -14,6 +14,7 @@ const DOC_CSS = `
 .cl-doc p { margin:5px 0; text-align:justify; }
 .cl-doc ul { margin:5px 0 5px 18px; padding:0; } .cl-doc li { margin:2px 0; }
 .cl-doc .chk { margin:3px 0; }
+.cl-dato { font-style: italic; }
 .cl-blank { display:inline-block; min-width:130px; border-bottom:1px solid #333; height:1em; }
 .cl-firma-box { display:inline-block; min-width:210px; height:66px; border-bottom:1px solid #333; vertical-align:bottom; }
 .cl-firma-box.firmada { border-bottom:none; }

@@ -11,7 +11,8 @@ export interface ConsentimientoResumen {
 export interface Consentimiento extends ConsentimientoResumen {
   pacienteId: string; contenidoHtml: string
 }
-export interface Previsualizacion { faltantes: string[]; html: string; titulo: string; codigo: string }
+export interface VariableManual { name: string; label: string }
+export interface Previsualizacion { faltantes: string[]; html: string; titulo: string; codigo: string; manuales: VariableManual[] }
 
 export const consentimientosService = {
   // Plantillas

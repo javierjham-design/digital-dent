@@ -72,18 +72,28 @@ function GenerarModal({ pacienteId, pacienteNombre, plantillas, clinica, onClose
   onClose: () => void; onDone: () => void; notify: (t: string, ok?: boolean) => void
 }) {
   const [plantillaId, setPlantillaId] = useState('')
-  const [prev, setPrev] = useState<{ faltantes: string[]; html: string } | null>(null)
+  const [prev, setPrev] = useState<{ faltantes: string[]; html: string; manuales: { name: string; label: string }[] } | null>(null)
+  const [extra, setExtra] = useState<Record<string, string>>({})
   const [generado, setGenerado] = useState<Consentimiento | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // Al cambiar de plantilla: reinicia los campos manuales y previsualiza.
   useEffect(() => {
+    setExtra({})
     if (!plantillaId) { setPrev(null); return }
     consentimientosService.previsualizar(pacienteId, plantillaId).then(setPrev).catch(() => setPrev(null))
   }, [plantillaId, pacienteId])
 
+  // Al escribir en los campos manuales: re-previsualiza (debounced) para reflejar en la vista previa.
+  useEffect(() => {
+    if (!plantillaId) return
+    const t = setTimeout(() => { consentimientosService.previsualizar(pacienteId, plantillaId, extra).then(setPrev).catch(() => {}) }, 350)
+    return () => clearTimeout(t)
+  }, [extra, plantillaId, pacienteId])
+
   async function generar() {
     setBusy(true)
-    try { const c = await consentimientosService.generar(pacienteId, plantillaId); setGenerado(c); notify('Consentimiento generado') }
+    try { const c = await consentimientosService.generar(pacienteId, plantillaId, extra); setGenerado(c); notify('Consentimiento generado') }
     catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo generar', false) } finally { setBusy(false) }
   }
 
@@ -103,6 +113,17 @@ function GenerarModal({ pacienteId, pacienteNombre, plantillas, clinica, onClose
         <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-4 py-3 mb-3 text-sm">
           ⚠️ Faltan datos del paciente para este consentimiento: <span className="font-semibold">{prev.faltantes.join(', ')}</span>.
           Complétalos en la pestaña <span className="font-semibold">Datos</span> y vuelve a intentar.
+        </div>
+      )}
+
+      {prev && prev.manuales.length > 0 && (
+        <div className="mb-3">
+          <p className="text-xs font-medium text-slate-500 mb-1">Datos del procedimiento <span className="text-slate-400">(se imprimen en cursiva; deja vacío lo que no aplique)</span></p>
+          <div className="grid sm:grid-cols-2 gap-2">
+            {prev.manuales.map((v) => (
+              <input key={v.name} value={extra[v.name] ?? ''} onChange={(e) => setExtra((x) => ({ ...x, [v.name]: e.target.value }))} placeholder={v.label} className={inp} />
+            ))}
+          </div>
         </div>
       )}
 

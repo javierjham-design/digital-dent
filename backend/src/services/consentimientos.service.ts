@@ -40,6 +40,36 @@ const FIRMA_SLOTS: Record<string, string> = {
 }
 const BLANK = '<span class="cl-blank"></span>'
 
+// Nombres de variables auto-completadas (para distinguir de las manuales).
+const AUTO_KEYS = new Set([
+  'PACIENTE_NOMBRE_COMPLETO', 'PACIENTE_RUT', 'PACIENTE_FECHA_NACIMIENTO', 'PACIENTE_EDAD', 'PACIENTE_SEXO',
+  'PACIENTE_DIRECCION', 'PACIENTE_TELEFONO_CORREO', 'FICHA_CLINICA_N', 'REPRESENTANTE_NOMBRE',
+  'REPRESENTANTE_RUT_VINCULO', 'FECHA_HORA', 'PROFESIONAL_NOMBRE', 'PROFESIONAL_RUT_REGISTRO',
+  'NOMBRE_FIRMA_PACIENTE_O_REPRESENTANTE', 'RUT_FIRMA_PACIENTE_O_REPRESENTANTE',
+])
+// Variables que NO se ofrecen como input (metadata de firma electrónica / intérprete).
+const NO_INPUT = new Set([
+  'PLATAFORMA_FIRMA', 'ID_TRANSACCION', 'METODO_AUTENTICACION', 'SELLO_TIEMPO',
+  'FIRMA_INTERPRETE_APOYO', 'NOMBRE_INTERPRETE_APOYO', 'RUT_INTERPRETE_APOYO', 'IDIOMA_O_TIPO_APOYO',
+])
+const humaniza = (name: string) => { const s = name.toLowerCase().replace(/_/g, ' '); return s.charAt(0).toUpperCase() + s.slice(1) }
+
+// Variables manuales (clínicas) de una plantilla → se llenan en pantalla al generar.
+export function variablesManuales(html: string): { name: string; label: string }[] {
+  const vistos = new Set<string>()
+  const res: { name: string; label: string }[] = []
+  const re = /\{\{([A-Z0-9_]+)\}\}/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html))) {
+    const name = m[1]
+    if (vistos.has(name)) continue
+    vistos.add(name)
+    if (AUTO_KEYS.has(name) || name in FIRMA_SLOTS || NO_INPUT.has(name)) continue
+    res.push({ name, label: humaniza(name) })
+  }
+  return res
+}
+
 // Etiquetas de campos requeridos (para el aviso de datos faltantes).
 const CAMPO_LABEL: Record<string, string> = {
   nombre: 'nombre y apellido', fechaNacimiento: 'fecha de nacimiento', telefono: 'teléfono',
@@ -74,11 +104,13 @@ function autoVars(p: PacienteVars, prof: { nombre: string; rut: string }): Recor
 // blanco (línea) las variables manuales sin valor.
 function render(html: string, p: PacienteVars, prof: { nombre: string; rut: string }, extra: Record<string, string>): string {
   const auto = autoVars(p, prof)
+  // Los datos rellenados (del paciente o manuales) van en cursiva para distinguirlos del texto base.
+  const dato = (v: string) => `<em class="cl-dato">${esc(v)}</em>`
   return html.replace(/\{\{([A-Z0-9_]+)\}\}/g, (_m, name: string) => {
-    if (name in auto) return esc(auto[name])
+    if (name in auto) return auto[name] ? dato(auto[name]) : ''
     if (name in FIRMA_SLOTS) return FIRMA_SLOTS[name]
     const v = extra[name]
-    return v && v.trim() ? esc(v.trim()) : BLANK
+    return v && v.trim() ? dato(v.trim()) : BLANK
   })
 }
 
@@ -180,7 +212,8 @@ export async function previsualizar(db: TenantClient, actor: JwtPayload, pacient
   if (!plantilla) throw notFound('Plantilla no encontrada')
   const faltantes = camposFaltantes(paciente, parseReq(plantilla.camposRequeridos), pais)
   const html = render(plantilla.contenidoHtml, paciente, prof, extra)
-  return { faltantes, html, titulo: plantilla.titulo, codigo: plantilla.codigo }
+  const manuales = variablesManuales(plantilla.contenidoHtml)
+  return { faltantes, html, titulo: plantilla.titulo, codigo: plantilla.codigo, manuales }
 }
 
 export async function generar(db: TenantClient, actor: JwtPayload, pacienteId: string, plantillaId: string, extra: Record<string, string> = {}) {
