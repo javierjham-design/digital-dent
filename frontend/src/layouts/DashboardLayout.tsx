@@ -48,6 +48,7 @@ function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm }: { puedeGestio
             {esAdmin && item('/equipo', 'Equipo')}
             {esAdmin && item('/agendamiento-online', 'Agendamiento online')}
             {(esAdmin || puedeCrm) && item('/crm', 'CRM · Leads')}
+            {esAdmin && item('/consentimientos', 'Consentimientos')}
             {item('/prestaciones', 'Prestaciones')}
             {item('/reportes', 'Reportes')}
             {puedeGestionar && item('/liquidaciones', 'Gestión de liquidaciones')}

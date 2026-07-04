@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-07-04 — Consentimientos informados (generación, firma y PDF) + almacenamiento por clínica
+
+**Consentimientos informados** (15 formatos base Digital Dent, Ley 20.584, sirven para LatAm):
+- Convertidos desde los Word a plantillas HTML con variables `{{...}}`, precargados por
+  clínica (seed lazy) y **editables** en Administración → Consentimientos (editor rich text).
+- Se generan desde la **ficha del paciente** (pestaña Consentimientos): auto-completa datos
+  del paciente/clínica/profesional/fecha; **valida datos faltantes** (mínimo nombre/documento/
+  fecha nac., documento país-aware) y bloquea con aviso si falta algo.
+- **Firma digital** (pad en pantalla → imagen incrustada) o **manual** (línea para firmar en
+  papel). **PDF descargable** (html2pdf) con logo + datos + firma.
+- **Snapshot inmutable** del texto firmado (integridad legal). **Eliminar solo admin** +
+  auditoría en el historial del paciente.
+- Backend: modelos PlantillaConsentimiento + Consentimiento, servicio (motor de variables),
+  endpoints CRUD/generar/firmar/eliminar. Frontend: página admin, tab en la ficha,
+  DocumentoConsentimiento + SignaturePad. Tests 49/49.
+
+**Almacenamiento por clínica** (super-admin): `pg_database_size` real por base (control +
+tenants). KPI total + tamaño por clínica en la lista y el detalle. Es lo que se factura en Railway.
+
+---
+
 ## 2026-07-03 — Multi-país por clínica (super-admin): documento, teléfono y moneda
 
 La base sigue siendo Chile, pero el super-admin puede fijar el país de operación de

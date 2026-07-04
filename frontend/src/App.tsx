@@ -14,6 +14,7 @@ import { Cobros } from '@/pages/Cobros'
 import { AgendaOnline } from '@/pages/AgendaOnline'
 import { AgendarPublico } from '@/pages/AgendarPublico'
 import { Crm } from '@/pages/Crm'
+import { Consentimientos } from '@/pages/Consentimientos'
 import { FormularioPublico } from '@/pages/FormularioPublico'
 import { Liquidaciones } from '@/pages/Liquidaciones'
 import { MisLiquidaciones } from '@/pages/MisLiquidaciones'
@@ -52,6 +53,7 @@ export default function App() {
             <Route path="/cobros" element={<Cobros />} />
             <Route path="/agendamiento-online" element={<AgendaOnline />} />
             <Route path="/crm" element={<Crm />} />
+            <Route path="/consentimientos" element={<Consentimientos />} />
             <Route path="/reportes" element={<Reportes />} />
             <Route path="/liquidaciones" element={<Liquidaciones />} />
             <Route path="/mis-liquidaciones" element={<MisLiquidaciones />} />
