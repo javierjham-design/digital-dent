@@ -1,0 +1,261 @@
+import type { TenantClient } from '@/db/tenant'
+import { badRequest, notFound } from '@/lib/errors'
+import { audit } from '@/lib/audit'
+import { actorName, type JwtPayload } from '@/services/auth.service'
+import { getPais } from '@shared/constants/paises'
+import { CONSENTIMIENTOS_DEFAULT } from '@/data/consentimientos-default'
+
+// ── Utilidades ────────────────────────────────────────────────────────────────
+const TZ = 'America/Santiago'
+const fmtFecha = (d?: Date | null) => (d ? d.toLocaleDateString('es-CL', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric' }) : '')
+const fmtFechaHora = (d: Date) => d.toLocaleString('es-CL', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' })
+const esc = (s: string) => (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+function edadTexto(fn?: Date | null): string {
+  if (!fn) return ''
+  const now = new Date()
+  let e = now.getFullYear() - fn.getFullYear()
+  const m = now.getMonth() - fn.getMonth()
+  if (m < 0 || (m === 0 && now.getDate() < fn.getDate())) e--
+  return `${e} años`
+}
+
+// Datos del paciente que necesita el motor de variables.
+type PacienteVars = {
+  id: string; numero: number | null; nombre: string; apellido: string; rut: string | null; otroDocId: string | null
+  fechaNacimiento: Date | null; telefono: string | null; email: string | null; direccion: string | null
+  apoderado: string | null; rutApoderado: string | null; sexo: string | null
+}
+const PAC_SELECT = {
+  id: true, numero: true, nombre: true, apellido: true, rut: true, otroDocId: true, fechaNacimiento: true,
+  telefono: true, email: true, direccion: true, apoderado: true, rutApoderado: true, sexo: true,
+} as const
+
+// Slots de firma (se rellenan al firmar). Se mantienen como spans con clase.
+const FIRMA_SLOTS: Record<string, string> = {
+  FIRMA_PACIENTE_O_REPRESENTANTE: '<span class="cl-firma-box" data-slot="paciente"></span>',
+  FIRMA_PROFESIONAL: '<span class="cl-firma-box" data-slot="profesional"></span>',
+  FIRMA_INTERPRETE_APOYO: '<span class="cl-firma-box" data-slot="interprete"></span>',
+  FECHA_HORA_FIRMA_PACIENTE: '<span class="cl-fechafirma" data-slot="paciente"></span>',
+  FECHA_HORA_FIRMA_PROFESIONAL: '<span class="cl-fechafirma" data-slot="profesional"></span>',
+}
+const BLANK = '<span class="cl-blank"></span>'
+
+// Etiquetas de campos requeridos (para el aviso de datos faltantes).
+const CAMPO_LABEL: Record<string, string> = {
+  nombre: 'nombre y apellido', fechaNacimiento: 'fecha de nacimiento', telefono: 'teléfono',
+  email: 'email', direccion: 'dirección', apoderado: 'representante / apoderado', sexo: 'sexo',
+}
+
+function autoVars(p: PacienteVars, prof: { nombre: string; rut: string }): Record<string, string> {
+  const nombre = `${p.nombre} ${p.apellido}`.trim()
+  const doc = p.rut || p.otroDocId || ''
+  const firmaNombre = p.apoderado || nombre
+  const firmaDoc = p.apoderado ? (p.rutApoderado || '') : doc
+  return {
+    PACIENTE_NOMBRE_COMPLETO: nombre,
+    PACIENTE_RUT: doc,
+    PACIENTE_FECHA_NACIMIENTO: fmtFecha(p.fechaNacimiento),
+    PACIENTE_EDAD: edadTexto(p.fechaNacimiento),
+    PACIENTE_SEXO: p.sexo || '',
+    PACIENTE_DIRECCION: p.direccion || '',
+    PACIENTE_TELEFONO_CORREO: [p.telefono, p.email].filter(Boolean).join(' / '),
+    FICHA_CLINICA_N: p.numero != null ? String(p.numero) : '',
+    REPRESENTANTE_NOMBRE: p.apoderado || '',
+    REPRESENTANTE_RUT_VINCULO: p.rutApoderado || '',
+    FECHA_HORA: fmtFechaHora(new Date()),
+    PROFESIONAL_NOMBRE: prof.nombre,
+    PROFESIONAL_RUT_REGISTRO: prof.rut,
+    NOMBRE_FIRMA_PACIENTE_O_REPRESENTANTE: firmaNombre,
+    RUT_FIRMA_PACIENTE_O_REPRESENTANTE: firmaDoc,
+  }
+}
+
+// Renderiza la plantilla: auto-completa datos, deja slots de firma y pone en
+// blanco (línea) las variables manuales sin valor.
+function render(html: string, p: PacienteVars, prof: { nombre: string; rut: string }, extra: Record<string, string>): string {
+  const auto = autoVars(p, prof)
+  return html.replace(/\{\{([A-Z0-9_]+)\}\}/g, (_m, name: string) => {
+    if (name in auto) return esc(auto[name])
+    if (name in FIRMA_SLOTS) return FIRMA_SLOTS[name]
+    const v = extra[name]
+    return v && v.trim() ? esc(v.trim()) : BLANK
+  })
+}
+
+// Devuelve qué campos requeridos le faltan al paciente (con etiqueta amigable).
+export function camposFaltantes(p: PacienteVars, requeridos: string[], pais: string): string[] {
+  const falta: string[] = []
+  for (const c of requeridos) {
+    let ok = false
+    if (c === 'nombre') ok = Boolean(p.nombre && p.apellido)
+    else if (c === 'rut') ok = Boolean(p.rut || p.otroDocId)
+    else if (c === 'fechaNacimiento') ok = Boolean(p.fechaNacimiento)
+    else ok = Boolean((p as unknown as Record<string, unknown>)[c])
+    if (!ok) falta.push(c === 'rut' ? getPais(pais).doc.label : (CAMPO_LABEL[c] ?? c))
+  }
+  return falta
+}
+
+const parseReq = (csv: string) => csv.split(',').map((s) => s.trim()).filter(Boolean)
+async function paisDe(db: TenantClient): Promise<string> {
+  const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+  return c?.pais ?? 'CL'
+}
+
+// ── Plantillas (Administración) ───────────────────────────────────────────────
+
+// Precarga las plantillas base de Digital Dent la primera vez (si la clínica no
+// tiene ninguna). Quedan editables.
+export async function seedPlantillasSiFaltan(db: TenantClient) {
+  const n = await db.plantillaConsentimiento.count()
+  if (n > 0) return
+  await db.plantillaConsentimiento.createMany({
+    data: CONSENTIMIENTOS_DEFAULT.map((t) => ({
+      codigo: t.codigo, titulo: t.titulo, contenidoHtml: t.html,
+      camposRequeridos: t.camposRequeridos.join(','), orden: t.orden, activo: true,
+    })),
+  })
+}
+
+export async function listarPlantillas(db: TenantClient, soloActivas = false) {
+  await seedPlantillasSiFaltan(db)
+  return db.plantillaConsentimiento.findMany({
+    where: soloActivas ? { activo: true } : undefined,
+    orderBy: { orden: 'asc' },
+  })
+}
+export async function obtenerPlantilla(db: TenantClient, id: string) {
+  const p = await db.plantillaConsentimiento.findUnique({ where: { id } })
+  if (!p) throw notFound('Plantilla no encontrada')
+  return p
+}
+export async function crearPlantilla(db: TenantClient, body: Record<string, unknown>) {
+  const titulo = String(body.titulo ?? '').trim()
+  if (!titulo) throw badRequest('Falta el título')
+  const ultimo = await db.plantillaConsentimiento.findFirst({ orderBy: { orden: 'desc' }, select: { orden: true } })
+  return db.plantillaConsentimiento.create({
+    data: {
+      codigo: String(body.codigo ?? '').trim() || 'CI',
+      titulo, contenidoHtml: String(body.contenidoHtml ?? ''),
+      camposRequeridos: Array.isArray(body.camposRequeridos) ? body.camposRequeridos.join(',') : String(body.camposRequeridos ?? 'nombre,rut,fechaNacimiento'),
+      activo: body.activo === undefined ? true : Boolean(body.activo),
+      orden: (ultimo?.orden ?? 0) + 1,
+    },
+  })
+}
+export async function actualizarPlantilla(db: TenantClient, id: string, body: Record<string, unknown>) {
+  const data: Record<string, unknown> = {}
+  if (body.titulo !== undefined) data.titulo = String(body.titulo).trim()
+  if (body.codigo !== undefined) data.codigo = String(body.codigo).trim()
+  if (body.contenidoHtml !== undefined) data.contenidoHtml = String(body.contenidoHtml)
+  if (body.camposRequeridos !== undefined) data.camposRequeridos = Array.isArray(body.camposRequeridos) ? body.camposRequeridos.join(',') : String(body.camposRequeridos)
+  if (body.activo !== undefined) data.activo = Boolean(body.activo)
+  if (body.orden !== undefined) data.orden = Number(body.orden)
+  if (body.contenidoHtml !== undefined) data.version = { increment: 1 }
+  const existe = await db.plantillaConsentimiento.findUnique({ where: { id }, select: { id: true } })
+  if (!existe) throw notFound('Plantilla no encontrada')
+  return db.plantillaConsentimiento.update({ where: { id }, data })
+}
+export async function eliminarPlantilla(db: TenantClient, id: string) {
+  const existe = await db.plantillaConsentimiento.findUnique({ where: { id }, select: { id: true } })
+  if (!existe) throw notFound('Plantilla no encontrada')
+  await db.plantillaConsentimiento.delete({ where: { id } })
+}
+
+// ── Generación / firma (ficha del paciente) ───────────────────────────────────
+
+async function profDe(db: TenantClient, actor: JwtPayload): Promise<{ nombre: string; rut: string }> {
+  const u = await db.user.findUnique({ where: { id: actor.sub }, select: { name: true, rut: true } })
+  return { nombre: u?.name ?? actorName(actor), rut: u?.rut ?? '' }
+}
+
+// Vista previa + validación de datos faltantes (no crea nada).
+export async function previsualizar(db: TenantClient, actor: JwtPayload, pacienteId: string, plantillaId: string, extra: Record<string, string> = {}) {
+  const [paciente, plantilla, pais, prof] = await Promise.all([
+    db.paciente.findUnique({ where: { id: pacienteId }, select: PAC_SELECT }),
+    db.plantillaConsentimiento.findUnique({ where: { id: plantillaId } }),
+    paisDe(db), profDe(db, actor),
+  ])
+  if (!paciente) throw notFound('Paciente no encontrado')
+  if (!plantilla) throw notFound('Plantilla no encontrada')
+  const faltantes = camposFaltantes(paciente, parseReq(plantilla.camposRequeridos), pais)
+  const html = render(plantilla.contenidoHtml, paciente, prof, extra)
+  return { faltantes, html, titulo: plantilla.titulo, codigo: plantilla.codigo }
+}
+
+export async function generar(db: TenantClient, actor: JwtPayload, pacienteId: string, plantillaId: string, extra: Record<string, string> = {}) {
+  const [paciente, plantilla, pais, prof] = await Promise.all([
+    db.paciente.findUnique({ where: { id: pacienteId }, select: PAC_SELECT }),
+    db.plantillaConsentimiento.findUnique({ where: { id: plantillaId } }),
+    paisDe(db), profDe(db, actor),
+  ])
+  if (!paciente) throw notFound('Paciente no encontrado')
+  if (!plantilla) throw notFound('Plantilla no encontrada')
+  const faltantes = camposFaltantes(paciente, parseReq(plantilla.camposRequeridos), pais)
+  if (faltantes.length > 0) throw badRequest(`Faltan datos del paciente para generar el consentimiento: ${faltantes.join(', ')}. Complétalos en la ficha.`)
+
+  const html = render(plantilla.contenidoHtml, paciente, prof, extra)
+  const c = await db.consentimiento.create({
+    data: {
+      pacienteId, plantillaId, codigo: plantilla.codigo, titulo: plantilla.titulo, contenidoHtml: html,
+      estado: 'BORRADOR', generadoPorId: actor.sub, generadoPorNombre: prof.nombre,
+    },
+  })
+  await audit(db, actor.sub, { accion: 'CREAR', entidad: 'Consentimiento', entidadId: c.id, pacienteId, resumen: `Generó consentimiento "${plantilla.titulo}"` })
+  return c
+}
+
+// Firma el consentimiento (digital = imagen en pantalla; manual = línea para
+// firmar en papel). Deja el snapshot final e inmutable.
+export async function firmar(db: TenantClient, actor: JwtPayload, id: string, body: { tipo?: string; imagen?: string }) {
+  const c = await db.consentimiento.findUnique({ where: { id } })
+  if (!c) throw notFound('Consentimiento no encontrado')
+  if (c.estado === 'FIRMADO') throw badRequest('Este consentimiento ya está firmado.')
+  const tipo = body.tipo === 'DIGITAL' ? 'DIGITAL' : 'MANUAL'
+  const ahora = new Date()
+
+  let html = c.contenidoHtml
+  const boxPac = '<span class="cl-firma-box" data-slot="paciente"></span>'
+  let img: string | null = null
+  if (tipo === 'DIGITAL') {
+    img = (body.imagen ?? '').trim()
+    if (!/^data:image\//.test(img)) throw badRequest('Firma digital inválida.')
+    html = html.replace(boxPac, `<span class="cl-firma-box firmada" data-slot="paciente"><img class="cl-firma-img" src="${img}"/></span>`)
+  } else {
+    html = html.replace(boxPac, '<span class="cl-firma-linea" data-slot="paciente"></span>')
+  }
+  html = html.replace('<span class="cl-fechafirma" data-slot="paciente"></span>', `<span class="cl-fechafirma" data-slot="paciente">${fmtFechaHora(ahora)}</span>`)
+  html = html.replace('<span class="cl-firma-box" data-slot="profesional"></span>', '<span class="cl-firma-linea" data-slot="profesional"></span>')
+
+  const actualizado = await db.consentimiento.update({
+    where: { id },
+    data: {
+      contenidoHtml: html, estado: 'FIRMADO', firmaTipo: tipo, firmaPacienteImg: img,
+      firmadoAt: ahora,
+    },
+  })
+  await audit(db, actor.sub, { accion: 'EDITAR', entidad: 'Consentimiento', entidadId: id, pacienteId: c.pacienteId, resumen: `Firmó consentimiento "${c.titulo}" (${tipo === 'DIGITAL' ? 'firma digital' : 'firma manual'})` })
+  return actualizado
+}
+
+export async function listarPorPaciente(db: TenantClient, pacienteId: string) {
+  return db.consentimiento.findMany({
+    where: { pacienteId },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, codigo: true, titulo: true, estado: true, firmaTipo: true, firmadoAt: true, generadoPorNombre: true, createdAt: true },
+  })
+}
+export async function obtenerConsentimiento(db: TenantClient, id: string) {
+  const c = await db.consentimiento.findUnique({ where: { id } })
+  if (!c) throw notFound('Consentimiento no encontrado')
+  return c
+}
+
+// Eliminar: SOLO administrador (se controla en la ruta) + queda auditado.
+export async function eliminarConsentimiento(db: TenantClient, actor: JwtPayload, id: string) {
+  const c = await db.consentimiento.findUnique({ where: { id }, select: { id: true, titulo: true, estado: true, pacienteId: true } })
+  if (!c) throw notFound('Consentimiento no encontrado')
+  await db.consentimiento.delete({ where: { id } })
+  await audit(db, actor.sub, { accion: 'ELIMINAR', entidad: 'Consentimiento', entidadId: id, pacienteId: c.pacienteId, resumen: `Eliminó consentimiento "${c.titulo}" (${c.estado})` })
+  return { ok: true as const }
+}

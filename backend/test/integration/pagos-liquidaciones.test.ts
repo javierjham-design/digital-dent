@@ -548,3 +548,43 @@ describe('configuración del profesional (contratos y horarios)', () => {
     expect(list.body.some((h: { diaSemana: number; activo: boolean }) => h.diaSemana === 1 && h.activo)).toBe(true)
   })
 })
+
+describe('consentimientos informados', () => {
+  it('valida datos faltantes, genera, firma y el admin puede eliminar', async () => {
+    const p = await post('/pacientes', { nombre: 'Consent', apellido: 'Test', rut: '12.345.678-5' })
+    expect(p.status).toBe(201)
+    const pacienteId = p.body.id as string
+
+    const pl = await get('/consentimientos/plantillas?activas=1')
+    expect(pl.status).toBe(200)
+    expect(pl.body.length).toBeGreaterThan(0)
+    const plantillaId = pl.body[0].id as string
+
+    // Falta la fecha de nacimiento → previsualizar lo reporta y generar se bloquea
+    const prev = await post('/consentimientos/previsualizar', { pacienteId, plantillaId })
+    expect(prev.status).toBe(200)
+    expect(prev.body.faltantes.length).toBeGreaterThan(0)
+    const g1 = await post('/consentimientos/generar', { pacienteId, plantillaId })
+    expect(g1.status).toBe(400)
+
+    // Completar la ficha y generar
+    await request(app).patch(`/api/v1/pacientes/${pacienteId}`).set(auth()).send({ fechaNacimiento: '1990-05-10' })
+    const g2 = await post('/consentimientos/generar', { pacienteId, plantillaId })
+    expect(g2.status).toBe(201)
+    expect(g2.body.estado).toBe('BORRADOR')
+    const cid = g2.body.id as string
+    expect(g2.body.contenidoHtml).toContain('Consent Test') // datos del paciente incrustados
+
+    const lst = await get(`/pacientes/${pacienteId}/consentimientos`)
+    expect((lst.body as { id: string }[]).some((c) => c.id === cid)).toBe(true)
+
+    // Firmar (manual) → FIRMADO
+    const f = await post(`/consentimientos/${cid}/firmar`, { tipo: 'MANUAL' })
+    expect(f.status).toBe(200)
+    expect(f.body.estado).toBe('FIRMADO')
+
+    // Eliminar como admin → ok (queda auditado)
+    const del = await request(app).delete(`/api/v1/consentimientos/${cid}`).set(auth())
+    expect(del.status).toBe(200)
+  })
+})

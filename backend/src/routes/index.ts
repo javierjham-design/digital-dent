@@ -30,6 +30,7 @@ import * as googlec from '@/controllers/google.controller'
 import { getPlanesPublicos } from '@/controllers/public.controller'
 import * as agendaOnline from '@/controllers/agenda-online.controller'
 import * as crm from '@/controllers/crm.controller'
+import * as consent from '@/controllers/consentimientos.controller'
 import * as ext from '@/controllers/ext.controller'
 import { requireApiKey } from '@/middlewares/api-key'
 import { requirePermiso } from '@/middlewares/permiso'
@@ -147,6 +148,22 @@ apiRouter.post('/crm/leads/:id/notas', crmTenant, asyncHandler(crm.postNota))
 apiRouter.post('/crm/leads/:id/convertir', crmTenant, asyncHandler(crm.postConvertir))
 apiRouter.post('/crm/leads/:id/agendar', crmTenant, asyncHandler(crm.postAgendar))
 apiRouter.delete('/crm/leads/:id', adminTenant, asyncHandler(crm.deleteLead))
+
+// ── Consentimientos informados ───────────────────────────────────────────────
+// Plantillas: listar (cualquier usuario, para generar) / gestionar (admin).
+apiRouter.get('/consentimientos/plantillas', tenant, asyncHandler(consent.getPlantillas))
+apiRouter.post('/consentimientos/plantillas', adminTenant, asyncHandler(consent.postPlantilla))
+apiRouter.get('/consentimientos/plantillas/:id', adminTenant, asyncHandler(consent.getPlantilla))
+apiRouter.patch('/consentimientos/plantillas/:id', adminTenant, asyncHandler(consent.patchPlantilla))
+apiRouter.delete('/consentimientos/plantillas/:id', adminTenant, asyncHandler(consent.deletePlantilla))
+// Generación / firma / consulta (usuarios de la clínica).
+apiRouter.post('/consentimientos/previsualizar', tenant, asyncHandler(consent.postPrevisualizar))
+apiRouter.post('/consentimientos/generar', tenant, asyncHandler(consent.postGenerar))
+apiRouter.get('/pacientes/:pacienteId/consentimientos', tenant, asyncHandler(consent.getPorPaciente))
+apiRouter.get('/consentimientos/:id', tenant, asyncHandler(consent.getConsentimiento))
+apiRouter.post('/consentimientos/:id/firmar', tenant, asyncHandler(consent.postFirmar))
+// Eliminar: SOLO administrador (resguardo legal) + auditado.
+apiRouter.delete('/consentimientos/:id', adminTenant, asyncHandler(consent.deleteConsentimiento))
 
 // ── Bloqueos de agenda (convertido a database-per-tenant) ────────────────────
 apiRouter.get('/bloqueos', tenant, asyncHandler(getBloqueos))

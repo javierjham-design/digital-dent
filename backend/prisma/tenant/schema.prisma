@@ -149,6 +149,7 @@ model Paciente {
   cobros           Cobro[]
   comentariosAdmin ComentarioAdministrativo[]
   mensajes         MensajePaciente[]
+  consentimientos  Consentimiento[]
 }
 
 model ComentarioAdministrativo {
@@ -737,4 +738,46 @@ model LeadNota {
   lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
   @@index([leadId, createdAt])
+}
+
+// ── Consentimientos informados ────────────────────────────────────────────────
+// Plantilla editable por clínica (se precargan las base de Digital Dent).
+model PlantillaConsentimiento {
+  id               String   @id @default(cuid())
+  codigo           String   // DD-CI-01, etc.
+  titulo           String
+  contenidoHtml    String   // HTML con variables {{...}}
+  camposRequeridos String   @default("nombre,rut,fechaNacimiento") // CSV de campos del paciente exigidos
+  activo           Boolean  @default(true)
+  orden            Int      @default(0)
+  version          Int      @default(1)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([activo, orden])
+}
+
+// Consentimiento GENERADO para un paciente. Guarda el snapshot exacto firmado
+// (integridad legal). Solo un admin puede eliminarlo (queda auditado).
+model Consentimiento {
+  id               String   @id @default(cuid())
+  pacienteId       String
+  plantillaId      String?
+  codigo           String
+  titulo           String
+  contenidoHtml    String   // snapshot renderizado (con datos del paciente)
+  estado           String   @default("BORRADOR") // BORRADOR | FIRMADO
+  firmaTipo        String?  // MANUAL | DIGITAL
+  firmaPacienteImg String?  // dataURL de la firma digital
+  firmadoNombre    String?
+  firmadoDocumento String?
+  firmadoAt        DateTime?
+  generadoPorId    String?
+  generadoPorNombre String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  paciente         Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+
+  @@index([pacienteId, createdAt])
+  @@index([estado])
 }

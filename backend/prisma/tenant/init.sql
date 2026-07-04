@@ -835,3 +835,42 @@ CREATE INDEX "LeadNota_leadId_createdAt_idx" ON "LeadNota"("leadId", "createdAt"
 -- AddForeignKey
 ALTER TABLE "LeadNota" ADD CONSTRAINT "LeadNota_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+
+-- Consentimientos informados
+CREATE TABLE "PlantillaConsentimiento" (
+    "id" TEXT NOT NULL,
+    "codigo" TEXT NOT NULL,
+    "titulo" TEXT NOT NULL,
+    "contenidoHtml" TEXT NOT NULL,
+    "camposRequeridos" TEXT NOT NULL DEFAULT 'nombre,rut,fechaNacimiento',
+    "activo" BOOLEAN NOT NULL DEFAULT true,
+    "orden" INTEGER NOT NULL DEFAULT 0,
+    "version" INTEGER NOT NULL DEFAULT 1,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "PlantillaConsentimiento_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX "PlantillaConsentimiento_activo_orden_idx" ON "PlantillaConsentimiento"("activo", "orden");
+
+CREATE TABLE "Consentimiento" (
+    "id" TEXT NOT NULL,
+    "pacienteId" TEXT NOT NULL,
+    "plantillaId" TEXT,
+    "codigo" TEXT NOT NULL,
+    "titulo" TEXT NOT NULL,
+    "contenidoHtml" TEXT NOT NULL,
+    "estado" TEXT NOT NULL DEFAULT 'BORRADOR',
+    "firmaTipo" TEXT,
+    "firmaPacienteImg" TEXT,
+    "firmadoNombre" TEXT,
+    "firmadoDocumento" TEXT,
+    "firmadoAt" TIMESTAMP(3),
+    "generadoPorId" TEXT,
+    "generadoPorNombre" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+    CONSTRAINT "Consentimiento_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX "Consentimiento_pacienteId_createdAt_idx" ON "Consentimiento"("pacienteId", "createdAt");
+CREATE INDEX "Consentimiento_estado_idx" ON "Consentimiento"("estado");
+ALTER TABLE "Consentimiento" ADD CONSTRAINT "Consentimiento_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
