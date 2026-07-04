@@ -19,6 +19,7 @@ export interface SessionUserDTO {
     puedeEditarPagos: boolean
     puedeGestionarLiquidaciones: boolean
     puedeGestionarCrm: boolean
+    puedeEliminar: boolean
   }
 }
 
@@ -147,6 +148,7 @@ export interface UsuarioDTO {
   puedeEditarPagos?: boolean
   puedeGestionarLiquidaciones?: boolean
   puedeGestionarCrm?: boolean
+  puedeEliminar?: boolean
   googleCalendarId?: string | null
   createdAt: string
 }

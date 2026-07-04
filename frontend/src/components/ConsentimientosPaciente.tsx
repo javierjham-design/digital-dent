@@ -4,12 +4,15 @@ import { clinicaService } from '@/services/catalogo.service'
 import { ApiError } from '@/services/api'
 import { DocumentoConsentimiento, descargarConsentimientoPDF } from '@/components/DocumentoConsentimiento'
 import { SignaturePad } from '@/components/SignaturePad'
+import { useAuth } from '@/hooks/useAuth'
 
 type Clinica = { nombre?: string; logoUrl?: string | null; direccion?: string; ciudad?: string }
 const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 const slug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40)
 
-export function ConsentimientosPaciente({ pacienteId, pacienteNombre, esAdmin }: { pacienteId: string; pacienteNombre: string; esAdmin: boolean }) {
+export function ConsentimientosPaciente({ pacienteId, pacienteNombre }: { pacienteId: string; pacienteNombre: string }) {
+  const { user } = useAuth()
+  const puedeEliminar = Boolean(user?.permisos?.puedeEliminar)
   const [clinica, setClinica] = useState<Clinica | null>(null)
   const [plantillas, setPlantillas] = useState<PlantillaConsentimiento[]>([])
   const [lista, setLista] = useState<ConsentimientoResumen[]>([])
@@ -60,7 +63,7 @@ export function ConsentimientosPaciente({ pacienteId, pacienteNombre, esAdmin }:
 
       {gen && <GenerarModal pacienteId={pacienteId} pacienteNombre={pacienteNombre} plantillas={plantillas} clinica={clinica}
         onClose={() => setGen(false)} onDone={() => { setGen(false); cargarLista() }} notify={notify} />}
-      {ver && <VerModal consent={ver} clinica={clinica} pacienteNombre={pacienteNombre} esAdmin={esAdmin}
+      {ver && <VerModal consent={ver} clinica={clinica} pacienteNombre={pacienteNombre} puedeEliminar={puedeEliminar}
         onClose={() => setVer(null)} onChanged={(c) => { setVer(c); cargarLista() }} onEliminar={() => eliminar(ver.id)} notify={notify} />}
     </div>
   )
@@ -200,16 +203,16 @@ function FirmarView({ consent, clinica, pacienteNombre, onClose, onChanged, noti
 }
 
 // ── Ver un consentimiento existente ───────────────────────────────────────────
-function VerModal({ consent, clinica, pacienteNombre, esAdmin, onClose, onChanged, onEliminar, notify }: {
-  consent: Consentimiento; clinica: Clinica | null; pacienteNombre: string; esAdmin: boolean
+function VerModal({ consent, clinica, pacienteNombre, puedeEliminar, onClose, onChanged, onEliminar, notify }: {
+  consent: Consentimiento; clinica: Clinica | null; pacienteNombre: string; puedeEliminar: boolean
   onClose: () => void; onChanged: (c: Consentimiento) => void; onEliminar: () => void; notify: (t: string, ok?: boolean) => void
 }) {
   return (
     <div>
       <FirmarView consent={consent} clinica={clinica} pacienteNombre={pacienteNombre} onClose={onClose} onChanged={onChanged} notify={notify} />
-      {esAdmin && (
+      {puedeEliminar && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60]">
-          <button onClick={onEliminar} className="px-4 py-2 bg-white border border-rose-200 text-rose-600 text-sm font-semibold rounded-xl shadow-lg hover:bg-rose-50">Eliminar consentimiento (admin)</button>
+          <button onClick={onEliminar} className="px-4 py-2 bg-white border border-rose-200 text-rose-600 text-sm font-semibold rounded-xl shadow-lg hover:bg-rose-50">Eliminar consentimiento</button>
         </div>
       )}
     </div>

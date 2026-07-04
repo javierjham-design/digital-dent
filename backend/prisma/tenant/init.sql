@@ -56,6 +56,7 @@ CREATE TABLE "User" (
     "puedeEditarPagos" BOOLEAN NOT NULL DEFAULT false,
     "puedeGestionarLiquidaciones" BOOLEAN NOT NULL DEFAULT false,
     "puedeGestionarCrm" BOOLEAN NOT NULL DEFAULT false,
+    "puedeEliminar" BOOLEAN NOT NULL DEFAULT false,
     "googleCalendarId" TEXT,
     "googleSyncToken" TEXT,
     "googleSyncedAt" TIMESTAMP(3),

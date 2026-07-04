@@ -47,6 +47,8 @@ const tenant = [requireAuth, requireTenant]
 const adminTenant = [requireAuth, requireTenant, requireAdmin]
 // CRM: admin o usuario con el permiso "puedeGestionarCrm".
 const crmTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarCrm')]
+// Eliminar registros clínicos: admin o usuario con el permiso "puedeEliminar".
+const eliminarTenant = [requireAuth, requireTenant, requirePermiso('puedeEliminar')]
 
 // Subida de archivos en memoria (import de pacientes XLSX, máx 5MB).
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
@@ -165,14 +167,14 @@ apiRouter.post('/consentimientos/generar', tenant, asyncHandler(consent.postGene
 apiRouter.get('/pacientes/:pacienteId/consentimientos', tenant, asyncHandler(consent.getPorPaciente))
 apiRouter.get('/consentimientos/:id', tenant, asyncHandler(consent.getConsentimiento))
 apiRouter.post('/consentimientos/:id/firmar', tenant, asyncHandler(consent.postFirmar))
-// Eliminar: SOLO administrador (resguardo legal) + auditado.
-apiRouter.delete('/consentimientos/:id', adminTenant, asyncHandler(consent.deleteConsentimiento))
+// Eliminar: admin o usuario con permiso "puedeEliminar" (resguardo) + auditado.
+apiRouter.delete('/consentimientos/:id', eliminarTenant, asyncHandler(consent.deleteConsentimiento))
 
 // ── Radiografías y documentos del paciente ───────────────────────────────────
 apiRouter.get('/pacientes/:pacienteId/documentos', tenant, asyncHandler(doc.getDocumentos))
 apiRouter.post('/pacientes/:pacienteId/documentos', tenant, uploadDoc.single('file'), asyncHandler(doc.postDocumento))
 apiRouter.get('/documentos/:id', tenant, asyncHandler(doc.getDocumento))
-apiRouter.delete('/documentos/:id', tenant, asyncHandler(doc.deleteDocumento))
+apiRouter.delete('/documentos/:id', eliminarTenant, asyncHandler(doc.deleteDocumento))
 
 // ── Bloqueos de agenda (convertido a database-per-tenant) ────────────────────
 apiRouter.get('/bloqueos', tenant, asyncHandler(getBloqueos))

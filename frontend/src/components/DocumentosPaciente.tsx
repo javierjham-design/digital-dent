@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { documentosService, type DocumentoMeta } from '@/services/documentos.service'
+import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
 const TIPOS: { v: string; l: string; diente?: boolean }[] = [
@@ -18,6 +19,8 @@ const esImagen = (mime: string) => mime.startsWith('image/')
 const fecha = (iso: string) => new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
 
 export function DocumentosPaciente({ pacienteId }: { pacienteId: string }) {
+  const { user } = useAuth()
+  const puedeEliminar = Boolean(user?.permisos?.puedeEliminar)
   const [items, setItems] = useState<DocumentoMeta[]>([])
   const [cargando, setCargando] = useState(true)
   const [tipo, setTipo] = useState('PERIAPICAL')
@@ -71,14 +74,14 @@ export function DocumentosPaciente({ pacienteId }: { pacienteId: string }) {
         : items.length === 0 ? <p className="px-4 py-8 text-center text-slate-400 text-sm">Sin radiografías ni documentos aún.</p>
         : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {items.map((d) => <Card key={d.id} d={d} onEliminar={() => eliminar(d.id)} />)}
+            {items.map((d) => <Card key={d.id} d={d} puedeEliminar={puedeEliminar} onEliminar={() => eliminar(d.id)} />)}
           </div>
         )}
     </div>
   )
 }
 
-function Card({ d, onEliminar }: { d: DocumentoMeta; onEliminar: () => void }) {
+function Card({ d, puedeEliminar, onEliminar }: { d: DocumentoMeta; puedeEliminar: boolean; onEliminar: () => void }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <button onClick={() => documentosService.abrir(d.id).catch(() => {})} className="block w-full aspect-square bg-slate-100" title="Abrir">
@@ -90,7 +93,7 @@ function Card({ d, onEliminar }: { d: DocumentoMeta; onEliminar: () => void }) {
         {d.descripcion && <p className="text-[11px] text-slate-500 truncate" title={d.descripcion}>{d.descripcion}</p>}
         <div className="flex items-center justify-between mt-1">
           <span className="text-[10px] text-slate-400">{fecha(d.createdAt)}</span>
-          <button onClick={onEliminar} className="text-[11px] text-slate-400 hover:text-rose-600">Eliminar</button>
+          {puedeEliminar && <button onClick={onEliminar} className="text-[11px] text-slate-400 hover:text-rose-600">Eliminar</button>}
         </div>
       </div>
     </div>

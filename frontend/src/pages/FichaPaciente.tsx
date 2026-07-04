@@ -99,7 +99,7 @@ export function FichaPaciente() {
       {tab === 'Planes de Tratamiento' && <PlanesTab key={planesNonce} pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} />}
       {tab === 'Recaudación' && <RecaudacionTab pacienteId={id} />}
       {tab === 'Evoluciones' && <div className="max-w-4xl"><EvolucionesTab pacienteId={id} isAdmin={isAdmin} /></div>}
-      {tab === 'Consentimientos' && <div className="max-w-4xl"><ConsentimientosPaciente pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} esAdmin={isAdmin} /></div>}
+      {tab === 'Consentimientos' && <div className="max-w-4xl"><ConsentimientosPaciente pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} /></div>}
       {tab === 'Radiografías y Documentos' && <div className="max-w-5xl"><DocumentosPaciente pacienteId={id} /></div>}
       {tab === 'Historial' && <div className="max-w-4xl"><HistorialTab pacienteId={id} /></div>}
       {tab === 'Comentarios' && <div className="max-w-4xl"><ComentariosTab pacienteId={id} /></div>}
