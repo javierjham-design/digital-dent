@@ -44,10 +44,29 @@ export async function listarClinicas() {
   return control.clinica.findMany({ where: { esDemo: false }, orderBy: { createdAt: 'desc' } })
 }
 
+// Tamaño real de cada base (lo que se factura en Railway). Cada clínica es una
+// base física; pg_database_size da el tamaño en disco. clariva_% cubre el control
+// y todos los tenants (clariva_t_<slug>).
+async function tamanosPorDb(): Promise<Map<string, number>> {
+  try {
+    const rows = await control.$queryRaw<{ datname: string; bytes: bigint }[]>`
+      SELECT datname, pg_database_size(datname) AS bytes
+      FROM pg_database WHERE datname LIKE 'clariva_%'`
+    const m = new Map<string, number>()
+    for (const r of rows) m.set(r.datname, Number(r.bytes))
+    return m
+  } catch { return new Map() }
+}
+
 export async function obtenerClinica(id: string) {
   const c = await control.clinica.findUnique({ where: { id } })
   if (!c) throw notFound('Clínica no encontrada')
-  return c
+  let sizeBytes: number | null = null
+  try {
+    const rows = await control.$queryRaw<{ bytes: bigint }[]>`SELECT pg_database_size(${c.dbName}) AS bytes`
+    sizeBytes = rows[0] ? Number(rows[0].bytes) : null
+  } catch { sizeBytes = null }
+  return { ...c, sizeBytes }
 }
 
 export async function crearClinica(ctx: AuditCtx, body: {
@@ -396,13 +415,14 @@ export async function resumenSuscripciones() {
   // suman a los KPIs de cartera ni al MRR (son sandboxes que expiran).
   const clinicas = await control.clinica.findMany({
     select: {
-      id: true, slug: true, nombre: true, plan: true, activo: true, trialHasta: true, proximoCobro: true,
+      id: true, slug: true, nombre: true, dbName: true, plan: true, activo: true, trialHasta: true, proximoCobro: true,
       precioAcordado: true, cicloFacturacion: true, createdAt: true, esDemo: true, demoExpiraEn: true,
       pagosSuscripcion: { orderBy: { fechaPago: 'desc' }, take: 1, select: { fechaPago: true, monto: true } },
       extras: { where: { activo: true }, select: { montoMensual: true } },
     },
     orderBy: { createdAt: 'desc' },
   })
+  const sizes = await tamanosPorDb()
   const now = new Date()
   const en7dias = new Date(now.getTime() + 7 * 86400000)
   let mrr = 0, arr = 0
@@ -427,10 +447,14 @@ export async function resumenSuscripciones() {
       esDemo: c.esDemo, demoExpiraEn: c.demoExpiraEn?.toISOString() ?? null,
       ultimoPago: c.pagosSuscripcion[0] ? { fecha: c.pagosSuscripcion[0].fechaPago.toISOString(), monto: c.pagosSuscripcion[0].monto } : null,
       createdAt: c.createdAt.toISOString(),
+      sizeBytes: sizes.get(c.dbName) ?? null,
     }
   })
+  // Total facturable en Railway: suma de todas las bases (control + tenants).
+  let almacenamientoBytes = 0
+  for (const b of sizes.values()) almacenamientoBytes += b
   return {
-    kpis: { totalClinicas: clinicas.length - demos, mrr, arr, alDia: contadores.AL_DIA, atrasadas: contadores.ATRASADO, enTrial: contadores.TRIAL, suspendidas: contadores.SUSPENDIDO, trialsPorVencer, demos },
+    kpis: { totalClinicas: clinicas.length - demos, mrr, arr, alDia: contadores.AL_DIA, atrasadas: contadores.ATRASADO, enTrial: contadores.TRIAL, suspendidas: contadores.SUSPENDIDO, trialsPorVencer, demos, almacenamientoBytes },
     clinicas: lista,
   }
 }

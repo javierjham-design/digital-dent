@@ -5,15 +5,23 @@ import { ApiError } from '@/services/api'
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtFecha = (s: string | null) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
+// Tamaño de la base (lo que se factura en Railway).
+const fmtBytes = (b?: number | null) => {
+  if (b == null) return '—'
+  if (b < 1024) return `${b} B`
+  const kb = b / 1024; if (kb < 1024) return `${kb.toFixed(0)} KB`
+  const mb = kb / 1024; if (mb < 1024) return `${mb.toFixed(1)} MB`
+  return `${(mb / 1024).toFixed(2)} GB`
+}
 
 type Estado = 'AL_DIA' | 'ATRASADO' | 'TRIAL' | 'SUSPENDIDO'
 interface ClinicaResumen {
   id: string; slug: string; nombre: string; plan: string; activo: boolean
   trialHasta: string | null; proximoCobro: string | null; precioMensual: number
   estado: Estado; ultimoPago: { fecha: string; monto: number } | null; createdAt: string
-  esDemo: boolean; demoExpiraEn: string | null
+  esDemo: boolean; demoExpiraEn: string | null; sizeBytes: number | null
 }
-interface Kpis { totalClinicas: number; mrr: number; arr: number; alDia: number; atrasadas: number; enTrial: number; suspendidas: number; trialsPorVencer: number; demos: number }
+interface Kpis { totalClinicas: number; mrr: number; arr: number; alDia: number; atrasadas: number; enTrial: number; suspendidas: number; trialsPorVencer: number; demos: number; almacenamientoBytes: number }
 
 const ESTADO_TONE: Record<Estado, string> = {
   AL_DIA: 'bg-emerald-500/15 text-emerald-300',
@@ -66,6 +74,13 @@ export function AdminClinicas() {
             <p className="text-xl font-bold mt-1 text-white">{fmtCLP(kpis.mrr)}</p>
           </div>
         )}
+        {kpis && (
+          <div className="bg-gradient-to-br from-sky-500/10 to-indigo-500/10 border border-sky-500/30 rounded-xl px-4 py-3">
+            <p className="text-xs uppercase tracking-wider text-sky-300/80">Almacenamiento</p>
+            <p className="text-xl font-bold mt-1 text-white">{fmtBytes(kpis.almacenamientoBytes)}</p>
+            <p className="text-[10px] text-slate-500">total en Railway</p>
+          </div>
+        )}
       </div>
 
       {cargando ? <p className="px-6 py-10 text-center text-slate-500 text-sm">Cargando…</p>
@@ -89,6 +104,7 @@ export function AdminClinicas() {
                   <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
                     <div><span className="text-slate-500">Plan</span><p className="text-slate-300">{c.plan}</p></div>
                     <div className="text-right"><span className="text-slate-500">Precio/mes</span><p className="text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : fmtCLP(c.precioMensual)}</p></div>
+                    <div className="col-span-2"><span className="text-slate-500">Almacenamiento (BD)</span> <span className="text-slate-300 font-mono">{fmtBytes(c.sizeBytes)}</span></div>
                     <div className="col-span-2 border-t border-slate-800 pt-2 flex items-center justify-between">
                       <span className="text-slate-400">{c.esDemo ? `demo · expira ${fmtFecha(c.demoExpiraEn)}` : c.estado === 'TRIAL' ? `trial ${fmtFecha(c.trialHasta)}` : `cobro ${fmtFecha(c.proximoCobro)}`}</span>
                       <span className="text-purple-300 font-medium">Gestionar →</span>
@@ -104,6 +120,7 @@ export function AdminClinicas() {
                 <thead><tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
                   <th className="text-left px-6 py-3">Clínica</th><th className="text-left px-6 py-3">Plan</th>
                   <th className="text-left px-6 py-3">Estado</th><th className="text-right px-6 py-3">Precio/mes</th>
+                  <th className="text-right px-6 py-3">BD</th>
                   <th className="text-right px-6 py-3">Próx. cobro</th><th className="px-6 py-3"></th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-800">
@@ -119,6 +136,7 @@ export function AdminClinicas() {
                       <td className="px-6 py-3 text-slate-300">{c.plan}</td>
                       <td className="px-6 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_TONE[c.estado]}`}>{ESTADO_LABEL[c.estado]}</span></td>
                       <td className="px-6 py-3 text-right text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : fmtCLP(c.precioMensual)}</td>
+                      <td className="px-6 py-3 text-right text-slate-400 font-mono text-xs whitespace-nowrap">{fmtBytes(c.sizeBytes)}</td>
                       <td className="px-6 py-3 text-right text-slate-400 text-xs whitespace-nowrap">{c.esDemo ? `demo · expira ${fmtFecha(c.demoExpiraEn)}` : c.estado === 'TRIAL' ? `trial ${fmtFecha(c.trialHasta)}` : fmtFecha(c.proximoCobro)}</td>
                       <td className="px-6 py-3 text-right"><Link to={`/plataforma/clinicas/${c.id}`} className="text-xs text-purple-300 hover:text-purple-200">Gestionar →</Link></td>
                     </tr>

@@ -7,12 +7,19 @@ import { PAISES_LISTA, getPais } from '@shared/constants/paises'
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 const toInput = (s: string | null | undefined) => (s ? new Date(s).toISOString().slice(0, 10) : '')
+const fmtBytes = (b?: number | null) => {
+  if (b == null) return '—'
+  if (b < 1024) return `${b} B`
+  const kb = b / 1024; if (kb < 1024) return `${kb.toFixed(0)} KB`
+  const mb = kb / 1024; if (mb < 1024) return `${mb.toFixed(1)} MB`
+  return `${(mb / 1024).toFixed(2)} GB`
+}
 
 interface Clinica {
   id: string; slug: string; nombre: string; email: string | null; telefono: string | null; ciudad: string | null
   plan: string; activo: boolean; trialHasta: string | null; proximoCobro: string | null
   precioAcordado: number | null; cicloFacturacion: string | null; notasInternas: string | null; createdAt: string
-  esDemo: boolean; demoExpiraEn: string | null; pais: string
+  esDemo: boolean; demoExpiraEn: string | null; pais: string; sizeBytes?: number | null
 }
 interface Pago { id: string; fechaPago: string; monto: number; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
@@ -43,7 +50,7 @@ export function AdminClinicaDetalle() {
             : <span className="px-2 py-0.5 rounded-full text-xs bg-rose-500/15 text-rose-300">Suspendida</span>}
           {c.esDemo && <span className="px-2 py-0.5 rounded-full text-xs bg-sky-500/15 text-sky-300">DEMO{c.demoExpiraEn ? ` · expira ${fmtFecha(c.demoExpiraEn)}` : ''}</span>}
         </div>
-        <p className="text-xs text-slate-500 mt-1">Creada el {fmtFecha(c.createdAt)} · {c.email || 'sin email'} · {c.telefono || 'sin teléfono'}</p>
+        <p className="text-xs text-slate-500 mt-1">Creada el {fmtFecha(c.createdAt)} · {c.email || 'sin email'} · {c.telefono || 'sin teléfono'} · <span className="text-sky-300/80">BD {fmtBytes(c.sizeBytes)}</span></p>
       </div>
 
       {aviso && <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm rounded-xl px-4 py-2">{aviso}</div>}
