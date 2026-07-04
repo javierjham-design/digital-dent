@@ -874,3 +874,22 @@ CREATE TABLE "Consentimiento" (
 CREATE INDEX "Consentimiento_pacienteId_createdAt_idx" ON "Consentimiento"("pacienteId", "createdAt");
 CREATE INDEX "Consentimiento_estado_idx" ON "Consentimiento"("estado");
 ALTER TABLE "Consentimiento" ADD CONSTRAINT "Consentimiento_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Radiografías y documentos del paciente
+CREATE TABLE "DocumentoPaciente" (
+    "id" TEXT NOT NULL,
+    "pacienteId" TEXT NOT NULL,
+    "tipo" TEXT NOT NULL,
+    "dientes" TEXT,
+    "descripcion" TEXT,
+    "nombre" TEXT NOT NULL,
+    "mime" TEXT NOT NULL,
+    "size" INTEGER NOT NULL,
+    "data" BYTEA NOT NULL,
+    "subidoPorId" TEXT,
+    "subidoPorNombre" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "DocumentoPaciente_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX "DocumentoPaciente_pacienteId_createdAt_idx" ON "DocumentoPaciente"("pacienteId", "createdAt");
+ALTER TABLE "DocumentoPaciente" ADD CONSTRAINT "DocumentoPaciente_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;

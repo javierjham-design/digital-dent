@@ -31,6 +31,7 @@ import { getPlanesPublicos } from '@/controllers/public.controller'
 import * as agendaOnline from '@/controllers/agenda-online.controller'
 import * as crm from '@/controllers/crm.controller'
 import * as consent from '@/controllers/consentimientos.controller'
+import * as doc from '@/controllers/documentos.controller'
 import * as ext from '@/controllers/ext.controller'
 import { requireApiKey } from '@/middlewares/api-key'
 import { requirePermiso } from '@/middlewares/permiso'
@@ -49,6 +50,8 @@ const crmTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarCrm
 
 // Subida de archivos en memoria (import de pacientes XLSX, máx 5MB).
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
+// Radiografías / documentos del paciente (imágenes y PDFs) — límite mayor.
+const uploadDoc = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } })
 
 // ── Auth ───────────────────────────────────────────────────────────────────
 apiRouter.post('/auth/login', asyncHandler(postLogin))
@@ -164,6 +167,12 @@ apiRouter.get('/consentimientos/:id', tenant, asyncHandler(consent.getConsentimi
 apiRouter.post('/consentimientos/:id/firmar', tenant, asyncHandler(consent.postFirmar))
 // Eliminar: SOLO administrador (resguardo legal) + auditado.
 apiRouter.delete('/consentimientos/:id', adminTenant, asyncHandler(consent.deleteConsentimiento))
+
+// ── Radiografías y documentos del paciente ───────────────────────────────────
+apiRouter.get('/pacientes/:pacienteId/documentos', tenant, asyncHandler(doc.getDocumentos))
+apiRouter.post('/pacientes/:pacienteId/documentos', tenant, uploadDoc.single('file'), asyncHandler(doc.postDocumento))
+apiRouter.get('/documentos/:id', tenant, asyncHandler(doc.getDocumento))
+apiRouter.delete('/documentos/:id', tenant, asyncHandler(doc.deleteDocumento))
 
 // ── Bloqueos de agenda (convertido a database-per-tenant) ────────────────────
 apiRouter.get('/bloqueos', tenant, asyncHandler(getBloqueos))

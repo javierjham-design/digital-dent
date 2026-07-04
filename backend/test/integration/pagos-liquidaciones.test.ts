@@ -588,3 +588,29 @@ describe('consentimientos informados', () => {
     expect(del.status).toBe(200)
   })
 })
+
+describe('radiografías y documentos del paciente', () => {
+  it('sube (con tipo/dientes), lista, descarga y elimina un documento', async () => {
+    const img = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex') // encabezado PNG (contenido de prueba)
+    const up = await request(app).post(`/api/v1/pacientes/${A.pacienteId}/documentos`).set(auth())
+      .field('tipo', 'PERIAPICAL').field('dientes', '16, 17').attach('file', img, { filename: 'peri.png', contentType: 'image/png' })
+    expect(up.status).toBe(201)
+    expect(up.body.tipo).toBe('PERIAPICAL')
+    expect(up.body.dientes).toBe('16, 17')
+
+    const list = await get(`/pacientes/${A.pacienteId}/documentos`)
+    expect((list.body as { id: string }[]).some((d) => d.id === up.body.id)).toBe(true)
+
+    const dl = await request(app).get(`/api/v1/documentos/${up.body.id}`).set(auth())
+    expect(dl.status).toBe(200)
+    expect(dl.headers['content-type']).toContain('image/png')
+
+    // Rechaza tipos no permitidos (ni imagen ni PDF)
+    const bad = await request(app).post(`/api/v1/pacientes/${A.pacienteId}/documentos`).set(auth())
+      .field('tipo', 'OTRO').attach('file', Buffer.from('x'), { filename: 'a.txt', contentType: 'text/plain' })
+    expect(bad.status).toBe(400)
+
+    const del = await request(app).delete(`/api/v1/documentos/${up.body.id}`).set(auth())
+    expect(del.status).toBe(200)
+  })
+})

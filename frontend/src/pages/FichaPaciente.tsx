@@ -13,8 +13,9 @@ import { RutField } from '@/components/RutField'
 import { validarDoc } from '@shared/constants/paises'
 import { fmtMonto, paisMoneda } from '@/lib/money'
 import { ConsentimientosPaciente } from '@/components/ConsentimientosPaciente'
+import { DocumentosPaciente } from '@/components/DocumentosPaciente'
 
-const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Recaudación', 'Evoluciones', 'Consentimientos', 'Historial', 'Comentarios', 'Mensajes'] as const
+const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Recaudación', 'Evoluciones', 'Consentimientos', 'Radiografías y Documentos', 'Historial', 'Comentarios', 'Mensajes'] as const
 type Tab = typeof TABS[number]
 
 // Numeración FDI. Permanente: cuadrantes 1/2 (superior) y 4/3 (inferior).
@@ -99,6 +100,7 @@ export function FichaPaciente() {
       {tab === 'Recaudación' && <RecaudacionTab pacienteId={id} />}
       {tab === 'Evoluciones' && <div className="max-w-4xl"><EvolucionesTab pacienteId={id} isAdmin={isAdmin} /></div>}
       {tab === 'Consentimientos' && <div className="max-w-4xl"><ConsentimientosPaciente pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} esAdmin={isAdmin} /></div>}
+      {tab === 'Radiografías y Documentos' && <div className="max-w-5xl"><DocumentosPaciente pacienteId={id} /></div>}
       {tab === 'Historial' && <div className="max-w-4xl"><HistorialTab pacienteId={id} /></div>}
       {tab === 'Comentarios' && <div className="max-w-4xl"><ComentariosTab pacienteId={id} /></div>}
       {tab === 'Mensajes' && <div className="max-w-4xl"><MensajesTab pacienteId={id} /></div>}

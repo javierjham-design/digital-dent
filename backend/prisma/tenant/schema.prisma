@@ -150,6 +150,7 @@ model Paciente {
   comentariosAdmin ComentarioAdministrativo[]
   mensajes         MensajePaciente[]
   consentimientos  Consentimiento[]
+  documentos       DocumentoPaciente[]
 }
 
 model ComentarioAdministrativo {
@@ -780,4 +781,25 @@ model Consentimiento {
 
   @@index([pacienteId, createdAt])
   @@index([estado])
+}
+
+// ── Radiografías y documentos del paciente ────────────────────────────────────
+// Imágenes (periapicales, bitewings, panorámicas…) y PDFs (informes). Se guardan
+// como bytes en la base de la clínica (cuentan en el almacenamiento facturable).
+model DocumentoPaciente {
+  id              String   @id @default(cuid())
+  pacienteId      String
+  tipo            String   // PERIAPICAL | BITEWING_IZQ | BITEWING_DER | PANORAMICA | TELERRADIOGRAFIA | CBCT | FOTO | INFORME | OTRO
+  dientes         String?  // CSV FDI de las piezas que aparecen (periapicales/bitewings)
+  descripcion     String?
+  nombre          String   // nombre original del archivo
+  mime            String
+  size            Int
+  data            Bytes
+  subidoPorId     String?
+  subidoPorNombre String?
+  createdAt       DateTime @default(now())
+  paciente        Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+
+  @@index([pacienteId, createdAt])
 }
