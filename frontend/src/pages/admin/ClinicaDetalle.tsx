@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { adminService } from '@/services/admin.service'
 import { ApiError } from '@/services/api'
+import { PAISES_LISTA, getPais } from '@shared/constants/paises'
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
@@ -11,7 +12,7 @@ interface Clinica {
   id: string; slug: string; nombre: string; email: string | null; telefono: string | null; ciudad: string | null
   plan: string; activo: boolean; trialHasta: string | null; proximoCobro: string | null
   precioAcordado: number | null; cicloFacturacion: string | null; notasInternas: string | null; createdAt: string
-  esDemo: boolean; demoExpiraEn: string | null
+  esDemo: boolean; demoExpiraEn: string | null; pais: string
 }
 interface Pago { id: string; fechaPago: string; monto: number; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
@@ -53,6 +54,7 @@ export function AdminClinicaDetalle() {
         <PlanCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <EstadoCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <TrialCard c={c} onSaved={(m) => { flash(m); recargar() }} />
+        <PaisCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <LinkCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <AccesoCard id={c.id} />
       </div>
@@ -209,6 +211,34 @@ function ConvertirCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => voi
       {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
       <button onClick={convertir} disabled={busy} className={`${btnCls} mt-4`}>{busy ? 'Convirtiendo…' : 'Convertir a definitiva'}</button>
     </div>
+  )
+}
+
+function PaisCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) {
+  const [pais, setPais] = useState(c.pais || 'CL')
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  const actual = getPais(c.pais)
+
+  async function guardar() {
+    if (pais === c.pais) return
+    if (!confirm(`¿Cambiar el país de operación a ${getPais(pais).nombre}? Afecta el documento, el teléfono y la moneda de la clínica.`)) return
+    setBusy(true); setErr('')
+    try { await adminService.cambiarPais(c.id, pais); onSaved('País de operación actualizado ✓') }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
+  }
+
+  return (
+    <Card title="País de operación">
+      <p className="text-sm text-slate-400 mb-3">Define el documento, el formato de teléfono y la moneda de la clínica. La base es Chile.</p>
+      <p className="text-sm mb-3"><span className="text-slate-500">Actual:</span> <span className="text-white font-medium">{actual.bandera} {actual.nombre}</span> <span className="text-xs text-slate-500">· {actual.moneda.simbolo} {actual.moneda.code} · {actual.doc.label}</span></p>
+      <label className="block"><L>País</L>
+        <select value={pais} onChange={(e) => setPais(e.target.value)} className={inpCls}>
+          {PAISES_LISTA.map((p) => <option key={p.code} value={p.code}>{p.bandera} {p.nombre} · {p.moneda.simbolo} {p.moneda.code}</option>)}
+        </select>
+      </label>
+      {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
+      <button onClick={guardar} disabled={busy || pais === c.pais} className={`${btnCls} mt-3`}>{busy ? 'Guardando…' : 'Cambiar país'}</button>
+    </Card>
   )
 }
 

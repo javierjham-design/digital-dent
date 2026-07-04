@@ -10,7 +10,8 @@ import { usuariosService } from '@/services/equipo.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 import { RutField } from '@/components/RutField'
-import { validarRut } from '@shared/utils/rut'
+import { validarDoc } from '@shared/constants/paises'
+import { fmtMonto, paisMoneda } from '@/lib/money'
 
 const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Recaudación', 'Evoluciones', 'Historial', 'Comentarios', 'Mensajes'] as const
 type Tab = typeof TABS[number]
@@ -27,7 +28,7 @@ const SEXTANTES: [string, string][] = [
   ['Sext. 1', 'Sextante 1'], ['Sext. 2', 'Sextante 2'], ['Sext. 3', 'Sextante 3'],
   ['Sext. 4', 'Sextante 4'], ['Sext. 5', 'Sextante 5'], ['Sext. 6', 'Sextante 6'],
 ]
-const fmtCLP = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(n)
+const fmtCLP = fmtMonto
 const hoyISO = () => new Date().toISOString().slice(0, 10)
 // Edad en años y meses (ej: "24 años 4 meses"). Sin fecha → "Sin edad ingresada".
 function edadTexto(iso: string | null): string {
@@ -180,7 +181,7 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
     contactoEmergencia: paciente.contactoEmergencia ?? '', telefonoEmergencia: paciente.telefonoEmergencia ?? '',
     observaciones: paciente.observaciones ?? '',
   })
-  const rutInvalido = Boolean(form.rut) && !validarRut(form.rut)
+  const rutInvalido = Boolean(form.rut) && !validarDoc(paisMoneda(), form.rut)
   const [ficha, setFicha] = useState<FichaClinica | null>(null)
   const [flags, setFlags] = useState({
     fumador: false, diabetico: false, hipertenso: false, cardiopatia: false,

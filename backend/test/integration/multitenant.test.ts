@@ -123,6 +123,24 @@ describe('catálogo público de planes', () => {
   })
 })
 
+describe('multi-país: el super-admin fija el país de la clínica', () => {
+  it('cambia el país a Panamá; la sesión lo refleja y el documento se valida flexible', async () => {
+    const cls = await request(app).get('/api/v1/admin/clinicas').set('Authorization', `Bearer ${tokenSuper}`)
+    const idA = (cls.body as { id: string; slug: string }[]).find((c) => c.slug === A.slug)!.id
+    const chg = await request(app).patch(`/api/v1/admin/clinicas/${idA}/pais`).set('Authorization', `Bearer ${tokenSuper}`).send({ pais: 'PA' })
+    expect(chg.status).toBe(200)
+    // La sesión del admin de la clínica ahora reporta PA (se lee de la Configuracion)
+    const l = await login({ slug: A.slug, username: 'admin', password: PASSWORD })
+    expect(l.user.pais).toBe('PA')
+    // Un documento que NO es RUT chileno válido se acepta (validación flexible de PA)
+    const p = await request(app).post('/api/v1/pacientes').set('Authorization', `Bearer ${l.token}`)
+      .send({ nombre: 'Juan', apellido: 'Panamá', rut: '8-123-4567' })
+    expect(p.status).toBe(201)
+    // Volvemos a Chile para no afectar otros tests
+    await request(app).patch(`/api/v1/admin/clinicas/${idA}/pais`).set('Authorization', `Bearer ${tokenSuper}`).send({ pais: 'CL' })
+  })
+})
+
 // Nota: estos tests van al FINAL porque cambian el slug/clave de la clínica A.
 describe('super-admin: link definitivo (slug) + clave del admin', () => {
   const sa = () => ({ Authorization: `Bearer ${tokenSuper}` })

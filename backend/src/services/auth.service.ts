@@ -46,10 +46,10 @@ type TenantUserRow = {
   puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean
   puedeEditarPagos: boolean; puedeGestionarLiquidaciones: boolean; puedeGestionarCrm: boolean
 }
-function tenantUserDTO(u: TenantUserRow, clinicaId: string): SessionUserDTO {
+function tenantUserDTO(u: TenantUserRow, clinicaId: string, pais: string): SessionUserDTO {
   const isAdmin = u.role === 'admin'
   return {
-    id: u.id, name: u.name, email: u.email, role: u.role, clinicaId, isPlatformAdmin: false,
+    id: u.id, name: u.name, email: u.email, role: u.role, clinicaId, pais, isPlatformAdmin: false,
     requirePasswordChange: u.passwordChangedAt === null,
     permisos: {
       puedeModificarPrecio: isAdmin || u.puedeModificarPrecio,
@@ -64,7 +64,7 @@ function tenantUserDTO(u: TenantUserRow, clinicaId: string): SessionUserDTO {
 
 function platformAdminDTO(a: { id: string; name: string | null; email: string; passwordChangedAt: Date | null }): SessionUserDTO {
   return {
-    id: a.id, name: a.name, email: a.email, role: 'admin', clinicaId: null, isPlatformAdmin: true,
+    id: a.id, name: a.name, email: a.email, role: 'admin', clinicaId: null, pais: 'CL', isPlatformAdmin: true,
     requirePasswordChange: a.passwordChangedAt === null,
     permisos: {
       puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
@@ -84,9 +84,11 @@ export async function getSessionUser(payload: JwtPayload): Promise<SessionUserDT
   if (!payload.clinicaId) throw unauthorized()
   const clinica = await control.clinica.findUnique({ where: { id: payload.clinicaId }, select: { dbName: true } })
   if (!clinica) throw unauthorized()
-  const u = await tenantClient(clinica.dbName).user.findUnique({ where: { id: payload.sub } })
+  const db = tenantClient(clinica.dbName)
+  const u = await db.user.findUnique({ where: { id: payload.sub } })
   if (!u || !u.activo) throw unauthorized()
-  return tenantUserDTO(u, payload.clinicaId)
+  const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+  return tenantUserDTO(u, payload.clinicaId, cfg?.pais ?? 'CL')
 }
 
 // Login dual: clínica (slug+username contra su tenant) o plataforma (email
@@ -121,7 +123,8 @@ export async function login(body: LoginRequest, ip: string): Promise<LoginRespon
     if (!valid) return fail()
     resetLimit(idKey)
     const payload: JwtPayload = { sub: user.id, clinicaId: clinica.id, slug: clinica.slug, role: user.role, isPlatformAdmin: false, name: user.name, email: user.email }
-    return { token: sign(payload), user: tenantUserDTO(user, clinica.id) }
+    const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+    return { token: sign(payload), user: tenantUserDTO(user, clinica.id, cfg?.pais ?? 'CL') }
   }
 
   // ── Plataforma: email contra el control-plane ──
@@ -144,10 +147,12 @@ export async function issueTokenForTenantUser(
   clinica: { id: string; slug: string; dbName: string },
   userId: string,
 ): Promise<LoginResponse> {
-  const u = await tenantClient(clinica.dbName).user.findUnique({ where: { id: userId } })
+  const db = tenantClient(clinica.dbName)
+  const u = await db.user.findUnique({ where: { id: userId } })
   if (!u) throw unauthorized()
   const payload: JwtPayload = { sub: u.id, clinicaId: clinica.id, slug: clinica.slug, role: u.role, isPlatformAdmin: false, name: u.name, email: u.email }
-  return { token: sign(payload), user: tenantUserDTO(u, clinica.id) }
+  const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+  return { token: sign(payload), user: tenantUserDTO(u, clinica.id, cfg?.pais ?? 'CL') }
 }
 
 // Política de contraseñas (idéntica al monolito).

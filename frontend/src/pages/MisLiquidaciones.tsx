@@ -3,6 +3,7 @@ import type { LiquidacionActivaDetalle } from '@shared/types'
 import { liquidacionesService } from '@/services/caja.service'
 import { useAuth } from '@/hooks/useAuth'
 import { AdjuntosLiquidacion } from '@/components/AdjuntosLiquidacion'
+import { fmtMonto } from '@/lib/money'
 
 interface LiqFin {
   id: string; periodo: string; totalBruto: number; totalLiquidado: number; estado: string; fechaPago: string | null
@@ -11,7 +12,7 @@ interface LiqFin {
 interface LiqFinItem { id: string; prestacionNombre: string; pacienteNombre: string; diente: string | null; medioPago: string | null; montoPagado: number; comisionAplicada: number; montoLiquidado: number }
 interface LiqFinDetalle extends LiqFin { items: LiqFinItem[]; doctor?: { name: string | null; rut: string | null } }
 
-const fmt = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n))
+const fmt = fmtMonto
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—')
 const ESTADO_LABEL: Record<string, string> = { BORRADOR: 'Borrador', APROBADA: 'Aprobada', PAGADA: 'Pagada' }
 const ESTADO_COLOR: Record<string, string> = { BORRADOR: 'bg-slate-200 text-slate-600', APROBADA: 'bg-cyan-100 text-cyan-700', PAGADA: 'bg-emerald-100 text-emerald-700' }

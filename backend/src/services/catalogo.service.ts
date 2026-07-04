@@ -96,9 +96,9 @@ export async function eliminarPrestacion(db: TenantClient, id: string): Promise<
 
 function clinicaDTO(c: {
   nombre: string; direccion: string; telefono: string
-  email: string; ciudad: string; mensajeWA: string; logoUrl: string | null
+  email: string; ciudad: string; mensajeWA: string; logoUrl: string | null; pais?: string
 }): ClinicaConfigDTO {
-  return { id: 'singleton', nombre: c.nombre, direccion: c.direccion, telefono: c.telefono, email: c.email, ciudad: c.ciudad, mensajeWA: c.mensajeWA, logoUrl: c.logoUrl }
+  return { id: 'singleton', nombre: c.nombre, direccion: c.direccion, telefono: c.telefono, email: c.email, ciudad: c.ciudad, mensajeWA: c.mensajeWA, logoUrl: c.logoUrl, pais: c.pais ?? 'CL' }
 }
 
 export async function obtenerClinica(db: TenantClient): Promise<ClinicaConfigDTO> {

@@ -3,6 +3,7 @@ import type { UsuarioDTO, HorarioDTO } from '@shared/types'
 import { usuariosService, horariosService } from '@/services/equipo.service'
 import { contratosService } from '@/services/caja.service'
 import { ApiError } from '@/services/api'
+import { fmtMonto } from '@/lib/money'
 
 const ROLES = [
   { v: 'doctor', l: 'Doctor / Médico' },
@@ -23,7 +24,7 @@ const PERMISOS: [keyof UsuarioDTO, string][] = [
 ]
 const DIAS: [number, string][] = [[1, 'Lunes'], [2, 'Martes'], [3, 'Miércoles'], [4, 'Jueves'], [5, 'Viernes'], [6, 'Sábado'], [0, 'Domingo']]
 const hoyISO = () => new Date().toISOString().slice(0, 10)
-const fmtCLP = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(n)
+const fmtCLP = fmtMonto
 
 interface ContratoLite {
   id: string; doctorId: string; tipo: string; porcentaje: number | null; montoFijo: number | null

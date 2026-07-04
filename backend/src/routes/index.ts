@@ -268,6 +268,7 @@ apiRouter.post('/admin/clinicas/:id/estado', sa, asyncHandler(admin.postEstado))
 apiRouter.post('/admin/clinicas/:id/extender-trial', sa, asyncHandler(admin.postExtenderTrial))
 apiRouter.patch('/admin/clinicas/:id/slug', sa, asyncHandler(admin.patchSlug))
 apiRouter.post('/admin/clinicas/:id/convertir', sa, asyncHandler(admin.postConvertir))
+apiRouter.patch('/admin/clinicas/:id/pais', sa, asyncHandler(admin.patchPais))
 apiRouter.post('/admin/clinicas/:id/reset-admin-password', sa, asyncHandler(admin.postResetPassword))
 // Pagos
 apiRouter.get('/admin/clinicas/:id/pagos', sa, asyncHandler(admin.getPagos))

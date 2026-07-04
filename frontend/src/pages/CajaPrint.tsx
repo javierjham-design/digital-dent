@@ -4,7 +4,9 @@ import type { ClinicaConfigDTO } from '@shared/types'
 import { cajasService } from '@/services/caja.service'
 import { clinicaService } from '@/services/catalogo.service'
 
-const fmtCLP = (n: number | null | undefined) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n ?? 0))
+import { fmtMonto, paisMoneda } from '@/lib/money'
+import { getPais } from '@shared/constants/paises'
+const fmtCLP = fmtMonto
 const fechaHora = (iso: string) => new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
 
 interface Sesion {
@@ -97,7 +99,7 @@ export function CajaPrint() {
       </div>
 
       <p className="text-[11px] text-slate-400 mt-8 border-t border-slate-100 pt-3">
-        Cierre de caja generado por {clinica.nombre}. Valores en pesos chilenos (CLP).
+        Cierre de caja generado por {clinica.nombre}. Valores en {getPais(paisMoneda()).moneda.code}.
       </p>
     </div>
   )

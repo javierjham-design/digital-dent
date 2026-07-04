@@ -18,7 +18,8 @@ import { agendaOnlineService, type ReservaOnline } from '@/services/agenda-onlin
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
 import { RutField } from '@/components/RutField'
-import { validarRut } from '@shared/utils/rut'
+import { validarDoc } from '@shared/constants/paises'
+import { paisMoneda } from '@/lib/money'
 
 // Link de WhatsApp con el mensaje de confirmación prellenado desde Configuración.
 // Variables disponibles: {nombre} (primer nombre), {nombrecompleto}, {profesional},
@@ -527,7 +528,7 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
   const [nuevo, setNuevo] = useState({ nombre: '', apellido: '', rut: '', otroDoc: '', telefono: '' })
   const [guardando, setGuardando] = useState(false)
 
-  const rutInvalido = Boolean(nuevo.rut) && !validarRut(nuevo.rut)
+  const rutInvalido = Boolean(nuevo.rut) && !validarDoc(paisMoneda(), nuevo.rut)
   const puede = modo === 'existente' ? !!pacienteId : (!!nuevo.nombre && !!nuevo.apellido && !rutInvalido)
 
   async function guardar() {

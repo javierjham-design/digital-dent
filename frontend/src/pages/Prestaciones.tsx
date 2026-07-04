@@ -3,8 +3,9 @@ import type { PrestacionDTO } from '@shared/types'
 import { prestacionesService } from '@/services/catalogo.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
+import { fmtMonto } from '@/lib/money'
 
-const fmtCLP = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(n)
+const fmtCLP = fmtMonto
 
 export function Prestaciones() {
   const { user } = useAuth()

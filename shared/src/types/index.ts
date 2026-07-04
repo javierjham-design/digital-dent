@@ -9,6 +9,7 @@ export interface SessionUserDTO {
   email: string | null
   role: Rol | string
   clinicaId: string | null
+  pais: string
   isPlatformAdmin: boolean
   requirePasswordChange: boolean
   permisos: {
@@ -194,6 +195,7 @@ export interface ClinicaConfigDTO {
   ciudad: string
   mensajeWA: string
   logoUrl: string | null
+  pais: string
 }
 
 export interface ApiError {

@@ -29,6 +29,7 @@ model Clinica {
   telefono String @default("")
 
   plan       String   @default("TRIAL")
+  pais       String   @default("CL")  // país de operación (define documento, teléfono y moneda). Solo el super-admin lo cambia.
   activo     Boolean  @default(true)
   trialHasta DateTime?
 

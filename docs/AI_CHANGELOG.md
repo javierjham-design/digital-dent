@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-07-03 — Multi-país por clínica (super-admin): documento, teléfono y moneda
+
+La base sigue siendo Chile, pero el super-admin puede fijar el país de operación de
+cada clínica (Costa Rica y Panamá como demos; toda LatAm/Centroamérica seleccionable).
+
+- **`shared/src/constants/paises.ts`** (nuevo): catálogo único. Por país: documento
+  (etiqueta + validación), teléfono (código + largo) y moneda (código/símbolo/locale/
+  decimales) + helpers `formatMoneda`, `validarDoc`, `formatDoc`, `getPais`. Validación
+  fina para CL (RUT con DV) / CR (cédula-DIMEX) / PA (cédula); el resto usa validación
+  genérica (formato/largo). Panamá muestra la moneda en **B/.**.
+- **Backend:** `pais` en `control.clinica` + `Configuracion` del tenant (denormalizado).
+  Endpoint super-admin `PATCH /admin/clinicas/:id/pais` (escribe ambos + invalida cache +
+  audita `CAMBIAR_PAIS`). La sesión (`SessionUserDTO.pais`) y la config de clínica exponen
+  el país. La validación de documento del paciente es país-aware (Chile estricto, resto
+  flexible). El super-admin de facturación **sigue en CLP** (moneda de la plataforma).
+- **Frontend:** `lib/money.ts` (moneda país-aware, se fija en `ProtectedRoute` desde la
+  sesión); las ~10 pantallas de dinero de la app formatean con `fmtMonto`. `RutField` y
+  los guards de FichaPaciente/Agenda usan la validación del país. Selector "País de
+  operación" en el detalle de clínica del super-admin.
+- Tests 48/48 (nuevo: cambio a Panamá → sesión PA + documento no-RUT aceptado).
+
+---
+
 ## 2026-07-02 — CORS abierto para el intake público del CRM (landings externas)
 
 Las landings externas (p. ej. `https://digital-dent.cl`) que postean leads al intake público

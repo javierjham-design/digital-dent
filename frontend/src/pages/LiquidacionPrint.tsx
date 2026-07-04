@@ -19,7 +19,8 @@ async function pdfPrimeraPaginaPng(blob: Blob): Promise<string> {
   return canvas.toDataURL('image/png')
 }
 
-const fmt = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n))
+import { fmtMonto } from '@/lib/money'
+const fmt = fmtMonto
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—')
 const ESTADO_LABEL: Record<string, string> = { BORRADOR: 'Abierta', APROBADA: 'Aprobada', PAGADA: 'Pagada' }
 

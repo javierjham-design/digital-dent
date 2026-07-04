@@ -4,8 +4,10 @@ import type { PacienteDTO, ClinicaConfigDTO } from '@shared/types'
 import { planesService } from '@/services/clinico.service'
 import { pacientesService } from '@/services/clinica.service'
 import { clinicaService } from '@/services/catalogo.service'
+import { fmtMonto, paisMoneda } from '@/lib/money'
+import { getPais } from '@shared/constants/paises'
 
-const fmtCLP = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(n)
+const fmtCLP = fmtMonto
 
 interface PTrat {
   id: string; estado: string; precio: number; descuento: number; diente: number | null; cara: string | null; notas: string | null
@@ -135,7 +137,7 @@ export function PlanPrint() {
       </div>
 
       <p className="text-[11px] text-slate-400 mt-10 border-t border-slate-100 pt-3">
-        Presupuesto referencial. Valores en pesos chilenos (CLP). Documento generado por {clinica.nombre}.
+        Presupuesto referencial. Valores en {getPais(paisMoneda()).moneda.code}. Documento generado por {clinica.nombre}.
       </p>
     </div>
   )

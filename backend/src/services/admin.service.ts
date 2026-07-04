@@ -8,6 +8,7 @@ import { encryptNullable } from '@/lib/crypto'
 import { getPlanes } from '@/lib/plans'
 import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/clinicas-registry.service'
 import { invalidateClinicaCache } from '@/middlewares/tenant'
+import { esPaisValido } from '@shared/constants/paises'
 import {
   calcularProximoCobro, getEstadoPago, precioMensualEfectivo, type CicloFacturacion, type PlanPriceMap,
 } from '@/lib/billing'
@@ -132,6 +133,20 @@ export async function convertirADefinitiva(ctx: AuditCtx, id: string, body: { sl
   invalidateClinicaCache(id)
   await auditAdmin({ ...ctx, action: 'CONVERTIR_DEMO', targetType: 'CLINICA', targetId: id, details: { slug: actualizada.slug, plan: actualizada.plan } })
   return actualizada
+}
+
+// Cambia el país de operación de la clínica (documento/teléfono/moneda). Se
+// denormaliza en el control-plane (para el super-admin) y en la Configuracion del
+// tenant (para que la app y el backend lo lean local).
+export async function cambiarPais(ctx: AuditCtx, id: string, rawPais: string) {
+  const pais = String(rawPais || '').toUpperCase()
+  if (!esPaisValido(pais)) throw badRequest('País no válido')
+  const { dbName } = await dbNameDe(id)
+  const clinica = await control.clinica.update({ where: { id }, data: { pais } })
+  await tenantClient(dbName).configuracion.update({ where: { id: 'singleton' }, data: { pais } }).catch(() => {})
+  invalidateClinicaCache(id)
+  await auditAdmin({ ...ctx, action: 'CAMBIAR_PAIS', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: clinica.slug, pais } })
+  return clinica
 }
 
 export async function cambiarEstado(ctx: AuditCtx, id: string, body: { activo: unknown; notasInternas?: string }) {

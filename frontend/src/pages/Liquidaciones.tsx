@@ -12,7 +12,8 @@ interface LiqFinItem { id: string; prestacionNombre: string; pacienteNombre: str
 interface LiqFinDetalle extends LiqFin { items: LiqFinItem[] }
 interface Contrato { id: string; tipo: string; porcentaje: number | null; montoFijo: number | null; activo: boolean; doctor?: { name: string | null } }
 
-const fmt = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n))
+import { fmtMonto } from '@/lib/money'
+const fmt = fmtMonto
 const fmtFecha = (s: string) => new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric' })
 const ESTADOS = ['BORRADOR', 'APROBADA', 'PAGADA']
 const ESTADO_COLOR: Record<string, string> = { BORRADOR: 'bg-slate-200 text-slate-600', APROBADA: 'bg-cyan-100 text-cyan-700', PAGADA: 'bg-emerald-100 text-emerald-700' }

@@ -6,7 +6,8 @@ import { pacientesService } from '@/services/clinica.service'
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
 
-const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
+import { fmtMonto } from '@/lib/money'
+const fmtCLP = fmtMonto
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 
 interface Presupuesto {

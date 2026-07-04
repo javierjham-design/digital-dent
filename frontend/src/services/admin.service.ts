@@ -13,6 +13,7 @@ export const adminService = {
   estado: (id: string, input: Record<string, unknown>) => api.post<unknown>(`/admin/clinicas/${id}/estado`, input),
   extenderTrial: (id: string, input: Record<string, unknown>) => api.post<unknown>(`/admin/clinicas/${id}/extender-trial`, input),
   cambiarSlug: (id: string, slug: string) => api.patch<unknown>(`/admin/clinicas/${id}/slug`, { slug }),
+  cambiarPais: (id: string, pais: string) => api.patch<unknown>(`/admin/clinicas/${id}/pais`, { pais }),
   convertir: (id: string, input: Record<string, unknown>) => api.post<unknown>(`/admin/clinicas/${id}/convertir`, input),
   resetPassword: (id: string, input: Record<string, unknown>) => api.post<unknown>(`/admin/clinicas/${id}/reset-admin-password`, input),
   pagos: (id: string) => api.get<{ pagos: unknown[] }>(`/admin/clinicas/${id}/pagos`),

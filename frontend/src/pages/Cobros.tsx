@@ -27,7 +27,8 @@ interface TratNode { id: string; precio: number; descuento: number; diente: numb
 interface PlanDetalle { id: string; nombre: string; secciones: { tratamientos: TratNode[] }[]; tratamientos: TratNode[]; abonoLibre?: number }
 interface PlanCard { id: string; nombre: string }
 
-const fmt = (n: number | null | undefined) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n ?? 0))
+import { fmtMonto } from '@/lib/money'
+const fmt = fmtMonto
 const fechaHora = (iso: string) => new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
 const netoTrat = (t: { precio: number; descuento: number }) => Math.round(t.precio * (1 - (t.descuento || 0) / 100))
 const pagadoTrat = (t: { cobroItems: CobroItemLite[] }) => t.cobroItems.filter((ci) => ci.cobro?.estado === 'PAGADO').reduce((s, ci) => s + ci.monto, 0)

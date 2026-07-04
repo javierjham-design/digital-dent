@@ -3,19 +3,25 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { buildXlsx, formatRUT, isoDate } from '@/lib/excel'
 import { audit } from '@/lib/audit'
-import { validarRut, formatRut } from '@shared/utils/rut'
+import { validarDoc, formatDoc, getPais } from '@shared/constants/paises'
 import type { PacienteDTO, PacientesPagina } from '@shared/types'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica
 // (req.tenant). Ya no hay clinicaId — la base ES la clínica.
 
-// Valida y normaliza el RUT al formato chileno (12.345.678-9). Devuelve null si
-// viene vacío; lanza error si el dígito verificador no corresponde.
-function normalizarRut(rut: unknown): string | null {
-  const v = typeof rut === 'string' ? rut.trim() : ''
+// País de operación de la clínica (define la validación del documento).
+async function paisDe(db: TenantClient): Promise<string> {
+  const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+  return c?.pais ?? 'CL'
+}
+
+// Valida y normaliza el documento según el país. Chile valida el RUT (dígito
+// verificador) y lo formatea; los demás países usan validación flexible.
+function normalizarDoc(pais: string, doc: unknown): string | null {
+  const v = typeof doc === 'string' ? doc.trim() : ''
   if (!v) return null
-  if (!validarRut(v)) throw badRequest('RUT inválido. Revisa el dígito verificador, o marca "Otro documento".')
-  return formatRut(v)
+  if (!validarDoc(pais, v)) throw badRequest(`${getPais(pais).doc.label} inválido. Revisa el formato, o marca "Otro documento".`)
+  return formatDoc(pais, v)
 }
 
 function toDTO(p: {
@@ -131,7 +137,7 @@ export interface CrearPacienteInput {
 
 export async function crearPaciente(db: TenantClient, input: CrearPacienteInput): Promise<PacienteDTO> {
   if (!input.nombre?.trim() || !input.apellido?.trim()) throw badRequest('Nombre y apellido son obligatorios')
-  const rut = normalizarRut(input.rut)
+  const rut = normalizarDoc(await paisDe(db), input.rut)
   if (rut) {
     const dup = await db.paciente.findFirst({ where: { rut }, select: { id: true } })
     if (dup) throw badRequest('Ya existe un paciente con ese RUT en la clínica')
@@ -165,12 +171,13 @@ const PACIENTE_FIELDS = [
 export async function actualizarPaciente(db: TenantClient, id: string, body: Record<string, unknown>): Promise<PacienteDTO> {
   const existe = await db.paciente.findUnique({ where: { id }, select: { id: true } })
   if (!existe) throw notFound('Paciente no encontrado')
+  const pais = ('rut' in body) ? await paisDe(db) : 'CL'
   const data: Record<string, unknown> = {}
   for (const k of PACIENTE_FIELDS) {
     if (!(k in body)) continue
     const v = body[k]
     if (k === 'fechaNacimiento') data[k] = v ? new Date(String(v)) : null
-    else if (k === 'rut') data[k] = normalizarRut(v) // valida el dígito verificador y normaliza el formato
+    else if (k === 'rut') data[k] = normalizarDoc(pais, v) // valida según el país y normaliza
     else if (k === 'activo') data[k] = Boolean(v)
     else if (typeof v === 'string') data[k] = v.trim() || null
     else data[k] = v
