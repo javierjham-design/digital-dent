@@ -19,6 +19,31 @@ const nuevoToken = () => randomBytes(9).toString('base64url')
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
+// ── Campañas ──────────────────────────────────────────────────────────────────
+// Clave de campaña de un lead: campaña explícita → utm_campaign → URL de origen
+// (landing, normalizada) → '' (sin campaña). Es lo que agrupa/filtra los leads.
+function normalizarLanding(url: string): string {
+  try { const u = new URL(url); return (u.hostname + u.pathname).replace(/\/+$/, '') || u.hostname } catch { return url.trim() }
+}
+export function campanaKeyDe(l: { campana?: string | null; utmCampaign?: string | null; landing?: string | null }): string {
+  const explicita = clean(l.campana) || clean(l.utmCampaign)
+  if (explicita) return explicita
+  const land = clean(l.landing)
+  return land ? normalizarLanding(land) : ''
+}
+// Mapa de renombres guardado en la config (JSON). clave de campaña → nombre visible.
+async function getCampanasMap(db: TenantClient): Promise<Record<string, string>> {
+  const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { crmCampanas: true } })
+  if (!c?.crmCampanas) return {}
+  try { const o = JSON.parse(c.crmCampanas); return o && typeof o === 'object' ? o as Record<string, string> : {} } catch { return {} }
+}
+// Etiqueta visible de una campaña: renombre configurado, o la clave tal cual, o
+// '(Sin campaña)' cuando el lead no trae ninguna señal de origen.
+function etiquetaCampana(key: string, map: Record<string, string>): string {
+  if (map[key]) return map[key]
+  return key || '(Sin campaña)'
+}
+
 export async function getMetaConfig(db: TenantClient): Promise<MetaConfig> {
   const c = await db.configuracion.findUnique({
     where: { id: 'singleton' },
@@ -50,19 +75,64 @@ export async function registrarEnvioMeta(
 
 // ── Listado + detalle ─────────────────────────────────────────────────────────
 
-export async function listarLeads(db: TenantClient, f: { estado?: string; origen?: string; q?: string; desde?: string; hasta?: string }) {
+export async function listarLeads(db: TenantClient, f: { estado?: string; origen?: string; campana?: string; q?: string; desde?: string; hasta?: string }) {
   const where: Record<string, unknown> = {}
   if (f.estado && ESTADOS.includes(f.estado)) where.estado = f.estado
   if (f.origen) where.origen = f.origen
   if (f.desde || f.hasta) where.createdAt = { ...(f.desde ? { gte: new Date(f.desde) } : {}), ...(f.hasta ? { lte: new Date(`${f.hasta}T23:59:59`) } : {}) }
-  const leads = await db.lead.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 })
+  const [leads, campanasMap, dias] = await Promise.all([
+    db.lead.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 }),
+    getCampanasMap(db),
+    getDiasSinGestion(db),
+  ])
   const needle = f.q && f.q.trim().length >= 2 ? norm(f.q.trim()) : null
-  const filtrados = needle
-    ? leads.filter((l) => norm(`${l.nombre} ${l.apellido ?? ''} ${l.telefono ?? ''} ${l.email ?? ''} ${l.campana ?? ''}`).includes(needle))
-    : leads
-  // Marca los leads abiertos sin gestión humana hace más de N días (para alertar).
-  const cutoff = new Date(Date.now() - (await getDiasSinGestion(db)) * 86400_000)
-  return filtrados.map((l) => ({ ...l, sinGestionar: ESTADOS_ABIERTOS.includes(l.estado) && l.ultimaGestionAt < cutoff }))
+  const cutoff = new Date(Date.now() - dias * 86400_000)
+  const conCampana = leads.map((l) => {
+    const campanaKey = campanaKeyDe(l)
+    return {
+      ...l,
+      campanaKey,
+      campanaLabel: etiquetaCampana(campanaKey, campanasMap),
+      sinGestionar: ESTADOS_ABIERTOS.includes(l.estado) && l.ultimaGestionAt < cutoff,
+    }
+  })
+  // Filtro por campaña (clave exacta) + búsqueda de texto (incluye la etiqueta de campaña).
+  return conCampana.filter((l) => {
+    if (f.campana != null && f.campana !== '' && l.campanaKey !== f.campana) return false
+    if (needle && !norm(`${l.nombre} ${l.apellido ?? ''} ${l.telefono ?? ''} ${l.email ?? ''} ${l.campana ?? ''} ${l.campanaLabel}`).includes(needle)) return false
+    return true
+  })
+}
+
+// Lista de campañas presentes (con su etiqueta y conteo) para el filtro y el
+// panel de renombres. Escanea los leads del rango (o todos si no se pasa rango).
+export async function listarCampanas(db: TenantClient, f?: { desde?: string; hasta?: string }) {
+  const where: Record<string, unknown> = {}
+  if (f?.desde || f?.hasta) where.createdAt = { ...(f?.desde ? { gte: new Date(f.desde) } : {}), ...(f?.hasta ? { lte: new Date(`${f.hasta}T23:59:59`) } : {}) }
+  const [leads, map] = await Promise.all([
+    db.lead.findMany({ where, select: { campana: true, utmCampaign: true, landing: true }, take: 2000 }),
+    getCampanasMap(db),
+  ])
+  const acc = new Map<string, number>()
+  for (const l of leads) { const k = campanaKeyDe(l); acc.set(k, (acc.get(k) ?? 0) + 1) }
+  return {
+    campanas: [...acc.entries()]
+      .map(([key, n]) => ({ key, label: etiquetaCampana(key, map), n }))
+      .sort((a, b) => b.n - a.n),
+  }
+}
+
+// Renombra (o restaura) una campaña: guarda/actualiza el mapa en la config. Una
+// etiqueta vacía elimina el renombre (vuelve a mostrarse la clave/URL).
+export async function renombrarCampana(db: TenantClient, key: string, label: string) {
+  const k = (key ?? '').trim()
+  if (!k) throw badRequest('Falta la campaña a renombrar')
+  const map = await getCampanasMap(db)
+  const nombre = (label ?? '').trim()
+  if (nombre) map[k] = nombre
+  else delete map[k]
+  await db.configuracion.update({ where: { id: 'singleton' }, data: { crmCampanas: JSON.stringify(map) } })
+  return listarCampanas(db)
 }
 
 export async function resumenCrm(db: TenantClient) {

@@ -9,6 +9,7 @@ import { getPlanes } from '@/lib/plans'
 import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/clinicas-registry.service'
 import { invalidateClinicaCache } from '@/middlewares/tenant'
 import { esPaisValido } from '@shared/constants/paises'
+import { parseModulos, MODULOS_CODES } from '@shared/constants/modulos'
 import {
   calcularProximoCobro, getEstadoPago, precioMensualEfectivo, type CicloFacturacion, type PlanPriceMap,
 } from '@/lib/billing'
@@ -66,7 +67,20 @@ export async function obtenerClinica(id: string) {
     const rows = await control.$queryRaw<{ bytes: bigint }[]>`SELECT pg_database_size(${c.dbName}) AS bytes`
     sizeBytes = rows[0] ? Number(rows[0].bytes) : null
   } catch { sizeBytes = null }
-  return { ...c, sizeBytes }
+  return { ...c, modulos: parseModulos(c.modulos), sizeBytes }
+}
+
+// Asigna los módulos habilitados de la clínica (CRM / Agendamiento online /
+// WhatsApp). Se guardan como CSV en el control-plane; el cache de tenant se
+// invalida para que el gating (requireModulo) refleje el cambio de inmediato.
+export async function cambiarModulos(ctx: AuditCtx, id: string, rawModulos: unknown) {
+  if (!Array.isArray(rawModulos)) throw badRequest('modulos debe ser un arreglo de códigos.')
+  const validos = rawModulos.map((m) => String(m)).filter((c) => MODULOS_CODES.includes(c))
+  const csv = validos.join(',')
+  const clinica = await control.clinica.update({ where: { id }, data: { modulos: csv } })
+  invalidateClinicaCache(id)
+  await auditAdmin({ ...ctx, action: 'CAMBIAR_MODULOS', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: clinica.slug, modulos: csv } })
+  return { ...clinica, modulos: parseModulos(clinica.modulos) }
 }
 
 export async function crearClinica(ctx: AuditCtx, body: {

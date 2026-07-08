@@ -6,6 +6,7 @@ import { notFound, tooMany } from '@/lib/errors'
 import { rateLimit } from '@/lib/rate-limit'
 import * as svc from '@/services/agenda-online.service'
 import { crearLinkSchema, reservarOnlineSchema } from '@/validators/schemas'
+import { parseModulos } from '@shared/constants/modulos'
 
 // ── Admin (tenant) ────────────────────────────────────────────────────────────
 export async function getLinks(req: Request, res: Response) {
@@ -28,9 +29,12 @@ export async function getReservas(req: Request, res: Response) {
 }
 
 // ── Público (sin auth, resuelve la clínica por slug) ──────────────────────────
+// Exige el módulo de Agendamiento online habilitado (si el super-admin lo
+// desactivó, la reserva pública deja de funcionar).
 async function resolverTenant(slug: string): Promise<TenantClient> {
-  const clinica = await control.clinica.findUnique({ where: { slug }, select: { dbName: true, activo: true } })
+  const clinica = await control.clinica.findUnique({ where: { slug }, select: { dbName: true, activo: true, modulos: true } })
   if (!clinica || !clinica.activo) throw notFound('Clínica no disponible')
+  if (!parseModulos(clinica.modulos).includes('agendamiento_online')) throw notFound('Agenda no disponible')
   return tenantClient(clinica.dbName)
 }
 

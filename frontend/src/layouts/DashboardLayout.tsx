@@ -18,7 +18,7 @@ const linkCls = ({ isActive }: { isActive: boolean }) =>
 
 // Menú "Administración": agrupa todo lo de gestión (config, equipo, prestaciones,
 // reportes, liquidaciones) para no saturar el header.
-function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm }: { puedeGestionar: boolean; esAdmin: boolean; puedeCrm: boolean }) {
+function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, modCrm, modAgenda }: { puedeGestionar: boolean; esAdmin: boolean; puedeCrm: boolean; modCrm: boolean; modAgenda: boolean }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
@@ -46,8 +46,8 @@ function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm }: { puedeGestio
           <div className="bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden">
             {esAdmin && item('/configuracion', 'Configuración de la clínica')}
             {esAdmin && item('/equipo', 'Equipo')}
-            {esAdmin && item('/agendamiento-online', 'Agendamiento online')}
-            {(esAdmin || puedeCrm) && item('/crm', 'CRM · Leads')}
+            {esAdmin && modAgenda && item('/agendamiento-online', 'Agendamiento online')}
+            {modCrm && (esAdmin || puedeCrm) && item('/crm', 'CRM · Leads')}
             {esAdmin && item('/consentimientos', 'Consentimientos')}
             {item('/prestaciones', 'Prestaciones')}
             {item('/reportes', 'Reportes')}
@@ -120,6 +120,9 @@ export function DashboardLayout() {
   const puedeGestionarLiq = Boolean(user?.permisos?.puedeGestionarLiquidaciones)
   const puedeCrm = Boolean(user?.permisos?.puedeGestionarCrm)
   const esAdmin = user?.role === 'admin'
+  const mods = user?.modulos ?? []
+  const modCrm = mods.includes('crm')
+  const modAgenda = mods.includes('agendamiento_online')
   return (
     <div className="min-h-screen">
       <header className="bg-white border-b border-slate-100 sticky top-0 z-10 px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -139,7 +142,7 @@ export function DashboardLayout() {
         </div>
         <nav className="flex flex-wrap items-center gap-1 w-full order-4 sm:order-3 sm:w-auto sm:flex-1">
           {NAV_PRE.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
-          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} puedeCrm={puedeCrm} />
+          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} puedeCrm={puedeCrm} modCrm={modCrm} modAgenda={modAgenda} />
           <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
         </nav>
       </header>

@@ -35,6 +35,7 @@ import * as doc from '@/controllers/documentos.controller'
 import * as ext from '@/controllers/ext.controller'
 import { requireApiKey } from '@/middlewares/api-key'
 import { requirePermiso } from '@/middlewares/permiso'
+import { requireModulo, requireModuloApiKey } from '@/middlewares/modulo'
 import { requireSuperAdmin } from '@/middlewares/auth'
 
 // Router raíz de la API v1. Cada dominio agrupa sus endpoints.
@@ -45,8 +46,12 @@ export const apiRouter = Router()
 // `adminTenant` además exige rol admin. Todos los dominios usan ya este modelo.
 const tenant = [requireAuth, requireTenant]
 const adminTenant = [requireAuth, requireTenant, requireAdmin]
-// CRM: admin o usuario con el permiso "puedeGestionarCrm".
-const crmTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarCrm')]
+// CRM (módulo asignable): admin o usuario con permiso, y el módulo habilitado.
+const crmTenant = [requireAuth, requireTenant, requireModulo('crm'), requirePermiso('puedeGestionarCrm')]
+const crmAdmin = [requireAuth, requireTenant, requireModulo('crm'), requireAdmin]
+// Agendamiento online (módulo asignable).
+const agendaTenant = [requireAuth, requireTenant, requireModulo('agendamiento_online')]
+const agendaAdmin = [requireAuth, requireTenant, requireModulo('agendamiento_online'), requireAdmin]
 // Eliminar registros clínicos: admin o usuario con el permiso "puedeEliminar".
 const eliminarTenant = [requireAuth, requireTenant, requirePermiso('puedeEliminar')]
 
@@ -121,38 +126,40 @@ apiRouter.get('/horarios', tenant, asyncHandler(getHorarios))
 apiRouter.post('/horarios', tenant, asyncHandler(postHorarios))
 
 // ── Agendamiento online: links (admin) + reservas ────────────────────────────
-apiRouter.get('/agenda-links', tenant, asyncHandler(agendaOnline.getLinks))
-apiRouter.post('/agenda-links', adminTenant, asyncHandler(agendaOnline.postLink))
-apiRouter.patch('/agenda-links/:id', adminTenant, asyncHandler(agendaOnline.patchLink))
-apiRouter.delete('/agenda-links/:id', adminTenant, asyncHandler(agendaOnline.deleteLink))
-apiRouter.get('/reservas-online', tenant, asyncHandler(agendaOnline.getReservas))
+apiRouter.get('/agenda-links', agendaTenant, asyncHandler(agendaOnline.getLinks))
+apiRouter.post('/agenda-links', agendaAdmin, asyncHandler(agendaOnline.postLink))
+apiRouter.patch('/agenda-links/:id', agendaAdmin, asyncHandler(agendaOnline.patchLink))
+apiRouter.delete('/agenda-links/:id', agendaAdmin, asyncHandler(agendaOnline.deleteLink))
+apiRouter.get('/reservas-online', agendaTenant, asyncHandler(agendaOnline.getReservas))
 
 // ── CRM: leads (admin) + config de Meta/captación ────────────────────────────
 apiRouter.get('/crm/config', crmTenant, asyncHandler(crm.getConfig))
-apiRouter.patch('/crm/config', adminTenant, asyncHandler(crm.patchConfig))
-apiRouter.post('/crm/meta/test', adminTenant, asyncHandler(crm.postProbarMeta))
+apiRouter.patch('/crm/config', crmAdmin, asyncHandler(crm.patchConfig))
+apiRouter.post('/crm/meta/test', crmAdmin, asyncHandler(crm.postProbarMeta))
 
 // Gestión de la API key de acceso externo (MCP) — admin de la clínica.
-apiRouter.get('/crm/api-key', adminTenant, asyncHandler(ext.getApiKey))
-apiRouter.post('/crm/api-key/rotate', adminTenant, asyncHandler(ext.postRotarApiKey))
-apiRouter.delete('/crm/api-key', adminTenant, asyncHandler(ext.deleteApiKey))
+apiRouter.get('/crm/api-key', crmAdmin, asyncHandler(ext.getApiKey))
+apiRouter.post('/crm/api-key/rotate', crmAdmin, asyncHandler(ext.postRotarApiKey))
+apiRouter.delete('/crm/api-key', crmAdmin, asyncHandler(ext.deleteApiKey))
 
 // Acceso externo read-only (servidor MCP de Claude / integraciones), autenticado
-// por API key (X-API-Key). Scope de 1 clínica; sólo lectura.
-const apiKeyScope = [requireApiKey]
+// por API key (X-API-Key). Scope de 1 clínica; sólo lectura. Requiere módulo CRM.
+const apiKeyScope = [requireApiKey, requireModuloApiKey('crm')]
 apiRouter.get('/ext/leads', apiKeyScope, asyncHandler(ext.getExtLeads))
 apiRouter.get('/ext/leads/:id', apiKeyScope, asyncHandler(ext.getExtLead))
 apiRouter.get('/ext/resumen', apiKeyScope, asyncHandler(ext.getExtResumen))
 apiRouter.get('/ext/stats', apiKeyScope, asyncHandler(ext.getExtStats))
 apiRouter.get('/crm/leads', crmTenant, asyncHandler(crm.getLeads))
 apiRouter.get('/crm/resumen', crmTenant, asyncHandler(crm.getResumen))
+apiRouter.get('/crm/campanas', crmTenant, asyncHandler(crm.getCampanas))
+apiRouter.patch('/crm/campanas', crmTenant, asyncHandler(crm.patchCampana))
 apiRouter.post('/crm/leads', crmTenant, asyncHandler(crm.postLead))
 apiRouter.get('/crm/leads/:id', crmTenant, asyncHandler(crm.getLead))
 apiRouter.patch('/crm/leads/:id', crmTenant, asyncHandler(crm.patchLead))
 apiRouter.post('/crm/leads/:id/notas', crmTenant, asyncHandler(crm.postNota))
 apiRouter.post('/crm/leads/:id/convertir', crmTenant, asyncHandler(crm.postConvertir))
 apiRouter.post('/crm/leads/:id/agendar', crmTenant, asyncHandler(crm.postAgendar))
-apiRouter.delete('/crm/leads/:id', adminTenant, asyncHandler(crm.deleteLead))
+apiRouter.delete('/crm/leads/:id', crmAdmin, asyncHandler(crm.deleteLead))
 
 // ── Consentimientos informados ───────────────────────────────────────────────
 // Plantillas: listar (cualquier usuario, para generar) / gestionar (admin).
@@ -297,6 +304,7 @@ apiRouter.post('/admin/clinicas/:id/extender-trial', sa, asyncHandler(admin.post
 apiRouter.patch('/admin/clinicas/:id/slug', sa, asyncHandler(admin.patchSlug))
 apiRouter.post('/admin/clinicas/:id/convertir', sa, asyncHandler(admin.postConvertir))
 apiRouter.patch('/admin/clinicas/:id/pais', sa, asyncHandler(admin.patchPais))
+apiRouter.patch('/admin/clinicas/:id/modulos', sa, asyncHandler(admin.patchModulos))
 apiRouter.post('/admin/clinicas/:id/reset-admin-password', sa, asyncHandler(admin.postResetPassword))
 // Pagos
 apiRouter.get('/admin/clinicas/:id/pagos', sa, asyncHandler(admin.getPagos))

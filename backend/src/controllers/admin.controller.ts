@@ -23,6 +23,7 @@ export const postExtenderTrial = async (req: Request, res: Response) => res.json
 export const patchSlug = async (req: Request, res: Response) => res.json(await svc.cambiarSlug(audit(req), req.params.id, String((req.body ?? {}).slug ?? '')))
 export const postConvertir = async (req: Request, res: Response) => res.json(await svc.convertirADefinitiva(audit(req), req.params.id, req.body ?? {}))
 export const patchPais = async (req: Request, res: Response) => res.json(await svc.cambiarPais(audit(req), req.params.id, String((req.body ?? {}).pais ?? '')))
+export const patchModulos = async (req: Request, res: Response) => res.json(await svc.cambiarModulos(audit(req), req.params.id, (req.body ?? {}).modulos))
 export const postResetPassword = async (req: Request, res: Response) => res.json(await svc.resetAdminPassword(audit(req), req.params.id, req.body ?? {}))
 
 // ── Pagos ──

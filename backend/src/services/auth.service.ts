@@ -6,6 +6,7 @@ import { env } from '@/config/env'
 import { badRequest, notFound, tooMany, unauthorized } from '@/lib/errors'
 import { peekLimit, rateLimit, registerFailure, resetLimit } from '@/lib/rate-limit'
 import type { LoginRequest, LoginResponse, SessionUserDTO } from '@shared/types'
+import { parseModulos, MODULOS_CODES } from '@shared/constants/modulos'
 
 const LOGIN_LIMIT = { limit: 5, windowMs: 15 * 60_000 }
 const LOGIN_IP_LIMIT = { limit: 30, windowMs: 15 * 60_000 }
@@ -46,10 +47,10 @@ type TenantUserRow = {
   puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean
   puedeEditarPagos: boolean; puedeGestionarLiquidaciones: boolean; puedeGestionarCrm: boolean; puedeEliminar: boolean
 }
-function tenantUserDTO(u: TenantUserRow, clinicaId: string, pais: string): SessionUserDTO {
+function tenantUserDTO(u: TenantUserRow, clinicaId: string, pais: string, modulos: string[]): SessionUserDTO {
   const isAdmin = u.role === 'admin'
   return {
-    id: u.id, name: u.name, email: u.email, role: u.role, clinicaId, pais, isPlatformAdmin: false,
+    id: u.id, name: u.name, email: u.email, role: u.role, clinicaId, pais, modulos, isPlatformAdmin: false,
     requirePasswordChange: u.passwordChangedAt === null,
     permisos: {
       puedeModificarPrecio: isAdmin || u.puedeModificarPrecio,
@@ -65,7 +66,7 @@ function tenantUserDTO(u: TenantUserRow, clinicaId: string, pais: string): Sessi
 
 function platformAdminDTO(a: { id: string; name: string | null; email: string; passwordChangedAt: Date | null }): SessionUserDTO {
   return {
-    id: a.id, name: a.name, email: a.email, role: 'admin', clinicaId: null, pais: 'CL', isPlatformAdmin: true,
+    id: a.id, name: a.name, email: a.email, role: 'admin', clinicaId: null, pais: 'CL', modulos: MODULOS_CODES, isPlatformAdmin: true,
     requirePasswordChange: a.passwordChangedAt === null,
     permisos: {
       puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
@@ -83,13 +84,13 @@ export async function getSessionUser(payload: JwtPayload): Promise<SessionUserDT
     return platformAdminDTO(a)
   }
   if (!payload.clinicaId) throw unauthorized()
-  const clinica = await control.clinica.findUnique({ where: { id: payload.clinicaId }, select: { dbName: true } })
+  const clinica = await control.clinica.findUnique({ where: { id: payload.clinicaId }, select: { dbName: true, modulos: true } })
   if (!clinica) throw unauthorized()
   const db = tenantClient(clinica.dbName)
   const u = await db.user.findUnique({ where: { id: payload.sub } })
   if (!u || !u.activo) throw unauthorized()
   const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
-  return tenantUserDTO(u, payload.clinicaId, cfg?.pais ?? 'CL')
+  return tenantUserDTO(u, payload.clinicaId, cfg?.pais ?? 'CL', parseModulos(clinica.modulos))
 }
 
 // Login dual: clínica (slug+username contra su tenant) o plataforma (email
@@ -125,7 +126,7 @@ export async function login(body: LoginRequest, ip: string): Promise<LoginRespon
     resetLimit(idKey)
     const payload: JwtPayload = { sub: user.id, clinicaId: clinica.id, slug: clinica.slug, role: user.role, isPlatformAdmin: false, name: user.name, email: user.email }
     const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
-    return { token: sign(payload), user: tenantUserDTO(user, clinica.id, cfg?.pais ?? 'CL') }
+    return { token: sign(payload), user: tenantUserDTO(user, clinica.id, cfg?.pais ?? 'CL', parseModulos(clinica.modulos)) }
   }
 
   // ── Plataforma: email contra el control-plane ──
@@ -153,7 +154,8 @@ export async function issueTokenForTenantUser(
   if (!u) throw unauthorized()
   const payload: JwtPayload = { sub: u.id, clinicaId: clinica.id, slug: clinica.slug, role: u.role, isPlatformAdmin: false, name: u.name, email: u.email }
   const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
-  return { token: sign(payload), user: tenantUserDTO(u, clinica.id, cfg?.pais ?? 'CL') }
+  const cc = await control.clinica.findUnique({ where: { id: clinica.id }, select: { modulos: true } })
+  return { token: sign(payload), user: tenantUserDTO(u, clinica.id, cfg?.pais ?? 'CL', parseModulos(cc?.modulos)) }
 }
 
 // Política de contraseñas (idéntica al monolito).

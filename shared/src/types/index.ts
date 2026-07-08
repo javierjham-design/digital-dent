@@ -10,6 +10,7 @@ export interface SessionUserDTO {
   role: Rol | string
   clinicaId: string | null
   pais: string
+  modulos: string[]
   isPlatformAdmin: boolean
   requirePasswordChange: boolean
   permisos: {

@@ -6,11 +6,20 @@ import { notFound, tooMany } from '@/lib/errors'
 import { rateLimit } from '@/lib/rate-limit'
 import * as svc from '@/services/crm.service'
 import { crearLeadSchema, notaSchema, agendarLeadSchema } from '@/validators/schemas'
+import { parseModulos } from '@shared/constants/modulos'
 
 // ── Admin (tenant) ────────────────────────────────────────────────────────────
 export async function getLeads(req: Request, res: Response) {
-  const { estado, origen, q, desde, hasta } = req.query as Record<string, string | undefined>
-  res.json(await svc.listarLeads(tenantDb(req), { estado, origen, q, desde, hasta }))
+  const { estado, origen, campana, q, desde, hasta } = req.query as Record<string, string | undefined>
+  res.json(await svc.listarLeads(tenantDb(req), { estado, origen, campana, q, desde, hasta }))
+}
+export async function getCampanas(req: Request, res: Response) {
+  const { desde, hasta } = req.query as Record<string, string | undefined>
+  res.json(await svc.listarCampanas(tenantDb(req), { desde, hasta }))
+}
+export async function patchCampana(req: Request, res: Response) {
+  const { key, label } = (req.body ?? {}) as { key?: string; label?: string }
+  res.json(await svc.renombrarCampana(tenantDb(req), String(key ?? ''), String(label ?? '')))
 }
 export async function getResumen(req: Request, res: Response) {
   res.json(await svc.resumenCrm(tenantDb(req)))
@@ -53,9 +62,12 @@ export async function postProbarMeta(req: Request, res: Response) {
 }
 
 // ── Público (formulario hospedado + intake por slug/token) ───────────────────
+// Resuelve la clínica por slug y exige que tenga el módulo CRM habilitado (si el
+// super-admin lo desactivó, el formulario deja de captar).
 async function resolverTenant(slug: string): Promise<TenantClient> {
-  const clinica = await control.clinica.findUnique({ where: { slug }, select: { dbName: true, activo: true } })
+  const clinica = await control.clinica.findUnique({ where: { slug }, select: { dbName: true, activo: true, modulos: true } })
   if (!clinica || !clinica.activo) throw notFound('Clínica no disponible')
+  if (!parseModulos(clinica.modulos).includes('crm')) throw notFound('Formulario no disponible')
   return tenantClient(clinica.dbName)
 }
 

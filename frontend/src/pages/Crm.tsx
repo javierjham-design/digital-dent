@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, type NavigateFunction } from 'react-router-dom'
-import { crmService, type Lead, type CrmResumen, type CrmConfig } from '@/services/crm.service'
+import { crmService, type Lead, type CrmResumen, type CrmConfig, type CampanaItem } from '@/services/crm.service'
 import { usuariosService } from '@/services/equipo.service'
 import type { DoctorDTO } from '@shared/types'
 import { useAuth } from '@/hooks/useAuth'
@@ -32,6 +32,39 @@ const origenCfg = (o: string) => ORIGENES[o] ?? { l: o, c: 'bg-slate-100 text-sl
 const chip = 'shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full'
 // "Agendó por el link online" = tiene fuente de agenda y NO fue agendado desde el CRM/recepción.
 const agendoOnline = (l: Lead) => Boolean(l.agendaFuente && l.agendaFuente !== 'CRM')
+// Nombre visible de campaña de un lead (etiqueta renombrada del backend, o campaña cruda).
+const campanaDe = (l: Lead) => l.campanaLabel ?? l.campana ?? '(Sin campaña)'
+
+// Exporta a Excel las filas visibles como CSV (separador ; y BOM UTF-8: Excel es-CL
+// lo abre directo con acentos correctos). Sin dependencias externas.
+function exportarExcel(rows: Lead[], nombre: string) {
+  const cols: [string, (l: Lead) => string][] = [
+    ['Nombre', (l) => l.nombre ?? ''],
+    ['Apellido', (l) => l.apellido ?? ''],
+    ['Teléfono', (l) => l.telefono ?? ''],
+    ['Email', (l) => l.email ?? ''],
+    ['RUT', (l) => l.rut ?? ''],
+    ['Estado', (l) => estadoCfg(l.estado).l],
+    ['Origen', (l) => origenCfg(l.origen).l],
+    ['Campaña', (l) => campanaDe(l)],
+    ['Motivo', (l) => l.motivo ?? ''],
+    ['Tratamiento', (l) => l.tratamiento ?? ''],
+    ['Recibido', (l) => (l.createdAt ? fecha(l.createdAt) : '')],
+    ['Hora agendada', (l) => (l.fechaAgenda ? fecha(l.fechaAgenda) : '')],
+    ['Asistió', (l) => (l.asistio === true ? 'Sí' : l.asistio === false ? 'No' : '')],
+    ['Paciente', (l) => (l.pacienteId ? 'Sí' : 'No')],
+  ]
+  const esc = (v: string) => `"${String(v).replace(/"/g, '""')}"`
+  const lineas = [cols.map((c) => esc(c[0])).join(';')]
+  for (const l of rows) lineas.push(cols.map((c) => esc(c[1](l))).join(';'))
+  const csv = '﻿' + lineas.join('\r\n')
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `${nombre}-${hoyYmd()}.csv`
+  document.body.appendChild(a); a.click(); a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 
 // Click-ids por plataforma para mostrar en el detalle (campo → etiqueta).
 const CLICK_LABELS: { k: keyof Lead; l: string }[] = [
@@ -65,15 +98,17 @@ export function Crm() {
   const puedeCrm = esAdmin || Boolean(user?.permisos?.puedeGestionarCrm)
   const [leads, setLeads] = useState<Lead[]>([])
   const [resumen, setResumen] = useState<CrmResumen | null>(null)
+  const [campanas, setCampanas] = useState<CampanaItem[]>([])
   const [cargando, setCargando] = useState(true)
   const [estado, setEstado] = useState<string>('')
+  const [campana, setCampana] = useState<string>('') // clave de campaña seleccionada ('' = todas)
   const [q, setQ] = useState('')
   const [desde, setDesde] = useState(ymdHace(30)) // siempre visible: últimos 30 días
   const [hasta, setHasta] = useState(hoyYmd())
   const [preset, setPreset] = useState<Preset>('30')
   const [soloSinGestionar, setSoloSinGestionar] = useState(false)
   const [sel, setSel] = useState<Lead | null>(null)
-  const [modal, setModal] = useState<null | 'nuevo' | 'config'>(null)
+  const [modal, setModal] = useState<null | 'nuevo' | 'config' | 'campanas'>(null)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
   const notify = (t: string, ok = true) => { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
 
@@ -86,11 +121,13 @@ export function Crm() {
   }
 
   const cargar = () => {
-    crmService.leads({ estado: estado || undefined, q: q.trim().length >= 2 ? q.trim() : undefined, desde: desde || undefined, hasta: hasta || undefined })
+    crmService.leads({ estado: estado || undefined, campana: campana || undefined, q: q.trim().length >= 2 ? q.trim() : undefined, desde: desde || undefined, hasta: hasta || undefined })
       .then(setLeads).catch(() => {}).finally(() => setCargando(false))
     crmService.resumen().then(setResumen).catch(() => {})
   }
-  useEffect(() => { const t = setTimeout(cargar, 250); return () => clearTimeout(t) }, [estado, q, desde, hasta]) // eslint-disable-line react-hooks/exhaustive-deps
+  const cargarCampanas = () => crmService.campanas({ desde: desde || undefined, hasta: hasta || undefined }).then((r) => setCampanas(r.campanas)).catch(() => {})
+  useEffect(() => { const t = setTimeout(cargar, 250); return () => clearTimeout(t) }, [estado, campana, q, desde, hasta]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { cargarCampanas() }, [desde, hasta]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const visibles = soloSinGestionar ? leads.filter((l) => l.sinGestionar) : leads
   const verSinGestionar = () => { setSoloSinGestionar(true); aplicarPreset('todo') } // amplía el rango para ver todos
@@ -106,7 +143,9 @@ export function Crm() {
     <div>
       <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
         <h1 className="text-2xl font-bold text-slate-900">CRM · Leads</h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => exportarExcel(visibles, 'leads')} disabled={visibles.length === 0}
+            className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 disabled:opacity-40 text-slate-700 text-sm font-semibold rounded-xl">↓ Excel</button>
           {esAdmin && <button onClick={() => setModal('config')} className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl">Configuración / Formulario</button>}
           <button onClick={() => setModal('nuevo')} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">+ Nuevo lead</button>
         </div>
@@ -151,6 +190,19 @@ export function Crm() {
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, teléfono, email o campaña…"
           className="flex-1 min-w-[220px] max-w-md px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        {/* Filtro por campaña (por URL de origen renombrable) */}
+        <select value={campana} onChange={(e) => setCampana(e.target.value)}
+          className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 bg-white max-w-[220px]">
+          <option value="">Todas las campañas</option>
+          {campanas.map((c) => <option key={c.key} value={c.key}>{c.label} ({c.n})</option>)}
+        </select>
+        {/* Filtro por estado (además del embudo de arriba) */}
+        <select value={estado} onChange={(e) => setEstado(e.target.value)}
+          className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 bg-white">
+          <option value="">Todos los estados</option>
+          {ESTADOS.map((e) => <option key={e.k} value={e.k}>{e.l}</option>)}
+        </select>
+        {puedeCrm && <button onClick={() => setModal('campanas')} className="px-3 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm font-medium rounded-xl">Renombrar campañas</button>}
         {soloSinGestionar && (
           <button onClick={() => setSoloSinGestionar(false)} className="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-100 text-rose-700 border border-rose-200">
             Solo sin gestionar ✕
@@ -170,12 +222,13 @@ export function Crm() {
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <p className="font-semibold text-slate-800 truncate">{l.nombre} {l.apellido ?? ''}</p>
                     <span className={`${chip} ${oc.c}`}>{oc.l}</span>
+                    {(l.campanaKey || l.campana) && <span className={`${chip} bg-indigo-100 text-indigo-700`} title="Campaña">🎯 {campanaDe(l)}</span>}
                     {l.sinGestionar && <span className={`${chip} bg-rose-100 text-rose-700`}>⏰ Sin gestionar{l.ultimaGestionAt ? ` · ${diasDesde(l.ultimaGestionAt)}d` : ''}</span>}
                     {agendoOnline(l) && <span className={`${chip} bg-emerald-100 text-emerald-700`}>Agendó online</span>}
                     {l.pacienteId && <span className={`${chip} bg-slate-100 text-slate-500`}>Paciente</span>}
                   </div>
                   <p className="text-xs text-slate-500 truncate">
-                    {l.telefono ?? l.email ?? '—'}{l.campana ? ` · ${l.campana}` : ''} · {fecha(l.createdAt)}
+                    {l.telefono ?? l.email ?? '—'} · {fecha(l.createdAt)}
                   </p>
                 </div>
                 <span className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${ec.c}`}>{ec.l}</span>
@@ -187,6 +240,7 @@ export function Crm() {
       {sel && <LeadDetalle lead={sel} onClose={() => setSel(null)} onChanged={() => { setSel(null); cargar() }} notify={notify} />}
       {modal === 'nuevo' && <NuevoLeadModal onClose={() => setModal(null)} onCreated={() => { setModal(null); notify('Lead creado'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal === 'config' && <ConfigModal onClose={() => setModal(null)} notify={notify} />}
+      {modal === 'campanas' && <CampanasModal campanas={campanas} onClose={() => setModal(null)} notify={notify} onSaved={(cs) => { setCampanas(cs); cargar() }} />}
     </div>
   )
 }
@@ -471,6 +525,49 @@ function NuevoLeadModal({ onClose, onCreated, onError }: { onClose: () => void; 
       <div className="flex gap-2 pt-4">
         <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
         <button onClick={crear} disabled={busy} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{busy ? 'Guardando…' : 'Crear lead'}</button>
+      </div>
+    </Modal>
+  )
+}
+
+// Renombra campañas: cada fila muestra la clave/URL cruda y su nombre visible
+// editable. Guardar un nombre vacío restaura la URL original.
+function CampanasModal({ campanas, onClose, notify, onSaved }: {
+  campanas: CampanaItem[]; onClose: () => void; notify: (t: string, ok?: boolean) => void; onSaved: (cs: CampanaItem[]) => void
+}) {
+  const [nombres, setNombres] = useState<Record<string, string>>(() => Object.fromEntries(campanas.map((c) => [c.key, c.label])))
+  const [savingKey, setSavingKey] = useState<string | null>(null)
+  // No se puede renombrar "sin campaña" (clave vacía).
+  const items = campanas.filter((c) => c.key !== '')
+
+  async function guardar(key: string) {
+    setSavingKey(key)
+    try {
+      const r = await crmService.renombrarCampana(key, (nombres[key] ?? '').trim())
+      onSaved(r.campanas); notify('Campaña actualizada')
+    } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) } finally { setSavingKey(null) }
+  }
+
+  return (
+    <Modal title="Renombrar campañas" onClose={onClose}>
+      <p className="text-xs text-slate-500 mb-3">Ponle un nombre corto a cada campaña (o a su URL de origen) para que no se vea la dirección completa en la lista. Deja el nombre vacío para volver a mostrar la URL.</p>
+      {items.length === 0 ? <p className="text-sm text-slate-400 py-6 text-center">Aún no hay campañas con leads en el período seleccionado.</p> : (
+        <div className="space-y-3 max-h-[60vh] overflow-y-auto">
+          {items.map((c) => (
+            <div key={c.key} className="border border-slate-100 rounded-xl p-3">
+              <p className="text-[11px] text-slate-400 font-mono break-all mb-1">{c.key} · {c.n} lead{c.n !== 1 ? 's' : ''}</p>
+              <div className="flex gap-2">
+                <input value={nombres[c.key] ?? ''} onChange={(e) => setNombres((s) => ({ ...s, [c.key]: e.target.value }))}
+                  placeholder="Nombre visible (ej: Implantes)" className={inp} />
+                <button onClick={() => guardar(c.key)} disabled={savingKey === c.key}
+                  className="shrink-0 px-3 py-2 bg-slate-900 text-white text-xs font-semibold rounded-xl disabled:opacity-50">{savingKey === c.key ? '…' : 'Guardar'}</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="flex pt-4">
+        <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cerrar</button>
       </div>
     </Modal>
   )

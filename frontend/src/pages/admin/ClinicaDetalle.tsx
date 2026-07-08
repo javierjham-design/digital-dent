@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { adminService } from '@/services/admin.service'
 import { ApiError } from '@/services/api'
 import { PAISES_LISTA, getPais } from '@shared/constants/paises'
+import { MODULOS, MODULOS_CODES } from '@shared/constants/modulos'
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
@@ -19,7 +20,7 @@ interface Clinica {
   id: string; slug: string; nombre: string; email: string | null; telefono: string | null; ciudad: string | null
   plan: string; activo: boolean; trialHasta: string | null; proximoCobro: string | null
   precioAcordado: number | null; cicloFacturacion: string | null; notasInternas: string | null; createdAt: string
-  esDemo: boolean; demoExpiraEn: string | null; pais: string; sizeBytes?: number | null
+  esDemo: boolean; demoExpiraEn: string | null; pais: string; sizeBytes?: number | null; modulos?: string[]
 }
 interface Pago { id: string; fechaPago: string; monto: number; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
@@ -62,6 +63,7 @@ export function AdminClinicaDetalle() {
         <EstadoCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <TrialCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <PaisCard c={c} onSaved={(m) => { flash(m); recargar() }} />
+        <ModulosCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <LinkCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <AccesoCard id={c.id} />
       </div>
@@ -245,6 +247,44 @@ function PaisCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) 
       </label>
       {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
       <button onClick={guardar} disabled={busy || pais === c.pais} className={`${btnCls} mt-3`}>{busy ? 'Guardando…' : 'Cambiar país'}</button>
+    </Card>
+  )
+}
+
+function ModulosCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) {
+  const [sel, setSel] = useState<string[]>(c.modulos ?? MODULOS_CODES)
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  const dirty = JSON.stringify([...sel].sort()) !== JSON.stringify([...(c.modulos ?? MODULOS_CODES)].sort())
+
+  function toggle(code: string) {
+    setSel((s) => (s.includes(code) ? s.filter((x) => x !== code) : [...s, code]))
+  }
+  async function guardar() {
+    if (!dirty) return
+    setBusy(true); setErr('')
+    try { await adminService.cambiarModulos(c.id, sel); onSaved('Módulos actualizados ✓') }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
+  }
+
+  return (
+    <Card title="Módulos habilitados">
+      <p className="text-sm text-slate-400 mb-3">Activa sólo los módulos que la clínica contrató. Al desactivar uno, deja de verse en su menú y de operar (formularios, agenda pública, API de Claude/MCP).</p>
+      <div className="space-y-2">
+        {MODULOS.map((m) => {
+          const on = sel.includes(m.code)
+          return (
+            <label key={m.code} className="flex items-start gap-3 rounded-lg border border-white/10 px-3 py-2 cursor-pointer hover:bg-white/5">
+              <input type="checkbox" checked={on} onChange={() => toggle(m.code)} className="mt-1 accent-purple-500" />
+              <span>
+                <span className="text-sm text-white font-medium">{m.nombre}</span>
+                <span className="block text-xs text-slate-500">{m.descripcion}</span>
+              </span>
+            </label>
+          )
+        })}
+      </div>
+      {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
+      <button onClick={guardar} disabled={busy || !dirty} className={`${btnCls} mt-3`}>{busy ? 'Guardando…' : 'Guardar módulos'}</button>
     </Card>
   )
 }

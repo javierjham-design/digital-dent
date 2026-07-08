@@ -56,6 +56,7 @@ model Configuracion {
   metaTestCode  String?
   crmToken      String?
   crmDiasSinGestion Int @default(4) // umbral de días para alertar leads sin gestionar
+  crmCampanas   String? // JSON { [claveCampaña]: "Nombre visible" } — renombres de campaña (para no mostrar la URL)
   pais          String @default("CL") // país de operación (documento/teléfono/moneda); lo fija el super-admin
 
   updatedAt DateTime @updatedAt

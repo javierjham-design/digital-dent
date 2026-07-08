@@ -28,6 +28,7 @@ CREATE TABLE "Configuracion" (
     "metaTestCode" TEXT,
     "crmToken" TEXT,
     "crmDiasSinGestion" INTEGER NOT NULL DEFAULT 4,
+    "crmCampanas" TEXT,
     "pais" TEXT NOT NULL DEFAULT 'CL',
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

@@ -15,8 +15,10 @@ export interface Lead {
   metaEventId: string | null; metaEnviado: boolean; scheduleEventId: string | null; scheduleCapiEnviado: boolean
   pacienteId: string | null; citaId: string | null; responsableId: string | null; createdAt: string
   ultimaGestionAt?: string; sinGestionar?: boolean
+  campanaKey?: string; campanaLabel?: string
   notas?: LeadNota[]
 }
+export interface CampanaItem { key: string; label: string; n: number }
 export interface CrmResumen { total: number; estados: Record<string, number>; origenes: { origen: string; n: number }[]; sinGestionar: number; diasSinGestion: number }
 export interface CrmConfig { slug: string; metaEnabled: boolean; metaPixelId: string | null; hasCapiToken: boolean; capiTokenLen: number; capiTokenLast4: string | null; metaTestCode: string | null; crmToken: string; diasSinGestion: number }
 export interface MetaTestResult { ok: boolean; status: number; recibidos?: number; testCode?: string; error?: string }
@@ -32,6 +34,8 @@ function qs(p?: Record<string, string | undefined>): string {
 export const crmService = {
   leads: (p?: Record<string, string | undefined>) => api.get<Lead[]>(`/crm/leads${qs(p)}`),
   resumen: () => api.get<CrmResumen>('/crm/resumen'),
+  campanas: (p?: Record<string, string | undefined>) => api.get<{ campanas: CampanaItem[] }>(`/crm/campanas${qs(p)}`),
+  renombrarCampana: (key: string, label: string) => api.patch<{ campanas: CampanaItem[] }>('/crm/campanas', { key, label }),
   lead: (id: string) => api.get<Lead>(`/crm/leads/${id}`),
   crear: (input: Record<string, unknown>) => api.post<Lead>('/crm/leads', input),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<Lead>(`/crm/leads/${id}`, patch),
