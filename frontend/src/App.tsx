@@ -15,6 +15,7 @@ import { AgendaOnline } from '@/pages/AgendaOnline'
 import { AgendarPublico } from '@/pages/AgendarPublico'
 import { Crm } from '@/pages/Crm'
 import { Consentimientos } from '@/pages/Consentimientos'
+import { Suscripcion } from '@/pages/Suscripcion'
 import { FormularioPublico } from '@/pages/FormularioPublico'
 import { Liquidaciones } from '@/pages/Liquidaciones'
 import { MisLiquidaciones } from '@/pages/MisLiquidaciones'
@@ -29,6 +30,7 @@ import { AdminClinicas } from '@/pages/admin/Clinicas'
 import { AdminClinicaDetalle } from '@/pages/admin/ClinicaDetalle'
 import { AdminLeads } from '@/pages/admin/Leads'
 import { AdminPlanes } from '@/pages/admin/PlanesSuscripcion'
+import { AdminPagos } from '@/pages/admin/Pagos'
 
 export default function App() {
   return (
@@ -54,6 +56,7 @@ export default function App() {
             <Route path="/agendamiento-online" element={<AgendaOnline />} />
             <Route path="/crm" element={<Crm />} />
             <Route path="/consentimientos" element={<Consentimientos />} />
+            <Route path="/suscripcion" element={<Suscripcion />} />
             <Route path="/reportes" element={<Reportes />} />
             <Route path="/liquidaciones" element={<Liquidaciones />} />
             <Route path="/mis-liquidaciones" element={<MisLiquidaciones />} />
@@ -67,6 +70,7 @@ export default function App() {
             <Route path="clinicas" element={<AdminClinicas />} />
             <Route path="clinicas/:id" element={<AdminClinicaDetalle />} />
             <Route path="leads" element={<AdminLeads />} />
+            <Route path="pagos" element={<AdminPagos />} />
             <Route path="planes" element={<AdminPlanes />} />
           </Route>
           <Route path="/print/liquidacion/:id" element={<ProtectedRoute><LiquidacionPrint /></ProtectedRoute>} />

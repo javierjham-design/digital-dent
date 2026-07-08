@@ -30,6 +30,7 @@ import * as googlec from '@/controllers/google.controller'
 import { getPlanesPublicos } from '@/controllers/public.controller'
 import * as agendaOnline from '@/controllers/agenda-online.controller'
 import * as crm from '@/controllers/crm.controller'
+import * as suscripcion from '@/controllers/suscripcion.controller'
 import * as consent from '@/controllers/consentimientos.controller'
 import * as doc from '@/controllers/documentos.controller'
 import * as ext from '@/controllers/ext.controller'
@@ -131,6 +132,10 @@ apiRouter.post('/agenda-links', agendaAdmin, asyncHandler(agendaOnline.postLink)
 apiRouter.patch('/agenda-links/:id', agendaAdmin, asyncHandler(agendaOnline.patchLink))
 apiRouter.delete('/agenda-links/:id', agendaAdmin, asyncHandler(agendaOnline.deleteLink))
 apiRouter.get('/reservas-online', agendaTenant, asyncHandler(agendaOnline.getReservas))
+
+// ── Suscripción de la clínica (su propio plan/pago) — admin de la clínica ─────
+apiRouter.get('/suscripcion', adminTenant, asyncHandler(suscripcion.getSuscripcion))
+apiRouter.post('/suscripcion/enlace-pago', adminTenant, asyncHandler(suscripcion.postEnlacePago))
 
 // ── CRM: leads (admin) + config de Meta/captación ────────────────────────────
 apiRouter.get('/crm/config', crmTenant, asyncHandler(crm.getConfig))
@@ -307,6 +312,8 @@ apiRouter.post('/admin/clinicas/:id/convertir', sa, asyncHandler(admin.postConve
 apiRouter.patch('/admin/clinicas/:id/pais', sa, asyncHandler(admin.patchPais))
 apiRouter.patch('/admin/clinicas/:id/modulos', sa, asyncHandler(admin.patchModulos))
 apiRouter.patch('/admin/clinicas/:id/profesionales-extra', sa, asyncHandler(admin.patchProfesionalesExtra))
+apiRouter.patch('/admin/clinicas/:id/cobro', sa, asyncHandler(admin.patchCobro))
+apiRouter.get('/admin/pagos', sa, asyncHandler(admin.getPagosPlataforma))
 apiRouter.post('/admin/clinicas/:id/reset-admin-password', sa, asyncHandler(admin.postResetPassword))
 // Pagos
 apiRouter.get('/admin/clinicas/:id/pagos', sa, asyncHandler(admin.getPagos))

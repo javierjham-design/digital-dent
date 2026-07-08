@@ -45,6 +45,14 @@ model Clinica {
   cicloFacturacion String    @default("MENSUAL") // MENSUAL | ANUAL
   profesionalesExtra Int     @default(0)   // profesionales con agenda adicionales al tope del plan ($9.990 c/u al mes)
   precioAcordado   Float?
+
+  // Cobro de la suscripción. monedaCobro null = automática por país (CL→CLP, resto→USD).
+  // cobroAutomatico: hay un medio guardado y se cobra recurrente. suscripcionProvider/Ref:
+  // referencia de la suscripción en la pasarela (Flow para CLP, Stripe para USD).
+  monedaCobro        String?   // CLP | USD | null(auto)
+  cobroAutomatico    Boolean   @default(false)
+  suscripcionProvider String?  // FLOW | STRIPE
+  suscripcionRef      String?  // id de la suscripción/preapproval en la pasarela
   proximoCobro     DateTime?
   notasInternas    String?
 
@@ -69,6 +77,7 @@ model Clinica {
 
   pagosSuscripcion PagoSuscripcion[]
   extras           ExtraSuscripcion[]
+  metodoPago       MetodoPagoClinica?
 
   @@index([esDemo])
   @@index([activo, plan])
@@ -135,6 +144,7 @@ model PagoSuscripcion {
   monto         Float
   periodoDesde  DateTime
   periodoHasta  DateTime
+  moneda        String   @default("CLP") // CLP | USD (moneda en que se recibió el pago)
   metodoPago    String   // TRANSFERENCIA | WEBPAY | EFECTIVO | OTRO
   comprobante   String?
   notas         String?
@@ -143,6 +153,24 @@ model PagoSuscripcion {
   clinica       Clinica  @relation(fields: [clinicaId], references: [id], onDelete: Cascade)
 
   @@index([clinicaId, fechaPago])
+}
+
+// Medio de pago guardado de una clínica (para cobro automático). Guarda SOLO
+// metadatos y las referencias tokenizadas de la pasarela (Flow/Stripe), NUNCA el
+// número de tarjeta ni el CVV — esos viven en la pasarela.
+model MetodoPagoClinica {
+  id          String   @id @default(cuid())
+  clinicaId   String   @unique
+  provider    String   // FLOW | STRIPE
+  customerRef String?  // id del cliente en la pasarela
+  tokenRef    String?  // id del medio tokenizado en la pasarela
+  marca       String?  // VISA | MASTERCARD | ...
+  ultimos4    String?
+  exp         String?  // MM/AA
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  clinica     Clinica  @relation(fields: [clinicaId], references: [id], onDelete: Cascade)
 }
 
 // Administradores de la PLATAFORMA (super-admins). Login por email. No están

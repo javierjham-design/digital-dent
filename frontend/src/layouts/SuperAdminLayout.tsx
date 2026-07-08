@@ -6,6 +6,7 @@ const NAV = [
   { to: '/plataforma', label: 'Dashboard', end: true },
   { to: '/plataforma/clinicas', label: 'Clínicas' },
   { to: '/plataforma/leads', label: 'Leads / Demos' },
+  { to: '/plataforma/pagos', label: 'Pagos' },
   { to: '/plataforma/planes', label: 'Planes' },
 ]
 

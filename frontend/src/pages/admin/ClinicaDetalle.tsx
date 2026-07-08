@@ -4,6 +4,7 @@ import { adminService } from '@/services/admin.service'
 import { ApiError } from '@/services/api'
 import { PAISES_LISTA, getPais } from '@shared/constants/paises'
 import { MODULOS, MODULOS_CODES } from '@shared/constants/modulos'
+import { fmtCobro, type MonedaCobro } from '@shared/constants/cobro'
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
@@ -33,8 +34,10 @@ interface Clinica {
   ultimoAccesoAt?: string | null; ultimoAccesoAdminAt?: string | null
   enLinea?: number; adminEnLinea?: boolean; usuariosEnLinea?: { name: string; admin: boolean; at: string }[]
   profesionales?: { activos: number; limite: number; base: number; extra: number; planNombre: string; precioExtra: number }
+  monedaCobro?: string | null; cobroAutomatico?: boolean
+  cobro?: { monedaEfectiva: MonedaCobro; monedaAuto: boolean; proveedor: string; pasarelaConfigurada: boolean; metodo: { provider: string; marca: string | null; ultimos4: string | null; exp: string | null } | null }
 }
-interface Pago { id: string; fechaPago: string; monto: number; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
+interface Pago { id: string; fechaPago: string; monto: number; moneda?: string; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
 interface Plan { id: string; nombre: string; precioMensual: number; orden: number; activo: boolean }
 interface Wa { waEnabled: boolean; waTwilioSid: string | null; waNumero: string | null; waTemplateSid: string | null; waHorasAntes: number; tokenConfigurado: boolean }
@@ -80,11 +83,12 @@ export function AdminClinicaDetalle() {
         <TrialCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <PaisCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <ProfesionalesCard c={c} onSaved={(m) => { flash(m); recargar() }} />
+        <CobroCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <ModulosCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <LinkCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <AccesoCard id={c.id} />
       </div>
-      <PagosCard id={c.id} onChange={() => { flash('Pago registrado'); recargar() }} />
+      <PagosCard id={c.id} moneda={c.cobro?.monedaEfectiva ?? 'CLP'} onChange={() => { flash('Pago registrado'); recargar() }} />
       <ExtrasCard id={c.id} />
       <WhatsappCard id={c.id} onSaved={() => flash('Configuración de WhatsApp guardada')} />
     </div>
@@ -309,6 +313,52 @@ function ActividadCard({ c }: { c: Clinica }) {
 
 // Tope de profesionales (usuarios CON agenda) = máximo del plan + extras.
 // Cada profesional extra cuesta $9.990/mes. Los usuarios sin agenda no cuentan.
+// Configuración de cobro: moneda (auto por país / CLP / USD), cobro automático,
+// pasarela que corresponde y su estado, y el medio de pago guardado de la clínica.
+function CobroCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) {
+  const cobro = c.cobro
+  const [moneda, setMoneda] = useState<string>(c.monedaCobro ?? 'AUTO')
+  const [auto, setAuto] = useState<boolean>(Boolean(c.cobroAutomatico))
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  const dirty = (c.monedaCobro ?? 'AUTO') !== moneda || Boolean(c.cobroAutomatico) !== auto
+
+  async function guardar() {
+    if (!dirty) return
+    setBusy(true); setErr('')
+    try { await adminService.cambiarCobro(c.id, { monedaCobro: moneda === 'AUTO' ? null : moneda, cobroAutomatico: auto }); onSaved('Configuración de cobro actualizada ✓') }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
+  }
+
+  return (
+    <Card title="Cobro y suscripción">
+      <p className="text-sm text-slate-400 mb-3">Define la moneda y el cobro. Chile paga en CLP (Flow); el resto en USD (Stripe).</p>
+      <label className="block"><L>Moneda de cobro</L>
+        <select value={moneda} onChange={(e) => setMoneda(e.target.value)} className={inpCls}>
+          <option value="AUTO">Automática por país{cobro ? ` (${cobro.monedaEfectiva})` : ''}</option>
+          <option value="CLP">CLP (pesos)</option>
+          <option value="USD">USD (dólares)</option>
+        </select>
+      </label>
+      <label className="flex items-center gap-2 text-sm text-slate-300 mt-3">
+        <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} className="accent-purple-500" />
+        Cobro automático mensual (requiere medio de pago guardado)
+      </label>
+      {cobro && (
+        <div className="mt-3 text-xs space-y-1">
+          <p className="text-slate-400">Pasarela: <span className="text-slate-200 font-medium">{cobro.proveedor}</span> {cobro.pasarelaConfigurada
+            ? <span className="text-emerald-300">· configurada</span>
+            : <span className="text-amber-300">· pendiente de credenciales</span>}</p>
+          <p className="text-slate-400">Medio de pago: {cobro.metodo
+            ? <span className="text-slate-200">{cobro.metodo.marca ?? cobro.metodo.provider} ····{cobro.metodo.ultimos4 ?? '????'}</span>
+            : <span className="text-slate-500">sin medio guardado</span>}</p>
+        </div>
+      )}
+      {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
+      <button onClick={guardar} disabled={busy || !dirty} className={`${btnCls} mt-3`}>{busy ? 'Guardando…' : 'Guardar cobro'}</button>
+    </Card>
+  )
+}
+
 function ProfesionalesCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) {
   const p = c.profesionales
   const [extra, setExtra] = useState(String(p?.extra ?? 0))
@@ -475,7 +525,7 @@ function AccesoCard({ id }: { id: string }) {
   )
 }
 
-function PagosCard({ id, onChange }: { id: string; onChange: () => void }) {
+function PagosCard({ id, moneda, onChange }: { id: string; moneda: MonedaCobro; onChange: () => void }) {
   const [pagos, setPagos] = useState<Pago[]>([])
   const [form, setForm] = useState({ monto: '', metodoPago: 'TRANSFERENCIA', fechaPago: toInput(new Date().toISOString()), comprobante: '' })
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
@@ -484,15 +534,17 @@ function PagosCard({ id, onChange }: { id: string; onChange: () => void }) {
   async function registrar() {
     setBusy(true); setErr('')
     try {
-      await adminService.registrarPago(id, { monto: Number(form.monto), metodoPago: form.metodoPago, fechaPago: form.fechaPago || undefined, comprobante: form.comprobante || undefined })
+      await adminService.registrarPago(id, { monto: Number(form.monto), moneda, metodoPago: form.metodoPago, fechaPago: form.fechaPago || undefined, comprobante: form.comprobante || undefined })
       setForm({ ...form, monto: '', comprobante: '' }); cargar(); onChange()
     } catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
   }
+  const fmtP = (p: Pago) => fmtCobro(p.monto, (p.moneda as MonedaCobro) || moneda)
   async function eliminar(pagoId: string) { if (!confirm('¿Eliminar este pago?')) return; await adminService.eliminarPago(id, pagoId).catch(() => {}); cargar() }
   return (
     <Card title="Pagos de suscripción">
+      <p className="text-xs text-slate-500 mb-2">Moneda de cobro: <span className="text-slate-300 font-medium">{moneda}</span>. Los montos se registran en esta moneda.</p>
       <div className="flex flex-wrap items-end gap-2 mb-4">
-        <label><L>Monto</L><input value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} inputMode="numeric" className={`${inpCls} font-mono w-32`} /></label>
+        <label><L>Monto ({moneda})</L><input value={form.monto} onChange={(e) => setForm({ ...form, monto: e.target.value })} inputMode="numeric" className={`${inpCls} font-mono w-32`} /></label>
         <label><L>Método</L><select value={form.metodoPago} onChange={(e) => setForm({ ...form, metodoPago: e.target.value })} className={inpCls}><option>TRANSFERENCIA</option><option>WEBPAY</option><option>EFECTIVO</option><option>OTRO</option></select></label>
         <label><L>Fecha</L><input type="date" value={form.fechaPago} onChange={(e) => setForm({ ...form, fechaPago: e.target.value })} className={inpCls} /></label>
         <label className="flex-1 min-w-[140px]"><L>Comprobante (opcional)</L><input value={form.comprobante} onChange={(e) => setForm({ ...form, comprobante: e.target.value })} className={inpCls} /></label>
@@ -509,7 +561,7 @@ function PagosCard({ id, onChange }: { id: string; onChange: () => void }) {
                 <td className="py-2 text-slate-300">{fmtFecha(p.fechaPago)}</td>
                 <td className="py-2 text-slate-400 text-xs">{fmtFecha(p.periodoDesde)} → {fmtFecha(p.periodoHasta)}</td>
                 <td className="py-2 text-slate-400">{p.metodoPago}</td>
-                <td className="py-2 text-right text-white font-mono">{fmtCLP(p.monto)}</td>
+                <td className="py-2 text-right text-white font-mono">{fmtP(p)}</td>
                 <td className="py-2 text-right"><button onClick={() => eliminar(p.id)} className="text-xs text-rose-400 hover:text-rose-300">Eliminar</button></td>
               </tr>
             ))}

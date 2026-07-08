@@ -11,6 +11,8 @@ import { invalidateClinicaCache } from '@/middlewares/tenant'
 import { esPaisValido } from '@shared/constants/paises'
 import { parseModulos, MODULOS_CODES } from '@shared/constants/modulos'
 import { conteoEnLinea, usuariosEnLinea, totalEnLinea } from '@/lib/presence'
+import { monedaCobroDe, MONEDAS_COBRO } from '@shared/constants/cobro'
+import { estadoPasarelas, proveedorPara, pasarelaConfigurada } from '@/lib/pagos'
 import {
   calcularProximoCobro, getEstadoPago, precioMensualEfectivo, type CicloFacturacion, type PlanPriceMap,
 } from '@/lib/billing'
@@ -77,6 +79,11 @@ export async function obtenerClinica(id: string) {
     profesionalesActivos = await tenantClient(c.dbName).user.count({ where: { role: { in: ['doctor', 'medico'] }, activo: true } })
   } catch { profesionalesActivos = 0 }
   const plan = await getPlan(c.plan)
+  // Cobro: moneda efectiva (override o por país), proveedor que corresponde y su
+  // estado de configuración, y el medio de pago guardado (si hay).
+  const monedaEfectiva = monedaCobroDe(c.pais, c.monedaCobro)
+  const proveedor = proveedorPara(monedaEfectiva)
+  const metodo = await control.metodoPagoClinica.findUnique({ where: { clinicaId: id } })
   return {
     ...c,
     modulos: parseModulos(c.modulos),
@@ -85,6 +92,50 @@ export async function obtenerClinica(id: string) {
     adminEnLinea: online.some((u) => u.admin),
     usuariosEnLinea: online.map((u) => ({ name: u.name, admin: u.admin, at: new Date(u.at).toISOString() })),
     profesionales: { activos: profesionalesActivos, limite, base, extra, planNombre: plan?.nombre ?? c.plan, precioExtra: PROFESIONAL_EXTRA_PRECIO },
+    cobro: {
+      monedaEfectiva,
+      monedaAuto: c.monedaCobro == null,
+      proveedor,
+      pasarelaConfigurada: pasarelaConfigurada(proveedor),
+      metodo: metodo ? { provider: metodo.provider, marca: metodo.marca, ultimos4: metodo.ultimos4, exp: metodo.exp } : null,
+    },
+  }
+}
+
+// Ajusta la configuración de cobro de la clínica: moneda (override o auto=null) y
+// si el cobro es automático (recurrente). No dispara cobros — solo configura.
+export async function cambiarCobro(ctx: AuditCtx, id: string, body: Record<string, unknown>) {
+  const data: Record<string, unknown> = {}
+  if ('monedaCobro' in body) {
+    const m = body.monedaCobro
+    if (m === null || m === '' || m === 'AUTO') data.monedaCobro = null
+    else if (MONEDAS_COBRO.includes(String(m) as never)) data.monedaCobro = String(m)
+    else throw badRequest('monedaCobro debe ser CLP, USD o null (auto)')
+  }
+  if ('cobroAutomatico' in body) data.cobroAutomatico = Boolean(body.cobroAutomatico)
+  const clinica = await control.clinica.update({ where: { id }, data })
+  await auditAdmin({ ...ctx, action: 'CAMBIAR_COBRO', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: clinica.slug, monedaCobro: clinica.monedaCobro, cobroAutomatico: clinica.cobroAutomatico } })
+  return obtenerClinica(id)
+}
+
+// Pagos recientes de TODA la plataforma + estado de las pasarelas (para la
+// sección de Pagos del super-admin).
+export async function pagosPlataforma() {
+  const pagos = await control.pagoSuscripcion.findMany({
+    orderBy: { fechaPago: 'desc' },
+    take: 200,
+    include: { clinica: { select: { nombre: true, slug: true } } },
+  })
+  const totales = { CLP: 0, USD: 0 }
+  for (const p of pagos) totales[(p.moneda as 'CLP' | 'USD') in totales ? (p.moneda as 'CLP' | 'USD') : 'CLP'] += p.monto
+  return {
+    pagos: pagos.map((p) => ({
+      id: p.id, clinica: p.clinica.nombre, slug: p.clinica.slug,
+      fechaPago: p.fechaPago.toISOString(), monto: p.monto, moneda: p.moneda,
+      metodoPago: p.metodoPago, periodoDesde: p.periodoDesde.toISOString(), periodoHasta: p.periodoHasta.toISOString(),
+    })),
+    totales,
+    pasarelas: estadoPasarelas(),
   }
 }
 
@@ -279,6 +330,11 @@ export async function registrarPago(ctx: AuditCtx, id: string, body: Record<stri
   const clinica = await control.clinica.findUnique({ where: { id } })
   if (!clinica) throw notFound('Clínica no existe')
 
+  // Moneda del pago: la enviada (si es válida) o la moneda de cobro de la clínica.
+  const moneda = MONEDAS_COBRO.includes(String(body.moneda) as never)
+    ? String(body.moneda)
+    : monedaCobroDe(clinica.pais, clinica.monedaCobro)
+
   const fechaPago = body.fechaPago ? new Date(String(body.fechaPago)) : new Date()
   const ciclo = (clinica.cicloFacturacion as CicloFacturacion) || 'MENSUAL'
   const periodoDesde = body.periodoDesde ? new Date(String(body.periodoDesde))
@@ -288,7 +344,7 @@ export async function registrarPago(ctx: AuditCtx, id: string, body: Record<stri
 
   const [pago, clinicaActualizada] = await control.$transaction([
     control.pagoSuscripcion.create({
-      data: { clinicaId: id, fechaPago, monto, periodoDesde, periodoHasta, metodoPago, comprobante: body.comprobante ? String(body.comprobante) : null, notas: body.notas ? String(body.notas) : null, registradoPor: ctx.actorId },
+      data: { clinicaId: id, fechaPago, monto, moneda, periodoDesde, periodoHasta, metodoPago, comprobante: body.comprobante ? String(body.comprobante) : null, notas: body.notas ? String(body.notas) : null, registradoPor: ctx.actorId },
     }),
     // Un pago convierte una demo/trial en cliente permanente: deja de ser demo
     // (no se auto-elimina) y, si estaba en TRIAL, pasa a BÁSICO.
