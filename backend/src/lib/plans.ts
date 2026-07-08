@@ -1,5 +1,8 @@
 import { control } from '@/db/control'
 
+// Precio mensual de cada profesional (usuario con agenda) ADICIONAL al tope del plan.
+export const PROFESIONAL_EXTRA_PRECIO = 9990
+
 // Defaults usados para seed inicial y como fallback si la consulta a DB falla.
 // El catálogo "real" vive en la tabla PlanSuscripcion y se gestiona desde el
 // super-admin (/digital-dent-super-admin/planes).
@@ -10,6 +13,7 @@ const DEFAULT_PLANS = [
     descripcion: 'Acceso completo por 30 días sin cobro.',
     precioMensual: 0,
     precioAnual: null as number | null,
+    maxProfesionales: 2,
     caracteristicas: [
       'Pacientes ilimitados',
       'Agenda completa',
@@ -25,6 +29,7 @@ const DEFAULT_PLANS = [
     descripcion: 'Funcionalidades core para una clínica pequeña.',
     precioMensual: 19900,
     precioAnual: null as number | null,
+    maxProfesionales: 2,
     caracteristicas: [
       'Pacientes ilimitados',
       'Agenda y fichas clínicas',
@@ -41,6 +46,7 @@ const DEFAULT_PLANS = [
     descripcion: 'Para clínicas con varios doctores y mayor volumen.',
     precioMensual: 39900,
     precioAnual: null as number | null,
+    maxProfesionales: 5,
     caracteristicas: [
       'Todo lo del plan Básico',
       'Módulo de archivos y radiografías',
@@ -59,6 +65,7 @@ export type Plan = {
   descripcion: string | null
   precioMensual: number
   precioAnual: number | null
+  maxProfesionales: number
   caracteristicas: string[]
   destacado: boolean
   orden: number
@@ -79,7 +86,7 @@ function parseCaracteristicas(raw: string | null | undefined): string[] {
 
 function mapPlan(r: {
   id: string; nombre: string; descripcion: string | null
-  precioMensual: number; precioAnual: number | null
+  precioMensual: number; precioAnual: number | null; maxProfesionales: number
   caracteristicas: string; destacado: boolean; orden: number
   activo: boolean; createdAt: Date; updatedAt: Date
 }): Plan {
@@ -89,6 +96,7 @@ function mapPlan(r: {
     descripcion: r.descripcion,
     precioMensual: r.precioMensual,
     precioAnual: r.precioAnual,
+    maxProfesionales: r.maxProfesionales,
     caracteristicas: parseCaracteristicas(r.caracteristicas),
     destacado: r.destacado,
     orden: r.orden,
@@ -111,6 +119,7 @@ export async function ensureDefaultPlans(): Promise<void> {
       descripcion: p.descripcion,
       precioMensual: p.precioMensual,
       precioAnual: p.precioAnual,
+      maxProfesionales: p.maxProfesionales,
       caracteristicas: JSON.stringify(p.caracteristicas),
       destacado: p.destacado,
       orden: p.orden,
@@ -133,6 +142,18 @@ export async function getPlan(id: string): Promise<Plan | null> {
   await ensureDefaultPlans()
   const r = await control.planSuscripcion.findUnique({ where: { id } })
   return r ? mapPlan(r) : null
+}
+
+// Tope efectivo de profesionales (usuarios con agenda) de una clínica:
+// el máximo del plan + los profesionales extra contratados. Fallback = 2 si el
+// plan no existe en el catálogo.
+export async function getLimiteProfesionales(clinicaId: string): Promise<{ limite: number; base: number; extra: number }> {
+  const clinica = await control.clinica.findUnique({ where: { id: clinicaId }, select: { plan: true, profesionalesExtra: true } })
+  if (!clinica) return { limite: 2, base: 2, extra: 0 }
+  const plan = await getPlan(clinica.plan)
+  const base = plan?.maxProfesionales ?? 2
+  const extra = clinica.profesionalesExtra ?? 0
+  return { limite: base + extra, base, extra }
 }
 
 // Helper para casos donde solo necesitamos precio (legacy, evitar en código nuevo).

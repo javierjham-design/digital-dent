@@ -5,7 +5,7 @@ import { tenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { auditAdmin } from '@/lib/audit-admin'
 import { encryptNullable } from '@/lib/crypto'
-import { getPlanes } from '@/lib/plans'
+import { getPlanes, getPlan, getLimiteProfesionales, PROFESIONAL_EXTRA_PRECIO } from '@/lib/plans'
 import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/clinicas-registry.service'
 import { invalidateClinicaCache } from '@/middlewares/tenant'
 import { esPaisValido } from '@shared/constants/paises'
@@ -69,6 +69,14 @@ export async function obtenerClinica(id: string) {
     sizeBytes = rows[0] ? Number(rows[0].bytes) : null
   } catch { sizeBytes = null }
   const online = usuariosEnLinea(id)
+  // Profesionales (usuarios con agenda) actualmente activos en la base del tenant,
+  // y el tope efectivo del plan (+extras). Best-effort: si la base no responde, 0.
+  const { limite, base, extra } = await getLimiteProfesionales(id)
+  let profesionalesActivos = 0
+  try {
+    profesionalesActivos = await tenantClient(c.dbName).user.count({ where: { role: { in: ['doctor', 'medico'] }, activo: true } })
+  } catch { profesionalesActivos = 0 }
+  const plan = await getPlan(c.plan)
   return {
     ...c,
     modulos: parseModulos(c.modulos),
@@ -76,7 +84,18 @@ export async function obtenerClinica(id: string) {
     enLinea: online.length,
     adminEnLinea: online.some((u) => u.admin),
     usuariosEnLinea: online.map((u) => ({ name: u.name, admin: u.admin, at: new Date(u.at).toISOString() })),
+    profesionales: { activos: profesionalesActivos, limite, base, extra, planNombre: plan?.nombre ?? c.plan, precioExtra: PROFESIONAL_EXTRA_PRECIO },
   }
+}
+
+// Ajusta la cantidad de profesionales extra (usuarios con agenda adicionales al
+// tope del plan). Cada uno suma $9.990/mes a la facturación.
+export async function cambiarProfesionalesExtra(ctx: AuditCtx, id: string, cantidad: unknown) {
+  const n = Number(cantidad)
+  if (!Number.isFinite(n) || n < 0 || n > 100) throw badRequest('Cantidad de profesionales extra inválida (0 a 100).')
+  const clinica = await control.clinica.update({ where: { id }, data: { profesionalesExtra: Math.round(n) } })
+  await auditAdmin({ ...ctx, action: 'CAMBIAR_PROFESIONALES_EXTRA', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: clinica.slug, profesionalesExtra: Math.round(n) } })
+  return obtenerClinica(id)
 }
 
 // Asigna los módulos habilitados de la clínica (CRM / Agendamiento online /
@@ -377,9 +396,10 @@ export async function crearPlanSuscripcion(body: Record<string, unknown>) {
   let precioAnual: number | null = null
   if (body.precioAnual != null && body.precioAnual !== '') { const n = Number(body.precioAnual); if (!Number.isFinite(n) || n < 0) throw badRequest('precioAnual inválido'); precioAnual = n }
   const caracteristicas = Array.isArray(body.caracteristicas) ? body.caracteristicas.filter((s: unknown): s is string => typeof s === 'string') : []
+  const maxProfesionales = Number.isFinite(Number(body.maxProfesionales)) ? Math.max(1, Math.round(Number(body.maxProfesionales))) : 2
   if (await control.planSuscripcion.findUnique({ where: { id } })) throw conflict(`Ya existe un plan con id "${id}"`)
   return control.planSuscripcion.create({
-    data: { id, nombre, descripcion: typeof body.descripcion === 'string' ? body.descripcion : null, precioMensual, precioAnual, caracteristicas: JSON.stringify(caracteristicas), destacado: Boolean(body.destacado), orden: Number.isFinite(Number(body.orden)) ? Number(body.orden) : 0, activo: body.activo !== undefined ? Boolean(body.activo) : true },
+    data: { id, nombre, descripcion: typeof body.descripcion === 'string' ? body.descripcion : null, precioMensual, precioAnual, maxProfesionales, caracteristicas: JSON.stringify(caracteristicas), destacado: Boolean(body.destacado), orden: Number.isFinite(Number(body.orden)) ? Number(body.orden) : 0, activo: body.activo !== undefined ? Boolean(body.activo) : true },
   })
 }
 
@@ -394,6 +414,7 @@ export async function actualizarPlanSuscripcion(id: string, body: Record<string,
     if (body.precioAnual === null || body.precioAnual === '') data.precioAnual = null
     else { const n = Number(body.precioAnual); if (!Number.isFinite(n) || n < 0) throw badRequest('precioAnual inválido'); data.precioAnual = n }
   }
+  if (body.maxProfesionales !== undefined) { const n = Number(body.maxProfesionales); if (!Number.isFinite(n) || n < 1) throw badRequest('maxProfesionales inválido (mínimo 1)'); data.maxProfesionales = Math.round(n) }
   if (Array.isArray(body.caracteristicas)) data.caracteristicas = JSON.stringify(body.caracteristicas.filter((s: unknown): s is string => typeof s === 'string'))
   if (body.destacado !== undefined) data.destacado = Boolean(body.destacado)
   if (body.orden !== undefined && Number.isFinite(Number(body.orden))) data.orden = Number(body.orden)
@@ -422,9 +443,9 @@ export async function dashboardStats() {
   for (const p of planes) priceMap[p.id] = p.precioMensual
   const pagantes = await control.clinica.findMany({
     where: { activo: true, plan: { not: 'TRIAL' }, esDemo: false },
-    select: { plan: true, precioAcordado: true, extras: { where: { activo: true }, select: { montoMensual: true } } },
+    select: { plan: true, precioAcordado: true, profesionalesExtra: true, extras: { where: { activo: true }, select: { montoMensual: true } } },
   })
-  const mrr = pagantes.reduce((s, c) => s + (c.precioAcordado ?? priceMap[c.plan] ?? 0) + c.extras.reduce((e, x) => e + x.montoMensual, 0), 0)
+  const mrr = pagantes.reduce((s, c) => s + (c.precioAcordado ?? priceMap[c.plan] ?? 0) + c.extras.reduce((e, x) => e + x.montoMensual, 0) + (c.profesionalesExtra ?? 0) * PROFESIONAL_EXTRA_PRECIO, 0)
   return { activas, enTrial, suspendidas, total, demosActivas, mrr }
 }
 
@@ -440,7 +461,7 @@ export async function resumenSuscripciones() {
     select: {
       id: true, slug: true, nombre: true, dbName: true, plan: true, activo: true, trialHasta: true, proximoCobro: true,
       precioAcordado: true, cicloFacturacion: true, createdAt: true, esDemo: true, demoExpiraEn: true,
-      ultimoAccesoAt: true, ultimoAccesoAdminAt: true,
+      ultimoAccesoAt: true, ultimoAccesoAdminAt: true, profesionalesExtra: true,
       pagosSuscripcion: { orderBy: { fechaPago: 'desc' }, take: 1, select: { fechaPago: true, monto: true } },
       extras: { where: { activo: true }, select: { montoMensual: true } },
     },
@@ -457,7 +478,8 @@ export async function resumenSuscripciones() {
   const lista = clinicas.map((c) => {
     const estado = getEstadoPago({ plan: c.plan, activo: c.activo, trialHasta: c.trialHasta, proximoCobro: c.proximoCobro, precioAcordado: c.precioAcordado, cicloFacturacion: c.cicloFacturacion }, now)
     const montoExtras = c.extras.reduce((s, e) => s + e.montoMensual, 0)
-    const precio = precioMensualEfectivo({ plan: c.plan, precioAcordado: c.precioAcordado }, priceMap) + montoExtras
+    const montoProfesionales = (c.profesionalesExtra ?? 0) * PROFESIONAL_EXTRA_PRECIO
+    const precio = precioMensualEfectivo({ plan: c.plan, precioAcordado: c.precioAcordado }, priceMap) + montoExtras + montoProfesionales
     if (c.esDemo) {
       demos++
     } else {
@@ -476,6 +498,7 @@ export async function resumenSuscripciones() {
       ultimoAccesoAt: c.ultimoAccesoAt?.toISOString() ?? null,
       ultimoAccesoAdminAt: c.ultimoAccesoAdminAt?.toISOString() ?? null,
       enLinea: online.get(c.id) ?? 0,
+      profesionalesExtra: c.profesionalesExtra ?? 0,
     }
   })
   // Total facturable en Railway: suma de todas las bases (control + tenants).

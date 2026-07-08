@@ -24,6 +24,7 @@ export const patchSlug = async (req: Request, res: Response) => res.json(await s
 export const postConvertir = async (req: Request, res: Response) => res.json(await svc.convertirADefinitiva(audit(req), req.params.id, req.body ?? {}))
 export const patchPais = async (req: Request, res: Response) => res.json(await svc.cambiarPais(audit(req), req.params.id, String((req.body ?? {}).pais ?? '')))
 export const patchModulos = async (req: Request, res: Response) => res.json(await svc.cambiarModulos(audit(req), req.params.id, (req.body ?? {}).modulos))
+export const patchProfesionalesExtra = async (req: Request, res: Response) => res.json(await svc.cambiarProfesionalesExtra(audit(req), req.params.id, (req.body ?? {}).profesionalesExtra))
 export const postResetPassword = async (req: Request, res: Response) => res.json(await svc.resetAdminPassword(audit(req), req.params.id, req.body ?? {}))
 
 // ── Pagos ──

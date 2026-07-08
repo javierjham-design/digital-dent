@@ -32,6 +32,7 @@ interface Clinica {
   esDemo: boolean; demoExpiraEn: string | null; pais: string; sizeBytes?: number | null; modulos?: string[]
   ultimoAccesoAt?: string | null; ultimoAccesoAdminAt?: string | null
   enLinea?: number; adminEnLinea?: boolean; usuariosEnLinea?: { name: string; admin: boolean; at: string }[]
+  profesionales?: { activos: number; limite: number; base: number; extra: number; planNombre: string; precioExtra: number }
 }
 interface Pago { id: string; fechaPago: string; monto: number; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
@@ -78,6 +79,7 @@ export function AdminClinicaDetalle() {
         <EstadoCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <TrialCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <PaisCard c={c} onSaved={(m) => { flash(m); recargar() }} />
+        <ProfesionalesCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <ModulosCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <LinkCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <AccesoCard id={c.id} />
@@ -301,6 +303,47 @@ function ActividadCard({ c }: { c: Clinica }) {
         </div>
       )}
       <p className="text-[11px] text-slate-500 mt-3">"En línea" = actividad en los últimos 5 minutos. Se actualiza solo cada 30 s. El acceso del administrador se registra aparte para ver si el dueño está usando la plataforma.</p>
+    </Card>
+  )
+}
+
+// Tope de profesionales (usuarios CON agenda) = máximo del plan + extras.
+// Cada profesional extra cuesta $9.990/mes. Los usuarios sin agenda no cuentan.
+function ProfesionalesCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) {
+  const p = c.profesionales
+  const [extra, setExtra] = useState(String(p?.extra ?? 0))
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  useEffect(() => { setExtra(String(p?.extra ?? 0)) }, [p?.extra])
+  const nExtra = Math.max(0, Math.round(Number(extra) || 0))
+  const dirty = nExtra !== (p?.extra ?? 0)
+  const limitePreview = (p?.base ?? 0) + nExtra
+  const excedido = p ? p.activos > p.limite : false
+
+  async function guardar() {
+    if (!dirty) return
+    setBusy(true); setErr('')
+    try { await adminService.cambiarProfesionalesExtra(c.id, nExtra); onSaved('Profesionales extra actualizados ✓') }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
+  }
+
+  return (
+    <Card title="Profesionales con agenda">
+      <p className="text-sm text-slate-400 mb-3">Usuarios <span className="text-slate-200">con agenda</span> (doctores/médicos). Los usuarios sin agenda (recepción, asistentes) no tienen límite.</p>
+      {p ? (
+        <>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mb-3 text-sm">
+            <span><span className="text-slate-500">En uso:</span> <span className={`font-semibold ${excedido ? 'text-rose-300' : 'text-white'}`}>{p.activos}</span> / {limitePreview}</span>
+            <span className="text-xs text-slate-500">Plan {p.planNombre}: {p.base} · Extras: {nExtra}</span>
+          </div>
+          {excedido && <p className="text-xs text-rose-300 mb-2">⚠️ La clínica tiene más profesionales activos que su tope. Aumenta los extras o desactiva profesionales.</p>}
+          <label className="block"><L>Profesionales extra ({fmtCLP(p.precioExtra)}/mes c/u)</L>
+            <input type="number" min={0} max={100} value={extra} onChange={(e) => setExtra(e.target.value)} className={`${inpCls} w-32`} />
+          </label>
+          {nExtra > 0 && <p className="text-[11px] text-slate-400 mt-1">+{fmtCLP(nExtra * p.precioExtra)} al mes por {nExtra} profesional{nExtra === 1 ? '' : 'es'} extra.</p>}
+          {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
+          <button onClick={guardar} disabled={busy || !dirty} className={`${btnCls} mt-3`}>{busy ? 'Guardando…' : 'Guardar profesionales'}</button>
+        </>
+      ) : <p className="text-sm text-slate-500">Sin datos.</p>}
     </Card>
   )
 }

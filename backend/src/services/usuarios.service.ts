@@ -3,9 +3,26 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
 import type { DoctorDTO, UsuarioDTO } from '@shared/types'
+import { getLimiteProfesionales } from '@/lib/plans'
 
 const ROLES_PERMITIDOS = ['admin', 'doctor', 'medico', 'staff']
 const ROLES_CON_AGENDA = ['doctor', 'medico']
+
+// Cuenta los profesionales ACTIVOS (usuarios con agenda) de la clínica.
+export function contarProfesionalesActivos(db: TenantClient, exceptId?: string): Promise<number> {
+  return db.user.count({ where: { role: { in: ROLES_CON_AGENDA }, activo: true, ...(exceptId ? { id: { not: exceptId } } : {}) } })
+}
+
+// Verifica que sumar un profesional con agenda no supere el tope del plan (+extras).
+// clinicaId es del control-plane; si no se pasa (contextos internos) no valida.
+async function assertCupoProfesional(db: TenantClient, clinicaId: string | undefined, exceptId?: string): Promise<void> {
+  if (!clinicaId) return
+  const { limite } = await getLimiteProfesionales(clinicaId)
+  const actuales = await contarProfesionalesActivos(db, exceptId)
+  if (actuales + 1 > limite) {
+    throw badRequest(`Alcanzaste el tope de profesionales con agenda de tu plan (${limite}). Los usuarios sin agenda (recepción, asistentes) no tienen límite. Para sumar más profesionales, cada uno adicional cuesta $9.990 al mes — contáctanos para ampliarlo.`)
+  }
+}
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,30}$/
 
 const SELECT = {
@@ -48,7 +65,7 @@ export interface CrearUsuarioInput {
   email?: string | null; rut?: string | null; especialidad?: string | null; telefono?: string | null
 }
 
-export async function crearUsuario(db: TenantClient, input: CrearUsuarioInput): Promise<UsuarioDTO> {
+export async function crearUsuario(db: TenantClient, input: CrearUsuarioInput, clinicaId?: string): Promise<UsuarioDTO> {
   if (!input.name?.trim()) throw badRequest('Falta el nombre')
 
   const username = (input.username ?? '').trim().toLowerCase()
@@ -60,6 +77,9 @@ export async function crearUsuario(db: TenantClient, input: CrearUsuarioInput): 
 
   const role = input.role ?? 'doctor'
   if (!ROLES_PERMITIDOS.includes(role)) throw badRequest(`role inválido. Use: ${ROLES_PERMITIDOS.join(', ')}`)
+
+  // Tope de profesionales con agenda del plan (los usuarios sin agenda no cuentan).
+  if (ROLES_CON_AGENDA.includes(role)) await assertCupoProfesional(db, clinicaId)
 
   const email = input.email && input.email.trim() ? input.email.trim().toLowerCase() : null
 
@@ -89,8 +109,8 @@ const CAMPOS_ADMIN = [
   'puedeEditarPagos', 'puedeGestionarLiquidaciones', 'puedeGestionarCrm', 'puedeEliminar', 'googleCalendarId',
 ]
 
-export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, targetId: string, body: Record<string, unknown>): Promise<UsuarioDTO> {
-  const existing = await db.user.findUnique({ where: { id: targetId }, select: { id: true } })
+export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, targetId: string, body: Record<string, unknown>, clinicaId?: string): Promise<UsuarioDTO> {
+  const existing = await db.user.findUnique({ where: { id: targetId }, select: { id: true, role: true, activo: true } })
   if (!existing) throw notFound('Usuario no encontrado')
 
   const editandoOtro = actor.sub !== targetId
@@ -106,6 +126,14 @@ export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, tar
   if ('role' in data && !ROLES_PERMITIDOS.includes(String(data.role))) {
     throw badRequest(`role inválido. Use: ${ROLES_PERMITIDOS.join(', ')}`)
   }
+
+  // Si el cambio CONVIERTE al usuario en profesional con agenda activo (por rol o
+  // por reactivación) y antes no lo era, valida el tope del plan (+extras).
+  const rolFinal = 'role' in data ? String(data.role) : existing.role
+  const activoFinal = 'activo' in data ? Boolean(data.activo) : existing.activo
+  const seraProfesional = ROLES_CON_AGENDA.includes(rolFinal) && activoFinal
+  const eraProfesional = ROLES_CON_AGENDA.includes(existing.role) && existing.activo
+  if (seraProfesional && !eraProfesional) await assertCupoProfesional(db, clinicaId, targetId)
 
   if ('username' in data) {
     if (!data.username) throw badRequest('El nombre de usuario no puede quedar vacío')

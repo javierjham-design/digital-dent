@@ -43,6 +43,7 @@ model Clinica {
 
   // Facturación de la suscripción (gestionado por super-admin).
   cicloFacturacion String    @default("MENSUAL") // MENSUAL | ANUAL
+  profesionalesExtra Int     @default(0)   // profesionales con agenda adicionales al tope del plan ($9.990 c/u al mes)
   precioAcordado   Float?
   proximoCobro     DateTime?
   notasInternas    String?
@@ -117,6 +118,7 @@ model PlanSuscripcion {
   descripcion     String?
   precioMensual   Float    @default(0)
   precioAnual     Float?
+  maxProfesionales Int     @default(2) // tope de usuarios CON agenda (doctor/médico) del plan
   caracteristicas String   @default("[]") // JSON string[]
   destacado       Boolean  @default(false)
   orden           Int      @default(0)

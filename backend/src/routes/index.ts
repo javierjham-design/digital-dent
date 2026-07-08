@@ -306,6 +306,7 @@ apiRouter.patch('/admin/clinicas/:id/slug', sa, asyncHandler(admin.patchSlug))
 apiRouter.post('/admin/clinicas/:id/convertir', sa, asyncHandler(admin.postConvertir))
 apiRouter.patch('/admin/clinicas/:id/pais', sa, asyncHandler(admin.patchPais))
 apiRouter.patch('/admin/clinicas/:id/modulos', sa, asyncHandler(admin.patchModulos))
+apiRouter.patch('/admin/clinicas/:id/profesionales-extra', sa, asyncHandler(admin.patchProfesionalesExtra))
 apiRouter.post('/admin/clinicas/:id/reset-admin-password', sa, asyncHandler(admin.postResetPassword))
 // Pagos
 apiRouter.get('/admin/clinicas/:id/pagos', sa, asyncHandler(admin.getPagos))

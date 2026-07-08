@@ -13,9 +13,9 @@ export async function getDoctores(req: Request, res: Response) {
 
 export async function postUsuario(req: Request, res: Response) {
   const input = crearUsuarioSchema.parse(req.body)
-  res.status(201).json(await crearUsuario(tenantDb(req), { ...input, email: input.email || null }))
+  res.status(201).json(await crearUsuario(tenantDb(req), { ...input, email: input.email || null }, req.clinica?.id))
 }
 
 export async function patchUsuario(req: Request, res: Response) {
-  res.json(await actualizarUsuario(tenantDb(req), req.auth!, req.params.id, req.body ?? {}))
+  res.json(await actualizarUsuario(tenantDb(req), req.auth!, req.params.id, req.body ?? {}, req.clinica?.id))
 }
