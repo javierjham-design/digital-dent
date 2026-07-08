@@ -10,7 +10,7 @@ import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/cl
 import { invalidateClinicaCache } from '@/middlewares/tenant'
 import { esPaisValido } from '@shared/constants/paises'
 import { parseModulos, MODULOS_CODES } from '@shared/constants/modulos'
-import { conteoEnLinea, usuariosEnLinea } from '@/lib/presence'
+import { conteoEnLinea, usuariosEnLinea, totalEnLinea } from '@/lib/presence'
 import {
   calcularProximoCobro, getEstadoPago, precioMensualEfectivo, type CicloFacturacion, type PlanPriceMap,
 } from '@/lib/billing'
@@ -74,7 +74,8 @@ export async function obtenerClinica(id: string) {
     modulos: parseModulos(c.modulos),
     sizeBytes,
     enLinea: online.length,
-    usuariosEnLinea: online.map((u) => ({ name: u.name, at: new Date(u.at).toISOString() })),
+    adminEnLinea: online.some((u) => u.admin),
+    usuariosEnLinea: online.map((u) => ({ name: u.name, admin: u.admin, at: new Date(u.at).toISOString() })),
   }
 }
 
@@ -438,7 +439,8 @@ export async function resumenSuscripciones() {
   const clinicas = await control.clinica.findMany({
     select: {
       id: true, slug: true, nombre: true, dbName: true, plan: true, activo: true, trialHasta: true, proximoCobro: true,
-      precioAcordado: true, cicloFacturacion: true, createdAt: true, esDemo: true, demoExpiraEn: true, ultimoAccesoAt: true,
+      precioAcordado: true, cicloFacturacion: true, createdAt: true, esDemo: true, demoExpiraEn: true,
+      ultimoAccesoAt: true, ultimoAccesoAdminAt: true,
       pagosSuscripcion: { orderBy: { fechaPago: 'desc' }, take: 1, select: { fechaPago: true, monto: true } },
       extras: { where: { activo: true }, select: { montoMensual: true } },
     },
@@ -472,6 +474,7 @@ export async function resumenSuscripciones() {
       createdAt: c.createdAt.toISOString(),
       sizeBytes: sizes.get(c.dbName) ?? null,
       ultimoAccesoAt: c.ultimoAccesoAt?.toISOString() ?? null,
+      ultimoAccesoAdminAt: c.ultimoAccesoAdminAt?.toISOString() ?? null,
       enLinea: online.get(c.id) ?? 0,
     }
   })
@@ -479,7 +482,7 @@ export async function resumenSuscripciones() {
   let almacenamientoBytes = 0
   for (const b of sizes.values()) almacenamientoBytes += b
   return {
-    kpis: { totalClinicas: clinicas.length - demos, mrr, arr, alDia: contadores.AL_DIA, atrasadas: contadores.ATRASADO, enTrial: contadores.TRIAL, suspendidas: contadores.SUSPENDIDO, trialsPorVencer, demos, almacenamientoBytes },
+    kpis: { totalClinicas: clinicas.length - demos, mrr, arr, alDia: contadores.AL_DIA, atrasadas: contadores.ATRASADO, enTrial: contadores.TRIAL, suspendidas: contadores.SUSPENDIDO, trialsPorVencer, demos, almacenamientoBytes, usuariosEnLinea: totalEnLinea() },
     clinicas: lista,
   }
 }

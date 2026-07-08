@@ -30,7 +30,8 @@ interface Clinica {
   plan: string; activo: boolean; trialHasta: string | null; proximoCobro: string | null
   precioAcordado: number | null; cicloFacturacion: string | null; notasInternas: string | null; createdAt: string
   esDemo: boolean; demoExpiraEn: string | null; pais: string; sizeBytes?: number | null; modulos?: string[]
-  ultimoAccesoAt?: string | null; enLinea?: number; usuariosEnLinea?: { name: string; at: string }[]
+  ultimoAccesoAt?: string | null; ultimoAccesoAdminAt?: string | null
+  enLinea?: number; adminEnLinea?: boolean; usuariosEnLinea?: { name: string; admin: boolean; at: string }[]
 }
 interface Pago { id: string; fechaPago: string; monto: number; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
@@ -277,25 +278,29 @@ function ActividadCard({ c }: { c: Clinica }) {
           {enLinea > 0 ? (
             <p className="flex items-center gap-2 text-emerald-300 font-semibold">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-              {enLinea} conectado{enLinea === 1 ? '' : 's'}
+              {enLinea} conectado{enLinea === 1 ? '' : 's'}{c.adminEnLinea && <span className="text-[11px] font-medium text-amber-300">· admin presente</span>}
             </p>
           ) : <p className="text-slate-400 font-medium">Nadie conectado</p>}
         </div>
         <div>
-          <p className="text-xs text-slate-500 mb-1">Último acceso</p>
+          <p className="text-xs text-slate-500 mb-1">Último acceso (cualquier usuario)</p>
           <p className="text-white font-medium">{fmtAcceso(c.ultimoAccesoAt)}</p>
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-1">Último acceso del administrador</p>
+          <p className="text-white font-medium">{fmtAcceso(c.ultimoAccesoAdminAt)}</p>
         </div>
       </div>
       {usuarios.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {usuarios.map((u, i) => (
-            <span key={i} className="inline-flex items-center gap-1.5 text-xs bg-emerald-500/10 text-emerald-200 border border-emerald-500/20 rounded-full px-2.5 py-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> {u.name}
+            <span key={i} className={`inline-flex items-center gap-1.5 text-xs rounded-full px-2.5 py-1 border ${u.admin ? 'bg-amber-500/10 text-amber-200 border-amber-500/20' : 'bg-emerald-500/10 text-emerald-200 border-emerald-500/20'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${u.admin ? 'bg-amber-400' : 'bg-emerald-400'}`} /> {u.name}{u.admin ? ' · admin' : ''}
             </span>
           ))}
         </div>
       )}
-      <p className="text-[11px] text-slate-500 mt-3">"En línea" = actividad en los últimos 5 minutos. Se actualiza solo cada 30 s.</p>
+      <p className="text-[11px] text-slate-500 mt-3">"En línea" = actividad en los últimos 5 minutos. Se actualiza solo cada 30 s. El acceso del administrador se registra aparte para ver si el dueño está usando la plataforma.</p>
     </Card>
   )
 }

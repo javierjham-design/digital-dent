@@ -44,9 +44,14 @@ export async function requireTenant(req: Request, _res: Response, next: NextFunc
     // Registro de uso (para el super-admin): presencia en memoria + último acceso
     // persistido con throttle. Best-effort: nunca bloquea ni rompe la request.
     if (req.auth && !req.auth.isPlatformAdmin) {
-      registrarPresencia(info.id, req.auth.sub, req.auth.name ?? req.auth.email ?? 'Usuario')
+      const esAdmin = req.auth.role === 'admin'
+      registrarPresencia(info.id, req.auth.sub, req.auth.name ?? req.auth.email ?? 'Usuario', esAdmin)
       if (debePersistirAcceso(info.id)) {
         void control.clinica.update({ where: { id: info.id }, data: { ultimoAccesoAt: new Date() } }).catch(() => {})
+      }
+      // El acceso de un admin de la clínica se registra aparte (dueño/administrador).
+      if (esAdmin && debePersistirAcceso(`${info.id}:admin`)) {
+        void control.clinica.update({ where: { id: info.id }, data: { ultimoAccesoAdminAt: new Date() } }).catch(() => {})
       }
     }
     next()

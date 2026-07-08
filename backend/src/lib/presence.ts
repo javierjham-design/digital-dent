@@ -3,29 +3,29 @@
 // correcto — "en línea" es un estado del momento, no un dato histórico. El dato
 // persistente (último acceso) vive en control.Clinica.ultimoAccesoAt.
 
-interface Seen { userId: string; name: string; at: number }
+interface Seen { userId: string; name: string; admin: boolean; at: number }
 
 const ONLINE_MS = 5 * 60_000   // "en línea" = actividad en los últimos 5 minutos
-const PERSIST_MS = 2 * 60_000  // persistir ultimoAccesoAt como mucho cada 2 min por clínica
+const PERSIST_MS = 2 * 60_000  // persistir el último acceso como mucho cada 2 min por scope
 
 // clinicaId → (userId → última vez visto)
 const porClinica = new Map<string, Map<string, Seen>>()
-// clinicaId → timestamp de la última persistencia de ultimoAccesoAt (throttle)
+// scope ("<clinicaId>" o "<clinicaId>:admin") → timestamp de la última persistencia (throttle)
 const lastPersist = new Map<string, number>()
 
 // Registra actividad de un usuario de una clínica (lo llama el middleware de tenant).
-export function registrarPresencia(clinicaId: string, userId: string, name: string): void {
+export function registrarPresencia(clinicaId: string, userId: string, name: string, admin: boolean): void {
   let m = porClinica.get(clinicaId)
   if (!m) { m = new Map(); porClinica.set(clinicaId, m) }
-  m.set(userId, { userId, name, at: Date.now() })
+  m.set(userId, { userId, name, admin, at: Date.now() })
 }
 
-// ¿Corresponde persistir AHORA el ultimoAccesoAt de esta clínica? (evita un
-// UPDATE por request; a lo sumo uno cada PERSIST_MS).
-export function debePersistirAcceso(clinicaId: string): boolean {
+// ¿Corresponde persistir AHORA el último acceso de este scope? (evita un UPDATE por
+// request; a lo sumo uno cada PERSIST_MS). scope: clinicaId, o `${clinicaId}:admin`.
+export function debePersistirAcceso(scope: string): boolean {
   const now = Date.now()
-  if (now - (lastPersist.get(clinicaId) ?? 0) < PERSIST_MS) return false
-  lastPersist.set(clinicaId, now)
+  if (now - (lastPersist.get(scope) ?? 0) < PERSIST_MS) return false
+  lastPersist.set(scope, now)
   return true
 }
 
@@ -38,7 +38,7 @@ function vigentes(m: Map<string, Seen> | undefined): Seen[] {
 }
 
 // Usuarios en línea de una clínica (los vistos en los últimos ONLINE_MS).
-export function usuariosEnLinea(clinicaId: string): { userId: string; name: string; at: number }[] {
+export function usuariosEnLinea(clinicaId: string): { userId: string; name: string; admin: boolean; at: number }[] {
   return vigentes(porClinica.get(clinicaId)).sort((a, b) => b.at - a.at)
 }
 
@@ -50,4 +50,11 @@ export function conteoEnLinea(): Map<string, number> {
     if (n > 0) out.set(clinicaId, n)
   }
   return out
+}
+
+// Total de usuarios en línea en TODA la plataforma (KPI del super-admin).
+export function totalEnLinea(): number {
+  let total = 0
+  for (const m of porClinica.values()) total += vigentes(m).length
+  return total
 }

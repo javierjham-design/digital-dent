@@ -31,7 +31,7 @@ interface ClinicaResumen {
   trialHasta: string | null; proximoCobro: string | null; precioMensual: number
   estado: Estado; ultimoPago: { fecha: string; monto: number } | null; createdAt: string
   esDemo: boolean; demoExpiraEn: string | null; sizeBytes: number | null
-  ultimoAccesoAt: string | null; enLinea: number
+  ultimoAccesoAt: string | null; ultimoAccesoAdminAt: string | null; enLinea: number
 }
 
 // Indicador de actividad: punto verde + "en línea" si hay usuarios conectados,
@@ -45,7 +45,7 @@ function Actividad({ c }: { c: ClinicaResumen }) {
   )
   return <span className="text-slate-400">{fmtAcceso(c.ultimoAccesoAt)}</span>
 }
-interface Kpis { totalClinicas: number; mrr: number; arr: number; alDia: number; atrasadas: number; enTrial: number; suspendidas: number; trialsPorVencer: number; demos: number; almacenamientoBytes: number }
+interface Kpis { totalClinicas: number; mrr: number; arr: number; alDia: number; atrasadas: number; enTrial: number; suspendidas: number; trialsPorVencer: number; demos: number; almacenamientoBytes: number; usuariosEnLinea: number }
 
 const ESTADO_TONE: Record<Estado, string> = {
   AL_DIA: 'bg-emerald-500/15 text-emerald-300',
@@ -110,6 +110,15 @@ export function AdminClinicas() {
             <p className="text-xs uppercase tracking-wider text-sky-300/80">Almacenamiento</p>
             <p className="text-xl font-bold mt-1 text-white">{fmtBytes(kpis.almacenamientoBytes)}</p>
             <p className="text-[10px] text-slate-500">total en Railway</p>
+          </div>
+        )}
+        {kpis && (
+          <div className="bg-gradient-to-br from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-xl px-4 py-3">
+            <p className="text-xs uppercase tracking-wider text-emerald-300/80 flex items-center gap-1.5">
+              {kpis.usuariosEnLinea > 0 && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />} En línea
+            </p>
+            <p className="text-2xl font-bold mt-1 text-white">{kpis.usuariosEnLinea}</p>
+            <p className="text-[10px] text-slate-500">usuarios ahora</p>
           </div>
         )}
       </div>
