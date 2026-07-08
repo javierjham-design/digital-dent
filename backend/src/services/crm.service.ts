@@ -73,6 +73,55 @@ export async function registrarEnvioMeta(
   } catch { /* best-effort: no rompe la operación */ }
 }
 
+// ── Evento "Schedule" a Meta (system_generated) ───────────────────────────────
+// Se dispara cuando un lead pasa a AGENDADO (desde el CRM o marcado a mano) y en
+// el backfill. Idempotente: no reenvía si scheduleCapiEnviado ya es true.
+// Reutiliza EXACTAMENTE el helper/token/dataset/user_data del evento Lead.
+type ScheduleLead = {
+  id: string; email: string | null; telefono: string | null; nombre: string; apellido: string | null
+  rut: string | null; externalId: string | null; fbp: string | null; fbc: string | null; ctwaClid: string | null
+  landing: string | null; ip: string | null; userAgent: string | null; tratamiento: string | null
+  utmCampaign: string | null; utmTerm: string | null; utmContent: string | null
+  fechaAgenda: Date | null; ultimaGestionAt: Date; updatedAt: Date
+  scheduleEventId: string | null; scheduleCapiEnviado: boolean
+}
+export type ScheduleOutcome = 'enviado' | 'error' | 'ya' | 'sin-config'
+
+// event_time con clamp: Meta rechaza eventos de más de 7 días → nunca antes de
+// (ahora − 6 días). Usa el mayor entre (fechaAgenda ?? ultimaGestionAt ?? updatedAt) y ese piso.
+function scheduleEventTime(l: ScheduleLead): number {
+  const base = l.fechaAgenda ?? l.ultimaGestionAt ?? l.updatedAt ?? new Date()
+  const baseSec = Math.floor(new Date(base).getTime() / 1000)
+  const pisoSec = Math.floor(Date.now() / 1000) - 6 * 86400
+  return Math.max(baseSec, pisoSec)
+}
+
+export async function dispararScheduleMeta(db: TenantClient, lead: ScheduleLead, cfg?: MetaConfig): Promise<ScheduleOutcome> {
+  if (lead.scheduleCapiEnviado) return 'ya' // idempotencia
+  const conf = cfg ?? await getMetaConfig(db)
+  if (!metaHabilitado(conf)) return 'sin-config'
+  // event_id estable para deduplicar reintentos (y con el Pixel si existiera).
+  const eventId = lead.scheduleEventId || `sched_${lead.id}`
+  if (eventId !== lead.scheduleEventId) {
+    await db.lead.update({ where: { id: lead.id }, data: { scheduleEventId: eventId } }).catch(() => {})
+  }
+  const externalId = lead.externalId || lead.rut || lead.id
+  const res = await enviarEventoMeta(conf, {
+    eventName: 'Schedule', eventId, actionSource: 'system_generated', eventTime: scheduleEventTime(lead),
+    eventSourceUrl: lead.landing ?? null,
+    email: lead.email, telefono: lead.telefono, nombre: lead.nombre, apellido: lead.apellido,
+    externalId, ctwaClid: lead.ctwaClid, pais: 'cl', fbp: lead.fbp, fbc: lead.fbc,
+    ip: lead.ip, userAgent: lead.userAgent,
+    custom: {
+      tratamiento: lead.tratamiento ?? undefined, campaign_id: lead.utmCampaign ?? undefined,
+      adset_id: lead.utmTerm ?? undefined, ad_id: lead.utmContent ?? undefined,
+    },
+  })
+  // Deja el flag/nota (confirmador). Si falla, scheduleCapiEnviado queda en false para reintento.
+  await registrarEnvioMeta(db, lead.id, 'Schedule', res, 'scheduleCapiEnviado')
+  return res.ok ? 'enviado' : 'error'
+}
+
 // ── Listado + detalle ─────────────────────────────────────────────────────────
 
 export async function listarLeads(db: TenantClient, f: { estado?: string; origen?: string; campana?: string; q?: string; desde?: string; hasta?: string }) {
@@ -274,6 +323,8 @@ export async function actualizarLead(db: TenantClient, actor: JwtPayload, id: st
   if (cambioEstado) {
     await db.leadNota.create({ data: { leadId: id, tipo: 'ESTADO', texto: `Estado → ${cambioEstado}`, autorId: actor.sub, autorNombre: actorName(actor) } })
   }
+  // Si pasó a AGENDADO (marca manual), dispara Schedule a Meta (idempotente, no bloquea).
+  if (cambioEstado === 'AGENDADO') void dispararScheduleMeta(db, lead as ScheduleLead)
   return lead
 }
 
@@ -356,20 +407,35 @@ export async function agendarLead(db: TenantClient, actor: JwtPayload, id: strin
   await db.leadNota.create({ data: { leadId: id, tipo: 'SISTEMA', texto: `Hora agendada: ${cuando}${cita.doctor ? ` · ${cita.doctor}` : ''}`, autorId: actor.sub, autorNombre: actorName(actor) } })
 
   // Evento "Schedule" a Meta (conversión: el lead agendó, aunque sea por recepción).
-  // Usa la identidad guardada del lead para atribución; confirmador sin bloquear.
-  const cfg = await getMetaConfig(db)
-  if (metaHabilitado(cfg)) {
-    const eventId = randomUUID()
-    await db.lead.update({ where: { id }, data: { scheduleEventId: eventId, scheduleCapiEnviado: false } })
-    const externalId = lead.externalId || lead.rut || lead.id
-    void enviarEventoMeta(cfg, {
-      eventName: 'Schedule', eventId,
-      email: lead.email, telefono: lead.telefono, nombre: lead.nombre, apellido: lead.apellido,
-      externalId, ctwaClid: lead.ctwaClid, pais: 'cl', fbp: lead.fbp, fbc: lead.fbc,
-      custom: { content_name: lead.tratamiento ?? lead.motivo ?? undefined, source: lead.origen },
-    }).then((res) => registrarEnvioMeta(db, id, 'Schedule', res, 'scheduleCapiEnviado'))
-  }
+  // Idempotente y sin bloquear la respuesta; usa la fecha de la cita como event_time.
+  void dispararScheduleMeta(db, { ...lead, fechaAgenda: new Date(cita.inicio) } as ScheduleLead)
   return { pacienteId, citaId: cita.id, inicio: cita.inicio }
+}
+
+// ── Backfill (one-off): reenvía Schedule a los AGENDADO pendientes ────────────
+// Omite los que no tienen NINGUNA clave de match usable (email/teléfono/fbc/fbp/
+// externalId real). Idempotente: dispararScheduleMeta salta los ya enviados.
+export interface BackfillScheduleResumen {
+  total: number; enviados: number; omitidos: number; errores: number
+  omitidosIds: string[]
+}
+export async function backfillSchedule(db: TenantClient): Promise<BackfillScheduleResumen> {
+  const cfg = await getMetaConfig(db)
+  if (!metaHabilitado(cfg)) throw badRequest('Meta no está configurado o habilitado en esta clínica.')
+  const leads = await db.lead.findMany({ where: { estado: 'AGENDADO', scheduleCapiEnviado: false } })
+  let enviados = 0, omitidos = 0, errores = 0
+  const omitidosIds: string[] = []
+  for (const l of leads) {
+    // externalId sintetizado (= id del lead) NO cuenta como clave real de match.
+    const externalReal = l.externalId && l.externalId !== l.id ? l.externalId : null
+    const tieneMatch = Boolean(l.email || l.telefono || l.fbc || l.fbp || externalReal)
+    if (!tieneMatch) { omitidos++; omitidosIds.push(l.id); continue }
+    const r = await dispararScheduleMeta(db, l as ScheduleLead, cfg)
+    if (r === 'enviado') enviados++
+    else if (r === 'error' || r === 'sin-config') errores++
+    // 'ya' no debería ocurrir (el where filtra scheduleCapiEnviado=false), pero no suma a nada.
+  }
+  return { total: leads.length, enviados, omitidos, errores, omitidosIds }
 }
 
 export async function eliminarLead(db: TenantClient, id: string) {

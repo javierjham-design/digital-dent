@@ -9,6 +9,8 @@ export interface MetaConfig { enabled: boolean; pixelId: string | null; capiToke
 export interface MetaEvent {
   eventName: string
   eventId: string
+  actionSource?: string         // por defecto 'website'; 'system_generated' para eventos del servidor (Schedule)
+  eventTime?: number            // Unix seconds; por defecto ahora. Para backfill se usa con clamp (Meta rechaza > 7 días)
   eventSourceUrl?: string | null
   email?: string | null
   telefono?: string | null
@@ -119,8 +121,8 @@ export async function enviarEventoMeta(cfg: MetaConfig, ev: MetaEvent): Promise<
     const body: Record<string, unknown> = {
       data: [{
         event_name: ev.eventName,
-        event_time: Math.floor(Date.now() / 1000),
-        action_source: 'website',
+        event_time: ev.eventTime ?? Math.floor(Date.now() / 1000),
+        action_source: ev.actionSource ?? 'website',
         event_id: ev.eventId,
         ...(ev.eventSourceUrl ? { event_source_url: ev.eventSourceUrl } : {}),
         user_data,

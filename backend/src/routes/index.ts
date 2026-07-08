@@ -136,6 +136,7 @@ apiRouter.get('/reservas-online', agendaTenant, asyncHandler(agendaOnline.getRes
 apiRouter.get('/crm/config', crmTenant, asyncHandler(crm.getConfig))
 apiRouter.patch('/crm/config', crmAdmin, asyncHandler(crm.patchConfig))
 apiRouter.post('/crm/meta/test', crmAdmin, asyncHandler(crm.postProbarMeta))
+apiRouter.post('/crm/schedule/backfill', crmAdmin, asyncHandler(crm.postBackfillSchedule))
 
 // Gestión de la API key de acceso externo (MCP) — admin de la clínica.
 apiRouter.get('/crm/api-key', crmAdmin, asyncHandler(ext.getApiKey))

@@ -47,6 +47,7 @@ export const crmService = {
   config: () => api.get<CrmConfig>('/crm/config'),
   guardarConfig: (patch: Record<string, unknown>) => api.patch<CrmConfig>('/crm/config', patch),
   probarMeta: () => api.post<MetaTestResult>('/crm/meta/test', {}),
+  backfillSchedule: () => api.post<{ total: number; enviados: number; omitidos: number; errores: number; omitidosIds: string[] }>('/crm/schedule/backfill', {}),
   apiKeyEstado: () => api.get<{ hasApiKey: boolean }>('/crm/api-key'),
   rotarApiKey: () => api.post<{ apiKey: string }>('/crm/api-key/rotate', {}),
   revocarApiKey: () => api.del<{ ok: true }>('/crm/api-key'),

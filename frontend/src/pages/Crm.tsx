@@ -584,6 +584,8 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const [editToken, setEditToken] = useState(false)
   const [probando, setProbando] = useState(false)
   const [testRes, setTestRes] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillRes, setBackfillRes] = useState<string | null>(null)
   const [apiKeyOn, setApiKeyOn] = useState(false)
   const [nuevaKey, setNuevaKey] = useState<string | null>(null)
   useEffect(() => {
@@ -614,6 +616,16 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
         ? { ok: true, msg: `Token válido · Meta aceptó el evento de prueba${r.testCode ? ` (código ${r.testCode})` : ''}.` }
         : { ok: false, msg: r.error ?? 'No se pudo validar el token.' })
     } catch (e) { setTestRes({ ok: false, msg: e instanceof ApiError ? e.message : 'Error al probar la conexión.' }) } finally { setProbando(false) }
+  }
+
+  async function backfill() {
+    if (!confirm('Reenviar el evento Schedule a Meta para todos los leads AGENDADO que aún no lo tienen confirmado. ¿Continuar?')) return
+    setBackfilling(true); setBackfillRes(null)
+    try {
+      const r = await crmService.backfillSchedule()
+      setBackfillRes(`Enviados: ${r.enviados} · Omitidos (sin datos de match): ${r.omitidos} · Errores: ${r.errores} · Total revisados: ${r.total}`)
+      notify('Backfill completado')
+    } catch (e) { setBackfillRes(e instanceof ApiError ? e.message : 'Error en el backfill'); notify('Error en el backfill', false) } finally { setBackfilling(false) }
   }
 
   // El formulario hospedado es una ruta del SPA → va en el origin del frontend.
@@ -717,6 +729,14 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
                 {probando ? 'Probando…' : 'Probar conexión con Meta'}
               </button>
               {testRes && <span className={`text-xs font-medium ${testRes.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{testRes.ok ? '✓' : '✗'} {testRes.msg}</span>}
+            </div>
+            {/* Backfill del evento Schedule para los leads ya AGENDADO sin confirmar */}
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <button onClick={backfill} disabled={backfilling || !cfg.hasCapiToken}
+                className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-lg">
+                {backfilling ? 'Reenviando…' : 'Reenviar Schedule a AGENDADO pendientes'}
+              </button>
+              {backfillRes && <span className="text-xs text-slate-600">{backfillRes}</span>}
             </div>
             <p className="text-[11px] text-slate-400 mt-2">El token se guarda oculto por seguridad (por eso no se vuelve a mostrar). "Probar conexión" envía un evento de prueba marcado como test — <span className="font-medium">no afecta tus métricas ni tu reporte</span>. Ingresa tu Test Event Code (de Meta → Eventos de prueba) para verlo entrar en vivo. Los eventos reales (Lead, Schedule) se deduplican con el Pixel por event_id.</p>
           </div>

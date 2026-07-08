@@ -60,6 +60,9 @@ export async function patchConfig(req: Request, res: Response) {
 export async function postProbarMeta(req: Request, res: Response) {
   res.json(await svc.probarMeta(tenantDb(req)))
 }
+export async function postBackfillSchedule(req: Request, res: Response) {
+  res.json(await svc.backfillSchedule(tenantDb(req)))
+}
 
 // ── Público (formulario hospedado + intake por slug/token) ───────────────────
 // Resuelve la clínica por slug y exige que tenga el módulo CRM habilitado (si el
