@@ -53,6 +53,10 @@ model Clinica {
   waEnabled Boolean @default(false)
   waNumero  String? @unique
 
+  // Último acceso de CUALQUIER usuario de la clínica a la plataforma (se
+  // actualiza con throttle desde el middleware de tenant). Para el super-admin.
+  ultimoAccesoAt DateTime?
+
   // Demo autogenerada desde la landing (se elimina al expirar).
   esDemo       Boolean   @default(false)
   demoExpiraEn DateTime?

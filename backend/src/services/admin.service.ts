@@ -10,6 +10,7 @@ import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/cl
 import { invalidateClinicaCache } from '@/middlewares/tenant'
 import { esPaisValido } from '@shared/constants/paises'
 import { parseModulos, MODULOS_CODES } from '@shared/constants/modulos'
+import { conteoEnLinea, usuariosEnLinea } from '@/lib/presence'
 import {
   calcularProximoCobro, getEstadoPago, precioMensualEfectivo, type CicloFacturacion, type PlanPriceMap,
 } from '@/lib/billing'
@@ -67,7 +68,14 @@ export async function obtenerClinica(id: string) {
     const rows = await control.$queryRaw<{ bytes: bigint }[]>`SELECT pg_database_size(${c.dbName}) AS bytes`
     sizeBytes = rows[0] ? Number(rows[0].bytes) : null
   } catch { sizeBytes = null }
-  return { ...c, modulos: parseModulos(c.modulos), sizeBytes }
+  const online = usuariosEnLinea(id)
+  return {
+    ...c,
+    modulos: parseModulos(c.modulos),
+    sizeBytes,
+    enLinea: online.length,
+    usuariosEnLinea: online.map((u) => ({ name: u.name, at: new Date(u.at).toISOString() })),
+  }
 }
 
 // Asigna los módulos habilitados de la clínica (CRM / Agendamiento online /
@@ -430,13 +438,14 @@ export async function resumenSuscripciones() {
   const clinicas = await control.clinica.findMany({
     select: {
       id: true, slug: true, nombre: true, dbName: true, plan: true, activo: true, trialHasta: true, proximoCobro: true,
-      precioAcordado: true, cicloFacturacion: true, createdAt: true, esDemo: true, demoExpiraEn: true,
+      precioAcordado: true, cicloFacturacion: true, createdAt: true, esDemo: true, demoExpiraEn: true, ultimoAccesoAt: true,
       pagosSuscripcion: { orderBy: { fechaPago: 'desc' }, take: 1, select: { fechaPago: true, monto: true } },
       extras: { where: { activo: true }, select: { montoMensual: true } },
     },
     orderBy: { createdAt: 'desc' },
   })
   const sizes = await tamanosPorDb()
+  const online = conteoEnLinea()
   const now = new Date()
   const en7dias = new Date(now.getTime() + 7 * 86400000)
   let mrr = 0, arr = 0
@@ -462,6 +471,8 @@ export async function resumenSuscripciones() {
       ultimoPago: c.pagosSuscripcion[0] ? { fecha: c.pagosSuscripcion[0].fechaPago.toISOString(), monto: c.pagosSuscripcion[0].monto } : null,
       createdAt: c.createdAt.toISOString(),
       sizeBytes: sizes.get(c.dbName) ?? null,
+      ultimoAccesoAt: c.ultimoAccesoAt?.toISOString() ?? null,
+      enLinea: online.get(c.id) ?? 0,
     }
   })
   // Total facturable en Railway: suma de todas las bases (control + tenants).

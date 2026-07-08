@@ -8,6 +8,15 @@ import { MODULOS, MODULOS_CODES } from '@shared/constants/modulos'
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 const toInput = (s: string | null | undefined) => (s ? new Date(s).toISOString().slice(0, 10) : '')
+const fmtAcceso = (s: string | null | undefined) => {
+  if (!s) return 'Nunca ha ingresado'
+  const d = new Date(s); const min = Math.floor((Date.now() - d.getTime()) / 60000)
+  if (min < 1) return 'Hace instantes'
+  if (min < 60) return `Hace ${min} min`
+  const esHoy = d.toDateString() === new Date().toDateString()
+  if (esHoy) return `Hoy a las ${d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}`
+  return d.toLocaleString('es-CL', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
 const fmtBytes = (b?: number | null) => {
   if (b == null) return '—'
   if (b < 1024) return `${b} B`
@@ -21,6 +30,7 @@ interface Clinica {
   plan: string; activo: boolean; trialHasta: string | null; proximoCobro: string | null
   precioAcordado: number | null; cicloFacturacion: string | null; notasInternas: string | null; createdAt: string
   esDemo: boolean; demoExpiraEn: string | null; pais: string; sizeBytes?: number | null; modulos?: string[]
+  ultimoAccesoAt?: string | null; enLinea?: number; usuariosEnLinea?: { name: string; at: string }[]
 }
 interface Pago { id: string; fechaPago: string; monto: number; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
@@ -35,6 +45,8 @@ export function AdminClinicaDetalle() {
 
   const recargar = () => adminService.clinica(id).then((r) => setC(r as Clinica))
   useEffect(() => { recargar().finally(() => setCargando(false)) }, [id])
+  // Refresca cada 30s para mantener al día "usuarios en línea".
+  useEffect(() => { const t = setInterval(() => { recargar().catch(() => {}) }, 30000); return () => clearInterval(t) }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
   function flash(msg: string) { setAviso(msg); setTimeout(() => setAviso(''), 4000) }
 
   if (cargando) return <p className="text-slate-500 text-sm">Cargando…</p>
@@ -57,6 +69,8 @@ export function AdminClinicaDetalle() {
       {aviso && <div className="bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-sm rounded-xl px-4 py-2">{aviso}</div>}
 
       {c.esDemo && <ConvertirCard c={c} onSaved={(m) => { flash(m); recargar() }} />}
+
+      <ActividadCard c={c} />
 
       <div className="grid md:grid-cols-2 gap-5">
         <PlanCard c={c} onSaved={(m) => { flash(m); recargar() }} />
@@ -247,6 +261,41 @@ function PaisCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) 
       </label>
       {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
       <button onClick={guardar} disabled={busy || pais === c.pais} className={`${btnCls} mt-3`}>{busy ? 'Guardando…' : 'Cambiar país'}</button>
+    </Card>
+  )
+}
+
+// Registro de uso: último acceso a la plataforma + usuarios en línea ahora mismo.
+function ActividadCard({ c }: { c: Clinica }) {
+  const enLinea = c.enLinea ?? 0
+  const usuarios = c.usuariosEnLinea ?? []
+  return (
+    <Card title="Actividad y uso">
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+        <div>
+          <p className="text-xs text-slate-500 mb-1">Usuarios en línea</p>
+          {enLinea > 0 ? (
+            <p className="flex items-center gap-2 text-emerald-300 font-semibold">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              {enLinea} conectado{enLinea === 1 ? '' : 's'}
+            </p>
+          ) : <p className="text-slate-400 font-medium">Nadie conectado</p>}
+        </div>
+        <div>
+          <p className="text-xs text-slate-500 mb-1">Último acceso</p>
+          <p className="text-white font-medium">{fmtAcceso(c.ultimoAccesoAt)}</p>
+        </div>
+      </div>
+      {usuarios.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {usuarios.map((u, i) => (
+            <span key={i} className="inline-flex items-center gap-1.5 text-xs bg-emerald-500/10 text-emerald-200 border border-emerald-500/20 rounded-full px-2.5 py-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" /> {u.name}
+            </span>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] text-slate-500 mt-3">"En línea" = actividad en los últimos 5 minutos. Se actualiza solo cada 30 s.</p>
     </Card>
   )
 }

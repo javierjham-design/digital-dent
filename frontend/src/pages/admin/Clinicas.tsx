@@ -5,6 +5,17 @@ import { ApiError } from '@/services/api'
 
 const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtFecha = (s: string | null) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
+// Último acceso en formato relativo compacto (nunca · hace 3 min · hoy 14:30 · 05 jul).
+const fmtAcceso = (s: string | null) => {
+  if (!s) return 'Nunca'
+  const d = new Date(s); const min = Math.floor((Date.now() - d.getTime()) / 60000)
+  if (min < 1) return 'Ahora'
+  if (min < 60) return `Hace ${min} min`
+  const hoy = new Date(); const esHoy = d.toDateString() === hoy.toDateString()
+  if (esHoy) return `Hoy ${d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}`
+  if (min < 60 * 24 * 2) return `Ayer ${d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}`
+  return d.toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })
+}
 // Tamaño de la base (lo que se factura en Railway).
 const fmtBytes = (b?: number | null) => {
   if (b == null) return '—'
@@ -20,6 +31,19 @@ interface ClinicaResumen {
   trialHasta: string | null; proximoCobro: string | null; precioMensual: number
   estado: Estado; ultimoPago: { fecha: string; monto: number } | null; createdAt: string
   esDemo: boolean; demoExpiraEn: string | null; sizeBytes: number | null
+  ultimoAccesoAt: string | null; enLinea: number
+}
+
+// Indicador de actividad: punto verde + "en línea" si hay usuarios conectados,
+// si no, el último acceso registrado.
+function Actividad({ c }: { c: ClinicaResumen }) {
+  if (c.enLinea > 0) return (
+    <span className="inline-flex items-center gap-1.5 text-emerald-300">
+      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+      {c.enLinea} en línea
+    </span>
+  )
+  return <span className="text-slate-400">{fmtAcceso(c.ultimoAccesoAt)}</span>
 }
 interface Kpis { totalClinicas: number; mrr: number; arr: number; alDia: number; atrasadas: number; enTrial: number; suspendidas: number; trialsPorVencer: number; demos: number; almacenamientoBytes: number }
 
@@ -44,6 +68,13 @@ export function AdminClinicas() {
       .finally(() => setCargando(false))
   }
   useEffect(() => { cargar() }, [])
+  // Refresco silencioso (sin spinner) para mantener "en línea" al día.
+  useEffect(() => {
+    const t = setInterval(() => {
+      adminService.resumen().then((r) => { const d = r as { kpis: Kpis; clinicas: ClinicaResumen[] }; setKpis(d.kpis); setClinicas(d.clinicas) }).catch(() => {})
+    }, 30000)
+    return () => clearInterval(t)
+  }, [])
 
   const cards = kpis ? [
     { l: 'Total', v: kpis.totalClinicas },
@@ -104,6 +135,7 @@ export function AdminClinicas() {
                   <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
                     <div><span className="text-slate-500">Plan</span><p className="text-slate-300">{c.plan}</p></div>
                     <div className="text-right"><span className="text-slate-500">Precio/mes</span><p className="text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : fmtCLP(c.precioMensual)}</p></div>
+                    <div className="col-span-2 flex items-center justify-between"><span className="text-slate-500">Actividad</span> <span className="font-medium"><Actividad c={c} /></span></div>
                     <div className="col-span-2"><span className="text-slate-500">Almacenamiento (BD)</span> <span className="text-slate-300 font-mono">{fmtBytes(c.sizeBytes)}</span></div>
                     <div className="col-span-2 border-t border-slate-800 pt-2 flex items-center justify-between">
                       <span className="text-slate-400">{c.esDemo ? `demo · expira ${fmtFecha(c.demoExpiraEn)}` : c.estado === 'TRIAL' ? `trial ${fmtFecha(c.trialHasta)}` : `cobro ${fmtFecha(c.proximoCobro)}`}</span>
@@ -119,7 +151,9 @@ export function AdminClinicas() {
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-slate-800 text-xs uppercase tracking-wider text-slate-500">
                   <th className="text-left px-6 py-3">Clínica</th><th className="text-left px-6 py-3">Plan</th>
-                  <th className="text-left px-6 py-3">Estado</th><th className="text-right px-6 py-3">Precio/mes</th>
+                  <th className="text-left px-6 py-3">Estado</th>
+                  <th className="text-left px-6 py-3">Actividad</th>
+                  <th className="text-right px-6 py-3">Precio/mes</th>
                   <th className="text-right px-6 py-3">BD</th>
                   <th className="text-right px-6 py-3">Próx. cobro</th><th className="px-6 py-3"></th>
                 </tr></thead>
@@ -135,6 +169,7 @@ export function AdminClinicas() {
                       </td>
                       <td className="px-6 py-3 text-slate-300">{c.plan}</td>
                       <td className="px-6 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_TONE[c.estado]}`}>{ESTADO_LABEL[c.estado]}</span></td>
+                      <td className="px-6 py-3 text-xs whitespace-nowrap"><Actividad c={c} /></td>
                       <td className="px-6 py-3 text-right text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : fmtCLP(c.precioMensual)}</td>
                       <td className="px-6 py-3 text-right text-slate-400 font-mono text-xs whitespace-nowrap">{fmtBytes(c.sizeBytes)}</td>
                       <td className="px-6 py-3 text-right text-slate-400 text-xs whitespace-nowrap">{c.esDemo ? `demo · expira ${fmtFecha(c.demoExpiraEn)}` : c.estado === 'TRIAL' ? `trial ${fmtFecha(c.trialHasta)}` : fmtFecha(c.proximoCobro)}</td>
