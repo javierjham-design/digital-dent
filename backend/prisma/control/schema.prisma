@@ -125,7 +125,8 @@ model PlanSuscripcion {
   id              String   @id
   nombre          String
   descripcion     String?
-  precioMensual   Float    @default(0)
+  precioMensual   Float    @default(0)  // valor en CLP
+  precioMensualUSD Float   @default(0)  // valor en USD (para clínicas que se cobran en USD)
   precioAnual     Float?
   maxProfesionales Int     @default(2) // tope de usuarios CON agenda (doctor/médico) del plan
   caracteristicas String   @default("[]") // JSON string[]

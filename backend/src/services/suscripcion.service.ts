@@ -4,9 +4,9 @@
 
 import { control } from '@/db/control'
 import { notFound } from '@/lib/errors'
-import { getPlan, PROFESIONAL_EXTRA_PRECIO } from '@/lib/plans'
+import { getPlan, precioPlanEnMoneda, precioProfesionalExtra } from '@/lib/plans'
 import { getEstadoPago } from '@/lib/billing'
-import { monedaCobroDe } from '@shared/constants/cobro'
+import { monedaCobroDe, type MonedaCobro } from '@shared/constants/cobro'
 import { crearEnlacePago, proveedorPara, pasarelaConfigurada, type ResultadoEnlace } from '@/lib/pagos'
 
 async function cargarClinica(clinicaId: string) {
@@ -19,11 +19,13 @@ async function cargarClinica(clinicaId: string) {
 }
 
 // Calcula el total mensual de la suscripción en la moneda de cobro de la clínica.
-async function calcularTotal(c: Awaited<ReturnType<typeof cargarClinica>>) {
+// El precio del plan y del profesional extra dependen de la moneda (CLP/USD); los
+// extras y el precio acordado ya vienen en la moneda de la clínica.
+async function calcularTotal(c: Awaited<ReturnType<typeof cargarClinica>>, moneda: MonedaCobro) {
   const plan = await getPlan(c.plan)
-  const precioPlan = c.precioAcordado ?? plan?.precioMensual ?? 0
+  const precioPlan = c.precioAcordado ?? precioPlanEnMoneda(plan, moneda)
   const montoExtras = c.extras.reduce((s, e) => s + e.montoMensual, 0)
-  const montoProfesionales = (c.profesionalesExtra ?? 0) * PROFESIONAL_EXTRA_PRECIO
+  const montoProfesionales = (c.profesionalesExtra ?? 0) * precioProfesionalExtra(moneda)
   return { plan, precioPlan, montoExtras, montoProfesionales, total: precioPlan + montoExtras + montoProfesionales }
 }
 
@@ -31,7 +33,7 @@ export async function estadoSuscripcion(clinicaId: string) {
   const c = await cargarClinica(clinicaId)
   const moneda = monedaCobroDe(c.pais, c.monedaCobro)
   const proveedor = proveedorPara(moneda)
-  const { plan, precioPlan, montoExtras, montoProfesionales, total } = await calcularTotal(c)
+  const { plan, precioPlan, montoExtras, montoProfesionales, total } = await calcularTotal(c, moneda)
   const estado = getEstadoPago({ plan: c.plan, activo: c.activo, trialHasta: c.trialHasta, proximoCobro: c.proximoCobro, precioAcordado: c.precioAcordado, cicloFacturacion: c.cicloFacturacion })
   return {
     plan: plan?.nombre ?? c.plan,
@@ -59,7 +61,7 @@ export async function estadoSuscripcion(clinicaId: string) {
 export async function generarEnlacePago(clinicaId: string, recurrente: boolean): Promise<ResultadoEnlace> {
   const c = await cargarClinica(clinicaId)
   const moneda = monedaCobroDe(c.pais, c.monedaCobro)
-  const { plan, total } = await calcularTotal(c)
+  const { plan, total } = await calcularTotal(c, moneda)
   return crearEnlacePago({
     clinicaId,
     clinicaNombre: c.nombre,

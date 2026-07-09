@@ -1,7 +1,13 @@
 import { control } from '@/db/control'
+import type { MonedaCobro } from '@shared/constants/cobro'
 
-// Precio mensual de cada profesional (usuario con agenda) ADICIONAL al tope del plan.
-export const PROFESIONAL_EXTRA_PRECIO = 9990
+// Precio mensual de cada profesional (usuario con agenda) ADICIONAL al tope del
+// plan, por moneda de cobro. CLP para Chile; USD para el resto.
+export const PROFESIONAL_EXTRA_PRECIO = 9990        // CLP
+export const PROFESIONAL_EXTRA_PRECIO_USD = 12      // USD
+export function precioProfesionalExtra(moneda: MonedaCobro): number {
+  return moneda === 'USD' ? PROFESIONAL_EXTRA_PRECIO_USD : PROFESIONAL_EXTRA_PRECIO
+}
 
 // Defaults usados para seed inicial y como fallback si la consulta a DB falla.
 // El catálogo "real" vive en la tabla PlanSuscripcion y se gestiona desde el
@@ -12,6 +18,7 @@ const DEFAULT_PLANS = [
     nombre: 'Prueba',
     descripcion: 'Acceso completo por 30 días sin cobro.',
     precioMensual: 0,
+    precioMensualUSD: 0,
     precioAnual: null as number | null,
     maxProfesionales: 2,
     caracteristicas: [
@@ -28,6 +35,7 @@ const DEFAULT_PLANS = [
     nombre: 'Básico',
     descripcion: 'Funcionalidades core para una clínica pequeña.',
     precioMensual: 19900,
+    precioMensualUSD: 24,
     precioAnual: null as number | null,
     maxProfesionales: 2,
     caracteristicas: [
@@ -45,6 +53,7 @@ const DEFAULT_PLANS = [
     nombre: 'Pro',
     descripcion: 'Para clínicas con varios doctores y mayor volumen.',
     precioMensual: 39900,
+    precioMensualUSD: 48,
     precioAnual: null as number | null,
     maxProfesionales: 5,
     caracteristicas: [
@@ -64,6 +73,7 @@ export type Plan = {
   nombre: string
   descripcion: string | null
   precioMensual: number
+  precioMensualUSD: number
   precioAnual: number | null
   maxProfesionales: number
   caracteristicas: string[]
@@ -86,7 +96,7 @@ function parseCaracteristicas(raw: string | null | undefined): string[] {
 
 function mapPlan(r: {
   id: string; nombre: string; descripcion: string | null
-  precioMensual: number; precioAnual: number | null; maxProfesionales: number
+  precioMensual: number; precioMensualUSD: number; precioAnual: number | null; maxProfesionales: number
   caracteristicas: string; destacado: boolean; orden: number
   activo: boolean; createdAt: Date; updatedAt: Date
 }): Plan {
@@ -95,6 +105,7 @@ function mapPlan(r: {
     nombre: r.nombre,
     descripcion: r.descripcion,
     precioMensual: r.precioMensual,
+    precioMensualUSD: r.precioMensualUSD,
     precioAnual: r.precioAnual,
     maxProfesionales: r.maxProfesionales,
     caracteristicas: parseCaracteristicas(r.caracteristicas),
@@ -118,6 +129,7 @@ export async function ensureDefaultPlans(): Promise<void> {
       nombre: p.nombre,
       descripcion: p.descripcion,
       precioMensual: p.precioMensual,
+      precioMensualUSD: p.precioMensualUSD,
       precioAnual: p.precioAnual,
       maxProfesionales: p.maxProfesionales,
       caracteristicas: JSON.stringify(p.caracteristicas),
@@ -142,6 +154,20 @@ export async function getPlan(id: string): Promise<Plan | null> {
   await ensureDefaultPlans()
   const r = await control.planSuscripcion.findUnique({ where: { id } })
   return r ? mapPlan(r) : null
+}
+
+// Precio mensual del plan en la moneda de cobro (CLP o USD).
+export function precioPlanEnMoneda(plan: Pick<Plan, 'precioMensual' | 'precioMensualUSD'> | null, moneda: MonedaCobro): number {
+  if (!plan) return 0
+  return moneda === 'USD' ? plan.precioMensualUSD : plan.precioMensual
+}
+
+// Mapa { planId -> precioMensual } en la moneda indicada (para el cálculo de MRR).
+export async function priceMapEnMoneda(moneda: MonedaCobro): Promise<Record<string, number>> {
+  const planes = await getPlanes()
+  const map: Record<string, number> = {}
+  for (const p of planes) map[p.id] = precioPlanEnMoneda(p, moneda)
+  return map
 }
 
 // Tope efectivo de profesionales (usuarios con agenda) de una clínica:

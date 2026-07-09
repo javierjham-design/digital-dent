@@ -5,7 +5,7 @@ import { tenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { auditAdmin } from '@/lib/audit-admin'
 import { encryptNullable } from '@/lib/crypto'
-import { getPlanes, getPlan, getLimiteProfesionales, PROFESIONAL_EXTRA_PRECIO } from '@/lib/plans'
+import { getPlanes, getPlan, getLimiteProfesionales, precioProfesionalExtra, precioPlanEnMoneda } from '@/lib/plans'
 import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/clinicas-registry.service'
 import { invalidateClinicaCache } from '@/middlewares/tenant'
 import { esPaisValido } from '@shared/constants/paises'
@@ -82,6 +82,7 @@ export async function obtenerClinica(id: string) {
   // Cobro: moneda efectiva (override o por país), proveedor que corresponde y su
   // estado de configuración, y el medio de pago guardado (si hay).
   const monedaEfectiva = monedaCobroDe(c.pais, c.monedaCobro)
+  const precioPlanMoneda = precioPlanEnMoneda(plan, monedaEfectiva)
   const proveedor = proveedorPara(monedaEfectiva)
   const metodo = await control.metodoPagoClinica.findUnique({ where: { clinicaId: id } })
   return {
@@ -91,12 +92,13 @@ export async function obtenerClinica(id: string) {
     enLinea: online.length,
     adminEnLinea: online.some((u) => u.admin),
     usuariosEnLinea: online.map((u) => ({ name: u.name, admin: u.admin, at: new Date(u.at).toISOString() })),
-    profesionales: { activos: profesionalesActivos, limite, base, extra, planNombre: plan?.nombre ?? c.plan, precioExtra: PROFESIONAL_EXTRA_PRECIO },
+    profesionales: { activos: profesionalesActivos, limite, base, extra, planNombre: plan?.nombre ?? c.plan, precioExtra: precioProfesionalExtra(monedaEfectiva) },
     cobro: {
       monedaEfectiva,
       monedaAuto: c.monedaCobro == null,
       proveedor,
       pasarelaConfigurada: pasarelaConfigurada(proveedor),
+      precioPlan: precioPlanMoneda,
       metodo: metodo ? { provider: metodo.provider, marca: metodo.marca, ultimos4: metodo.ultimos4, exp: metodo.exp } : null,
     },
   }
@@ -453,9 +455,10 @@ export async function crearPlanSuscripcion(body: Record<string, unknown>) {
   if (body.precioAnual != null && body.precioAnual !== '') { const n = Number(body.precioAnual); if (!Number.isFinite(n) || n < 0) throw badRequest('precioAnual inválido'); precioAnual = n }
   const caracteristicas = Array.isArray(body.caracteristicas) ? body.caracteristicas.filter((s: unknown): s is string => typeof s === 'string') : []
   const maxProfesionales = Number.isFinite(Number(body.maxProfesionales)) ? Math.max(1, Math.round(Number(body.maxProfesionales))) : 2
+  const precioMensualUSD = Number.isFinite(Number(body.precioMensualUSD)) && Number(body.precioMensualUSD) >= 0 ? Number(body.precioMensualUSD) : 0
   if (await control.planSuscripcion.findUnique({ where: { id } })) throw conflict(`Ya existe un plan con id "${id}"`)
   return control.planSuscripcion.create({
-    data: { id, nombre, descripcion: typeof body.descripcion === 'string' ? body.descripcion : null, precioMensual, precioAnual, maxProfesionales, caracteristicas: JSON.stringify(caracteristicas), destacado: Boolean(body.destacado), orden: Number.isFinite(Number(body.orden)) ? Number(body.orden) : 0, activo: body.activo !== undefined ? Boolean(body.activo) : true },
+    data: { id, nombre, descripcion: typeof body.descripcion === 'string' ? body.descripcion : null, precioMensual, precioMensualUSD, precioAnual, maxProfesionales, caracteristicas: JSON.stringify(caracteristicas), destacado: Boolean(body.destacado), orden: Number.isFinite(Number(body.orden)) ? Number(body.orden) : 0, activo: body.activo !== undefined ? Boolean(body.activo) : true },
   })
 }
 
@@ -466,6 +469,7 @@ export async function actualizarPlanSuscripcion(id: string, body: Record<string,
   if (typeof body.nombre === 'string') { const n = body.nombre.trim(); if (!n) throw badRequest('nombre vacío'); data.nombre = n }
   if (body.descripcion !== undefined) data.descripcion = body.descripcion ? String(body.descripcion) : null
   if (body.precioMensual !== undefined) { const n = Number(body.precioMensual); if (!Number.isFinite(n) || n < 0) throw badRequest('precioMensual inválido'); data.precioMensual = n }
+  if (body.precioMensualUSD !== undefined) { const n = Number(body.precioMensualUSD); if (!Number.isFinite(n) || n < 0) throw badRequest('precioMensualUSD inválido'); data.precioMensualUSD = n }
   if (body.precioAnual !== undefined) {
     if (body.precioAnual === null || body.precioAnual === '') data.precioAnual = null
     else { const n = Number(body.precioAnual); if (!Number.isFinite(n) || n < 0) throw badRequest('precioAnual inválido'); data.precioAnual = n }
@@ -495,20 +499,27 @@ export async function dashboardStats() {
     control.clinica.count({ where: { esDemo: true } }),
     getPlanes(),
   ])
-  const priceMap: PlanPriceMap = {}
-  for (const p of planes) priceMap[p.id] = p.precioMensual
+  const priceCLP: PlanPriceMap = {}, priceUSD: PlanPriceMap = {}
+  for (const p of planes) { priceCLP[p.id] = p.precioMensual; priceUSD[p.id] = p.precioMensualUSD }
   const pagantes = await control.clinica.findMany({
     where: { activo: true, plan: { not: 'TRIAL' }, esDemo: false },
-    select: { plan: true, precioAcordado: true, profesionalesExtra: true, extras: { where: { activo: true }, select: { montoMensual: true } } },
+    select: { plan: true, pais: true, monedaCobro: true, precioAcordado: true, profesionalesExtra: true, extras: { where: { activo: true }, select: { montoMensual: true } } },
   })
-  const mrr = pagantes.reduce((s, c) => s + (c.precioAcordado ?? priceMap[c.plan] ?? 0) + c.extras.reduce((e, x) => e + x.montoMensual, 0) + (c.profesionalesExtra ?? 0) * PROFESIONAL_EXTRA_PRECIO, 0)
-  return { activas, enTrial, suspendidas, total, demosActivas, mrr }
+  // MRR separado por moneda (Chile→CLP, resto→USD): no se pueden sumar monedas distintas.
+  let mrrCLP = 0, mrrUSD = 0
+  for (const c of pagantes) {
+    const moneda = monedaCobroDe(c.pais, c.monedaCobro)
+    const price = moneda === 'USD' ? priceUSD : priceCLP
+    const total = (c.precioAcordado ?? price[c.plan] ?? 0) + c.extras.reduce((e, x) => e + x.montoMensual, 0) + (c.profesionalesExtra ?? 0) * precioProfesionalExtra(moneda)
+    if (moneda === 'USD') mrrUSD += total; else mrrCLP += total
+  }
+  return { activas, enTrial, suspendidas, total, demosActivas, mrrCLP, mrrUSD }
 }
 
 export async function resumenSuscripciones() {
   const planes = await getPlanes()
-  const priceMap: PlanPriceMap = {}
-  for (const p of planes) priceMap[p.id] = p.precioMensual
+  const priceCLP: PlanPriceMap = {}, priceUSD: PlanPriceMap = {}
+  for (const p of planes) { priceCLP[p.id] = p.precioMensual; priceUSD[p.id] = p.precioMensualUSD }
 
   // Incluimos las clínicas demo/trial autogestionadas (creadas desde la web) para
   // que el dueño las vea y pueda convertirlas. Se distinguen con esDemo y NO
@@ -516,6 +527,7 @@ export async function resumenSuscripciones() {
   const clinicas = await control.clinica.findMany({
     select: {
       id: true, slug: true, nombre: true, dbName: true, plan: true, activo: true, trialHasta: true, proximoCobro: true,
+      pais: true, monedaCobro: true,
       precioAcordado: true, cicloFacturacion: true, createdAt: true, esDemo: true, demoExpiraEn: true,
       ultimoAccesoAt: true, ultimoAccesoAdminAt: true, profesionalesExtra: true,
       pagosSuscripcion: { orderBy: { fechaPago: 'desc' }, take: 1, select: { fechaPago: true, monto: true } },
@@ -527,23 +539,27 @@ export async function resumenSuscripciones() {
   const online = conteoEnLinea()
   const now = new Date()
   const en7dias = new Date(now.getTime() + 7 * 86400000)
-  let mrr = 0, arr = 0
+  // MRR separado por moneda: CLP y USD no se suman entre sí.
+  let mrrCLP = 0, mrrUSD = 0
   const contadores = { AL_DIA: 0, ATRASADO: 0, TRIAL: 0, SUSPENDIDO: 0 }
   let trialsPorVencer = 0
   let demos = 0
   const lista = clinicas.map((c) => {
     const estado = getEstadoPago({ plan: c.plan, activo: c.activo, trialHasta: c.trialHasta, proximoCobro: c.proximoCobro, precioAcordado: c.precioAcordado, cicloFacturacion: c.cicloFacturacion }, now)
+    const moneda = monedaCobroDe(c.pais, c.monedaCobro)
+    const priceMap = moneda === 'USD' ? priceUSD : priceCLP
     const montoExtras = c.extras.reduce((s, e) => s + e.montoMensual, 0)
-    const montoProfesionales = (c.profesionalesExtra ?? 0) * PROFESIONAL_EXTRA_PRECIO
+    const montoProfesionales = (c.profesionalesExtra ?? 0) * precioProfesionalExtra(moneda)
     const precio = precioMensualEfectivo({ plan: c.plan, precioAcordado: c.precioAcordado }, priceMap) + montoExtras + montoProfesionales
     if (c.esDemo) {
       demos++
     } else {
       contadores[estado]++
-      if (estado === 'AL_DIA' && c.plan !== 'TRIAL') { mrr += precio; arr += precio * 12 }
+      if (estado === 'AL_DIA' && c.plan !== 'TRIAL') { if (moneda === 'USD') mrrUSD += precio; else mrrCLP += precio }
       if (estado === 'TRIAL' && c.trialHasta && c.trialHasta.getTime() <= en7dias.getTime()) trialsPorVencer++
     }
     return {
+      moneda,
       id: c.id, slug: c.slug, nombre: c.nombre, plan: c.plan, activo: c.activo,
       trialHasta: c.trialHasta?.toISOString() ?? null, proximoCobro: c.proximoCobro?.toISOString() ?? null,
       precioAcordado: c.precioAcordado, precioMensual: precio, cicloFacturacion: c.cicloFacturacion, estado,
@@ -561,7 +577,7 @@ export async function resumenSuscripciones() {
   let almacenamientoBytes = 0
   for (const b of sizes.values()) almacenamientoBytes += b
   return {
-    kpis: { totalClinicas: clinicas.length - demos, mrr, arr, alDia: contadores.AL_DIA, atrasadas: contadores.ATRASADO, enTrial: contadores.TRIAL, suspendidas: contadores.SUSPENDIDO, trialsPorVencer, demos, almacenamientoBytes, usuariosEnLinea: totalEnLinea() },
+    kpis: { totalClinicas: clinicas.length - demos, mrrCLP, mrrUSD, arrCLP: mrrCLP * 12, arrUSD: mrrUSD * 12, alDia: contadores.AL_DIA, atrasadas: contadores.ATRASADO, enTrial: contadores.TRIAL, suspendidas: contadores.SUSPENDIDO, trialsPorVencer, demos, almacenamientoBytes, usuariosEnLinea: totalEnLinea() },
     clinicas: lista,
   }
 }

@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { adminService } from '@/services/admin.service'
 import { ApiError } from '@/services/api'
+import { fmtCobro, type MonedaCobro } from '@shared/constants/cobro'
 
-const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtFecha = (s: string | null) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 // Último acceso en formato relativo compacto (nunca · hace 3 min · hoy 14:30 · 05 jul).
 const fmtAcceso = (s: string | null) => {
@@ -32,6 +32,7 @@ interface ClinicaResumen {
   estado: Estado; ultimoPago: { fecha: string; monto: number } | null; createdAt: string
   esDemo: boolean; demoExpiraEn: string | null; sizeBytes: number | null
   ultimoAccesoAt: string | null; ultimoAccesoAdminAt: string | null; enLinea: number
+  moneda: MonedaCobro
 }
 
 // Indicador de actividad: punto verde + "en línea" si hay usuarios conectados,
@@ -45,7 +46,7 @@ function Actividad({ c }: { c: ClinicaResumen }) {
   )
   return <span className="text-slate-400">{fmtAcceso(c.ultimoAccesoAt)}</span>
 }
-interface Kpis { totalClinicas: number; mrr: number; arr: number; alDia: number; atrasadas: number; enTrial: number; suspendidas: number; trialsPorVencer: number; demos: number; almacenamientoBytes: number; usuariosEnLinea: number }
+interface Kpis { totalClinicas: number; mrrCLP: number; mrrUSD: number; arrCLP: number; arrUSD: number; alDia: number; atrasadas: number; enTrial: number; suspendidas: number; trialsPorVencer: number; demos: number; almacenamientoBytes: number; usuariosEnLinea: number }
 
 const ESTADO_TONE: Record<Estado, string> = {
   AL_DIA: 'bg-emerald-500/15 text-emerald-300',
@@ -102,7 +103,8 @@ export function AdminClinicas() {
         {kpis && (
           <div className="bg-gradient-to-br from-teal-500/10 to-emerald-500/10 border border-teal-500/30 rounded-xl px-4 py-3">
             <p className="text-xs uppercase tracking-wider text-teal-300/80">MRR</p>
-            <p className="text-xl font-bold mt-1 text-white">{fmtCLP(kpis.mrr)}</p>
+            <p className="text-lg font-bold mt-1 text-white">{fmtCobro(kpis.mrrCLP, 'CLP')}</p>
+            {kpis.mrrUSD > 0 && <p className="text-sm font-semibold text-sky-200">{fmtCobro(kpis.mrrUSD, 'USD')}</p>}
           </div>
         )}
         {kpis && (
@@ -143,7 +145,7 @@ export function AdminClinicas() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
                     <div><span className="text-slate-500">Plan</span><p className="text-slate-300">{c.plan}</p></div>
-                    <div className="text-right"><span className="text-slate-500">Precio/mes</span><p className="text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : fmtCLP(c.precioMensual)}</p></div>
+                    <div className="text-right"><span className="text-slate-500">Precio/mes</span><p className="text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : `${fmtCobro(c.precioMensual, c.moneda)}`}</p></div>
                     <div className="col-span-2 flex items-center justify-between"><span className="text-slate-500">Actividad</span> <span className="font-medium"><Actividad c={c} /></span></div>
                     <div className="col-span-2"><span className="text-slate-500">Almacenamiento (BD)</span> <span className="text-slate-300 font-mono">{fmtBytes(c.sizeBytes)}</span></div>
                     <div className="col-span-2 border-t border-slate-800 pt-2 flex items-center justify-between">
@@ -179,7 +181,7 @@ export function AdminClinicas() {
                       <td className="px-6 py-3 text-slate-300">{c.plan}</td>
                       <td className="px-6 py-3"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ESTADO_TONE[c.estado]}`}>{ESTADO_LABEL[c.estado]}</span></td>
                       <td className="px-6 py-3 text-xs whitespace-nowrap"><Actividad c={c} /></td>
-                      <td className="px-6 py-3 text-right text-slate-300 font-mono">{c.plan === 'TRIAL' ? '—' : fmtCLP(c.precioMensual)}</td>
+                      <td className="px-6 py-3 text-right text-slate-300 font-mono whitespace-nowrap">{c.plan === 'TRIAL' ? '—' : fmtCobro(c.precioMensual, c.moneda)} <span className="text-[10px] text-slate-500">{c.moneda}</span></td>
                       <td className="px-6 py-3 text-right text-slate-400 font-mono text-xs whitespace-nowrap">{fmtBytes(c.sizeBytes)}</td>
                       <td className="px-6 py-3 text-right text-slate-400 text-xs whitespace-nowrap">{c.esDemo ? `demo · expira ${fmtFecha(c.demoExpiraEn)}` : c.estado === 'TRIAL' ? `trial ${fmtFecha(c.trialHasta)}` : fmtFecha(c.proximoCobro)}</td>
                       <td className="px-6 py-3 text-right"><Link to={`/plataforma/clinicas/${c.id}`} className="text-xs text-purple-300 hover:text-purple-200">Gestionar →</Link></td>

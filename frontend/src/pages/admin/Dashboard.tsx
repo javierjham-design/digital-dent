@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { adminService } from '@/services/admin.service'
+import { fmtCobro } from '@shared/constants/cobro'
 
-const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
-
-interface Stats { activas: number; enTrial: number; suspendidas: number; total: number; demosActivas: number; mrr: number }
+interface Stats { activas: number; enTrial: number; suspendidas: number; total: number; demosActivas: number; mrrCLP: number; mrrUSD: number }
 
 export function AdminDashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
@@ -36,10 +35,17 @@ export function AdminDashboard() {
         ))}
       </div>
       {stats && (
-        <div className="bg-gradient-to-br from-teal-500/10 to-emerald-500/10 border border-teal-500/30 rounded-2xl p-6">
-          <p className="text-xs uppercase tracking-wider text-teal-300/80">Ingresos mensuales recurrentes (MRR)</p>
-          <p className="text-4xl font-bold mt-2 text-white">{fmtCLP(stats.mrr)}</p>
-          <p className="text-xs text-teal-300/70 mt-2">Suma de planes activos no-trial + extras. Excluye demos.</p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div className="bg-gradient-to-br from-teal-500/10 to-emerald-500/10 border border-teal-500/30 rounded-2xl p-6">
+            <p className="text-xs uppercase tracking-wider text-teal-300/80">MRR en CLP</p>
+            <p className="text-4xl font-bold mt-2 text-white">{fmtCobro(stats.mrrCLP, 'CLP')}</p>
+            <p className="text-xs text-teal-300/70 mt-2">Clínicas que se cobran en pesos.</p>
+          </div>
+          <div className="bg-gradient-to-br from-sky-500/10 to-indigo-500/10 border border-sky-500/30 rounded-2xl p-6">
+            <p className="text-xs uppercase tracking-wider text-sky-300/80">MRR en USD</p>
+            <p className="text-4xl font-bold mt-2 text-white">{fmtCobro(stats.mrrUSD, 'USD')}</p>
+            <p className="text-xs text-sky-300/70 mt-2">Clínicas que se cobran en dólares.</p>
+          </div>
         </div>
       )}
     </div>

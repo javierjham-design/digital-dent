@@ -2,7 +2,7 @@ import { api } from './api'
 
 // Servicios del panel super-admin (las vistas se construyen en la tanda 3-5).
 export const adminService = {
-  stats: () => api.get<{ activas: number; enTrial: number; suspendidas: number; total: number; demosActivas: number; mrr: number }>('/admin/stats'),
+  stats: () => api.get<{ activas: number; enTrial: number; suspendidas: number; total: number; demosActivas: number; mrrCLP: number; mrrUSD: number }>('/admin/stats'),
   resumen: () => api.get<unknown>('/admin/suscripciones/resumen'),
   leads: () => api.get<{ leads: unknown[] }>('/admin/leads'),
   clinicas: () => api.get<unknown[]>('/admin/clinicas'),

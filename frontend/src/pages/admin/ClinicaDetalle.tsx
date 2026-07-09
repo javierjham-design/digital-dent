@@ -6,7 +6,6 @@ import { PAISES_LISTA, getPais } from '@shared/constants/paises'
 import { MODULOS, MODULOS_CODES } from '@shared/constants/modulos'
 import { fmtCobro, type MonedaCobro } from '@shared/constants/cobro'
 
-const fmtCLP = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
 const toInput = (s: string | null | undefined) => (s ? new Date(s).toISOString().slice(0, 10) : '')
 const fmtAcceso = (s: string | null | undefined) => {
@@ -39,7 +38,7 @@ interface Clinica {
 }
 interface Pago { id: string; fechaPago: string; monto: number; moneda?: string; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
-interface Plan { id: string; nombre: string; precioMensual: number; orden: number; activo: boolean }
+interface Plan { id: string; nombre: string; precioMensual: number; precioMensualUSD: number; orden: number; activo: boolean }
 interface Wa { waEnabled: boolean; waTwilioSid: string | null; waNumero: string | null; waTemplateSid: string | null; waHorasAntes: number; tokenConfigurado: boolean }
 
 export function AdminClinicaDetalle() {
@@ -89,7 +88,7 @@ export function AdminClinicaDetalle() {
         <AccesoCard id={c.id} />
       </div>
       <PagosCard id={c.id} moneda={c.cobro?.monedaEfectiva ?? 'CLP'} onChange={() => { flash('Pago registrado'); recargar() }} />
-      <ExtrasCard id={c.id} />
+      <ExtrasCard id={c.id} moneda={c.cobro?.monedaEfectiva ?? 'CLP'} />
       <WhatsappCard id={c.id} onSaved={() => flash('Configuración de WhatsApp guardada')} />
     </div>
   )
@@ -114,6 +113,7 @@ function PlanCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) 
   const [precio, setPrecio] = useState(c.precioAcordado != null ? String(c.precioAcordado) : '')
   const [proximo, setProximo] = useState(toInput(c.proximoCobro))
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  const monedaClinica: MonedaCobro = c.cobro?.monedaEfectiva ?? 'CLP'
   // Trae los planes creados en la sección "Planes" (los mismos de la página de venta).
   useEffect(() => { adminService.planes().then((r) => setPlanes((r.planes as Plan[]).slice().sort((a, b) => a.orden - b.orden))).catch(() => {}) }, [])
   // Planes activos + el plan actual de la clínica (aunque esté inactivo) para no perderlo.
@@ -137,13 +137,13 @@ function PlanCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) 
           <label><L>Plan</L>
             <select value={plan} onChange={(e) => setPlan(e.target.value)} className={inpCls}>
               {!actualEnLista && c.plan && <option value={c.plan}>{c.plan}</option>}
-              {opciones.map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.precioMensual > 0 ? ` · ${fmtCLP(p.precioMensual)}/mes` : ''}</option>)}
+              {opciones.map((p) => { const pr = monedaClinica === 'USD' ? p.precioMensualUSD : p.precioMensual; return <option key={p.id} value={p.id}>{p.nombre}{pr > 0 ? ` · ${fmtCobro(pr, monedaClinica)}/mes` : ''}</option> })}
               {opciones.length === 0 && <option value={c.plan}>{c.plan}</option>}
             </select>
           </label>
           <label><L>Ciclo</L><select value={ciclo} onChange={(e) => setCiclo(e.target.value)} className={inpCls}><option value="MENSUAL">Mensual</option><option value="ANUAL">Anual</option></select></label>
         </div>
-        <label><L>Precio acordado (opcional, sobrescribe el del plan)</L><input value={precio} onChange={(e) => setPrecio(e.target.value)} inputMode="numeric" placeholder="usar precio del plan" className={`${inpCls} font-mono`} /></label>
+        <label><L>Precio acordado en {monedaClinica} (opcional, sobrescribe el del plan)</L><input value={precio} onChange={(e) => setPrecio(e.target.value)} inputMode="numeric" placeholder={`usar precio del plan (${monedaClinica})`} className={`${inpCls} font-mono`} /></label>
         <label><L>Próximo cobro</L><input type="date" value={proximo} onChange={(e) => setProximo(e.target.value)} className={inpCls} /></label>
       </div>
       {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
@@ -361,6 +361,7 @@ function CobroCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void })
 
 function ProfesionalesCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) {
   const p = c.profesionales
+  const monedaClinica: MonedaCobro = c.cobro?.monedaEfectiva ?? 'CLP'
   const [extra, setExtra] = useState(String(p?.extra ?? 0))
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
   useEffect(() => { setExtra(String(p?.extra ?? 0)) }, [p?.extra])
@@ -386,10 +387,10 @@ function ProfesionalesCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) =>
             <span className="text-xs text-slate-500">Plan {p.planNombre}: {p.base} · Extras: {nExtra}</span>
           </div>
           {excedido && <p className="text-xs text-rose-300 mb-2">⚠️ La clínica tiene más profesionales activos que su tope. Aumenta los extras o desactiva profesionales.</p>}
-          <label className="block"><L>Profesionales extra ({fmtCLP(p.precioExtra)}/mes c/u)</L>
+          <label className="block"><L>Profesionales extra ({fmtCobro(p.precioExtra, monedaClinica)}/mes c/u)</L>
             <input type="number" min={0} max={100} value={extra} onChange={(e) => setExtra(e.target.value)} className={`${inpCls} w-32`} />
           </label>
-          {nExtra > 0 && <p className="text-[11px] text-slate-400 mt-1">+{fmtCLP(nExtra * p.precioExtra)} al mes por {nExtra} profesional{nExtra === 1 ? '' : 'es'} extra.</p>}
+          {nExtra > 0 && <p className="text-[11px] text-slate-400 mt-1">+{fmtCobro(nExtra * p.precioExtra, monedaClinica)} al mes por {nExtra} profesional{nExtra === 1 ? '' : 'es'} extra.</p>}
           {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
           <button onClick={guardar} disabled={busy || !dirty} className={`${btnCls} mt-3`}>{busy ? 'Guardando…' : 'Guardar profesionales'}</button>
         </>
@@ -573,7 +574,7 @@ function PagosCard({ id, moneda, onChange }: { id: string; moneda: MonedaCobro; 
   )
 }
 
-function ExtrasCard({ id }: { id: string }) {
+function ExtrasCard({ id, moneda }: { id: string; moneda: MonedaCobro }) {
   const [extras, setExtras] = useState<Extra[]>([])
   const [form, setForm] = useState({ nombre: '', montoMensual: '' })
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
@@ -596,7 +597,7 @@ function ExtrasCard({ id }: { id: string }) {
       <p className="text-xs text-slate-500 -mt-2 mb-3">Cargos mensuales adicionales para esta clínica (se suman al MRR). Ej: recordatorios WhatsApp, módulos extra.</p>
       <div className="flex flex-wrap items-end gap-2 mb-4">
         <label className="flex-1 min-w-[160px]"><L>Concepto</L><input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Recordatorios WhatsApp" className={inpCls} /></label>
-        <label><L>Monto mensual</L><input value={form.montoMensual} onChange={(e) => setForm({ ...form, montoMensual: e.target.value })} inputMode="numeric" placeholder="0" className={`${inpCls} font-mono w-32`} /></label>
+        <label><L>Monto mensual ({moneda})</L><input value={form.montoMensual} onChange={(e) => setForm({ ...form, montoMensual: e.target.value })} inputMode="numeric" placeholder="0" className={`${inpCls} font-mono w-32`} /></label>
         <button onClick={crear} disabled={busy || !form.nombre} className={btnCls}>Agregar</button>
       </div>
       {err && <p className="text-rose-400 text-sm mb-2">{err}</p>}
@@ -611,7 +612,7 @@ function ExtrasCard({ id }: { id: string }) {
                     onKeyDown={(e) => { if (e.key === 'Enter') guardarMonto(x); if (e.key === 'Escape') setEditId(null) }}
                     className="mt-1 w-28 px-2 py-1 bg-slate-800 border border-purple-500 rounded-lg text-xs text-white font-mono" />
                 ) : (
-                  <button onClick={() => { setEditId(x.id); setEditVal(String(x.montoMensual)) }} className="text-xs text-slate-500 font-mono hover:text-white" title="Editar monto">{fmtCLP(x.montoMensual)}/mes ✎</button>
+                  <button onClick={() => { setEditId(x.id); setEditVal(String(x.montoMensual)) }} className="text-xs text-slate-500 font-mono hover:text-white" title="Editar monto">{fmtCobro(x.montoMensual, moneda)}/mes ✎</button>
                 )}
               </div>
               <div className="flex items-center gap-3 text-xs shrink-0">
