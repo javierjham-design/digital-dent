@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { UsuarioDTO, HorarioDTO } from '@shared/types'
-import { usuariosService, horariosService } from '@/services/equipo.service'
+import { usuariosService, horariosService, type CupoProfesionales } from '@/services/equipo.service'
 import { contratosService } from '@/services/caja.service'
 import { ApiError } from '@/services/api'
 import { fmtMonto } from '@/lib/money'
@@ -41,12 +41,18 @@ export function Equipo() {
   const [guardando, setGuardando] = useState(false)
   const [formError, setFormError] = useState('')
   const [editar, setEditar] = useState<UsuarioDTO | null>(null)
+  const [cupo, setCupo] = useState<CupoProfesionales | null>(null)
 
   function cargar() {
     setCargando(true)
     usuariosService.listar().then(setUsuarios).catch((e) => setError(e.message)).finally(() => setCargando(false))
+    usuariosService.cupoProfesionales().then(setCupo).catch(() => {})
   }
   useEffect(cargar, [])
+
+  // ¿El rol elegido usa agenda y ya se llenó el cupo del plan? → avisar y bloquear.
+  const rolConAgenda = conAgenda(form.role)
+  const cupoLleno = Boolean(cupo && rolConAgenda && cupo.activos >= cupo.limite)
 
   async function crear(e: React.FormEvent) {
     e.preventDefault()
@@ -66,7 +72,10 @@ export function Equipo() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Equipo</h1>
-          <p className="text-slate-500 text-sm mt-1">{usuarios.length} usuario{usuarios.length === 1 ? '' : 's'}</p>
+          <p className="text-slate-500 text-sm mt-1">
+            {usuarios.length} usuario{usuarios.length === 1 ? '' : 's'}
+            {cupo && <> · <span className={cupo.activos >= cupo.limite ? 'text-rose-600 font-medium' : 'text-slate-600'}>{cupo.activos}/{cupo.limite} profesionales con agenda</span></>}
+          </p>
         </div>
         <button onClick={() => setShowForm((v) => !v)}
           className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl transition-colors">
@@ -88,11 +97,18 @@ export function Equipo() {
           </label>
           <Field label="Especialidad" value={form.especialidad} onChange={(v) => setForm({ ...form, especialidad: v })} />
           <Field label="Teléfono" value={form.telefono} onChange={(v) => setForm({ ...form, telefono: v })} />
+          {rolConAgenda && <p className="sm:col-span-2 text-xs text-slate-500">Los roles Doctor/Médico usan agenda y cuentan para el cupo de tu plan. Recepción/Staff y Administrador no tienen límite.</p>}
+          {cupoLleno && (
+            <div className="sm:col-span-2 bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-xl px-3 py-2">
+              Alcanzaste el cupo de <span className="font-semibold">profesionales con agenda</span> de tu plan ({cupo?.activos}/{cupo?.limite}).
+              Para agregar otro profesional con agenda debes <span className="font-semibold">solicitar un cupo adicional</span> (cada profesional extra cuesta {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(cupo?.precioExtra ?? 9990)}/mes). Los usuarios sin agenda no tienen límite.
+            </div>
+          )}
           {formError && <p className="sm:col-span-2 text-sm text-rose-600">{formError}</p>}
           <div className="sm:col-span-2">
-            <button type="submit" disabled={guardando}
+            <button type="submit" disabled={guardando || cupoLleno}
               className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl">
-              {guardando ? 'Creando…' : 'Crear usuario'}
+              {guardando ? 'Creando…' : cupoLleno ? 'Cupo de profesionales lleno' : 'Crear usuario'}
             </button>
           </div>
         </form>

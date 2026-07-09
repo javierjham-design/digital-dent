@@ -3,7 +3,7 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
 import type { DoctorDTO, UsuarioDTO } from '@shared/types'
-import { getLimiteProfesionales } from '@/lib/plans'
+import { getLimiteProfesionales, PROFESIONAL_EXTRA_PRECIO } from '@/lib/plans'
 
 const ROLES_PERMITIDOS = ['admin', 'doctor', 'medico', 'staff']
 const ROLES_CON_AGENDA = ['doctor', 'medico']
@@ -20,7 +20,7 @@ async function assertCupoProfesional(db: TenantClient, clinicaId: string | undef
   const { limite } = await getLimiteProfesionales(clinicaId)
   const actuales = await contarProfesionalesActivos(db, exceptId)
   if (actuales + 1 > limite) {
-    throw badRequest(`Alcanzaste el tope de profesionales con agenda de tu plan (${limite}). Los usuarios sin agenda (recepción, asistentes) no tienen límite. Para sumar más profesionales, cada uno adicional cuesta $9.990 al mes — contáctanos para ampliarlo.`)
+    throw badRequest(`Alcanzaste el cupo de profesionales con agenda de tu plan (${actuales}/${limite}). Para agregar otro profesional con agenda necesitas solicitar un cupo adicional (cada profesional extra cuesta $9.990 al mes). Los usuarios sin agenda (recepción, asistentes) no tienen límite. Escríbenos para ampliar tu cupo.`)
   }
 }
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,30}$/
@@ -43,6 +43,15 @@ function toDTO(u: {
   googleCalendarId?: string | null; createdAt: Date
 }): UsuarioDTO {
   return { ...u, createdAt: u.createdAt.toISOString() }
+}
+
+// Cupo de profesionales con agenda de la clínica: usados vs tope (plan + extras).
+// Para mostrarlo en Equipo y avisar antes de intentar crear de más.
+export async function cupoProfesionales(db: TenantClient, clinicaId?: string) {
+  if (!clinicaId) return { activos: 0, limite: 0, base: 0, extra: 0, precioExtra: PROFESIONAL_EXTRA_PRECIO }
+  const { limite, base, extra } = await getLimiteProfesionales(clinicaId)
+  const activos = await contarProfesionalesActivos(db)
+  return { activos, limite, base, extra, precioExtra: PROFESIONAL_EXTRA_PRECIO }
 }
 
 export async function listarUsuarios(db: TenantClient): Promise<UsuarioDTO[]> {

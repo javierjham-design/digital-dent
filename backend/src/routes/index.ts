@@ -10,7 +10,7 @@ import {
   getExport, getTemplate, postImport,
 } from '@/controllers/pacientes.controller'
 import { getCitas, postCita, patchCita, deleteCita, patchEstado } from '@/controllers/citas.controller'
-import { getUsuarios, getDoctores, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
+import { getUsuarios, getDoctores, getCupoProfesionales, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
 import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo } from '@/controllers/agenda.controller'
 import {
   getPrestaciones, postPrestacion, patchPrestacion, deletePrestacion, postDedupePrestaciones,
@@ -118,6 +118,7 @@ apiRouter.patch('/citas/:id/estado', tenant, asyncHandler(patchEstado))
 
 // ── Equipo / Usuarios (convertido a database-per-tenant) ─────────────────────
 apiRouter.get('/usuarios', tenant, asyncHandler(getUsuarios))
+apiRouter.get('/usuarios/cupo-profesionales', tenant, asyncHandler(getCupoProfesionales))
 apiRouter.get('/doctores', tenant, asyncHandler(getDoctores))
 apiRouter.post('/usuarios', adminTenant, asyncHandler(postUsuario))
 apiRouter.patch('/usuarios/:id', tenant, asyncHandler(patchUsuario)) // self o admin (validado en service)

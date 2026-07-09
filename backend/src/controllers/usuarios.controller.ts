@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
-import { actualizarUsuario, crearUsuario, listarDoctores, listarUsuarios } from '@/services/usuarios.service'
+import { actualizarUsuario, crearUsuario, cupoProfesionales, listarDoctores, listarUsuarios } from '@/services/usuarios.service'
 import { crearUsuarioSchema } from '@/validators/schemas'
 
 export async function getUsuarios(req: Request, res: Response) {
@@ -9,6 +9,10 @@ export async function getUsuarios(req: Request, res: Response) {
 
 export async function getDoctores(req: Request, res: Response) {
   res.json(await listarDoctores(tenantDb(req)))
+}
+
+export async function getCupoProfesionales(req: Request, res: Response) {
+  res.json(await cupoProfesionales(tenantDb(req), req.clinica?.id))
 }
 
 export async function postUsuario(req: Request, res: Response) {
