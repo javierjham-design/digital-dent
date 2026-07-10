@@ -12,6 +12,7 @@ export interface EnviarEmailInput {
   mensaje?: string; html?: string
   pacienteId?: string; pacienteNombre?: string
   pdfBase64?: string; pdfNombre?: string
+  montoPago?: number   // si viene, el correo incluye un botón de pago (Flow) por ese monto
 }
 
 export const emailService = {

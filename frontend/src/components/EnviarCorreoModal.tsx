@@ -5,7 +5,7 @@ import { ApiError } from '@/services/api'
 // Modal reutilizable para enviar un documento por correo al paciente. Si se pasa
 // `generarPdf`, adjunta el PDF (lo genera el frontend en el momento de enviar).
 export function EnviarCorreoModal({
-  tipo, titulo, asuntoDefault, pacienteId, pacienteNombre, defaultEmail, mensajeDefault, generarPdf, onClose, onSent,
+  tipo, titulo, asuntoDefault, pacienteId, pacienteNombre, defaultEmail, mensajeDefault, generarPdf, montoPago, onClose, onSent,
 }: {
   tipo: TipoEmail
   titulo: string
@@ -15,6 +15,7 @@ export function EnviarCorreoModal({
   defaultEmail?: string | null
   mensajeDefault?: string
   generarPdf?: () => Promise<{ base64: string; nombre: string }>
+  montoPago?: number   // si viene, incluye un botón de pago (Flow) por ese monto
   onClose: () => void
   onSent?: () => void
 }) {
@@ -34,6 +35,7 @@ export function EnviarCorreoModal({
       await emailService.enviar({
         to: email.trim(), tipo, asunto: asunto.trim(), mensaje: mensaje.trim() || undefined,
         pacienteId, pacienteNombre, pdfBase64: pdf?.base64, pdfNombre: pdf?.nombre,
+        montoPago: montoPago && montoPago > 0 ? montoPago : undefined,
       })
       setOk(true); onSent?.()
     } catch (e) { setError(e instanceof ApiError ? e.message : 'No se pudo enviar el correo') } finally { setEnviando(false) }
@@ -69,6 +71,7 @@ export function EnviarCorreoModal({
                 className="mt-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
             </label>
             {generarPdf && <p className="text-[11px] text-slate-400">Se adjuntará el documento en PDF.</p>}
+            {montoPago && montoPago > 0 ? <p className="text-[11px] text-cyan-600">Se incluirá un botón de pago (Flow) para que el paciente pague en línea. Requiere tener Flow configurado.</p> : null}
             {error && <p className="text-sm text-rose-600">{error}</p>}
             <div className="flex gap-2 pt-1">
               <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>

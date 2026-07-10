@@ -51,6 +51,18 @@ export function mensajeConAdjuntoHtml(clinica: ClinicaEmail, d: { paciente?: str
   return plantillaBase(clinica, contenido)
 }
 
+// Mensaje con un botón de pago (Flow) por un monto. Para el aviso de deuda.
+export function mensajeConPagoHtml(clinica: ClinicaEmail, d: { paciente?: string | null; mensaje: string; montoTexto: string; url: string }): string {
+  const contenido = `
+    <p>Hola${d.paciente ? ` ${escapeHtml(d.paciente)}` : ''},</p>
+    <p>${escapeHtml(d.mensaje)}</p>
+    <div style="text-align:center;margin:22px 0">
+      <a href="${escapeAttr(d.url)}" style="display:inline-block;background:#0891b2;color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:14px 28px;border-radius:12px">Pagar ${escapeHtml(d.montoTexto)} ahora</a>
+    </div>
+    <p style="color:#64748b;font-size:12px;text-align:center">Pago seguro. Si el botón no funciona, copia y pega este enlace:<br/><span style="word-break:break-all">${escapeHtml(d.url)}</span></p>`
+  return plantillaBase(clinica, contenido)
+}
+
 function escapeHtml(s: string): string {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
 }

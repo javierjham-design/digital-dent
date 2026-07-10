@@ -96,7 +96,8 @@ export function FichaPaciente() {
           tipo="DEUDA" titulo="aviso de deuda"
           asuntoDefault="Estado de cuenta pendiente"
           pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} defaultEmail={paciente.email}
-          mensajeDefault={`Te recordamos que tienes un saldo pendiente de ${fmtCLP(resumen.saldo)} por tu tratamiento. Puedes acercarte a la clínica o responder este correo para coordinar el pago.`}
+          montoPago={resumen.saldo}
+          mensajeDefault={`Te recordamos que tienes un saldo pendiente de ${fmtCLP(resumen.saldo)} por tu tratamiento. Puedes pagarlo en línea con el botón de abajo, acercarte a la clínica o responder este correo.`}
           onClose={() => setAvisoDeuda(false)} />
       )}
 

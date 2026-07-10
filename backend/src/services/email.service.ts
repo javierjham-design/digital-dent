@@ -2,21 +2,23 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import { enviarEmail, emailConfigurado, type EmailAdjunto } from '@/lib/email'
-import { plantillaBase, confirmacionHoraHtml, mensajeConAdjuntoHtml, type ClinicaEmail } from '@/lib/email-templates'
+import { plantillaBase, confirmacionHoraHtml, mensajeConAdjuntoHtml, mensajeConPagoHtml, type ClinicaEmail } from '@/lib/email-templates'
+import { crearCobroLibreConLink } from '@/services/cobros.service'
+import { formatMoneda } from '@shared/constants/paises'
 
 export const TIPOS_EMAIL = ['CONFIRMACION_HORA', 'PRESUPUESTO', 'CONSENTIMIENTO', 'DOCUMENTO', 'COMPROBANTE', 'PLAN', 'DEUDA', 'OTRO'] as const
 export type TipoEmail = typeof TIPOS_EMAIL[number]
 
 const emailValido = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
 
-async function datosClinica(db: TenantClient): Promise<ClinicaEmail & { emailNotificaciones: boolean }> {
+async function datosClinica(db: TenantClient): Promise<ClinicaEmail & { emailNotificaciones: boolean; pais: string }> {
   const c = await db.configuracion.findUnique({
     where: { id: 'singleton' },
-    select: { nombre: true, direccion: true, telefono: true, email: true, logoUrl: true, emailNotificaciones: true },
+    select: { nombre: true, direccion: true, telefono: true, email: true, logoUrl: true, emailNotificaciones: true, pais: true },
   })
   return {
     nombre: c?.nombre ?? 'Clínica', direccion: c?.direccion ?? null, telefono: c?.telefono ?? null,
-    email: c?.email ?? null, logoUrl: c?.logoUrl ?? null, emailNotificaciones: c?.emailNotificaciones ?? true,
+    email: c?.email ?? null, logoUrl: c?.logoUrl ?? null, emailNotificaciones: c?.emailNotificaciones ?? true, pais: c?.pais ?? 'CL',
   }
 }
 
@@ -55,16 +57,30 @@ export async function enviarCorreoClinica(db: TenantClient, input: EnviarCorreoI
 
 // Envío manual genérico (endpoint): valida el tipo, arma el HTML si no viene, y
 // adjunta el PDF (base64) que genera el frontend.
+export interface EnviarManualOpts { apiBase: string; appBase: string; slug: string }
 export async function enviarManual(
   db: TenantClient, actor: JwtPayload,
-  body: { to: string; tipo?: string; asunto: string; mensaje?: string; html?: string; pacienteId?: string; pacienteNombre?: string; pdfBase64?: string; pdfNombre?: string },
+  body: { to: string; tipo?: string; asunto: string; mensaje?: string; html?: string; pacienteId?: string; pacienteNombre?: string; pdfBase64?: string; pdfNombre?: string; montoPago?: number },
+  urls?: EnviarManualOpts,
 ) {
   const tipo = (TIPOS_EMAIL as readonly string[]).includes(String(body.tipo)) ? (body.tipo as TipoEmail) : 'OTRO'
   if (!body.asunto?.trim()) throw badRequest('Falta el asunto del correo.')
   const clinica = await datosClinica(db)
+
+  // Botón de pago (Flow) por un monto (ej. aviso de deuda): crea un cobro pendiente
+  // y su link. Si Flow no está configurado, el correo se envía igual, sin botón.
+  let pagoUrl: string | null = null
+  const monto = Number(body.montoPago)
+  if (Number.isFinite(monto) && monto > 0 && body.pacienteId && urls) {
+    const r = await crearCobroLibreConLink(db, actor, { pacienteId: body.pacienteId, monto, concepto: body.asunto.trim(), apiBase: urls.apiBase, appBase: urls.appBase, slug: urls.slug })
+    if (r.estado === 'ok') pagoUrl = r.url
+  }
+
   const html = body.html?.trim()
     ? body.html
-    : mensajeConAdjuntoHtml(clinica, { paciente: body.pacienteNombre ?? null, titulo: body.asunto, mensaje: body.mensaje ?? null })
+    : pagoUrl
+      ? mensajeConPagoHtml(clinica, { paciente: body.pacienteNombre ?? null, mensaje: body.mensaje || `Tienes un saldo pendiente de ${formatMoneda(clinica.pais, monto)}.`, montoTexto: formatMoneda(clinica.pais, monto), url: pagoUrl })
+      : mensajeConAdjuntoHtml(clinica, { paciente: body.pacienteNombre ?? null, titulo: body.asunto, mensaje: body.mensaje ?? null })
   const nombreArch = (body.pdfNombre || 'documento').trim()
   // Respeta la extensión real del archivo (imágenes, PDF…); sólo agrega .pdf si no tiene.
   const filename = /\.[a-z0-9]{2,5}$/i.test(nombreArch) ? nombreArch : `${nombreArch}.pdf`

@@ -3,7 +3,7 @@ import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import { getSesionAbierta } from '@/lib/caja'
 import { audit } from '@/lib/audit'
-import { crearLinkParaCobro } from '@/services/pagos-online.service'
+import { crearLinkParaCobro, type ResultadoLinkPago } from '@/services/pagos-online.service'
 
 const ESTADOS = ['PENDIENTE', 'PAGADO', 'PARCIAL', 'ANULADO']
 const fmtMoney = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n))
@@ -190,6 +190,34 @@ export async function crearCobroLinkPago(db: TenantClient, actor: JwtPayload, in
   }
   await audit(db, actor.sub, { accion: 'CREAR', entidad: 'Cobro', entidadId: cobro.id, pacienteId: input.pacienteId, resumen: `Generó un link de pago #${numero} por ${fmtMoney(monto)}` })
   return { estado: 'ok' as const, url: res.url, cobroId: cobro.id, numero }
+}
+
+// Crea un cobro PENDIENTE "libre" (por un monto, sin acciones de plan) y su link
+// de pago Flow. Se usa para el aviso de deuda por correo (pagar el saldo). No toca
+// caja; el webhook lo marca pagado. Devuelve el estado (no lanza si Flow no está).
+export interface CobroLibreLinkInput { pacienteId: string; monto: number; concepto: string; apiBase: string; appBase: string; slug: string }
+export async function crearCobroLibreConLink(db: TenantClient, actor: JwtPayload, input: CobroLibreLinkInput): Promise<ResultadoLinkPago> {
+  const me = await db.user.findUnique({ where: { id: actor.sub }, select: { role: true, puedeRecibirPagos: true } })
+  if (!(me?.role === 'admin' || me?.puedeRecibirPagos)) throw forbidden('No tienes permiso para generar pagos.')
+  const paciente = await db.paciente.findUnique({ where: { id: input.pacienteId }, select: { id: true } })
+  if (!paciente) throw notFound('Paciente no encontrado')
+  const monto = Math.round(Number(input.monto))
+  if (!Number.isFinite(monto) || monto <= 0) throw badRequest('El monto del pago debe ser mayor a 0.')
+
+  const last = await db.cobro.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
+  const cobro = await db.cobro.create({
+    data: {
+      pacienteId: input.pacienteId, numero: (last?.numero ?? 0) + 1, concepto: input.concepto || 'Pago de saldo pendiente',
+      monto, montoNeto: monto, comisionMonto: 0, estado: 'PENDIENTE', reciboUsuarioId: actor.sub,
+    },
+    select: { id: true },
+  })
+  const res = await crearLinkParaCobro(db, cobro.id, {
+    apiBase: input.apiBase, appBase: input.appBase, slug: input.slug, creadoPorId: actor.sub,
+    urlReturn: input.appBase || undefined,
+  })
+  if (res.estado !== 'ok') await db.cobro.delete({ where: { id: cobro.id } }).catch(() => {})
+  return res
 }
 
 const CAMPOS_PRIVILEGIADOS = ['monto', 'montoNeto', 'comisionMonto', 'concepto', 'notas', 'fechaPago', 'reciboUsuarioId']

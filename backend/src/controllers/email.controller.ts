@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
+import { apiBaseDe, appBaseDe } from '@/lib/req-url'
 import * as svc from '@/services/email.service'
 
 // Envío manual de un correo (presupuesto, consentimiento, comprobante, plan,
@@ -16,7 +17,8 @@ export async function postEnviar(req: Request, res: Response) {
     pacienteNombre: b.pacienteNombre != null ? String(b.pacienteNombre) : undefined,
     pdfBase64: b.pdfBase64 != null ? String(b.pdfBase64) : undefined,
     pdfNombre: b.pdfNombre != null ? String(b.pdfNombre) : undefined,
-  }))
+    montoPago: b.montoPago != null ? Number(b.montoPago) : undefined,
+  }, { apiBase: apiBaseDe(req), appBase: appBaseDe(req), slug: req.clinica?.slug ?? '' }))
 }
 
 export async function getEmails(req: Request, res: Response) {
