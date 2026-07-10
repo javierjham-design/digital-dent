@@ -30,7 +30,7 @@ const SELECT = {
   especialidad: true, telefono: true, activo: true,
   puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true,
   puedeRevertirCompletado: true, puedeEditarPagos: true, puedeGestionarLiquidaciones: true,
-  puedeGestionarCrm: true, puedeEliminar: true,
+  puedeGestionarCrm: true, puedeEliminar: true, puedeGestionarCajas: true,
   googleCalendarId: true, createdAt: true,
 } as const
 
@@ -39,7 +39,7 @@ function toDTO(u: {
   rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean
   puedeRecibirPagos?: boolean; puedeModificarPrecio?: boolean; puedeAplicarDescuento?: boolean
   puedeRevertirCompletado?: boolean; puedeEditarPagos?: boolean; puedeGestionarLiquidaciones?: boolean
-  puedeGestionarCrm?: boolean; puedeEliminar?: boolean
+  puedeGestionarCrm?: boolean; puedeEliminar?: boolean; puedeGestionarCajas?: boolean
   googleCalendarId?: string | null; createdAt: Date
 }): UsuarioDTO {
   return { ...u, createdAt: u.createdAt.toISOString() }
@@ -115,7 +115,7 @@ const CAMPOS_PROPIOS = ['name', 'rut', 'especialidad', 'telefono']
 const CAMPOS_ADMIN = [
   'name', 'username', 'email', 'role', 'rut', 'especialidad', 'telefono', 'activo',
   'puedeRecibirPagos', 'puedeModificarPrecio', 'puedeAplicarDescuento', 'puedeRevertirCompletado',
-  'puedeEditarPagos', 'puedeGestionarLiquidaciones', 'puedeGestionarCrm', 'puedeEliminar', 'googleCalendarId',
+  'puedeEditarPagos', 'puedeGestionarLiquidaciones', 'puedeGestionarCrm', 'puedeEliminar', 'puedeGestionarCajas', 'googleCalendarId',
 ]
 
 export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, targetId: string, body: Record<string, unknown>, clinicaId?: string): Promise<UsuarioDTO> {

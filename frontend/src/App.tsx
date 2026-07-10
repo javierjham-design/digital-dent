@@ -16,6 +16,7 @@ import { AgendarPublico } from '@/pages/AgendarPublico'
 import { Crm } from '@/pages/Crm'
 import { Consentimientos } from '@/pages/Consentimientos'
 import { Suscripcion } from '@/pages/Suscripcion'
+import { GestionCajas } from '@/pages/GestionCajas'
 import { FormularioPublico } from '@/pages/FormularioPublico'
 import { Liquidaciones } from '@/pages/Liquidaciones'
 import { MisLiquidaciones } from '@/pages/MisLiquidaciones'
@@ -53,6 +54,7 @@ export default function App() {
             <Route path="/pacientes/:id" element={<FichaPaciente />} />
             <Route path="/presupuestos" element={<Presupuestos />} />
             <Route path="/cobros" element={<Cobros />} />
+            <Route path="/gestion-cajas" element={<GestionCajas />} />
             <Route path="/agendamiento-online" element={<AgendaOnline />} />
             <Route path="/crm" element={<Crm />} />
             <Route path="/consentimientos" element={<Consentimientos />} />

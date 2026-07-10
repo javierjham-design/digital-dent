@@ -20,6 +20,7 @@ export const cobrosService = {
 export const cajasService = {
   listar: () => api.get<unknown[]>('/cajas'),
   resumen: () => api.get<unknown[]>('/cajas/resumen'),
+  gestion: () => api.get<unknown[]>('/cajas/gestion'),
   obtener: (id: string) => api.get<unknown>(`/cajas/${id}`),
   crear: (input: Record<string, unknown>) => api.post<unknown>('/cajas', input),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/cajas/${id}`, patch),

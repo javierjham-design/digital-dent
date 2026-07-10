@@ -9,6 +9,9 @@ export async function getCajas(req: Request, res: Response) {
 export async function getResumenCajas(req: Request, res: Response) {
   res.json(await svc.resumenCajas(tenantDb(req), req.auth!))
 }
+export async function getGestionCajas(req: Request, res: Response) {
+  res.json(await svc.gestionCajas(tenantDb(req)))
+}
 export async function getCaja(req: Request, res: Response) {
   res.json(await svc.obtenerCaja(tenantDb(req), req.auth!, req.params.id))
 }

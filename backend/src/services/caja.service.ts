@@ -12,7 +12,8 @@ const CAJA_INCLUDE = {
   usuarios: { include: { user: { select: { id: true, name: true, email: true } } } },
 } as const
 
-// Verifica acceso a una caja: admin ve todas; el resto solo las asignadas.
+// Verifica acceso de OPERACIÓN a una caja (abrir/cerrar/movimientos): admin ve
+// todas; el resto solo las asignadas.
 async function cajaConAcceso(db: TenantClient, cajaId: string, actor: JwtPayload) {
   const caja = await db.caja.findUnique({ where: { id: cajaId }, include: { usuarios: { select: { userId: true } } } })
   if (!caja) throw notFound('Caja no encontrada')
@@ -21,6 +22,31 @@ async function cajaConAcceso(db: TenantClient, cajaId: string, actor: JwtPayload
     throw forbidden('No tienes acceso a esta caja.')
   }
   return caja
+}
+
+// Acceso de LECTURA (ver sesiones/movimientos): admin, el usuario asignado, o un
+// usuario con permiso de gestión de cajas (supervisión de todas las cajas).
+async function cajaAccesoLectura(db: TenantClient, cajaId: string, actor: JwtPayload) {
+  const caja = await db.caja.findUnique({ where: { id: cajaId }, include: { usuarios: { select: { userId: true } } } })
+  if (!caja) throw notFound('Caja no encontrada')
+  if (actor.role === 'admin') return caja
+  if (caja.usuarios.some((cu) => cu.userId === actor.sub)) return caja
+  const u = await db.user.findUnique({ where: { id: actor.sub }, select: { puedeGestionarCajas: true } })
+  if (u?.puedeGestionarCajas) return caja
+  throw forbidden('No tienes acceso a esta caja.')
+}
+
+// Correlativo siguiente para una caja nueva.
+async function siguienteNumeroCaja(db: TenantClient): Promise<number> {
+  const last = await db.caja.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
+  return (last?.numero ?? 0) + 1
+}
+// Asigna correlativo a cajas antiguas sin número (numero = 0), por antigüedad.
+async function asegurarNumerosCaja(db: TenantClient): Promise<void> {
+  const sinNumero = await db.caja.findMany({ where: { numero: 0 }, orderBy: { createdAt: 'asc' }, select: { id: true } })
+  if (sinNumero.length === 0) return
+  let n = await siguienteNumeroCaja(db)
+  for (const c of sinNumero) { await db.caja.update({ where: { id: c.id }, data: { numero: n } }).catch(() => {}); n++ }
 }
 
 // ── Cajas ────────────────────────────────────────────────────────────────────
@@ -54,6 +80,26 @@ export async function resumenCajas(db: TenantClient, actor: JwtPayload) {
   }))
 }
 
+// Gestión de cajas (admin o usuario con puedeGestionarCajas): TODAS las cajas
+// —activas e inactivas— con su número, usuarios, estado de la sesión abierta
+// (quién la abrió, ingresos/egresos) y el último cierre. Independientes entre sí.
+export async function gestionCajas(db: TenantClient) {
+  await asegurarNumerosCaja(db)
+  const cajas = await db.caja.findMany({ include: CAJA_INCLUDE, orderBy: [{ numero: 'asc' }] })
+  return Promise.all(cajas.map(async (c) => {
+    const sesionAbierta = await getSesionAbierta(db, c.id)
+    const resumen = sesionAbierta ? await calcularResumenSesion(db, sesionAbierta.id) : null
+    const ultimaCerrada = await getUltimaSesionCerrada(db, c.id)
+    const totalSesiones = await db.sesionCaja.count({ where: { cajaId: c.id } })
+    return {
+      id: c.id, numero: c.numero, nombre: c.nombre, descripcion: c.descripcion, saldoInicial: c.saldoInicial,
+      activo: c.activo, usuarios: c.usuarios,
+      sesionAbierta: sesionAbierta ? { ...sesionAbierta, resumen } : null,
+      ultimaCerrada, totalSesiones,
+    }
+  }))
+}
+
 export async function crearCaja(db: TenantClient, body: { nombre: string; descripcion?: string; saldoInicial?: number; usuarioIds?: string[] }) {
   const nombre = (body.nombre ?? '').trim()
   if (!nombre) throw badRequest('Falta el nombre')
@@ -65,6 +111,7 @@ export async function crearCaja(db: TenantClient, body: { nombre: string; descri
   try {
     return await db.caja.create({
       data: {
+        numero: await siguienteNumeroCaja(db),
         nombre, descripcion: body.descripcion ? String(body.descripcion) : null,
         saldoInicial: Number(body.saldoInicial) || 0,
         usuarios: { create: usuarioIds.map((userId) => ({ userId })) },
@@ -167,12 +214,12 @@ export async function cerrarSesion(db: TenantClient, actor: JwtPayload, cajaId: 
 }
 
 export async function listarSesiones(db: TenantClient, actor: JwtPayload, cajaId: string) {
-  await cajaConAcceso(db, cajaId, actor)
+  await cajaAccesoLectura(db, cajaId, actor)
   return db.sesionCaja.findMany({ where: { cajaId }, orderBy: { abiertaAt: 'desc' }, take: 50 })
 }
 
 export async function detalleSesion(db: TenantClient, actor: JwtPayload, cajaId: string, sesionId: string) {
-  await cajaConAcceso(db, cajaId, actor)
+  await cajaAccesoLectura(db, cajaId, actor)
   const sesion = await db.sesionCaja.findFirst({ where: { id: sesionId, cajaId } })
   if (!sesion) throw notFound('Sesión no encontrada')
   const hasta = sesion.cerradaAt ?? new Date()
@@ -197,7 +244,7 @@ export async function detalleSesion(db: TenantClient, actor: JwtPayload, cajaId:
 // ── Movimientos ──────────────────────────────────────────────────────────────
 
 export async function listarMovimientos(db: TenantClient, actor: JwtPayload, cajaId: string, rango: { from?: string; to?: string }) {
-  await cajaConAcceso(db, cajaId, actor)
+  await cajaAccesoLectura(db, cajaId, actor)
   return db.movimientoCaja.findMany({
     where: {
       cajaId,

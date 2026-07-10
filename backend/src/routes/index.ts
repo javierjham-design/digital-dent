@@ -257,6 +257,7 @@ apiRouter.patch('/presupuestos/:id', tenant, asyncHandler(presupuestos.patchPres
 // ── Cajas (sesiones, movimientos) ────────────────────────────────────────────
 apiRouter.get('/cajas', tenant, asyncHandler(caja.getCajas))
 apiRouter.get('/cajas/resumen', tenant, asyncHandler(caja.getResumenCajas)) // estado abiertas/cerradas (antes de /:id)
+apiRouter.get('/cajas/gestion', [requireAuth, requireTenant, requirePermiso('puedeGestionarCajas')], asyncHandler(caja.getGestionCajas)) // todas las cajas (admin o autorizado)
 apiRouter.post('/cajas', adminTenant, asyncHandler(caja.postCaja))
 apiRouter.get('/cajas/:id', tenant, asyncHandler(caja.getCaja))
 apiRouter.patch('/cajas/:id', adminTenant, asyncHandler(caja.patchCaja))

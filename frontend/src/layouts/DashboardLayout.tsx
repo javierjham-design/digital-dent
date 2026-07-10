@@ -18,7 +18,7 @@ const linkCls = ({ isActive }: { isActive: boolean }) =>
 
 // Menú "Administración": agrupa todo lo de gestión (config, equipo, prestaciones,
 // reportes, liquidaciones) para no saturar el header.
-function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, modCrm, modAgenda }: { puedeGestionar: boolean; esAdmin: boolean; puedeCrm: boolean; modCrm: boolean; modAgenda: boolean }) {
+function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, puedeCajas, modCrm, modAgenda }: { puedeGestionar: boolean; esAdmin: boolean; puedeCrm: boolean; puedeCajas: boolean; modCrm: boolean; modAgenda: boolean }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
@@ -52,6 +52,7 @@ function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, modCrm, modAgen
             {esAdmin && item('/suscripcion', 'Suscripción y pagos')}
             {item('/prestaciones', 'Prestaciones')}
             {item('/reportes', 'Reportes')}
+            {(esAdmin || puedeCajas) && item('/gestion-cajas', 'Gestión de cajas')}
             {puedeGestionar && item('/liquidaciones', 'Gestión de liquidaciones')}
             {item('/mis-liquidaciones', 'Mis liquidaciones')}
           </div>
@@ -120,6 +121,7 @@ export function DashboardLayout() {
   if (user?.isPlatformAdmin) return <Navigate to="/plataforma" replace />
   const puedeGestionarLiq = Boolean(user?.permisos?.puedeGestionarLiquidaciones)
   const puedeCrm = Boolean(user?.permisos?.puedeGestionarCrm)
+  const puedeCajas = Boolean(user?.permisos?.puedeGestionarCajas)
   const esAdmin = user?.role === 'admin'
   const mods = user?.modulos ?? []
   const modCrm = mods.includes('crm')
@@ -143,7 +145,7 @@ export function DashboardLayout() {
         </div>
         <nav className="flex flex-wrap items-center gap-1 w-full order-4 sm:order-3 sm:w-auto sm:flex-1">
           {NAV_PRE.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
-          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} puedeCrm={puedeCrm} modCrm={modCrm} modAgenda={modAgenda} />
+          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} puedeCrm={puedeCrm} puedeCajas={puedeCajas} modCrm={modCrm} modAgenda={modAgenda} />
           <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
         </nav>
       </header>

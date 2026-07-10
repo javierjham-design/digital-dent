@@ -116,6 +116,7 @@ model User {
   puedeGestionarLiquidaciones Boolean @default(false)
   puedeGestionarCrm           Boolean @default(false)
   puedeEliminar               Boolean @default(false)
+  puedeGestionarCajas         Boolean @default(false)
 
   // Mapeo a un calendario de Google (dentro de la cuenta de la clínica).
   googleCalendarId String?
@@ -457,6 +458,7 @@ model Cobro {
 
 model Caja {
   id           String       @id @default(cuid())
+  numero       Int          @default(0) // correlativo para ordenar/identificar (se asigna al crear)
   nombre       String       @unique
   descripcion  String?
   saldoInicial Float        @default(0)

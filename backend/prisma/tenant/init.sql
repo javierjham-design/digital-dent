@@ -108,6 +108,7 @@ CREATE TABLE "User" (
     "puedeGestionarLiquidaciones" BOOLEAN NOT NULL DEFAULT false,
     "puedeGestionarCrm" BOOLEAN NOT NULL DEFAULT false,
     "puedeEliminar" BOOLEAN NOT NULL DEFAULT false,
+    "puedeGestionarCajas" BOOLEAN NOT NULL DEFAULT false,
     "googleCalendarId" TEXT,
     "googleSyncToken" TEXT,
     "googleSyncedAt" TIMESTAMP(3),
@@ -404,6 +405,7 @@ CREATE TABLE "Cobro" (
 -- CreateTable
 CREATE TABLE "Caja" (
     "id" TEXT NOT NULL,
+    "numero" INTEGER NOT NULL DEFAULT 0,
     "nombre" TEXT NOT NULL,
     "descripcion" TEXT,
     "saldoInicial" DOUBLE PRECISION NOT NULL DEFAULT 0,
