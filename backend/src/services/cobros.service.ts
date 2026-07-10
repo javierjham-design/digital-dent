@@ -11,6 +11,7 @@ const fmtMoney = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(Math
 const COBRO_INCLUDE = {
   paciente: true,
   medioPago: true,
+  caja: { select: { id: true, numero: true, nombre: true } },
   reciboUsuario: { select: { id: true, name: true, email: true } },
   items: { include: { tratamiento: { include: { prestacion: true } } } },
 } as const
@@ -214,7 +215,6 @@ export async function crearCobroLibreConLink(db: TenantClient, actor: JwtPayload
   })
   const res = await crearLinkParaCobro(db, cobro.id, {
     apiBase: input.apiBase, appBase: input.appBase, slug: input.slug, creadoPorId: actor.sub,
-    urlReturn: input.appBase || undefined,
   })
   if (res.estado !== 'ok') await db.cobro.delete({ where: { id: cobro.id } }).catch(() => {})
   return res

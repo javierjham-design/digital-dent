@@ -10,7 +10,7 @@ const fechaHora = (s: string | null | undefined) => (s ? new Date(s).toLocaleStr
 interface UsuarioRef { user: { id: string; name: string | null; email: string | null } }
 interface ResumenSesion { saldoApertura: number; ingresos: number; egresos: number; saldoEsperado: number }
 interface Sesion {
-  id: string; estado: string; saldoApertura: number; abiertaPorNombre: string | null; abiertaAt: string
+  id: string; numero: number; estado: string; saldoApertura: number; abiertaPorNombre: string | null; abiertaAt: string
   cerradaPorNombre: string | null; cerradaAt: string | null; saldoEsperado: number | null; saldoReal: number | null
   diferencia: number | null; totalIngresos: number | null; totalEgresos: number | null; resumen?: ResumenSesion | null
 }
@@ -65,7 +65,7 @@ export function GestionCajas() {
                         <span className="font-semibold text-slate-900">{c.nombre}</span>
                         {!c.activo && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">Inactiva</span>}
                         {abierta
-                          ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">● Abierta</span>
+                          ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">● Abierta · Apertura Nº {abierta.numero || '—'}</span>
                           : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Cerrada</span>}
                       </div>
                       <p className="text-xs text-slate-500 mt-1">
@@ -127,7 +127,7 @@ function SesionesModal({ caja, onClose }: { caja: CajaGestion; onClose: () => vo
                 <div key={s.id} className="border border-slate-100 rounded-xl">
                   <button onClick={() => setSel(sel === s.id ? null : s.id)} className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-slate-50">
                     <div className="min-w-0">
-                      <p className="text-sm text-slate-800">{fechaHora(s.abiertaAt)} <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${s.estado === 'ABIERTA' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{s.estado}</span></p>
+                      <p className="text-sm text-slate-800"><span className="font-semibold">Apertura Nº {s.numero || '—'}</span> · {fechaHora(s.abiertaAt)} <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${s.estado === 'ABIERTA' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{s.estado}</span></p>
                       <p className="text-xs text-slate-500">Abrió {s.abiertaPorNombre ?? '—'}{s.cerradaAt ? ` · cerró ${s.cerradaPorNombre ?? '—'} ${fechaHora(s.cerradaAt)}` : ''}</p>
                     </div>
                     <div className="text-right shrink-0">

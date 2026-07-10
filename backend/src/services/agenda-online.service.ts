@@ -347,7 +347,6 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     })
     const res = await crearLinkParaCobro(db, cobro.id, {
       apiBase: opts.apiBase, appBase: opts.appBase, slug: opts.slug, email: emailForm,
-      urlReturn: `${opts.appBase}/c/${opts.slug}/agendar/${link.token}?pago=listo`,
     })
     if (res.estado !== 'ok') {
       await db.cobro.delete({ where: { id: cobro.id } }).catch(() => {})

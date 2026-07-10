@@ -98,7 +98,8 @@ export async function crearLinkParaCobro(db: TenantClient, cobroId: string, opts
     amount: cobro.monto,
     email,
     urlConfirmation: `${opts.apiBase}/public/pagos/flow/${opts.slug}/webhook`,
-    urlReturn: opts.urlReturn ?? `${opts.appBase}/pacientes/${cobro.pacienteId}`,
+    // Retorno a una página del BACKEND (Flow vuelve por POST; el SPA no acepta POST).
+    urlReturn: opts.urlReturn ?? `${opts.apiBase}/public/pagos/flow/${opts.slug}/retorno`,
   })
 
   if (!res.ok) {

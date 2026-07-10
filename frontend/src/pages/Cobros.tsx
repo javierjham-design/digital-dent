@@ -21,7 +21,7 @@ interface ResumenCaja {
   sesionAbierta: SesionAbierta | null; ultimaCerrada: SesionCerrada | null
 }
 interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { numero: number } | null }
-interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; pacienteId: string; paciente: { nombre: string; apellido: string; email?: string | null }; medioPago?: { nombre: string } | null }
+interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; pacienteId: string; paciente: { nombre: string; apellido: string; email?: string | null }; medioPago?: { nombre: string } | null; caja?: { numero: number; nombre: string } | null }
 
 // Plan (para recibir pago obligado a un plan)
 interface CobroItemLite { monto: number; cobro?: { estado: string } | null }
@@ -145,7 +145,10 @@ export function Cobros() {
         {cobros.length === 0 ? <p className="px-5 py-6 text-center text-slate-500 text-sm">Sin cobros.</p> : cobros.map((c) => (
           <div key={c.id} className={`flex items-center justify-between px-5 py-3 ${c.anulado ? 'opacity-50' : ''}`}>
             <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-800 truncate">#{c.numero} · {c.paciente.nombre} {c.paciente.apellido}</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-medium text-slate-800 truncate">#{c.numero} · {c.paciente.nombre} {c.paciente.apellido}</p>
+                {c.caja && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">Caja Nº {c.caja.numero || '—'} · {c.caja.nombre}</span>}
+              </div>
               <p className="text-xs text-slate-500 truncate">{c.concepto}{c.medioPago ? ` · ${c.medioPago.nombre}` : ' · Efectivo'}{c.numeroReferencia ? ` · Ref ${c.numeroReferencia}` : ''}{c.numeroBoleta ? ` · Boleta ${c.numeroBoleta}` : ''}{c.fechaPago ? ` · ${fechaHora(c.fechaPago)}` : ''}</p>
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
@@ -372,11 +375,13 @@ function MovModal({ cajaId, nombre, onClose, onDone, onError }: { cajaId: string
   )
 }
 
-// Recibir pago: SIEMPRE asociado a un plan de tratamiento del paciente.
+// Recibir pago: SIEMPRE asociado a un plan de tratamiento del paciente. Dos pasos:
+// (1) ingresar datos, (2) pantalla de CONFIRMACIÓN antes de registrar el cobro.
 function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
   cajaId: string; nombre: string; medios: MedioPagoDTO[]; onClose: () => void; onDone: () => void; onError: (m: string) => void
 }) {
   const [pacienteId, setPacienteId] = useState('')
+  const [pacienteNombre, setPacienteNombre] = useState('')
   const [planes, setPlanes] = useState<PlanCard[]>([])
   const [planId, setPlanId] = useState('')
   const [detalle, setDetalle] = useState<PlanDetalle | null>(null)
@@ -388,12 +393,15 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
   const [g, setG] = useState(false)
   const [linkGen, setLinkGen] = useState(false)
   const [linkUrl, setLinkUrl] = useState<string | null>(null)
+  const [paso, setPaso] = useState<'form' | 'confirmar'>('form')
+  const [err, setErr] = useState('')
 
   const medioSel = medios.find((m) => m.id === medioPagoId)
   const requiereRef = Boolean(medioSel?.requiereReferencia)
+  const planSel = planes.find((p) => p.id === planId)
 
   useEffect(() => {
-    setPlanId(''); setDetalle(null); setSel({}); setAbono('')
+    setPlanId(''); setDetalle(null); setSel({}); setAbono(''); setPaso('form'); setErr('')
     if (!pacienteId) { setPlanes([]); return }
     planesService.listar(pacienteId).then((p) => { const ps = p as PlanCard[]; setPlanes(ps); setPlanId(ps[0]?.id ?? '') }).catch(() => {})
   }, [pacienteId])
@@ -409,7 +417,17 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
   const total = Object.values(sel).reduce((s, n) => s + n, 0) + (Number(abono) || 0)
   const toggle = (t: TratNode) => setSel((s) => { const n = { ...s }; if (n[t.id] != null) delete n[t.id]; else n[t.id] = restante(t); return n })
 
-  function buildItems(): Record<string, unknown>[] {
+  // Detalle legible de lo que se va a cobrar (para la confirmación).
+  function itemsDetalle(): { descripcion: string; monto: number }[] {
+    const out: { descripcion: string; monto: number }[] = []
+    for (const [tid, monto] of Object.entries(sel)) if (monto > 0) {
+      const t = acciones.find((a) => a.id === tid)
+      out.push({ descripcion: `${t?.prestacion.nombre ?? 'Acción'}${t?.diente ? ` · ${t.diente}` : ''}`, monto })
+    }
+    if (Number(abono) > 0) out.push({ descripcion: 'Abono libre al plan', monto: Number(abono) })
+    return out
+  }
+  const buildItems = (): Record<string, unknown>[] => {
     const items: Record<string, unknown>[] = []
     for (const [tid, monto] of Object.entries(sel)) if (monto > 0) {
       const t = acciones.find((a) => a.id === tid)
@@ -419,101 +437,136 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
     return items
   }
 
+  // Paso 1 → validar y pasar a la confirmación.
+  function revisar() {
+    setErr('')
+    if (total <= 0) { setErr('Selecciona acciones del plan o ingresa un abono.'); return }
+    if (requiereRef && !numeroReferencia.trim()) { setErr(`Ingresa el N° de referencia de la operación (${medioSel?.nombre}).`); return }
+    setPaso('confirmar')
+  }
+
   async function guardar() {
-    const items = buildItems()
-    if (items.length === 0) { onError('Selecciona acciones del plan o ingresa un abono.'); return }
-    if (requiereRef && !numeroReferencia.trim()) { onError(`Ingresa el N° de referencia de la operación (${medioSel?.nombre}).`); return }
-    setG(true)
+    setG(true); setErr('')
     try {
       await cobrosService.crear({
-        pacienteId, cajaId, medioPagoId: medioPagoId || undefined, items,
+        pacienteId, cajaId, medioPagoId: medioPagoId || undefined, items: buildItems(),
         numeroReferencia: numeroReferencia.trim() || undefined, numeroBoleta: numeroBoleta.trim() || undefined,
       })
       onDone()
-    } catch (e) { onError(e instanceof ApiError ? e.message : 'Error') } finally { setG(false) }
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo registrar el cobro'); onError(e instanceof ApiError ? e.message : 'Error') } finally { setG(false) }
   }
 
   // Genera un link de pago Flow (crea un cobro PENDIENTE) para enviárselo al paciente.
   async function generarLink() {
-    const items = buildItems()
-    if (items.length === 0) { onError('Selecciona acciones del plan o ingresa un abono.'); return }
-    setLinkGen(true)
+    setLinkGen(true); setErr('')
     try {
-      const r = await cobrosService.linkPago({ pacienteId, items })
+      const r = await cobrosService.linkPago({ pacienteId, items: buildItems() })
       setLinkUrl(r.url)
       navigator.clipboard?.writeText(r.url).catch(() => {})
-    } catch (e) { onError(e instanceof ApiError ? e.message : 'No se pudo generar el link') } finally { setLinkGen(false) }
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo generar el link de pago') } finally { setLinkGen(false) }
   }
+
+  const medioTxt = medioSel ? `${medioSel.nombre}${medioSel.comision ? ` (${medioSel.comision}%)` : ''}` : 'Efectivo / sin comisión'
 
   return (
     <Modal title={`Recibir pago · ${nombre}`} onClose={onClose} size="lg">
-      <div className="mb-3"><PacienteBuscador onSelect={(p) => setPacienteId(p?.id ?? '')} placeholder="Buscar paciente…" /></div>
-
-      {!pacienteId ? <p className="text-xs text-slate-400">Busca un paciente para ver sus planes de tratamiento.</p>
-        : planes.length === 0 ? <p className="text-sm text-amber-600">Este paciente no tiene planes de tratamiento. Todo pago debe asociarse a un plan: crea uno en su ficha.</p> : (
-          <>
-            <label className="block mb-3">
-              <span className="text-xs font-medium text-slate-500">Plan de tratamiento</span>
-              <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                {planes.map((p) => <option key={p.id} value={p.id}>#{p.id.slice(-4)} · {p.nombre}</option>)}
-              </select>
-            </label>
-
-            <div className="border border-slate-100 rounded-xl p-3 mb-3">
-              <p className="text-sm font-semibold text-slate-800 mb-2">Pagar acciones pendientes</p>
-              {pendientes.length === 0 ? <p className="text-xs text-slate-400">No hay acciones pendientes de pago.</p> : (
-                <div className="space-y-1.5">
-                  {pendientes.map((t) => (
-                    <div key={t.id} className="flex items-center gap-2 text-sm">
-                      <input type="checkbox" checked={sel[t.id] != null} onChange={() => toggle(t)} />
-                      <span className="flex-1 truncate text-slate-700">{t.prestacion.nombre}{t.diente ? ` · ${t.diente}` : ''}</span>
-                      <span className="text-xs text-slate-400 shrink-0">resta {fmt(restante(t))}</span>
-                      {sel[t.id] != null && (
-                        <input type="number" value={sel[t.id]} onChange={(e) => setSel((s) => ({ ...s, [t.id]: Number(e.target.value) || 0 }))} className="w-24 px-2 py-1 border border-slate-200 rounded-lg text-sm text-right shrink-0" />
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
+      {paso === 'confirmar' ? (
+        // ── Paso 2: confirmación ──
+        <div>
+          <p className="text-sm text-slate-500 mb-3">Revisa que el cobro sea correcto antes de registrarlo:</p>
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-slate-500">Paciente</span><span className="font-semibold text-slate-800">{pacienteNombre || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Plan</span><span className="text-slate-800">{planSel ? `#${planSel.id.slice(-4)} · ${planSel.nombre}` : '—'}</span></div>
+            <div className="flex justify-between"><span className="text-slate-500">Medio de pago</span><span className="text-slate-800">{medioTxt}</span></div>
+            {numeroReferencia.trim() && <div className="flex justify-between"><span className="text-slate-500">Referencia</span><span className="text-slate-800">{numeroReferencia.trim()}</span></div>}
+            {numeroBoleta.trim() && <div className="flex justify-between"><span className="text-slate-500">Boleta</span><span className="text-slate-800">{numeroBoleta.trim()}</span></div>}
+            <div className="border-t border-slate-200 pt-2 mt-2">
+              <p className="text-xs font-semibold text-slate-500 mb-1">Se cobra:</p>
+              {itemsDetalle().map((it, i) => (
+                <div key={i} className="flex justify-between text-slate-700"><span className="truncate pr-2">{it.descripcion}</span><span className="font-mono shrink-0">{fmt(it.monto)}</span></div>
+              ))}
             </div>
+            <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold text-slate-900"><span>Total a recibir</span><span>{fmt(total)}</span></div>
+          </div>
+          {err && <p className="text-sm text-rose-600 mt-3">{err}</p>}
+          <div className="flex gap-2 pt-4">
+            <button onClick={() => { setPaso('form'); setErr('') }} disabled={g} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">← Volver a editar</button>
+            <button onClick={guardar} disabled={g} className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{g ? 'Registrando…' : `Confirmar cobro · ${fmt(total)}`}</button>
+          </div>
+        </div>
+      ) : (
+        // ── Paso 1: datos ──
+        <>
+          <div className="mb-3"><PacienteBuscador onSelect={(p) => { setPacienteId(p?.id ?? ''); setPacienteNombre(p ? `${p.nombre} ${p.apellido}` : '') }} placeholder="Buscar paciente…" /></div>
 
-            <label className="block mb-3">
-              <span className="text-sm font-semibold text-slate-800">Abono libre al plan</span>
-              <input type="number" value={abono} onChange={(e) => setAbono(e.target.value)} placeholder="Monto" className="mt-1 w-40 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
-            </label>
+          {!pacienteId ? <p className="text-xs text-slate-400">Busca un paciente para ver sus planes de tratamiento.</p>
+            : planes.length === 0 ? <p className="text-sm text-amber-600">Este paciente no tiene planes de tratamiento. Todo pago debe asociarse a un plan: crea uno en su ficha.</p> : (
+              <>
+                <label className="block mb-3">
+                  <span className="text-xs font-medium text-slate-500">Plan de tratamiento</span>
+                  <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                    {planes.map((p) => <option key={p.id} value={p.id}>#{p.id.slice(-4)} · {p.nombre}</option>)}
+                  </select>
+                </label>
 
-            <select value={medioPagoId} onChange={(e) => setMedioPagoId(e.target.value)} className="w-full mb-2 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
-              <option value="">Efectivo / sin comisión</option>
-              {medios.map((m) => <option key={m.id} value={m.id}>{m.nombre}{m.comision ? ` (${m.comision}%)` : ''}</option>)}
-            </select>
-            {requiereRef && (
-              <input value={numeroReferencia} onChange={(e) => setNumeroReferencia(e.target.value)} placeholder="N° de referencia de la operación *"
-                className="w-full mb-2 px-3 py-2.5 border border-cyan-300 bg-cyan-50/40 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-            )}
-            <input value={numeroBoleta} onChange={(e) => setNumeroBoleta(e.target.value)} placeholder="N° de boleta (opcional)"
-              className="w-full mb-3 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-            <p className="text-right text-sm font-semibold text-slate-800 mb-1">Total: {fmt(total)}</p>
-
-            {/* Link de pago online (Flow): crea un cobro pendiente y genera el link para enviar al paciente. */}
-            {linkUrl ? (
-              <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-2">
-                <p className="text-xs font-semibold text-emerald-700 mb-1">Link de pago generado (copiado). Envíalo al paciente:</p>
-                <div className="flex items-center gap-2">
-                  <input readOnly value={linkUrl} className="flex-1 min-w-0 px-2 py-1.5 border border-emerald-200 rounded-lg text-xs font-mono bg-white" onFocus={(e) => e.currentTarget.select()} />
-                  <button onClick={() => navigator.clipboard?.writeText(linkUrl)} className="text-xs font-semibold text-emerald-700 shrink-0">Copiar</button>
-                  <a href={linkUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-cyan-700 shrink-0">Abrir</a>
+                <div className="border border-slate-100 rounded-xl p-3 mb-3">
+                  <p className="text-sm font-semibold text-slate-800 mb-2">Pagar acciones pendientes</p>
+                  {pendientes.length === 0 ? <p className="text-xs text-slate-400">No hay acciones pendientes de pago.</p> : (
+                    <div className="space-y-1.5">
+                      {pendientes.map((t) => (
+                        <div key={t.id} className="flex items-center gap-2 text-sm">
+                          <input type="checkbox" checked={sel[t.id] != null} onChange={() => toggle(t)} />
+                          <span className="flex-1 truncate text-slate-700">{t.prestacion.nombre}{t.diente ? ` · ${t.diente}` : ''}</span>
+                          <span className="text-xs text-slate-400 shrink-0">resta {fmt(restante(t))}</span>
+                          {sel[t.id] != null && (
+                            <input type="number" value={sel[t.id]} onChange={(e) => setSel((s) => ({ ...s, [t.id]: Number(e.target.value) || 0 }))} className="w-24 px-2 py-1 border border-slate-200 rounded-lg text-sm text-right shrink-0" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button onClick={onClose} className="mt-2 text-xs text-slate-500 hover:text-slate-700">Cerrar</button>
-              </div>
-            ) : (
-              <button onClick={generarLink} disabled={linkGen || total <= 0} className="w-full mb-2 px-4 py-2.5 border border-cyan-300 text-cyan-700 hover:bg-cyan-50 disabled:opacity-50 text-sm font-semibold rounded-xl">
-                {linkGen ? 'Generando…' : '🔗 Generar link de pago (Flow)'}
-              </button>
-            )}
 
-            <Acciones onClose={onClose} onOk={guardar} okLabel="Cobrar" loading={g} disabled={total <= 0 || (requiereRef && !numeroReferencia.trim())} />
-          </>
-        )}
+                <label className="block mb-3">
+                  <span className="text-sm font-semibold text-slate-800">Abono libre al plan</span>
+                  <input type="number" value={abono} onChange={(e) => setAbono(e.target.value)} placeholder="Monto" className="mt-1 w-40 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+                </label>
+
+                <select value={medioPagoId} onChange={(e) => setMedioPagoId(e.target.value)} className="w-full mb-2 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                  <option value="">Efectivo / sin comisión</option>
+                  {medios.map((m) => <option key={m.id} value={m.id}>{m.nombre}{m.comision ? ` (${m.comision}%)` : ''}</option>)}
+                </select>
+                {requiereRef && (
+                  <input value={numeroReferencia} onChange={(e) => setNumeroReferencia(e.target.value)} placeholder="N° de referencia de la operación *"
+                    className="w-full mb-2 px-3 py-2.5 border border-cyan-300 bg-cyan-50/40 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                )}
+                <input value={numeroBoleta} onChange={(e) => setNumeroBoleta(e.target.value)} placeholder="N° de boleta (opcional)"
+                  className="w-full mb-3 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                <p className="text-right text-sm font-semibold text-slate-800 mb-1">Total: {fmt(total)}</p>
+
+                {/* Link de pago online (Flow): crea un cobro pendiente y genera el link para enviar al paciente. */}
+                {linkUrl ? (
+                  <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-2">
+                    <p className="text-xs font-semibold text-emerald-700 mb-1">Link de pago generado (copiado). Envíalo al paciente:</p>
+                    <div className="flex items-center gap-2">
+                      <input readOnly value={linkUrl} className="flex-1 min-w-0 px-2 py-1.5 border border-emerald-200 rounded-lg text-xs font-mono bg-white" onFocus={(e) => e.currentTarget.select()} />
+                      <button onClick={() => navigator.clipboard?.writeText(linkUrl)} className="text-xs font-semibold text-emerald-700 shrink-0">Copiar</button>
+                      <a href={linkUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-cyan-700 shrink-0">Abrir</a>
+                    </div>
+                    <button onClick={onClose} className="mt-2 text-xs text-slate-500 hover:text-slate-700">Cerrar</button>
+                  </div>
+                ) : (
+                  <button onClick={generarLink} disabled={linkGen || total <= 0} className="w-full mb-2 px-4 py-2.5 border border-cyan-300 text-cyan-700 hover:bg-cyan-50 disabled:opacity-50 text-sm font-semibold rounded-xl">
+                    {linkGen ? 'Generando…' : '🔗 Generar link de pago (Flow)'}
+                  </button>
+                )}
+
+                {err && <p className="text-sm text-rose-600 mb-2">{err}</p>}
+                <Acciones onClose={onClose} onOk={revisar} okLabel="Revisar y confirmar →" loading={false} disabled={total <= 0 || (requiereRef && !numeroReferencia.trim())} />
+              </>
+            )}
+        </>
+      )}
     </Modal>
   )
 }

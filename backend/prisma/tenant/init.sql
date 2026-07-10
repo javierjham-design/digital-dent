@@ -419,6 +419,7 @@ CREATE TABLE "Caja" (
 -- CreateTable
 CREATE TABLE "SesionCaja" (
     "id" TEXT NOT NULL,
+    "numero" INTEGER NOT NULL DEFAULT 0,
     "cajaId" TEXT NOT NULL,
     "estado" TEXT NOT NULL DEFAULT 'ABIERTA',
     "saldoApertura" DOUBLE PRECISION NOT NULL DEFAULT 0,

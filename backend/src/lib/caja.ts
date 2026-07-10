@@ -34,9 +34,12 @@ export async function abrirSesion(db: TenantClient, args: {
 }) {
   const existing = await getSesionAbierta(db, args.cajaId)
   if (existing) throw new Error('Ya hay una sesión abierta en esta caja.')
+  // Correlativo global de aperturas de la clínica (no se repite entre cajas).
+  const last = await db.sesionCaja.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
+  const numero = (last?.numero ?? 0) + 1
   return db.sesionCaja.create({
     data: {
-      cajaId: args.cajaId, saldoApertura: args.saldoApertura,
+      numero, cajaId: args.cajaId, saldoApertura: args.saldoApertura,
       abiertaPorId: args.userId, abiertaPorNombre: args.userNombre,
     },
   })

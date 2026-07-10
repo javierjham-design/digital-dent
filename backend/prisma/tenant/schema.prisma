@@ -473,6 +473,7 @@ model Caja {
 
 model SesionCaja {
   id               String    @id @default(cuid())
+  numero           Int       @default(0) // correlativo de aperturas de caja (no se repite; se asigna al abrir)
   cajaId           String
   estado           String    @default("ABIERTA")
   saldoApertura    Float     @default(0)
