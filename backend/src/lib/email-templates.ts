@@ -5,8 +5,12 @@ export interface ClinicaEmail { nombre: string; direccion?: string | null; telef
 
 // Envoltorio común: encabezado con la clínica + contenido + pie "vía Cláriva".
 export function plantillaBase(clinica: ClinicaEmail, contenidoHtml: string): string {
-  const logo = clinica.logoUrl
-    ? `<img src="${escapeAttr(clinica.logoUrl)}" alt="" height="40" style="height:40px;border-radius:8px;margin-bottom:8px" />`
+  // Solo incrustamos el logo si es una URL http(s). Un logo como data URI (base64)
+  // puede pesar cientos de KB y hace que Gmail "recorte" el correo (y muchos
+  // clientes bloquean imágenes data:). En ese caso, mejor sin logo.
+  const logoOk = clinica.logoUrl && /^https?:\/\//i.test(clinica.logoUrl)
+  const logo = logoOk
+    ? `<img src="${escapeAttr(clinica.logoUrl!)}" alt="" height="40" style="height:40px;border-radius:8px;margin-bottom:8px" />`
     : ''
   return `<!doctype html><html><body style="margin:0;background:#f1f5f9;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#0f172a">
   <div style="max-width:560px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;overflow:hidden">
