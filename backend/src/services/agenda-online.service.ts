@@ -254,6 +254,11 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
   const telefono = (input.telefono ?? '').trim()
   if (!nombre || !apellido) throw badRequest('Ingresa tu nombre y apellido.')
   if (telefono.replace(/\D/g, '').length < 8) throw badRequest('Ingresa un teléfono válido para confirmar tu hora.')
+  // Si la reserva exige abono (pago con Flow), el email es obligatorio (Flow lo requiere).
+  const emailForm = (input.email ?? '').trim().toLowerCase()
+  if (link.requierePago && link.montoAbono > 0 && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailForm)) {
+    throw badRequest('Ingresa un email válido: lo necesitamos para procesar el pago del abono.')
+  }
 
   // Profesional elegido: debe ser uno de los del link (si no se indica y hay uno solo, ese).
   const profes = profesionalesIds(link)
@@ -290,10 +295,13 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
       data: {
         numero: Math.max(1000, (ultimo?.numero ?? 999) + 1),
         nombre, apellido, telefono, rut,
-        email: input.email?.trim() || null, activo: true,
+        email: emailForm || null, activo: true,
       },
       select: { id: true },
     })
+  } else if (emailForm) {
+    // Paciente existente sin email: lo completamos (necesario para el pago del abono).
+    await db.paciente.updateMany({ where: { id: paciente.id, email: null }, data: { email: emailForm } }).catch(() => {})
   }
 
   // Revalidación atómica de conflicto (carrera entre dos reservas del mismo cupo).
@@ -334,7 +342,7 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
       select: { id: true },
     })
     const res = await crearLinkParaCobro(db, cobro.id, {
-      apiBase: opts.apiBase, appBase: opts.appBase, slug: opts.slug,
+      apiBase: opts.apiBase, appBase: opts.appBase, slug: opts.slug, email: emailForm,
       urlReturn: `${opts.appBase}/c/${opts.slug}/agendar/${link.token}?pago=listo`,
     })
     if (res.estado !== 'ok') {

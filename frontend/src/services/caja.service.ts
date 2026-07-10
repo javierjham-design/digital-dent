@@ -13,6 +13,8 @@ export const cobrosService = {
   anular: (id: string, motivo: string) => api.post<unknown>(`/cobros/${id}/anular`, { motivo }),
   eliminar: (id: string) => api.del<{ ok: true }>(`/cobros/${id}`),
   derivarAbono: (input: { fromPlanId: string; toPlanId: string; monto?: number }) => api.post<unknown>('/cobros/derivar-abono', input),
+  linkPago: (input: { pacienteId: string; items: Record<string, unknown>[] }) =>
+    api.post<{ estado: 'ok'; url: string; cobroId: string; numero: number }>('/cobros/link-pago', input),
 }
 
 export const cajasService = {

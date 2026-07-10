@@ -3,6 +3,7 @@ import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import { getSesionAbierta } from '@/lib/caja'
 import { audit } from '@/lib/audit'
+import { crearLinkParaCobro } from '@/services/pagos-online.service'
 
 const ESTADOS = ['PENDIENTE', 'PAGADO', 'PARCIAL', 'ANULADO']
 const fmtMoney = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n))
@@ -45,6 +46,49 @@ export interface CrearCobroInput {
   items: { tratamientoId?: string; planId?: string; descripcion: string; monto: number }[]
 }
 
+// Valida los items del cobro y que TODO pago quede asociado a un plan de
+// tratamiento (acciones del plan o abono al plan). Devuelve el monto total.
+async function validarItemsCobro(
+  db: TenantClient, pacienteId: string,
+  items: { tratamientoId?: string; planId?: string; descripcion: string; monto: number }[],
+): Promise<number> {
+  if (!items || items.length === 0) throw badRequest('Agrega al menos un item.')
+  const monto = items.reduce((s, i) => s + Number(i.monto), 0)
+  if (monto <= 0) throw badRequest('El monto debe ser mayor a 0.')
+
+  const tratIds = [...new Set(items.map((i) => i.tratamientoId).filter(Boolean) as string[])]
+  const planIds = [...new Set(items.map((i) => i.planId).filter(Boolean) as string[])]
+
+  if (tratIds.length > 0) {
+    const trats = await db.tratamiento.findMany({
+      where: { id: { in: tratIds } },
+      select: { id: true, planId: true, ficha: { select: { pacienteId: true } } },
+    })
+    const tratMap = new Map(trats.map((t) => [t.id, t]))
+    for (const tid of tratIds) {
+      const t = tratMap.get(tid)
+      if (!t) throw notFound('Acción de tratamiento no encontrada')
+      if (t.ficha.pacienteId !== pacienteId) throw badRequest('La acción no pertenece a este paciente.')
+      if (!t.planId) throw badRequest('Cada pago debe estar asociado a un plan de tratamiento. Hay una acción que no pertenece a ningún plan.')
+    }
+  }
+  if (planIds.length > 0) {
+    const planes = await db.planTratamiento.findMany({ where: { id: { in: planIds } }, select: { id: true, pacienteId: true } })
+    const planMap = new Map(planes.map((p) => [p.id, p]))
+    for (const pid of planIds) {
+      const p = planMap.get(pid)
+      if (!p) throw notFound('Plan de tratamiento no encontrado')
+      if (p.pacienteId !== pacienteId) throw badRequest('El plan no pertenece a este paciente.')
+    }
+  }
+  for (const it of items) {
+    if (!it.tratamientoId && !it.planId) {
+      throw badRequest('Cada pago debe asociarse a un plan de tratamiento (paga acciones del plan o registra un abono al plan).')
+    }
+  }
+  return monto
+}
+
 export async function crearCobro(db: TenantClient, actor: JwtPayload, input: CrearCobroInput) {
   const me = await db.user.findUnique({ where: { id: actor.sub }, select: { role: true, puedeRecibirPagos: true } })
   if (!(me?.role === 'admin' || me?.puedeRecibirPagos)) throw forbidden('No tienes permiso para recibir pagos.')
@@ -58,42 +102,7 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
   if (me?.role !== 'admin' && !caja.usuarios.some((cu) => cu.userId === actor.sub)) throw forbidden('No tienes acceso a esta caja.')
 
   const items = input.items ?? []
-  if (items.length === 0) throw badRequest('Agrega al menos un item.')
-  const monto = items.reduce((s, i) => s + Number(i.monto), 0)
-  if (monto <= 0) throw badRequest('El monto debe ser mayor a 0.')
-
-  // Regla de negocio: TODO pago debe quedar asociado a un plan de tratamiento,
-  // ya sea pagando acciones del plan (tratamientoId) o como abono al plan (planId).
-  const tratIds = [...new Set(items.map((i) => i.tratamientoId).filter(Boolean) as string[])]
-  const planIds = [...new Set(items.map((i) => i.planId).filter(Boolean) as string[])]
-
-  if (tratIds.length > 0) {
-    const trats = await db.tratamiento.findMany({
-      where: { id: { in: tratIds } },
-      select: { id: true, planId: true, ficha: { select: { pacienteId: true } } },
-    })
-    const tratMap = new Map(trats.map((t) => [t.id, t]))
-    for (const tid of tratIds) {
-      const t = tratMap.get(tid)
-      if (!t) throw notFound('Acción de tratamiento no encontrada')
-      if (t.ficha.pacienteId !== input.pacienteId) throw badRequest('La acción no pertenece a este paciente.')
-      if (!t.planId) throw badRequest('Cada pago debe estar asociado a un plan de tratamiento. Hay una acción que no pertenece a ningún plan.')
-    }
-  }
-  if (planIds.length > 0) {
-    const planes = await db.planTratamiento.findMany({ where: { id: { in: planIds } }, select: { id: true, pacienteId: true } })
-    const planMap = new Map(planes.map((p) => [p.id, p]))
-    for (const pid of planIds) {
-      const p = planMap.get(pid)
-      if (!p) throw notFound('Plan de tratamiento no encontrado')
-      if (p.pacienteId !== input.pacienteId) throw badRequest('El plan no pertenece a este paciente.')
-    }
-  }
-  for (const it of items) {
-    if (!it.tratamientoId && !it.planId) {
-      throw badRequest('Cada pago debe asociarse a un plan de tratamiento (paga acciones del plan o registra un abono al plan).')
-    }
-  }
+  const monto = await validarItemsCobro(db, input.pacienteId, items)
 
   const numeroReferencia = input.numeroReferencia?.trim() || null
   const numeroBoleta = input.numeroBoleta?.trim() || null
@@ -144,6 +153,43 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
     resumen: `Recibió un pago #${numero} por ${fmtMoney(monto)}${medioNombre ? ` · ${medioNombre}` : ' · Efectivo'}`,
   })
   return nuevo
+}
+
+// Crea un cobro PENDIENTE (sin tocar caja) y genera su link de pago Flow, para
+// enviárselo al paciente y que pague online. El webhook lo marca pagado.
+export interface CobroLinkInput {
+  pacienteId: string
+  items: { tratamientoId?: string; planId?: string; descripcion: string; monto: number }[]
+  apiBase: string; appBase: string; slug: string
+}
+export async function crearCobroLinkPago(db: TenantClient, actor: JwtPayload, input: CobroLinkInput) {
+  const me = await db.user.findUnique({ where: { id: actor.sub }, select: { role: true, puedeRecibirPagos: true } })
+  if (!(me?.role === 'admin' || me?.puedeRecibirPagos)) throw forbidden('No tienes permiso para recibir pagos.')
+  const paciente = await db.paciente.findUnique({ where: { id: input.pacienteId }, select: { id: true } })
+  if (!paciente) throw notFound('Paciente no encontrado')
+
+  const monto = await validarItemsCobro(db, input.pacienteId, input.items)
+  const concepto = input.items.map((i) => i.descripcion).join(', ')
+  const last = await db.cobro.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
+  const numero = (last?.numero ?? 0) + 1
+
+  const cobro = await db.cobro.create({
+    data: {
+      pacienteId: input.pacienteId, numero, concepto, monto, montoNeto: monto, comisionMonto: 0,
+      estado: 'PENDIENTE', reciboUsuarioId: actor.sub,
+      items: { create: input.items.map((i) => ({ tratamientoId: i.tratamientoId || null, planId: i.planId || null, descripcion: i.descripcion, monto: Number(i.monto) })) },
+    },
+    select: { id: true },
+  })
+  const res = await crearLinkParaCobro(db, cobro.id, { apiBase: input.apiBase, appBase: input.appBase, slug: input.slug, creadoPorId: actor.sub })
+  if (res.estado !== 'ok') {
+    await db.cobro.delete({ where: { id: cobro.id } }).catch(() => {})
+    throw badRequest(res.estado === 'no_configurada'
+      ? 'Aún no tienes habilitado el pago online (Flow). Actívalo en Configuración → Pagos online.'
+      : res.mensaje)
+  }
+  await audit(db, actor.sub, { accion: 'CREAR', entidad: 'Cobro', entidadId: cobro.id, pacienteId: input.pacienteId, resumen: `Generó un link de pago #${numero} por ${fmtMoney(monto)}` })
+  return { estado: 'ok' as const, url: res.url, cobroId: cobro.id, numero }
 }
 
 const CAMPOS_PRIVILEGIADOS = ['monto', 'montoNeto', 'comisionMonto', 'concepto', 'notas', 'fechaPago', 'reciboUsuarioId']

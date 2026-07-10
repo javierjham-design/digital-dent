@@ -274,6 +274,7 @@ apiRouter.get('/cobros', tenant, asyncHandler(cobros.getCobros)) // ?pacienteId=
 apiRouter.post('/cobros/derivar-abono', tenant, asyncHandler(cobros.postDerivarAbono)) // mover abono libre entre planes
 apiRouter.get('/cobros/:id', tenant, asyncHandler(cobros.getCobro))
 apiRouter.post('/cobros', tenant, asyncHandler(cobros.postCobro))
+apiRouter.post('/cobros/link-pago', tenant, asyncHandler(cobros.postCobroLinkPago))
 apiRouter.patch('/cobros/:id', tenant, asyncHandler(cobros.patchCobro))
 apiRouter.post('/cobros/:id/anular', tenant, asyncHandler(cobros.postAnularCobro))
 apiRouter.delete('/cobros/:id', tenant, asyncHandler(cobros.deleteCobro))

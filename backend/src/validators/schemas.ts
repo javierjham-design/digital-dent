@@ -192,6 +192,17 @@ export const crearCobroSchema = z.object({
   })).min(1, 'Agrega al menos un item.'),
 })
 
+// Link de pago (Flow) para un cobro nuevo pendiente: paciente + items (sin caja).
+export const cobroLinkPagoSchema = z.object({
+  pacienteId: z.string().min(1),
+  items: z.array(z.object({
+    tratamientoId: z.string().optional(),
+    planId: z.string().optional(),
+    descripcion: z.string().min(1),
+    monto: z.number(),
+  })).min(1, 'Agrega al menos un item.'),
+})
+
 export const derivarAbonoSchema = z.object({
   fromPlanId: z.string().min(1),
   toPlanId: z.string().min(1),

@@ -4,6 +4,8 @@ import { badRequest, notFound } from '@/lib/errors'
 import { encryptNullable, decryptNullable } from '@/lib/crypto'
 import { flowConfigurado, flowCrearPago, flowGetStatus, type FlowConfig } from '@/lib/flow-cobros'
 
+const emailValido = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
+
 // Lee la config de Flow de la clínica (descifra las claves). Server-only.
 async function leerFlowConfig(db: TenantClient): Promise<FlowConfig> {
   const c = await db.configuracion.findUnique({
@@ -54,7 +56,7 @@ async function asegurarMedioFlow(db: TenantClient) {
 
 // Genera un link de pago Flow para un cobro pendiente del paciente. urls: base del
 // backend (webhook) y del frontend (retorno del paciente).
-export interface CrearLinkOpts { apiBase: string; appBase: string; slug: string; creadoPorId?: string; urlReturn?: string }
+export interface CrearLinkOpts { apiBase: string; appBase: string; slug: string; creadoPorId?: string; urlReturn?: string; email?: string }
 export type ResultadoLinkPago =
   | { estado: 'ok'; url: string; pagoId: string }
   | { estado: 'no_configurada'; mensaje: string }
@@ -74,7 +76,12 @@ export async function crearLinkParaCobro(db: TenantClient, cobroId: string, opts
     return { estado: 'no_configurada', mensaje: 'Aún no están cargadas las credenciales de Flow de la clínica. Configúralas en Ajustes → Pagos online.' }
   }
 
-  const email = cobro.paciente.email?.trim() || 'pagos@clariva.cl' // Flow exige email; si el paciente no tiene, uno neutro
+  // Flow exige un email válido del pagador. Prioridad: el indicado (form de la
+  // reserva) → el del paciente. Sin email no se puede generar el pago.
+  const email = (opts.email?.trim() || cobro.paciente.email?.trim() || '').toLowerCase()
+  if (!emailValido(email)) {
+    return { estado: 'error', mensaje: 'Se requiere un email válido del paciente para generar el pago online.' }
+  }
   const commerceOrder = `cobro-${cobro.numero}-${randomUUID().slice(0, 8)}`
   const pago = await db.pagoOnline.create({
     data: {

@@ -1,7 +1,8 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
+import { apiBaseDe, appBaseDe } from '@/lib/req-url'
 import * as svc from '@/services/cobros.service'
-import { crearCobroSchema, motivoSchema, derivarAbonoSchema } from '@/validators/schemas'
+import { crearCobroSchema, cobroLinkPagoSchema, motivoSchema, derivarAbonoSchema } from '@/validators/schemas'
 
 export async function getCobros(req: Request, res: Response) {
   const pacienteId = typeof req.query.pacienteId === 'string' ? req.query.pacienteId : undefined
@@ -17,6 +18,12 @@ export async function getCobro(req: Request, res: Response) {
 export async function postCobro(req: Request, res: Response) {
   const input = crearCobroSchema.parse(req.body)
   res.status(201).json(await svc.crearCobro(tenantDb(req), req.auth!, input))
+}
+export async function postCobroLinkPago(req: Request, res: Response) {
+  const input = cobroLinkPagoSchema.parse(req.body)
+  res.status(201).json(await svc.crearCobroLinkPago(tenantDb(req), req.auth!, {
+    ...input, apiBase: apiBaseDe(req), appBase: appBaseDe(req), slug: req.clinica?.slug ?? '',
+  }))
 }
 export async function patchCobro(req: Request, res: Response) {
   res.json(await svc.actualizarCobro(tenantDb(req), req.auth!, req.params.id, req.body ?? {}))
