@@ -132,6 +132,9 @@ function LinkModal({ link, doctores, onClose, onSaved, onError }: {
     <Modal title={link ? 'Editar link de agendamiento' : 'Nuevo link de agendamiento'} onClose={onClose}>
       <div className="space-y-3">
         <Campo label="Nombre del link"><input value={form.nombre} onChange={(e) => set({ nombre: e.target.value })} placeholder="Ej: Evaluaciones Dr. Aedo" className={inp} /></Campo>
+        <Campo label="Descripción / mensaje (se muestra en la página de reserva)">
+          <textarea value={form.descripcion} onChange={(e) => set({ descripcion: e.target.value })} rows={3} placeholder="Ej: El abono se descontará del pago de tu limpieza. Llega 10 min antes con tu carnet." className={inp} />
+        </Campo>
         <Campo label="Profesionales disponibles (uno o varios)">
           <div className="border border-slate-200 rounded-xl p-2 max-h-40 overflow-y-auto space-y-0.5">
             {doctores.length === 0 && <p className="text-xs text-slate-400 px-1">No hay profesionales con agenda.</p>}

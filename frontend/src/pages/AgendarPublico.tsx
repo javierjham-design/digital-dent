@@ -122,7 +122,7 @@ export function AgendarPublico() {
                 {link.profesionales.length > 1 ? `${link.profesionales.length} profesionales` : (profeSel?.nombre ?? '')}
                 {link.profesionales.length === 1 && profeSel?.especialidad ? ` · ${profeSel.especialidad}` : ''} · {link.duracionMin} min
               </p>
-              {link.descripcion && <p className="text-sm text-slate-600 mt-2">{link.descripcion}</p>}
+              {link.descripcion && <p className="text-sm text-slate-600 mt-2 whitespace-pre-line">{link.descripcion}</p>}
             </div>
 
             {link.profesionales.length > 1 && (
