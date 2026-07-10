@@ -261,10 +261,12 @@ apiRouter.patch('/presupuestos/:id', tenant, asyncHandler(presupuestos.patchPres
 apiRouter.get('/cajas', tenant, asyncHandler(caja.getCajas))
 apiRouter.get('/cajas/resumen', tenant, asyncHandler(caja.getResumenCajas)) // estado abiertas/cerradas (antes de /:id)
 apiRouter.get('/cajas/gestion', [requireAuth, requireTenant, requirePermiso('puedeGestionarCajas')], asyncHandler(caja.getGestionCajas)) // todas las cajas (admin o autorizado)
-apiRouter.post('/cajas', adminTenant, asyncHandler(caja.postCaja))
+// Crear caja: admin o usuario con permiso de recibir pagos (crea su propia caja).
+apiRouter.post('/cajas', [requireAuth, requireTenant, requirePermiso('puedeRecibirPagos')], asyncHandler(caja.postCaja))
 apiRouter.get('/cajas/:id', tenant, asyncHandler(caja.getCaja))
-apiRouter.patch('/cajas/:id', adminTenant, asyncHandler(caja.patchCaja))
-apiRouter.delete('/cajas/:id', adminTenant, asyncHandler(caja.deleteCaja))
+// Editar/desactivar (asignar usuarios, renombrar): admin o gestor de cajas.
+apiRouter.patch('/cajas/:id', [requireAuth, requireTenant, requirePermiso('puedeGestionarCajas')], asyncHandler(caja.patchCaja))
+apiRouter.delete('/cajas/:id', [requireAuth, requireTenant, requirePermiso('puedeGestionarCajas')], asyncHandler(caja.deleteCaja))
 apiRouter.get('/cajas/:id/abrir', tenant, asyncHandler(caja.getSaldoSugerido))
 apiRouter.post('/cajas/:id/abrir', tenant, asyncHandler(caja.postAbrir))
 apiRouter.post('/cajas/:id/cerrar', tenant, asyncHandler(caja.postCerrar))

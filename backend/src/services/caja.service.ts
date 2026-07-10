@@ -100,10 +100,14 @@ export async function gestionCajas(db: TenantClient) {
   }))
 }
 
-export async function crearCaja(db: TenantClient, body: { nombre: string; descripcion?: string; saldoInicial?: number; usuarioIds?: string[] }) {
+export async function crearCaja(db: TenantClient, actor: JwtPayload, body: { nombre: string; descripcion?: string; saldoInicial?: number; usuarioIds?: string[] }) {
   const nombre = (body.nombre ?? '').trim()
   if (!nombre) throw badRequest('Falta el nombre')
-  const usuarioIds = Array.isArray(body.usuarioIds) ? body.usuarioIds : []
+  const isAdmin = actor.role === 'admin'
+  // Un usuario NO admin crea SU propia caja: se auto-asigna y no puede asignar a otros.
+  let usuarioIds = Array.isArray(body.usuarioIds) ? [...new Set(body.usuarioIds)] : []
+  if (!isAdmin) usuarioIds = [actor.sub]
+  else if (!usuarioIds.includes(actor.sub) && usuarioIds.length === 0) usuarioIds = [actor.sub]
   if (usuarioIds.length > 0) {
     const count = await db.user.count({ where: { id: { in: usuarioIds } } })
     if (count !== usuarioIds.length) throw badRequest('Usuarios inválidos')

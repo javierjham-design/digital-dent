@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { cajasService } from '@/services/caja.service'
+import { usuariosService } from '@/services/equipo.service'
+import type { UsuarioDTO } from '@shared/types'
+import { ApiError } from '@/services/api'
 import { fmtMonto } from '@/lib/money'
 import { useAuth } from '@/hooks/useAuth'
 
@@ -25,8 +28,10 @@ export function GestionCajas() {
   const [cajas, setCajas] = useState<CajaGestion[]>([])
   const [cargando, setCargando] = useState(true)
   const [ver, setVer] = useState<CajaGestion | null>(null)
+  const [form, setForm] = useState<CajaGestion | 'nueva' | null>(null)
 
-  useEffect(() => { cajasService.gestion().then((r) => setCajas(r as CajaGestion[])).catch(() => {}).finally(() => setCargando(false)) }, [])
+  const cargar = () => cajasService.gestion().then((r) => setCajas(r as CajaGestion[])).catch(() => {}).finally(() => setCargando(false))
+  useEffect(() => { cargar() }, [])
 
   if (!autorizado) return (
     <div className="max-w-md mx-auto text-center py-16">
@@ -40,7 +45,10 @@ export function GestionCajas() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-slate-900 mb-1">Gestión de cajas</h1>
+      <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+        <h1 className="text-2xl font-bold text-slate-900">Gestión de cajas</h1>
+        <button onClick={() => setForm('nueva')} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">+ Nueva caja</button>
+      </div>
       <p className="text-sm text-slate-500 mb-5">Todas las cajas de la clínica y su estado. Cada caja es independiente: registra sus propios cobros y gastos, y su responsable rinde por su efectivo y pagos con tarjeta.</p>
 
       <div className="grid grid-cols-3 gap-3 mb-5 max-w-md">
@@ -72,7 +80,10 @@ export function GestionCajas() {
                         Responsable(s): {nombreUsuarios(c).length ? nombreUsuarios(c).join(', ') : <span className="text-slate-400">sin asignar</span>}
                       </p>
                     </div>
-                    <button onClick={() => setVer(c)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900 shrink-0">Ver sesiones ({c.totalSesiones}) →</button>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <button onClick={() => setForm(c)} className="text-xs font-semibold text-slate-500 hover:text-slate-800">Editar</button>
+                      <button onClick={() => setVer(c)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900">Ver sesiones ({c.totalSesiones}) →</button>
+                    </div>
                   </div>
 
                   {abierta ? (
@@ -97,6 +108,58 @@ export function GestionCajas() {
         )}
 
       {ver && <SesionesModal caja={ver} onClose={() => setVer(null)} />}
+      {form && <CajaFormModal caja={form === 'nueva' ? null : form} onClose={() => setForm(null)} onSaved={() => { setForm(null); cargar() }} />}
+    </div>
+  )
+}
+
+// Crear o editar una caja: nombre, saldo inicial, responsables y estado activo.
+function CajaFormModal({ caja, onClose, onSaved }: { caja: CajaGestion | null; onClose: () => void; onSaved: () => void }) {
+  const [usuarios, setUsuarios] = useState<UsuarioDTO[]>([])
+  const [nombre, setNombre] = useState(caja?.nombre ?? '')
+  const [saldoInicial, setSaldoInicial] = useState(caja ? String(caja.saldoInicial) : '')
+  const [activo, setActivo] = useState(caja ? caja.activo : true)
+  const [sel, setSel] = useState<string[]>(caja ? caja.usuarios.map((u) => u.user.id) : [])
+  const [g, setG] = useState(false); const [err, setErr] = useState('')
+  useEffect(() => { usuariosService.listar().then((us) => setUsuarios(us.filter((u) => u.activo))).catch(() => {}) }, [])
+
+  async function guardar() {
+    if (!nombre.trim()) { setErr('Ponle un nombre a la caja.'); return }
+    setG(true); setErr('')
+    try {
+      if (caja) await cajasService.actualizar(caja.id, { nombre: nombre.trim(), saldoInicial: Number(saldoInicial) || 0, activo, usuarioIds: sel })
+      else await cajasService.crear({ nombre: nombre.trim(), saldoInicial: Number(saldoInicial) || 0, usuarioIds: sel })
+      onSaved()
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo guardar') } finally { setG(false) }
+  }
+  const toggle = (id: string) => setSel((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4"><h2 className="text-base font-semibold text-slate-900">{caja ? 'Editar caja' : 'Nueva caja'}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
+        <label className="block mb-3"><span className="text-xs font-medium text-slate-500">Nombre</span>
+          <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: Caja recepción" className="mt-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" /></label>
+        <label className="block mb-3"><span className="text-xs font-medium text-slate-500">Saldo inicial</span>
+          <input value={saldoInicial} onChange={(e) => setSaldoInicial(e.target.value)} inputMode="numeric" placeholder="0" className="mt-1 w-40 px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono" /></label>
+        <div className="mb-3">
+          <span className="text-xs font-medium text-slate-500">Responsable(s)</span>
+          <div className="mt-1 border border-slate-200 rounded-xl p-2 max-h-44 overflow-y-auto space-y-0.5">
+            {usuarios.length === 0 && <p className="text-xs text-slate-400 px-1">Cargando…</p>}
+            {usuarios.map((u) => (
+              <label key={u.id} className="flex items-center gap-2 text-sm text-slate-700 px-1.5 py-1 rounded-lg hover:bg-slate-50 cursor-pointer">
+                <input type="checkbox" checked={sel.includes(u.id)} onChange={() => toggle(u.id)} /> {u.name ?? u.username}
+              </label>
+            ))}
+          </div>
+        </div>
+        {caja && <label className="flex items-center gap-2 text-sm text-slate-700 mb-3"><input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} /> Caja activa</label>}
+        {err && <p className="text-sm text-rose-600 mb-2">{err}</p>}
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+          <button onClick={guardar} disabled={g} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{g ? 'Guardando…' : 'Guardar'}</button>
+        </div>
+      </div>
     </div>
   )
 }

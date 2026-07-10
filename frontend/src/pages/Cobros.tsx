@@ -6,6 +6,7 @@ import { pagosOnlineService } from '@/services/pagos-online.service'
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
 import { EnviarCorreoModal } from '@/components/EnviarCorreoModal'
+import { useAuth } from '@/hooks/useAuth'
 
 // ── Tipos ──
 interface Resumen { ingresos: number; egresos: number; saldoEsperado: number; saldoApertura: number }
@@ -54,6 +55,9 @@ export function Cobros() {
   const [medios, setMedios] = useState<MedioPagoDTO[]>([])
   const [cobros, setCobros] = useState<Cobro[]>([])
   const [modal, setModal] = useState<Modal>(null)
+  const { user } = useAuth()
+  const puedeCrearCaja = user?.role === 'admin' || Boolean(user?.permisos?.puedeRecibirPagos)
+  const [nuevaCaja, setNuevaCaja] = useState(false)
   const [histCajaId, setHistCajaId] = useState<string | null>(null)
   const [comprobante, setComprobante] = useState<Cobro | null>(null)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
@@ -70,12 +74,15 @@ export function Cobros() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-slate-900 mb-5">Cobros y cajas</h1>
+      <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
+        <h1 className="text-2xl font-bold text-slate-900">Cobros y cajas</h1>
+        {puedeCrearCaja && <button onClick={() => setNuevaCaja(true)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">+ Nueva caja</button>}
+      </div>
       {aviso && <div className={`mb-4 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>}
 
       {resumenes.length === 0 && (
         <div className="bg-white rounded-2xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
-          No tienes cajas asignadas. Un administrador puede crearlas en Administración → (cajas).
+          No tienes cajas. {puedeCrearCaja ? 'Crea la tuya con "+ Nueva caja".' : 'Un administrador o gestor de cajas puede asignarte una.'}
         </div>
       )}
 
@@ -164,6 +171,7 @@ export function Cobros() {
         ))}
       </div>
 
+      {nuevaCaja && <NuevaCajaModal onClose={() => setNuevaCaja(false)} onDone={() => { setNuevaCaja(false); notify('Caja creada'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal?.kind === 'abrir' && <AbrirModal cajaId={modal.cajaId} nombre={modal.nombre} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Caja abierta'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal?.kind === 'cerrar' && <CerrarModal cajaId={modal.cajaId} nombre={modal.nombre} resumen={modal.resumen} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Caja cerrada'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal?.kind === 'mov' && <MovModal cajaId={modal.cajaId} nombre={modal.nombre} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Movimiento registrado'); cargar() }} onError={(m) => notify(m, false)} />}
@@ -292,6 +300,34 @@ function Stat({ label, value, tone = 'slate' }: { label: string; value: string; 
 }
 
 // ── Modales de operación de caja ──
+// Crear una caja nueva (el creador queda como responsable). Para el flujo diario
+// de quien recibe pagos: crea su caja, la abre y luego la cierra.
+function NuevaCajaModal({ onClose, onDone, onError }: { onClose: () => void; onDone: () => void; onError: (m: string) => void }) {
+  const [nombre, setNombre] = useState('')
+  const [saldoInicial, setSaldoInicial] = useState('')
+  const [g, setG] = useState(false); const [err, setErr] = useState('')
+  async function crear() {
+    if (!nombre.trim()) { setErr('Ponle un nombre a la caja (ej: Caja recepción).'); return }
+    setG(true); setErr('')
+    try { await cajasService.crear({ nombre: nombre.trim(), saldoInicial: Number(saldoInicial) || 0 }); onDone() }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo crear la caja'); onError(e instanceof ApiError ? e.message : 'Error') } finally { setG(false) }
+  }
+  return (
+    <Modal title="Nueva caja" onClose={onClose}>
+      <p className="text-xs text-slate-500 mb-3">Quedas como responsable de esta caja. Tus cobros y gastos van solo a ella, separados de las demás.</p>
+      <label className="block mb-3"><span className="text-xs font-medium text-slate-500">Nombre</span>
+        <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: Caja recepción, Caja Dr. Aedo" className="mt-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" /></label>
+      <label className="block"><span className="text-xs font-medium text-slate-500">Saldo inicial (opcional)</span>
+        <input value={saldoInicial} onChange={(e) => setSaldoInicial(e.target.value)} inputMode="numeric" placeholder="0" className="mt-1 w-40 px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500" /></label>
+      {err && <p className="text-sm text-rose-600 mt-3">{err}</p>}
+      <div className="flex gap-2 pt-4">
+        <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+        <button onClick={crear} disabled={g} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{g ? 'Creando…' : 'Crear caja'}</button>
+      </div>
+    </Modal>
+  )
+}
+
 function AbrirModal({ cajaId, nombre, onClose, onDone, onError }: { cajaId: string; nombre: string; onClose: () => void; onDone: () => void; onError: (m: string) => void }) {
   const [saldo, setSaldo] = useState('')
   const [sugerido, setSugerido] = useState<number | null>(null)

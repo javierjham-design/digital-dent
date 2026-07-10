@@ -22,6 +22,7 @@ export interface SessionUserDTO {
     puedeGestionarCrm: boolean
     puedeEliminar: boolean
     puedeGestionarCajas: boolean
+    puedeRecibirPagos: boolean
   }
 }
 

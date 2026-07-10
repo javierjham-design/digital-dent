@@ -17,7 +17,7 @@ export async function getCaja(req: Request, res: Response) {
 }
 export async function postCaja(req: Request, res: Response) {
   const input = crearCajaSchema.parse(req.body)
-  res.status(201).json(await svc.crearCaja(tenantDb(req), input))
+  res.status(201).json(await svc.crearCaja(tenantDb(req), req.auth!, input))
 }
 export async function patchCaja(req: Request, res: Response) {
   res.json(await svc.actualizarCaja(tenantDb(req), req.params.id, req.body ?? {}))
