@@ -34,10 +34,30 @@ CREATE TABLE "Configuracion" (
     "flowApiKey" TEXT,
     "flowSecretKey" TEXT,
     "flowSandbox" BOOLEAN NOT NULL DEFAULT true,
+    "emailNotificaciones" BOOLEAN NOT NULL DEFAULT true,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Configuracion_pkey" PRIMARY KEY ("id")
 );
+
+-- Historial de correos enviados por la clínica.
+CREATE TABLE "EmailEnviado" (
+    "id" TEXT NOT NULL,
+    "para" TEXT NOT NULL,
+    "asunto" TEXT NOT NULL,
+    "tipo" TEXT NOT NULL,
+    "pacienteId" TEXT,
+    "estado" TEXT NOT NULL DEFAULT 'ENVIADO',
+    "providerId" TEXT,
+    "error" TEXT,
+    "enviadoPorId" TEXT,
+    "enviadoPorNombre" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "EmailEnviado_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX "EmailEnviado_pacienteId_createdAt_idx" ON "EmailEnviado"("pacienteId", "createdAt");
+CREATE INDEX "EmailEnviado_tipo_createdAt_idx" ON "EmailEnviado"("tipo", "createdAt");
 
 -- Pago online (link de pago) de cobros de paciente vía Flow.
 CREATE TABLE "PagoOnline" (

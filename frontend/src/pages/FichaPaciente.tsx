@@ -14,8 +14,9 @@ import { validarDoc } from '@shared/constants/paises'
 import { fmtMonto, paisMoneda } from '@/lib/money'
 import { ConsentimientosPaciente } from '@/components/ConsentimientosPaciente'
 import { DocumentosPaciente } from '@/components/DocumentosPaciente'
+import { HistorialCorreos } from '@/components/HistorialCorreos'
 
-const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Recaudación', 'Evoluciones', 'Consentimientos', 'Radiografías y Documentos', 'Historial', 'Comentarios', 'Mensajes'] as const
+const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Recaudación', 'Evoluciones', 'Consentimientos', 'Radiografías y Documentos', 'Correos', 'Historial', 'Comentarios', 'Mensajes'] as const
 type Tab = typeof TABS[number]
 
 // Numeración FDI. Permanente: cuadrantes 1/2 (superior) y 4/3 (inferior).
@@ -99,8 +100,9 @@ export function FichaPaciente() {
       {tab === 'Planes de Tratamiento' && <PlanesTab key={planesNonce} pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} />}
       {tab === 'Recaudación' && <RecaudacionTab pacienteId={id} />}
       {tab === 'Evoluciones' && <div className="max-w-4xl"><EvolucionesTab pacienteId={id} isAdmin={isAdmin} /></div>}
-      {tab === 'Consentimientos' && <div className="max-w-4xl"><ConsentimientosPaciente pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} /></div>}
+      {tab === 'Consentimientos' && <div className="max-w-4xl"><ConsentimientosPaciente pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} pacienteEmail={paciente.email} /></div>}
       {tab === 'Radiografías y Documentos' && <div className="max-w-5xl"><DocumentosPaciente pacienteId={id} /></div>}
+      {tab === 'Correos' && <div className="max-w-3xl bg-white rounded-2xl border border-slate-200 p-5"><h3 className="text-sm font-semibold text-slate-800 mb-3">Correos enviados a este paciente</h3><HistorialCorreos pacienteId={id} /></div>}
       {tab === 'Historial' && <div className="max-w-4xl"><HistorialTab pacienteId={id} /></div>}
       {tab === 'Comentarios' && <div className="max-w-4xl"><ComentariosTab pacienteId={id} /></div>}
       {tab === 'Mensajes' && <div className="max-w-4xl"><MensajesTab pacienteId={id} /></div>}

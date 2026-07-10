@@ -67,7 +67,30 @@ model Configuracion {
   flowSecretKey     String? // cifrado
   flowSandbox       Boolean @default(true) // true = ambiente de pruebas de Flow
 
+  // Correo: las respuestas del paciente llegan al `email` de la clínica (Reply-To).
+  // emailNotificaciones controla los envíos automáticos (ej. confirmación de hora).
+  emailNotificaciones Boolean @default(true)
+
   updatedAt DateTime @updatedAt
+}
+
+// Historial de correos enviados por la clínica (confirmaciones, presupuestos,
+// consentimientos, documentos, comprobantes, planes, avisos de deuda…).
+model EmailEnviado {
+  id               String   @id @default(cuid())
+  para             String
+  asunto           String
+  tipo             String   // CONFIRMACION_HORA | PRESUPUESTO | CONSENTIMIENTO | DOCUMENTO | COMPROBANTE | PLAN | DEUDA | OTRO
+  pacienteId       String?
+  estado           String   @default("ENVIADO") // ENVIADO | ERROR
+  providerId       String?  // id del proveedor (Resend)
+  error            String?
+  enviadoPorId     String?
+  enviadoPorNombre String?
+  createdAt        DateTime @default(now())
+
+  @@index([pacienteId, createdAt])
+  @@index([tipo, createdAt])
 }
 
 model User {

@@ -54,7 +54,8 @@ export function createApp() {
     return strictCors(req, res, next)
   })
 
-  app.use(express.json({ limit: '1mb' }))
+  // 15MB: los correos con PDF adjunto (presupuestos, consentimientos) viajan como base64.
+  app.use(express.json({ limit: '15mb' }))
   // Twilio postea el webhook como application/x-www-form-urlencoded.
   app.use(express.urlencoded({ extended: false }))
   app.use(cookieParser())

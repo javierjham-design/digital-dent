@@ -4,6 +4,7 @@ import { CITA_ESTADOS_KEYS, CITA_ESTADO_LABELS, ESTADOS_NO_OCUPAN } from '@share
 import type { CitaDTO } from '@shared/types'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
 import { pushCita, deleteCitaInGoogle } from '@/lib/google-sync'
+import { enviarConfirmacionHora } from '@/services/email.service'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica.
 // La sincronización con Google es best-effort (fire-and-forget): nunca debe
@@ -115,6 +116,14 @@ export async function crearCita(db: TenantClient, userName: string, input: Crear
     include: INCLUDE,
   })
   void pushCita(db, cita.id).catch(() => {})
+  // Confirmación de hora por correo (best-effort; sólo si el paciente tiene email).
+  void (async () => {
+    const p = await db.paciente.findUnique({ where: { id: input.pacienteId }, select: { email: true, nombre: true, apellido: true } })
+    await enviarConfirmacionHora(db, {
+      email: p?.email, pacienteId: input.pacienteId, pacienteNombre: `${p?.nombre ?? ''} ${p?.apellido ?? ''}`.trim(),
+      fecha: inicio, profesional: cita.doctor?.name ?? null, tipo: cita.tipo,
+    })
+  })().catch(() => {})
   return toDTO(cita)
 }
 

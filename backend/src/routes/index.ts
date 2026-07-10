@@ -32,6 +32,7 @@ import * as agendaOnline from '@/controllers/agenda-online.controller'
 import * as crm from '@/controllers/crm.controller'
 import * as suscripcion from '@/controllers/suscripcion.controller'
 import * as pagosOnline from '@/controllers/pagos-online.controller'
+import * as email from '@/controllers/email.controller'
 import * as consent from '@/controllers/consentimientos.controller'
 import * as doc from '@/controllers/documentos.controller'
 import * as ext from '@/controllers/ext.controller'
@@ -285,6 +286,10 @@ apiRouter.get('/cobros/:id/pagos-online', tenant, asyncHandler(pagosOnline.getPa
 // Configuración de pagos online (Flow) — admin de la clínica.
 apiRouter.get('/pagos-online/config', adminTenant, asyncHandler(pagosOnline.getConfig))
 apiRouter.patch('/pagos-online/config', adminTenant, asyncHandler(pagosOnline.patchConfig))
+
+// ── Correo (envío de documentos + historial) ─────────────────────────────────
+apiRouter.post('/emails/enviar', tenant, asyncHandler(email.postEnviar))
+apiRouter.get('/emails', tenant, asyncHandler(email.getEmails))
 
 // ── Contratos ────────────────────────────────────────────────────────────────
 apiRouter.get('/contratos', tenant, asyncHandler(liq.getContratos))

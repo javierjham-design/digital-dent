@@ -4,13 +4,15 @@ import { clinicaService } from '@/services/catalogo.service'
 import { ApiError } from '@/services/api'
 import { DocumentoConsentimiento, descargarConsentimientoPDF } from '@/components/DocumentoConsentimiento'
 import { SignaturePad } from '@/components/SignaturePad'
+import { EnviarCorreoModal } from '@/components/EnviarCorreoModal'
+import { elementoAPdfBase64 } from '@/lib/pdf'
 import { useAuth } from '@/hooks/useAuth'
 
 type Clinica = { nombre?: string; logoUrl?: string | null; direccion?: string; ciudad?: string }
 const fecha = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 const slug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-zA-Z0-9]+/g, '_').slice(0, 40)
 
-export function ConsentimientosPaciente({ pacienteId, pacienteNombre }: { pacienteId: string; pacienteNombre: string }) {
+export function ConsentimientosPaciente({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: string; pacienteNombre: string; pacienteEmail?: string | null }) {
   const { user } = useAuth()
   const puedeEliminar = Boolean(user?.permisos?.puedeEliminar)
   const [clinica, setClinica] = useState<Clinica | null>(null)
@@ -61,17 +63,17 @@ export function ConsentimientosPaciente({ pacienteId, pacienteNombre }: { pacien
           ))}
       </div>
 
-      {gen && <GenerarModal pacienteId={pacienteId} pacienteNombre={pacienteNombre} plantillas={plantillas} clinica={clinica}
+      {gen && <GenerarModal pacienteId={pacienteId} pacienteNombre={pacienteNombre} pacienteEmail={pacienteEmail} plantillas={plantillas} clinica={clinica}
         onClose={() => setGen(false)} onDone={() => { setGen(false); cargarLista() }} notify={notify} />}
-      {ver && <VerModal consent={ver} clinica={clinica} pacienteNombre={pacienteNombre} puedeEliminar={puedeEliminar}
+      {ver && <VerModal consent={ver} clinica={clinica} pacienteId={pacienteId} pacienteNombre={pacienteNombre} pacienteEmail={pacienteEmail} puedeEliminar={puedeEliminar}
         onClose={() => setVer(null)} onChanged={(c) => { setVer(c); cargarLista() }} onEliminar={() => eliminar(ver.id)} notify={notify} />}
     </div>
   )
 }
 
 // ── Modal: generar ────────────────────────────────────────────────────────────
-function GenerarModal({ pacienteId, pacienteNombre, plantillas, clinica, onClose, onDone, notify }: {
-  pacienteId: string; pacienteNombre: string; plantillas: PlantillaConsentimiento[]; clinica: Clinica | null
+function GenerarModal({ pacienteId, pacienteNombre, pacienteEmail, plantillas, clinica, onClose, onDone, notify }: {
+  pacienteId: string; pacienteNombre: string; pacienteEmail?: string | null; plantillas: PlantillaConsentimiento[]; clinica: Clinica | null
   onClose: () => void; onDone: () => void; notify: (t: string, ok?: boolean) => void
 }) {
   const [plantillaId, setPlantillaId] = useState('')
@@ -100,7 +102,7 @@ function GenerarModal({ pacienteId, pacienteNombre, plantillas, clinica, onClose
     catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo generar', false) } finally { setBusy(false) }
   }
 
-  if (generado) return <FirmarView consent={generado} clinica={clinica} pacienteNombre={pacienteNombre} onClose={onDone} onChanged={setGenerado} notify={notify} />
+  if (generado) return <FirmarView consent={generado} clinica={clinica} pacienteId={pacienteId} pacienteNombre={pacienteNombre} pacienteEmail={pacienteEmail} onClose={onDone} onChanged={setGenerado} notify={notify} />
 
   const bloqueado = !prev || prev.faltantes.length > 0
   return (
@@ -145,19 +147,21 @@ function GenerarModal({ pacienteId, pacienteNombre, plantillas, clinica, onClose
 }
 
 // ── Vista de firma / descarga (recién generado o al abrir un borrador) ─────────
-function FirmarView({ consent, clinica, pacienteNombre, onClose, onChanged, notify }: {
-  consent: Consentimiento; clinica: Clinica | null; pacienteNombre: string
+function FirmarView({ consent, clinica, pacienteId, pacienteNombre, pacienteEmail, onClose, onChanged, notify }: {
+  consent: Consentimiento; clinica: Clinica | null; pacienteId?: string; pacienteNombre: string; pacienteEmail?: string | null
   onClose: () => void; onChanged: (c: Consentimiento) => void; notify: (t: string, ok?: boolean) => void
 }) {
   const docRef = useRef<HTMLDivElement>(null)
   const [modoFirma, setModoFirma] = useState<null | 'digital'>(null)
   const [firmaImg, setFirmaImg] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [enviar, setEnviar] = useState(false)
   const firmado = consent.estado === 'FIRMADO'
+  const nombrePdf = `Consentimiento_${consent.codigo}_${slug(pacienteNombre)}.pdf`
 
   async function descargar() {
     if (!docRef.current) return
-    try { await descargarConsentimientoPDF(docRef.current, `Consentimiento_${consent.codigo}_${slug(pacienteNombre)}.pdf`) }
+    try { await descargarConsentimientoPDF(docRef.current, nombrePdf) }
     catch { notify('No se pudo generar el PDF', false) }
   }
   async function firmar(tipo: 'MANUAL' | 'DIGITAL') {
@@ -185,31 +189,42 @@ function FirmarView({ consent, clinica, pacienteNombre, onClose, onChanged, noti
       )}
 
       {!firmado && modoFirma === null && (
-        <div className="grid sm:grid-cols-3 gap-2">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
           <button onClick={() => setModoFirma('digital')} className="px-3 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Firmar digital</button>
-          <button onClick={() => firmar('MANUAL')} disabled={busy} className="px-3 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-medium">Firma manual (en papel)</button>
+          <button onClick={() => firmar('MANUAL')} disabled={busy} className="px-3 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-medium">Firma manual</button>
           <button onClick={descargar} className="px-3 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-medium">Descargar PDF</button>
+          <button onClick={() => setEnviar(true)} className="px-3 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-medium">✉ Enviar por correo</button>
         </div>
       )}
 
       {firmado && (
-        <div className="flex gap-2">
-          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cerrar</button>
-          <button onClick={descargar} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Descargar PDF</button>
+        <div className="grid sm:grid-cols-3 gap-2">
+          <button onClick={onClose} className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cerrar</button>
+          <button onClick={descargar} className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Descargar PDF</button>
+          <button onClick={() => setEnviar(true)} className="px-4 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-sm font-medium">✉ Enviar por correo</button>
         </div>
+      )}
+
+      {enviar && (
+        <EnviarCorreoModal
+          tipo="CONSENTIMIENTO" titulo="consentimiento"
+          asuntoDefault={`Consentimiento informado · ${clinica?.nombre ?? ''}`.trim()}
+          pacienteId={pacienteId} pacienteNombre={pacienteNombre} defaultEmail={pacienteEmail}
+          generarPdf={async () => ({ base64: await elementoAPdfBase64(docRef.current as HTMLElement), nombre: nombrePdf })}
+          onClose={() => setEnviar(false)} onSent={() => notify('Consentimiento enviado por correo')} />
       )}
     </Modal>
   )
 }
 
 // ── Ver un consentimiento existente ───────────────────────────────────────────
-function VerModal({ consent, clinica, pacienteNombre, puedeEliminar, onClose, onChanged, onEliminar, notify }: {
-  consent: Consentimiento; clinica: Clinica | null; pacienteNombre: string; puedeEliminar: boolean
+function VerModal({ consent, clinica, pacienteId, pacienteNombre, pacienteEmail, puedeEliminar, onClose, onChanged, onEliminar, notify }: {
+  consent: Consentimiento; clinica: Clinica | null; pacienteId?: string; pacienteNombre: string; pacienteEmail?: string | null; puedeEliminar: boolean
   onClose: () => void; onChanged: (c: Consentimiento) => void; onEliminar: () => void; notify: (t: string, ok?: boolean) => void
 }) {
   return (
     <div>
-      <FirmarView consent={consent} clinica={clinica} pacienteNombre={pacienteNombre} onClose={onClose} onChanged={onChanged} notify={notify} />
+      <FirmarView consent={consent} clinica={clinica} pacienteId={pacienteId} pacienteNombre={pacienteNombre} pacienteEmail={pacienteEmail} onClose={onClose} onChanged={onChanged} notify={notify} />
       {puedeEliminar && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60]">
           <button onClick={onEliminar} className="px-4 py-2 bg-white border border-rose-200 text-rose-600 text-sm font-semibold rounded-xl shadow-lg hover:bg-rose-50">Eliminar consentimiento</button>

@@ -4,6 +4,7 @@ import { badRequest, conflict, notFound } from '@/lib/errors'
 import { listarHorarios } from '@/services/horarios.service'
 import { getMetaConfig, buscarLeadParaReserva, registrarEnvioMeta } from '@/services/crm.service'
 import { crearLinkParaCobro } from '@/services/pagos-online.service'
+import { enviarConfirmacionHora } from '@/services/email.service'
 import { enviarEventoMeta, metaHabilitado } from '@/lib/meta'
 import { ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
@@ -418,6 +419,16 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
   } catch { /* best-effort */ }
 
   const profe = link.profesionales.find((p) => p.userId === doctorId)?.user
+
+  // Confirmación por correo (best-effort). Si hay abono pendiente, no confirmamos
+  // hasta que pague; en ese caso no se envía aquí.
+  if (!pagoUrl && emailForm) {
+    void enviarConfirmacionHora(db, {
+      email: emailForm, pacienteNombre: `${nombre} ${apellido}`.trim(), fecha: cita.fecha,
+      profesional: profe?.name ?? profe?.email ?? null, tipo: link.tipoCita, nota: link.mensajeConfirmacion,
+    })
+  }
+
   return {
     ok: true,
     citaId: cita.id,

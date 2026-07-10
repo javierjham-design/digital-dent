@@ -5,6 +5,7 @@ import { prestacionesService } from '@/services/catalogo.service'
 import { pacientesService } from '@/services/clinica.service'
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
+import { EnviarCorreoModal } from '@/components/EnviarCorreoModal'
 
 import { fmtMonto } from '@/lib/money'
 const fmtCLP = fmtMonto
@@ -25,11 +26,10 @@ export function Presupuestos() {
   const [pacientes, setPacientes] = useState<PacienteDTO[]>([])
   const [cargando, setCargando] = useState(true)
   const [crear, setCrear] = useState(false)
+  const [enviar, setEnviar] = useState<Presupuesto | null>(null)
 
-  const nombrePaciente = useMemo(() => {
-    const m = new Map(pacientes.map((p) => [p.id, `${p.nombre} ${p.apellido}`]))
-    return (id: string) => m.get(id) ?? '—'
-  }, [pacientes])
+  const pacientesMap = useMemo(() => new Map(pacientes.map((p) => [p.id, p])), [pacientes])
+  const nombrePaciente = (id: string) => { const p = pacientesMap.get(id); return p ? `${p.nombre} ${p.apellido}` : '—' }
 
   function cargar() {
     setCargando(true)
@@ -60,7 +60,7 @@ export function Presupuestos() {
               <thead><tr className="border-b border-slate-100 text-xs uppercase tracking-wider text-slate-400">
                 <th className="text-left px-5 py-3">Nº</th><th className="text-left px-5 py-3">Paciente</th>
                 <th className="text-center px-5 py-3">Ítems</th><th className="text-right px-5 py-3">Total</th>
-                <th className="text-left px-5 py-3">Estado</th><th className="text-right px-5 py-3">Fecha</th>
+                <th className="text-left px-5 py-3">Estado</th><th className="text-right px-5 py-3">Fecha</th><th className="px-5 py-3"></th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {lista.map((p) => (
@@ -76,6 +76,7 @@ export function Presupuestos() {
                       </select>
                     </td>
                     <td className="px-5 py-3 text-right text-slate-400 text-xs whitespace-nowrap">{fmtFecha(p.createdAt)}</td>
+                    <td className="px-5 py-3 text-right"><button onClick={() => setEnviar(p)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900" title="Enviar por correo">✉ Enviar</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -84,6 +85,15 @@ export function Presupuestos() {
       </div>
 
       {crear && <CrearPresupuestoModal onClose={() => setCrear(false)} onCreado={() => { setCrear(false); cargar() }} />}
+      {enviar && (
+        <EnviarCorreoModal
+          tipo="PRESUPUESTO" titulo="presupuesto"
+          asuntoDefault={`Presupuesto Nº ${enviar.numero}`}
+          pacienteId={enviar.pacienteId} pacienteNombre={nombrePaciente(enviar.pacienteId)}
+          defaultEmail={pacientesMap.get(enviar.pacienteId)?.email}
+          mensajeDefault={`Te compartimos tu presupuesto Nº ${enviar.numero} por un total de ${fmtCLP(enviar.total)}.`}
+          onClose={() => setEnviar(null)} />
+      )}
     </div>
   )
 }
