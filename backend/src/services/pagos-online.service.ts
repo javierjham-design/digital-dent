@@ -122,12 +122,33 @@ export async function procesarWebhookFlow(db: TenantClient, token: string): Prom
   const nuevoEstado = estado.estado === 2 ? 'PAGADO' : estado.estado === 3 ? 'RECHAZADO' : estado.estado === 4 ? 'ANULADO' : 'PENDIENTE'
   if (pago.estado === 'PAGADO') return // idempotencia
   await db.pagoOnline.update({ where: { id: pago.id }, data: { estado: nuevoEstado, pagadoAt: nuevoEstado === 'PAGADO' ? new Date() : null } })
+  if (nuevoEstado !== 'PAGADO') return
+
   // Si se pagó y el cobro seguía pendiente, lo marca pagado (método FLOW). La caja
   // se concilia aparte: aquí no generamos movimiento de caja automáticamente.
-  if (nuevoEstado === 'PAGADO' && pago.cobroId) {
+  if (pago.cobroId) {
     const cobro = await db.cobro.findUnique({ where: { id: pago.cobroId }, select: { estado: true, anulado: true } })
     if (cobro && !cobro.anulado && cobro.estado !== 'PAGADO') {
       await db.cobro.update({ where: { id: pago.cobroId }, data: { estado: 'PAGADO', metodoPago: 'FLOW', fechaPago: new Date() } })
+    }
+  }
+
+  // Si el pago era el abono de una reserva online, confirma el abono en la cita y
+  // envía la confirmación de hora al paciente (best-effort).
+  if (pago.citaId) {
+    const cita = await db.cita.findUnique({
+      where: { id: pago.citaId },
+      select: { id: true, fecha: true, tipo: true, abonoPagado: true, paciente: { select: { email: true, nombre: true, apellido: true } }, doctor: { select: { name: true } } },
+    })
+    if (cita && !cita.abonoPagado) {
+      await db.cita.update({ where: { id: cita.id }, data: { abonoPagado: true, logs: { create: { tipo: 'AGENDADA', detalle: 'Abono pagado y confirmado (Flow)', userName: 'Sistema' } } } }).catch(() => {})
+      // Import dinámico para evitar un ciclo de módulos (pagos ↔ email ↔ cobros).
+      const { enviarConfirmacionHora } = await import('@/services/email.service')
+      void enviarConfirmacionHora(db, {
+        email: cita.paciente.email, pacienteNombre: `${cita.paciente.nombre} ${cita.paciente.apellido}`.trim(),
+        fecha: cita.fecha, profesional: cita.doctor?.name ?? null, tipo: cita.tipo,
+        nota: 'Recibimos tu abono. ¡Tu hora quedó confirmada!',
+      })
     }
   }
 }

@@ -410,7 +410,14 @@ function ReservasPendientesModal({ reservas, onConfirmar, onRechazar, onClose }:
             const wa = r.paciente.telefono ? `https://wa.me/${r.paciente.telefono.replace(/\D/g, '')}` : null
             return (
               <div key={r.id} className="py-3">
-                <p className="text-sm font-semibold text-slate-800">{r.paciente.nombre} {r.paciente.apellido}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-semibold text-slate-800">{r.paciente.nombre} {r.paciente.apellido}</p>
+                  {r.abonoRequerido && (
+                    r.abonoPagado
+                      ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">✓ Abono pagado</span>
+                      : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">⏳ Pago pendiente</span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500 capitalize">
                   {new Date(r.fecha).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })} h · {r.duracion} min
                 </p>

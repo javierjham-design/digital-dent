@@ -63,6 +63,7 @@ CREATE INDEX "EmailEnviado_tipo_createdAt_idx" ON "EmailEnviado"("tipo", "create
 CREATE TABLE "PagoOnline" (
     "id" TEXT NOT NULL,
     "cobroId" TEXT,
+    "citaId" TEXT,
     "pacienteId" TEXT,
     "proveedor" TEXT NOT NULL DEFAULT 'FLOW',
     "concepto" TEXT NOT NULL,
@@ -198,6 +199,8 @@ CREATE TABLE "Cita" (
     "confirmadoWA" BOOLEAN NOT NULL DEFAULT false,
     "origen" TEXT,
     "linkAgendaId" TEXT,
+    "abonoRequerido" BOOLEAN NOT NULL DEFAULT false,
+    "abonoPagado" BOOLEAN NOT NULL DEFAULT false,
     "googleEventId" TEXT,
     "googleSyncedAt" TIMESTAMP(3),
     "googleSyncError" TEXT,

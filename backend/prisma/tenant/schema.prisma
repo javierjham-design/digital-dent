@@ -225,6 +225,8 @@ model Cita {
   confirmadoWA Boolean  @default(false)
   origen       String?  // null = interna; "ONLINE" = reserva pública del paciente
   linkAgendaId String?  // link de agendamiento online que la generó
+  abonoRequerido Boolean @default(false) // la reserva online exigía un abono (pago previo)
+  abonoPagado    Boolean @default(false) // el abono fue confirmado por la pasarela (Flow)
   googleEventId   String?
   googleSyncedAt  DateTime?
   googleSyncError String?
@@ -532,6 +534,7 @@ model MovimientoCaja {
 model PagoOnline {
   id            String    @id @default(cuid())
   cobroId       String?
+  citaId        String?   // si el pago es el abono de una reserva online, la cita a confirmar
   pacienteId    String?
   proveedor     String    @default("FLOW")
   concepto      String

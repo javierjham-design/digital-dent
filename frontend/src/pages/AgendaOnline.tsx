@@ -214,7 +214,14 @@ function ReservasModal({ link, onClose }: { link: LinkAgendaDTO; onClose: () => 
           <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
             {reservas.map((r) => (
               <div key={r.id} className="py-2.5">
-                <p className="text-sm font-medium text-slate-800">{r.paciente.nombre} {r.paciente.apellido}{r.paciente.telefono ? ` · ${r.paciente.telefono}` : ''}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-medium text-slate-800">{r.paciente.nombre} {r.paciente.apellido}{r.paciente.telefono ? ` · ${r.paciente.telefono}` : ''}</p>
+                  {r.abonoRequerido && (
+                    r.abonoPagado
+                      ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">✓ Abono pagado</span>
+                      : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">⏳ Pago pendiente</span>
+                  )}
+                </div>
                 <p className="text-xs text-slate-500">{fechaHora(r.fecha)} · {r.duracion} min · {r.estado}</p>
                 {r.notas && <p className="text-xs text-slate-400 truncate">{r.notas}</p>}
               </div>

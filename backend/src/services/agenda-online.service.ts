@@ -159,6 +159,7 @@ export async function listarReservas(db: TenantClient, opts?: { linkId?: string 
     where: { origen: 'ONLINE', ...(opts?.linkId ? { linkAgendaId: opts.linkId } : {}) },
     select: {
       id: true, fecha: true, duracion: true, estado: true, tipo: true, notas: true, linkAgendaId: true, createdAt: true,
+      abonoRequerido: true, abonoPagado: true,
       paciente: { select: { id: true, nombre: true, apellido: true, telefono: true, rut: true } },
       doctor: { select: { name: true } },
     },
@@ -317,12 +318,14 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
   }
 
   const motivo = input.motivo?.trim()
+  const requiereAbono = link.requierePago && link.montoAbono > 0
   const cita = await db.cita.create({
     data: {
       pacienteId: paciente.id, doctorId, fecha: inicio, duracion: link.duracionMin,
       tipo: link.tipoCita, estado: 'PENDIENTE', origen: 'ONLINE', linkAgendaId: link.id,
+      abonoRequerido: requiereAbono, abonoPagado: false,
       notas: motivo || `Reserva online · ${link.nombre}`,
-      logs: { create: { tipo: 'AGENDADA', detalle: `Reserva online (${link.nombre})`, userName: `${nombre} ${apellido}` } },
+      logs: { create: { tipo: 'AGENDADA', detalle: `Reserva online (${link.nombre})${requiereAbono ? ' · abono pendiente' : ''}`, userName: `${nombre} ${apellido}` } },
     },
     select: { id: true, fecha: true, duracion: true },
   })
@@ -331,7 +334,7 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
   // link de pago. El paciente debe pagarlo para confirmar. Si no se puede iniciar el
   // pago, se revierte la reserva para no bloquear el cupo.
   let pagoUrl: string | null = null
-  if (link.requierePago && link.montoAbono > 0) {
+  if (requiereAbono) {
     const revertir = async () => { await db.cita.delete({ where: { id: cita.id } }).catch(() => {}) }
     if (!opts?.slug) { await revertir(); throw badRequest('No se pudo iniciar el pago del abono. Intenta más tarde.') }
     const ultimoCobro = await db.cobro.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
@@ -354,6 +357,8 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
         : `No se pudo iniciar el pago del abono: ${res.mensaje}`)
     }
     pagoUrl = res.url
+    // Vincula el pago a la cita para que el webhook la confirme al pagar.
+    await db.pagoOnline.update({ where: { id: res.pagoId }, data: { citaId: cita.id } }).catch(() => {})
     await db.cita.update({ where: { id: cita.id }, data: { notas: `${motivo || `Reserva online · ${link.nombre}`} · Abono pendiente de pago` } }).catch(() => {})
   }
 

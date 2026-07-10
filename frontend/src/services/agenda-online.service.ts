@@ -14,7 +14,7 @@ export interface LinkAgendaDTO {
 }
 export interface ReservaOnline {
   id: string; fecha: string; duracion: number; estado: string; tipo: string | null; notas: string | null
-  linkAgendaId: string | null; createdAt: string
+  linkAgendaId: string | null; createdAt: string; abonoRequerido: boolean; abonoPagado: boolean
   paciente: { id: string; nombre: string; apellido: string; telefono: string | null; rut: string | null }
   doctor: { name: string | null }
 }
