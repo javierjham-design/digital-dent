@@ -1,0 +1,122 @@
+import { randomUUID } from 'node:crypto'
+import type { TenantClient } from '@/db/tenant'
+import { badRequest, notFound } from '@/lib/errors'
+import { encryptNullable, decryptNullable } from '@/lib/crypto'
+import { flowConfigurado, flowCrearPago, flowGetStatus, type FlowConfig } from '@/lib/flow-cobros'
+
+// Lee la config de Flow de la clínica (descifra las claves). Server-only.
+async function leerFlowConfig(db: TenantClient): Promise<FlowConfig> {
+  const c = await db.configuracion.findUnique({
+    where: { id: 'singleton' },
+    select: { pagoOnlineEnabled: true, flowApiKey: true, flowSecretKey: true, flowSandbox: true },
+  })
+  return {
+    enabled: Boolean(c?.pagoOnlineEnabled),
+    apiKey: decryptNullable(c?.flowApiKey ?? null),
+    secretKey: decryptNullable(c?.flowSecretKey ?? null),
+    sandbox: c?.flowSandbox ?? true,
+  }
+}
+
+// Config para la UI: NUNCA devuelve las claves, solo si están cargadas.
+export async function obtenerConfigPagos(db: TenantClient) {
+  const cfg = await leerFlowConfig(db)
+  return {
+    enabled: cfg.enabled,
+    sandbox: cfg.sandbox,
+    hasApiKey: Boolean(cfg.apiKey),
+    hasSecretKey: Boolean(cfg.secretKey),
+    configurado: flowConfigurado(cfg),
+  }
+}
+
+export async function guardarConfigPagos(db: TenantClient, body: Record<string, unknown>) {
+  const data: Record<string, unknown> = {}
+  if (body.enabled !== undefined) data.pagoOnlineEnabled = Boolean(body.enabled)
+  if (body.sandbox !== undefined) data.flowSandbox = Boolean(body.sandbox)
+  // Solo se tocan las claves si vienen no vacías (así no se borran sin querer).
+  if (typeof body.apiKey === 'string' && body.apiKey.trim()) data.flowApiKey = encryptNullable(body.apiKey.trim())
+  if (body.apiKey === null) data.flowApiKey = null
+  if (typeof body.secretKey === 'string' && body.secretKey.trim()) data.flowSecretKey = encryptNullable(body.secretKey.trim())
+  if (body.secretKey === null) data.flowSecretKey = null
+  await db.configuracion.update({ where: { id: 'singleton' }, data })
+  return obtenerConfigPagos(db)
+}
+
+// Genera un link de pago Flow para un cobro pendiente del paciente. urls: base del
+// backend (webhook) y del frontend (retorno del paciente).
+export interface CrearLinkOpts { apiBase: string; appBase: string; slug: string; creadoPorId?: string }
+export type ResultadoLinkPago =
+  | { estado: 'ok'; url: string; pagoId: string }
+  | { estado: 'no_configurada'; mensaje: string }
+  | { estado: 'error'; mensaje: string }
+
+export async function crearLinkParaCobro(db: TenantClient, cobroId: string, opts: CrearLinkOpts): Promise<ResultadoLinkPago> {
+  const cobro = await db.cobro.findUnique({
+    where: { id: cobroId },
+    include: { paciente: { select: { id: true, nombre: true, apellido: true, email: true } } },
+  })
+  if (!cobro) throw notFound('Cobro no encontrado')
+  if (cobro.anulado) throw badRequest('El cobro está anulado.')
+  if (cobro.estado === 'PAGADO') throw badRequest('El cobro ya está pagado.')
+
+  const cfg = await leerFlowConfig(db)
+  if (!flowConfigurado(cfg)) {
+    return { estado: 'no_configurada', mensaje: 'Aún no están cargadas las credenciales de Flow de la clínica. Configúralas en Ajustes → Pagos online.' }
+  }
+
+  const email = cobro.paciente.email?.trim() || 'pagos@clariva.cl' // Flow exige email; si el paciente no tiene, uno neutro
+  const commerceOrder = `cobro-${cobro.numero}-${randomUUID().slice(0, 8)}`
+  const pago = await db.pagoOnline.create({
+    data: {
+      cobroId: cobro.id, pacienteId: cobro.pacienteId, proveedor: 'FLOW',
+      concepto: cobro.concepto || `Cobro Nº ${cobro.numero}`, monto: cobro.monto,
+      estado: 'CREADO', commerceOrder, email, creadoPorId: opts.creadoPorId ?? null,
+    },
+  })
+
+  const res = await flowCrearPago({
+    config: cfg,
+    commerceOrder,
+    subject: pago.concepto,
+    amount: cobro.monto,
+    email,
+    urlConfirmation: `${opts.apiBase}/public/pagos/flow/${opts.slug}/webhook`,
+    urlReturn: `${opts.appBase}/pacientes/${cobro.pacienteId}`,
+  })
+
+  if (!res.ok) {
+    await db.pagoOnline.update({ where: { id: pago.id }, data: { estado: 'RECHAZADO' } }).catch(() => {})
+    return { estado: 'error', mensaje: res.error }
+  }
+  await db.pagoOnline.update({ where: { id: pago.id }, data: { estado: 'PENDIENTE', url: res.url, flowToken: res.token } })
+  return { estado: 'ok', url: res.url, pagoId: pago.id }
+}
+
+// Webhook de Flow: recibe el token, consulta el estado real y concilia el cobro.
+// Flow reintenta si no recibe 200, así que respondemos ok salvo error irrecuperable.
+export async function procesarWebhookFlow(db: TenantClient, token: string): Promise<void> {
+  if (!token) return
+  const pago = await db.pagoOnline.findFirst({ where: { flowToken: token } })
+  if (!pago) return
+  const cfg = await leerFlowConfig(db)
+  const estado = await flowGetStatus(cfg, token)
+  if (!estado.ok) return
+  // 2 = pagada. El resto: pendiente/rechazada/anulada.
+  const nuevoEstado = estado.estado === 2 ? 'PAGADO' : estado.estado === 3 ? 'RECHAZADO' : estado.estado === 4 ? 'ANULADO' : 'PENDIENTE'
+  if (pago.estado === 'PAGADO') return // idempotencia
+  await db.pagoOnline.update({ where: { id: pago.id }, data: { estado: nuevoEstado, pagadoAt: nuevoEstado === 'PAGADO' ? new Date() : null } })
+  // Si se pagó y el cobro seguía pendiente, lo marca pagado (método FLOW). La caja
+  // se concilia aparte: aquí no generamos movimiento de caja automáticamente.
+  if (nuevoEstado === 'PAGADO' && pago.cobroId) {
+    const cobro = await db.cobro.findUnique({ where: { id: pago.cobroId }, select: { estado: true, anulado: true } })
+    if (cobro && !cobro.anulado && cobro.estado !== 'PAGADO') {
+      await db.cobro.update({ where: { id: pago.cobroId }, data: { estado: 'PAGADO', metodoPago: 'FLOW', fechaPago: new Date() } })
+    }
+  }
+}
+
+// Lista los pagos online de un cobro (para mostrar el estado del link).
+export async function listarPagosDeCobro(db: TenantClient, cobroId: string) {
+  return db.pagoOnline.findMany({ where: { cobroId }, orderBy: { createdAt: 'desc' } })
+}

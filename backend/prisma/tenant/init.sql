@@ -30,10 +30,39 @@ CREATE TABLE "Configuracion" (
     "crmDiasSinGestion" INTEGER NOT NULL DEFAULT 4,
     "crmCampanas" TEXT,
     "pais" TEXT NOT NULL DEFAULT 'CL',
+    "pagoOnlineEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "flowApiKey" TEXT,
+    "flowSecretKey" TEXT,
+    "flowSandbox" BOOLEAN NOT NULL DEFAULT true,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Configuracion_pkey" PRIMARY KEY ("id")
 );
+
+-- Pago online (link de pago) de cobros de paciente vía Flow.
+CREATE TABLE "PagoOnline" (
+    "id" TEXT NOT NULL,
+    "cobroId" TEXT,
+    "pacienteId" TEXT,
+    "proveedor" TEXT NOT NULL DEFAULT 'FLOW',
+    "concepto" TEXT NOT NULL,
+    "monto" DOUBLE PRECISION NOT NULL,
+    "estado" TEXT NOT NULL DEFAULT 'CREADO',
+    "commerceOrder" TEXT,
+    "flowToken" TEXT,
+    "url" TEXT,
+    "email" TEXT,
+    "pagadoAt" TIMESTAMP(3),
+    "creadoPorId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PagoOnline_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX "PagoOnline_commerceOrder_key" ON "PagoOnline"("commerceOrder");
+CREATE INDEX "PagoOnline_cobroId_idx" ON "PagoOnline"("cobroId");
+CREATE INDEX "PagoOnline_estado_createdAt_idx" ON "PagoOnline"("estado", "createdAt");
+ALTER TABLE "PagoOnline" ADD CONSTRAINT "PagoOnline_cobroId_fkey" FOREIGN KEY ("cobroId") REFERENCES "Cobro"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- CreateTable
 CREATE TABLE "User" (

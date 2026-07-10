@@ -3,6 +3,7 @@ import type { ClinicaConfigDTO, UsuarioDTO } from '@shared/types'
 import { clinicaService, mediosPagoService, type MedioPagoDTO } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
 import { googleService, type GoogleCalendar } from '@/services/google.service'
+import { pagosOnlineService, type PagoOnlineConfig } from '@/services/pagos-online.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
@@ -95,8 +96,63 @@ export function Configuracion() {
       </form>
 
       <MediosPago />
+      {esAdmin && <PagosOnlineSection />}
       {esAdmin && <GoogleCalendarSection />}
     </div>
+  )
+}
+
+// Pagos online a pacientes vía Flow (link de pago). Las credenciales son de la
+// clínica (el dinero cae en su cuenta). El secreto se guarda cifrado y no se
+// vuelve a mostrar; solo se indica si está cargado.
+function PagosOnlineSection() {
+  const [cfg, setCfg] = useState<PagoOnlineConfig | null>(null)
+  const [enabled, setEnabled] = useState(false)
+  const [sandbox, setSandbox] = useState(true)
+  const [apiKey, setApiKey] = useState('')
+  const [secretKey, setSecretKey] = useState('')
+  const [msg, setMsg] = useState(''); const [busy, setBusy] = useState(false)
+  useEffect(() => { pagosOnlineService.config().then((c) => { setCfg(c); setEnabled(c.enabled); setSandbox(c.sandbox) }).catch(() => {}) }, [])
+
+  async function guardar() {
+    setBusy(true); setMsg('')
+    try {
+      const payload: { enabled: boolean; sandbox: boolean; apiKey?: string; secretKey?: string } = { enabled, sandbox }
+      if (apiKey.trim()) payload.apiKey = apiKey.trim()
+      if (secretKey.trim()) payload.secretKey = secretKey.trim()
+      const c = await pagosOnlineService.guardarConfig(payload)
+      setCfg(c); setApiKey(''); setSecretKey(''); setMsg('Configuración de pagos guardada')
+    } catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
+  }
+
+  return (
+    <section className="bg-white rounded-2xl border border-slate-200 p-5 mt-5">
+      <h2 className="text-lg font-bold text-slate-900 mb-1">Pagos online a pacientes (Flow)</h2>
+      <p className="text-sm text-slate-500 mb-4">Genera links de pago para tus cobros. El dinero llega a la cuenta bancaria de tu clínica configurada en Flow. Crea tu cuenta en flow.cl y pega aquí tus credenciales (API Key y Secret Key).</p>
+      <label className="flex items-center gap-2 text-sm text-slate-700 mb-2">
+        <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Habilitar pagos online por link
+      </label>
+      <label className="flex items-center gap-2 text-sm text-slate-700 mb-4">
+        <input type="checkbox" checked={sandbox} onChange={(e) => setSandbox(e.target.checked)} /> Modo pruebas (sandbox de Flow)
+      </label>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">API Key {cfg?.hasApiKey && <span className="text-emerald-600 text-xs">· cargada ✓</span>}</span>
+          <input value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={cfg?.hasApiKey ? '•••••• (dejar vacío para no cambiar)' : 'Pega tu API Key de Flow'} autoComplete="off"
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        </label>
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Secret Key {cfg?.hasSecretKey && <span className="text-emerald-600 text-xs">· cargada ✓</span>}</span>
+          <input type="password" value={secretKey} onChange={(e) => setSecretKey(e.target.value)} placeholder={cfg?.hasSecretKey ? '•••••• (dejar vacío para no cambiar)' : 'Pega tu Secret Key de Flow'} autoComplete="new-password"
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        </label>
+      </div>
+      <div className="flex items-center gap-3 mt-4">
+        <button onClick={guardar} disabled={busy} className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl">{busy ? 'Guardando…' : 'Guardar'}</button>
+        {cfg && <span className={`text-xs font-medium ${cfg.configurado ? 'text-emerald-600' : 'text-amber-600'}`}>{cfg.configurado ? '✓ Listo para cobrar' : 'Faltan credenciales'}</span>}
+        {msg && <span className="text-sm text-slate-600">{msg}</span>}
+      </div>
+    </section>
   )
 }
 

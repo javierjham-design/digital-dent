@@ -31,6 +31,7 @@ import { getPlanesPublicos } from '@/controllers/public.controller'
 import * as agendaOnline from '@/controllers/agenda-online.controller'
 import * as crm from '@/controllers/crm.controller'
 import * as suscripcion from '@/controllers/suscripcion.controller'
+import * as pagosOnline from '@/controllers/pagos-online.controller'
 import * as consent from '@/controllers/consentimientos.controller'
 import * as doc from '@/controllers/documentos.controller'
 import * as ext from '@/controllers/ext.controller'
@@ -76,6 +77,9 @@ apiRouter.post('/public/agenda/:slug/:token/reservar', asyncHandler(agendaOnline
 // ── Público: CRM (formulario web hospedado + intake de leads) ────────────────
 apiRouter.get('/public/crm/:slug/:token', asyncHandler(crm.getPublicForm))
 apiRouter.post('/public/crm/:slug/:token/lead', asyncHandler(crm.postPublicLead))
+
+// Webhook de confirmación de Flow (cobros a pacientes). Público, por slug de clínica.
+apiRouter.post('/public/pagos/flow/:slug/webhook', asyncHandler(pagosOnline.postWebhookFlow))
 
 // ── Público: demo + webhook WhatsApp (auth interna propia) ───────────────────
 apiRouter.post('/demo', asyncHandler(demo.postDemo))
@@ -273,6 +277,13 @@ apiRouter.post('/cobros', tenant, asyncHandler(cobros.postCobro))
 apiRouter.patch('/cobros/:id', tenant, asyncHandler(cobros.patchCobro))
 apiRouter.post('/cobros/:id/anular', tenant, asyncHandler(cobros.postAnularCobro))
 apiRouter.delete('/cobros/:id', tenant, asyncHandler(cobros.deleteCobro))
+// Link de pago online (Flow) por cobro + estado de sus pagos.
+apiRouter.post('/cobros/:id/link-pago', tenant, asyncHandler(pagosOnline.postLinkParaCobro))
+apiRouter.get('/cobros/:id/pagos-online', tenant, asyncHandler(pagosOnline.getPagosDeCobro))
+
+// Configuración de pagos online (Flow) — admin de la clínica.
+apiRouter.get('/pagos-online/config', adminTenant, asyncHandler(pagosOnline.getConfig))
+apiRouter.patch('/pagos-online/config', adminTenant, asyncHandler(pagosOnline.patchConfig))
 
 // ── Contratos ────────────────────────────────────────────────────────────────
 apiRouter.get('/contratos', tenant, asyncHandler(liq.getContratos))

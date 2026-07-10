@@ -66,6 +66,13 @@ export function tenantDb(req: Request): TenantClient {
   return req.tenant
 }
 
+// Resuelve el cliente de tenant por slug (para rutas PÚBLICAS sin JWT, ej. webhooks).
+export async function tenantDbPorSlug(slug: string): Promise<TenantClient | null> {
+  const c = await control.clinica.findUnique({ where: { slug }, select: { dbName: true, activo: true } })
+  if (!c || !c.activo) return null
+  return tenantClient(c.dbName)
+}
+
 // Invalida el cache de una clínica (tras suspender/reactivar o borrar).
 export function invalidateClinicaCache(clinicaId: string): void {
   cache.delete(clinicaId)

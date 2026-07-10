@@ -59,6 +59,14 @@ model Configuracion {
   crmCampanas   String? // JSON { [claveCampaña]: "Nombre visible" } — renombres de campaña (para no mostrar la URL)
   pais          String @default("CL") // país de operación (documento/teléfono/moneda); lo fija el super-admin
 
+  // Cobro online a PACIENTES vía Flow (el dinero cae en la cuenta de la clínica,
+  // por eso las credenciales son de la clínica). El secretKey se guarda CIFRADO
+  // (AES-256-GCM). Nunca se devuelve por la API, solo un indicador de "configurado".
+  pagoOnlineEnabled Boolean @default(false)
+  flowApiKey        String? // cifrado
+  flowSecretKey     String? // cifrado
+  flowSandbox       Boolean @default(true) // true = ambiente de pruebas de Flow
+
   updatedAt DateTime @updatedAt
 }
 
@@ -419,6 +427,7 @@ model Cobro {
   caja             Caja?      @relation(fields: [cajaId], references: [id])
   items            CobroItem[]
   movimientos      MovimientoCaja[]
+  pagosOnline      PagoOnline[]
 }
 
 model Caja {
@@ -493,6 +502,30 @@ model MovimientoCaja {
 
   @@index([cajaId, fecha])
   @@index([sesionCajaId])
+}
+
+// Pago online (link de pago) de un cobro de PACIENTE vía Flow. Guarda el ciclo de
+// vida del link y la conciliación por webhook. No reemplaza al Cobro; lo paga.
+model PagoOnline {
+  id            String    @id @default(cuid())
+  cobroId       String?
+  pacienteId    String?
+  proveedor     String    @default("FLOW")
+  concepto      String
+  monto         Float
+  estado        String    @default("CREADO") // CREADO | PENDIENTE | PAGADO | RECHAZADO | ANULADO
+  commerceOrder String?   @unique // orden que enviamos a Flow (idempotencia/conciliación)
+  flowToken     String?   // token que devuelve Flow
+  url           String?   // URL de pago para el paciente
+  email         String?
+  pagadoAt      DateTime?
+  creadoPorId   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  cobro         Cobro?    @relation(fields: [cobroId], references: [id], onDelete: SetNull)
+
+  @@index([cobroId])
+  @@index([estado, createdAt])
 }
 
 model CobroItem {

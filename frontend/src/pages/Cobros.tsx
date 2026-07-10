@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { cajasService, cobrosService } from '@/services/caja.service'
 import { planesService } from '@/services/clinico.service'
 import { mediosPagoService, type MedioPagoDTO } from '@/services/catalogo.service'
+import { pagosOnlineService } from '@/services/pagos-online.service'
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
 
@@ -147,6 +148,7 @@ export function Cobros() {
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
               <span className="font-mono text-sm text-slate-700">{fmt(c.monto)}</span>
+              {!c.anulado && c.estado !== 'ANULADO' && c.estado !== 'PAGADO' && <LinkPagoBtn cobroId={c.id} notify={notify} />}
               {!c.anulado && c.estado !== 'ANULADO' && (
                 <button onClick={async () => { const m = prompt('Motivo de la anulación (mín. 4):'); if (m && m.length >= 4) { try { await cobrosService.anular(c.id, m); notify('Cobro anulado'); cargar() } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) } } }}
                   className="text-xs text-rose-400 hover:text-rose-600">Anular</button>
@@ -164,6 +166,30 @@ export function Cobros() {
       {modal?.kind === 'sesion' && <SesionModal cajaId={modal.cajaId} sesionId={modal.sesionId} nombre={modal.nombre} onClose={() => setModal(null)} />}
     </div>
   )
+}
+
+// Botón "Link de pago": genera un link de Flow para el cobro y lo copia. Si Flow
+// no está configurado, avisa (sin romper). El link también queda visible para copiar.
+function LinkPagoBtn({ cobroId, notify }: { cobroId: string; notify: (m: string, ok?: boolean) => void }) {
+  const [busy, setBusy] = useState(false)
+  const [url, setUrl] = useState<string | null>(null)
+  async function generar() {
+    setBusy(true)
+    try {
+      const r = await pagosOnlineService.crearLink(cobroId)
+      if (r.estado === 'ok') {
+        setUrl(r.url)
+        navigator.clipboard?.writeText(r.url).then(() => notify('Link de pago copiado')).catch(() => notify('Link generado'))
+      } else {
+        notify(r.mensaje, false)
+      }
+    } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo generar el link', false) } finally { setBusy(false) }
+  }
+  if (url) return (
+    <a href={url} target="_blank" rel="noopener noreferrer" onClick={() => navigator.clipboard?.writeText(url).catch(() => {})}
+      className="text-xs text-cyan-600 hover:text-cyan-800 font-medium" title="Abrir/copiar link de pago">Link ✓ (copiar)</a>
+  )
+  return <button onClick={generar} disabled={busy} className="text-xs text-cyan-600 hover:text-cyan-800 font-medium disabled:opacity-50">{busy ? '…' : 'Link de pago'}</button>
 }
 
 // ── Tarjeta de caja abierta ──
