@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { documentosService, type DocumentoMeta } from '@/services/documentos.service'
+import { EnviarCorreoModal } from '@/components/EnviarCorreoModal'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
@@ -18,9 +19,10 @@ const label = (v: string) => TIPOS.find((t) => t.v === v)?.l ?? v
 const esImagen = (mime: string) => mime.startsWith('image/')
 const fecha = (iso: string) => new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
 
-export function DocumentosPaciente({ pacienteId }: { pacienteId: string }) {
+export function DocumentosPaciente({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: string; pacienteNombre?: string; pacienteEmail?: string | null }) {
   const { user } = useAuth()
   const puedeEliminar = Boolean(user?.permisos?.puedeEliminar)
+  const [enviar, setEnviar] = useState<DocumentoMeta | null>(null)
   const [items, setItems] = useState<DocumentoMeta[]>([])
   const [cargando, setCargando] = useState(true)
   const [tipo, setTipo] = useState('PERIAPICAL')
@@ -74,14 +76,23 @@ export function DocumentosPaciente({ pacienteId }: { pacienteId: string }) {
         : items.length === 0 ? <p className="px-4 py-8 text-center text-slate-400 text-sm">Sin radiografías ni documentos aún.</p>
         : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {items.map((d) => <Card key={d.id} d={d} puedeEliminar={puedeEliminar} onEliminar={() => eliminar(d.id)} />)}
+            {items.map((d) => <Card key={d.id} d={d} puedeEliminar={puedeEliminar} onEliminar={() => eliminar(d.id)} onEnviar={() => setEnviar(d)} />)}
           </div>
         )}
+
+      {enviar && (
+        <EnviarCorreoModal
+          tipo="DOCUMENTO" titulo="documento"
+          asuntoDefault={`${label(enviar.tipo)}${enviar.dientes ? ` · pieza(s) ${enviar.dientes}` : ''}`}
+          pacienteId={pacienteId} pacienteNombre={pacienteNombre} defaultEmail={pacienteEmail}
+          generarPdf={async () => ({ base64: await documentosService.base64(enviar.id), nombre: enviar.nombre || `${label(enviar.tipo)}` })}
+          onClose={() => setEnviar(null)} />
+      )}
     </div>
   )
 }
 
-function Card({ d, puedeEliminar, onEliminar }: { d: DocumentoMeta; puedeEliminar: boolean; onEliminar: () => void }) {
+function Card({ d, puedeEliminar, onEliminar, onEnviar }: { d: DocumentoMeta; puedeEliminar: boolean; onEliminar: () => void; onEnviar: () => void }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <button onClick={() => documentosService.abrir(d.id).catch(() => {})} className="block w-full aspect-square bg-slate-100" title="Abrir">
@@ -93,7 +104,10 @@ function Card({ d, puedeEliminar, onEliminar }: { d: DocumentoMeta; puedeElimina
         {d.descripcion && <p className="text-[11px] text-slate-500 truncate" title={d.descripcion}>{d.descripcion}</p>}
         <div className="flex items-center justify-between mt-1">
           <span className="text-[10px] text-slate-400">{fecha(d.createdAt)}</span>
-          {puedeEliminar && <button onClick={onEliminar} className="text-[11px] text-slate-400 hover:text-rose-600">Eliminar</button>}
+          <div className="flex items-center gap-2">
+            <button onClick={onEnviar} className="text-[11px] text-cyan-700 hover:text-cyan-900" title="Enviar por correo">✉</button>
+            {puedeEliminar && <button onClick={onEliminar} className="text-[11px] text-slate-400 hover:text-rose-600">Eliminar</button>}
+          </div>
         </div>
       </div>
     </div>

@@ -36,4 +36,17 @@ export const documentosService = {
     window.open(url, '_blank')
     setTimeout(() => URL.revokeObjectURL(url), 60_000)
   },
+  // Descarga el archivo y lo devuelve en base64 (sin prefijo data:) para adjuntarlo a un correo.
+  async base64(id: string): Promise<string> {
+    const res = await fetch(`${BASE}/documentos/${id}`, { headers: authHeader() })
+    if (!res.ok) throw new ApiError(res.status, 'No se pudo cargar el archivo')
+    const blob = await res.blob()
+    const dataUri: string = await new Promise((resolve, reject) => {
+      const fr = new FileReader()
+      fr.onload = () => resolve(String(fr.result))
+      fr.onerror = () => reject(new Error('lectura'))
+      fr.readAsDataURL(blob)
+    })
+    return dataUri.replace(/^data:.*;base64,/, '')
+  },
 }

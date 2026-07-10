@@ -65,8 +65,11 @@ export async function enviarManual(
   const html = body.html?.trim()
     ? body.html
     : mensajeConAdjuntoHtml(clinica, { paciente: body.pacienteNombre ?? null, titulo: body.asunto, mensaje: body.mensaje ?? null })
+  const nombreArch = (body.pdfNombre || 'documento').trim()
+  // Respeta la extensión real del archivo (imágenes, PDF…); sólo agrega .pdf si no tiene.
+  const filename = /\.[a-z0-9]{2,5}$/i.test(nombreArch) ? nombreArch : `${nombreArch}.pdf`
   const attachments: EmailAdjunto[] | undefined = body.pdfBase64
-    ? [{ filename: (body.pdfNombre || 'documento') + (String(body.pdfNombre || '').toLowerCase().endsWith('.pdf') ? '' : '.pdf'), contentBase64: body.pdfBase64.replace(/^data:.*;base64,/, '') }]
+    ? [{ filename, contentBase64: body.pdfBase64.replace(/^data:.*;base64,/, '') }]
     : undefined
 
   const res = await enviarCorreoClinica(db, { to: body.to, tipo, asunto: body.asunto.trim(), html, attachments, pacienteId: body.pacienteId ?? null }, actor)

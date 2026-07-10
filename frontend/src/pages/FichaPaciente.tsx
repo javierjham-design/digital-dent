@@ -15,6 +15,7 @@ import { fmtMonto, paisMoneda } from '@/lib/money'
 import { ConsentimientosPaciente } from '@/components/ConsentimientosPaciente'
 import { DocumentosPaciente } from '@/components/DocumentosPaciente'
 import { HistorialCorreos } from '@/components/HistorialCorreos'
+import { EnviarCorreoModal } from '@/components/EnviarCorreoModal'
 
 const TABS = ['Datos', 'Citas', 'Planes de Tratamiento', 'Recaudación', 'Evoluciones', 'Consentimientos', 'Radiografías y Documentos', 'Correos', 'Historial', 'Comentarios', 'Mensajes'] as const
 type Tab = typeof TABS[number]
@@ -59,6 +60,7 @@ export function FichaPaciente() {
   const [planesNonce, setPlanesNonce] = useState(0)
   const [paciente, setPaciente] = useState<PacienteDTO | null>(null)
   const [resumen, setResumen] = useState<ResumenPaciente | null>(null)
+  const [avisoDeuda, setAvisoDeuda] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => { pacientesService.obtener(id).then(setPaciente).catch((e) => setError(e.message)) }, [id])
@@ -82,9 +84,21 @@ export function FichaPaciente() {
             <KpiInline l="Realizado" v={fmtCLP(resumen.realizado)} />
             <KpiInline l="Abonado" v={fmtCLP(resumen.abonado)} />
             <KpiInline l="Saldo" v={fmtCLP(resumen.saldo)} destacado={resumen.saldo > 0} />
+            {resumen.saldo > 0 && (
+              <button onClick={() => setAvisoDeuda(true)} className="self-center text-xs font-semibold bg-white/15 hover:bg-white/25 rounded-lg px-2.5 py-1" title="Enviar aviso de deuda por correo">✉ Aviso de deuda</button>
+            )}
           </div>
         )}
       </div>
+
+      {avisoDeuda && resumen && (
+        <EnviarCorreoModal
+          tipo="DEUDA" titulo="aviso de deuda"
+          asuntoDefault="Estado de cuenta pendiente"
+          pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} defaultEmail={paciente.email}
+          mensajeDefault={`Te recordamos que tienes un saldo pendiente de ${fmtCLP(resumen.saldo)} por tu tratamiento. Puedes acercarte a la clínica o responder este correo para coordinar el pago.`}
+          onClose={() => setAvisoDeuda(false)} />
+      )}
 
       <div className="flex gap-1 border-b border-slate-200 mb-5 overflow-x-auto">
         {TABS.map((t) => (
@@ -97,11 +111,11 @@ export function FichaPaciente() {
           cómodo de lectura; Planes de Tratamiento usa todo el ancho disponible. */}
       {tab === 'Datos' && <div className="max-w-5xl"><DatosTab paciente={paciente} onSaved={setPaciente} /></div>}
       {tab === 'Citas' && <div className="max-w-4xl"><CitasTab pacienteId={id} /></div>}
-      {tab === 'Planes de Tratamiento' && <PlanesTab key={planesNonce} pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} />}
+      {tab === 'Planes de Tratamiento' && <PlanesTab key={planesNonce} pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} pacienteEmail={paciente.email} />}
       {tab === 'Recaudación' && <RecaudacionTab pacienteId={id} />}
       {tab === 'Evoluciones' && <div className="max-w-4xl"><EvolucionesTab pacienteId={id} isAdmin={isAdmin} /></div>}
       {tab === 'Consentimientos' && <div className="max-w-4xl"><ConsentimientosPaciente pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} pacienteEmail={paciente.email} /></div>}
-      {tab === 'Radiografías y Documentos' && <div className="max-w-5xl"><DocumentosPaciente pacienteId={id} /></div>}
+      {tab === 'Radiografías y Documentos' && <div className="max-w-5xl"><DocumentosPaciente pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} pacienteEmail={paciente.email} /></div>}
       {tab === 'Correos' && <div className="max-w-3xl bg-white rounded-2xl border border-slate-200 p-5"><h3 className="text-sm font-semibold text-slate-800 mb-3">Correos enviados a este paciente</h3><HistorialCorreos pacienteId={id} /></div>}
       {tab === 'Historial' && <div className="max-w-4xl"><HistorialTab pacienteId={id} /></div>}
       {tab === 'Comentarios' && <div className="max-w-4xl"><ComentariosTab pacienteId={id} /></div>}
@@ -391,9 +405,10 @@ function estadoFinanciero(realizado: number, abonado: number): { label: string; 
   return { label: 'Sin comenzar', cls: 'text-slate-400', icon: '○' }
 }
 
-function PlanesTab({ pacienteId, pacienteNombre }: { pacienteId: string; pacienteNombre: string }) {
+function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: string; pacienteNombre: string; pacienteEmail?: string | null }) {
   const [planes, setPlanes] = useState<PlanCard[]>([])
   const [detalle, setDetalle] = useState<PlanDetalle | null>(null)
+  const [enviarPlan, setEnviarPlan] = useState<PlanCard | null>(null)
   const [prestaciones, setPrestaciones] = useState<PrestacionDTO[]>([])
   const [doctores, setDoctores] = useState<DoctorDTO[]>([])
   const [selPiezas, setSelPiezas] = useState<number[]>([])
@@ -463,8 +478,16 @@ function PlanesTab({ pacienteId, pacienteNombre }: { pacienteId: string; pacient
           onProfesional={(id) => accion(() => planesService.actualizar(detalle.id, { doctorTitularId: id || null }))}
         />
       ) : (
-        <PlanLista planes={planes} onAbrir={abrir} onNuevo={crearPlan} onEliminar={eliminarPlan} />
+        <PlanLista planes={planes} onAbrir={abrir} onNuevo={crearPlan} onEliminar={eliminarPlan} onEnviar={setEnviarPlan} />
       )}
+      {enviarPlan && (() => { const fin = planFinanzas(enviarPlan.tratamientos); const saldo = Math.max(0, fin.total - (fin.abonado + (enviarPlan.abonoLibre ?? 0))); return (
+        <EnviarCorreoModal
+          tipo="PLAN" titulo="plan de tratamiento"
+          asuntoDefault={`Plan de tratamiento · ${enviarPlan.nombre}`}
+          pacienteId={pacienteId} pacienteNombre={pacienteNombre} defaultEmail={pacienteEmail}
+          mensajeDefault={`Te compartimos tu plan de tratamiento "${enviarPlan.nombre}". Presupuesto total: ${fmtMonto(fin.total)} · Abonado: ${fmtMonto(fin.abonado + (enviarPlan.abonoLibre ?? 0))} · Saldo por abonar: ${fmtMonto(saldo)}.`}
+          onClose={() => setEnviarPlan(null)} />
+      ) })()}
       {evoAccion && detalle && (
         <EvolucionModal accion={evoAccion} pacienteNombre={pacienteNombre} doctores={doctores} plan={detalle}
           onClose={() => setEvoAccion(null)}
@@ -504,7 +527,7 @@ function Campo({ l, v }: { l: string; v: string }) {
   )
 }
 
-function PlanTarjeta({ p, onAbrir, onEliminar }: { p: PlanCard; onAbrir: (id: string) => void; onEliminar: (id: string) => void }) {
+function PlanTarjeta({ p, onAbrir, onEliminar, onEnviar }: { p: PlanCard; onAbrir: (id: string) => void; onEliminar: (id: string) => void; onEnviar: (p: PlanCard) => void }) {
   const fin = planFinanzas(p.tratamientos)
   const ef = estadoFinanciero(fin.realizado, fin.abonado + (p.abonoLibre ?? 0))
   return (
@@ -513,7 +536,10 @@ function PlanTarjeta({ p, onAbrir, onEliminar }: { p: PlanCard; onAbrir: (id: st
       className="bg-white rounded-2xl border border-slate-200 p-4 cursor-pointer hover:border-cyan-400 hover:shadow-sm transition-colors">
       <div className="flex items-center justify-between gap-2">
         <span className="text-cyan-700 font-semibold truncate">#{p.id.slice(-4)}: {p.nombre}</span>
-        <button onClick={(e) => { e.stopPropagation(); onEliminar(p.id) }} className="text-slate-300 hover:text-rose-600 shrink-0" title="Eliminar plan">🗑</button>
+        <div className="flex items-center gap-2 shrink-0">
+          <button onClick={(e) => { e.stopPropagation(); onEnviar(p) }} className="text-cyan-600 hover:text-cyan-800" title="Enviar plan por correo">✉</button>
+          <button onClick={(e) => { e.stopPropagation(); onEliminar(p.id) }} className="text-slate-300 hover:text-rose-600" title="Eliminar plan">🗑</button>
+        </div>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-3 items-center">
         <Campo l="Profesional" v={p.doctorTitular?.name ?? '—'} />
@@ -531,8 +557,8 @@ function PlanTarjeta({ p, onAbrir, onEliminar }: { p: PlanCard; onAbrir: (id: st
   )
 }
 
-function PlanLista({ planes, onAbrir, onNuevo, onEliminar }: {
-  planes: PlanCard[]; onAbrir: (id: string) => void; onNuevo: () => void; onEliminar: (id: string) => void
+function PlanLista({ planes, onAbrir, onNuevo, onEliminar, onEnviar }: {
+  planes: PlanCard[]; onAbrir: (id: string) => void; onNuevo: () => void; onEliminar: (id: string) => void; onEnviar: (p: PlanCard) => void
 }) {
   const enEjecucion = planes.filter((p) => p.estado !== 'FINALIZADO')
   const finalizados = planes.filter((p) => p.estado === 'FINALIZADO')
@@ -546,13 +572,13 @@ function PlanLista({ planes, onAbrir, onNuevo, onEliminar }: {
       {enEjecucion.length > 0 && (
         <div className="mb-5">
           <p className="text-sm font-semibold text-cyan-700 mb-2">En ejecución</p>
-          <div className="space-y-3">{enEjecucion.map((p) => <PlanTarjeta key={p.id} p={p} onAbrir={onAbrir} onEliminar={onEliminar} />)}</div>
+          <div className="space-y-3">{enEjecucion.map((p) => <PlanTarjeta key={p.id} p={p} onAbrir={onAbrir} onEliminar={onEliminar} onEnviar={onEnviar} />)}</div>
         </div>
       )}
       {finalizados.length > 0 && (
         <div className="mb-5">
           <p className="text-sm font-semibold text-slate-500 mb-2">Finalizados</p>
-          <div className="space-y-3">{finalizados.map((p) => <PlanTarjeta key={p.id} p={p} onAbrir={onAbrir} onEliminar={onEliminar} />)}</div>
+          <div className="space-y-3">{finalizados.map((p) => <PlanTarjeta key={p.id} p={p} onAbrir={onAbrir} onEliminar={onEliminar} onEnviar={onEnviar} />)}</div>
         </div>
       )}
     </div>

@@ -5,6 +5,7 @@ import { mediosPagoService, type MedioPagoDTO } from '@/services/catalogo.servic
 import { pagosOnlineService } from '@/services/pagos-online.service'
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
+import { EnviarCorreoModal } from '@/components/EnviarCorreoModal'
 
 // ── Tipos ──
 interface Resumen { ingresos: number; egresos: number; saldoEsperado: number; saldoApertura: number }
@@ -20,7 +21,7 @@ interface ResumenCaja {
   sesionAbierta: SesionAbierta | null; ultimaCerrada: SesionCerrada | null
 }
 interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { numero: number } | null }
-interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; paciente: { nombre: string; apellido: string }; medioPago?: { nombre: string } | null }
+interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; pacienteId: string; paciente: { nombre: string; apellido: string; email?: string | null }; medioPago?: { nombre: string } | null }
 
 // Plan (para recibir pago obligado a un plan)
 interface CobroItemLite { monto: number; cobro?: { estado: string } | null }
@@ -54,6 +55,7 @@ export function Cobros() {
   const [cobros, setCobros] = useState<Cobro[]>([])
   const [modal, setModal] = useState<Modal>(null)
   const [histCajaId, setHistCajaId] = useState<string | null>(null)
+  const [comprobante, setComprobante] = useState<Cobro | null>(null)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
   const notify = (t: string, ok = true) => { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
 
@@ -149,6 +151,7 @@ export function Cobros() {
             <div className="flex items-center gap-3 flex-shrink-0">
               <span className="font-mono text-sm text-slate-700">{fmt(c.monto)}</span>
               {!c.anulado && c.estado !== 'ANULADO' && c.estado !== 'PAGADO' && <LinkPagoBtn cobroId={c.id} notify={notify} />}
+              {!c.anulado && c.estado === 'PAGADO' && <button onClick={() => setComprobante(c)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900" title="Enviar comprobante por correo">✉ Comprobante</button>}
               {!c.anulado && c.estado !== 'ANULADO' && (
                 <button onClick={async () => { const m = prompt('Motivo de la anulación (mín. 4):'); if (m && m.length >= 4) { try { await cobrosService.anular(c.id, m); notify('Cobro anulado'); cargar() } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) } } }}
                   className="text-xs text-rose-400 hover:text-rose-600">Anular</button>
@@ -162,6 +165,15 @@ export function Cobros() {
       {modal?.kind === 'cerrar' && <CerrarModal cajaId={modal.cajaId} nombre={modal.nombre} resumen={modal.resumen} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Caja cerrada'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal?.kind === 'mov' && <MovModal cajaId={modal.cajaId} nombre={modal.nombre} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Movimiento registrado'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal?.kind === 'pago' && <PagoModal cajaId={modal.cajaId} nombre={modal.nombre} medios={medios} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Pago registrado'); cargar() }} onError={(m) => notify(m, false)} />}
+      {comprobante && (
+        <EnviarCorreoModal
+          tipo="COMPROBANTE" titulo="comprobante"
+          asuntoDefault={`Comprobante de pago Nº ${comprobante.numero}`}
+          pacienteId={comprobante.pacienteId} pacienteNombre={`${comprobante.paciente.nombre} ${comprobante.paciente.apellido}`}
+          defaultEmail={comprobante.paciente.email}
+          mensajeDefault={`Comprobante de tu pago Nº ${comprobante.numero} por ${fmt(comprobante.monto)}${comprobante.medioPago ? ` · ${comprobante.medioPago.nombre}` : ''}${comprobante.fechaPago ? ` · ${fechaHora(comprobante.fechaPago)}` : ''}. ¡Gracias!`}
+          onClose={() => setComprobante(null)} />
+      )}
       {modal?.kind === 'movs' && <MovimientosModal cajaId={modal.cajaId} sesionId={modal.sesionId} nombre={modal.nombre} onClose={() => setModal(null)} />}
       {modal?.kind === 'sesion' && <SesionModal cajaId={modal.cajaId} sesionId={modal.sesionId} nombre={modal.nombre} onClose={() => setModal(null)} />}
     </div>
