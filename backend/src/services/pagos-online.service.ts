@@ -40,12 +40,21 @@ export async function guardarConfigPagos(db: TenantClient, body: Record<string, 
   if (typeof body.secretKey === 'string' && body.secretKey.trim()) data.flowSecretKey = encryptNullable(body.secretKey.trim())
   if (body.secretKey === null) data.flowSecretKey = null
   await db.configuracion.update({ where: { id: 'singleton' }, data })
+  // Al habilitar Flow, deja "Flow" disponible como medio de pago para conciliar en caja.
+  if (data.pagoOnlineEnabled === true) await asegurarMedioFlow(db)
   return obtenerConfigPagos(db)
+}
+
+// Crea (o reactiva) el medio de pago "Flow" para que aparezca en la caja/cobros.
+async function asegurarMedioFlow(db: TenantClient) {
+  const existe = await db.medioPago.findFirst({ where: { nombre: { equals: 'Flow', mode: 'insensitive' } }, select: { id: true, activo: true } })
+  if (!existe) await db.medioPago.create({ data: { nombre: 'Flow', comision: 0, requiereReferencia: false } }).catch(() => {})
+  else if (!existe.activo) await db.medioPago.update({ where: { id: existe.id }, data: { activo: true } }).catch(() => {})
 }
 
 // Genera un link de pago Flow para un cobro pendiente del paciente. urls: base del
 // backend (webhook) y del frontend (retorno del paciente).
-export interface CrearLinkOpts { apiBase: string; appBase: string; slug: string; creadoPorId?: string }
+export interface CrearLinkOpts { apiBase: string; appBase: string; slug: string; creadoPorId?: string; urlReturn?: string }
 export type ResultadoLinkPago =
   | { estado: 'ok'; url: string; pagoId: string }
   | { estado: 'no_configurada'; mensaje: string }
@@ -82,7 +91,7 @@ export async function crearLinkParaCobro(db: TenantClient, cobroId: string, opts
     amount: cobro.monto,
     email,
     urlConfirmation: `${opts.apiBase}/public/pagos/flow/${opts.slug}/webhook`,
-    urlReturn: `${opts.appBase}/pacientes/${cobro.pacienteId}`,
+    urlReturn: opts.urlReturn ?? `${opts.appBase}/pacientes/${cobro.pacienteId}`,
   })
 
   if (!res.ok) {

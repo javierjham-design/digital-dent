@@ -740,6 +740,8 @@ CREATE TABLE "LinkAgenda" (
     "usaHorarioDoctor" BOOLEAN NOT NULL DEFAULT true,
     "anticipacionHoras" INTEGER NOT NULL DEFAULT 12,
     "diasMaxFuturo" INTEGER NOT NULL DEFAULT 30,
+    "requierePago" BOOLEAN NOT NULL DEFAULT false,
+    "montoAbono" INTEGER NOT NULL DEFAULT 0,
     "mensajeConfirmacion" TEXT,
     "color" TEXT,
     "activo" BOOLEAN NOT NULL DEFAULT true,

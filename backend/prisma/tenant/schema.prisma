@@ -663,6 +663,8 @@ model LinkAgenda {
   usaHorarioDoctor    Boolean  @default(true)   // false → usa solo sus ventanas
   anticipacionHoras   Int      @default(12)     // antelación mínima para reservar
   diasMaxFuturo       Int      @default(30)     // ventana de reserva hacia adelante
+  requierePago        Boolean  @default(false)  // exige un abono (vía Flow) para confirmar la hora
+  montoAbono          Int      @default(0)      // monto del abono en la moneda local (CLP)
   mensajeConfirmacion String?
   color               String?
   activo              Boolean  @default(true)

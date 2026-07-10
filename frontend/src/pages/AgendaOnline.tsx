@@ -60,6 +60,7 @@ export function AgendaOnline() {
                       <span className="font-semibold text-slate-900">{l.nombre}</span>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${l.activo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>{l.activo ? 'Activo' : 'Pausado'}</span>
                       <span className="text-xs text-slate-400">{l.tipoCita} · {l.duracionMin} min</span>
+                      {l.requierePago && l.montoAbono > 0 && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-cyan-100 text-cyan-700">Abono {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(l.montoAbono)}</span>}
                     </div>
                     <p className="text-sm text-slate-500 mt-0.5">{nombresProfes(l)} · {l.usaHorarioDoctor ? 'horario del profesional' : `${l.ventanas.length} ventana(s) propia(s)`} · {l.reservas} reserva(s)</p>
                   </div>
@@ -100,6 +101,7 @@ function LinkModal({ link, doctores, onClose, onSaved, onError }: {
     tipoCita: link?.tipoCita ?? 'EVALUACION',
     duracionMin: String(link?.duracionMin ?? 30), usaHorarioDoctor: link?.usaHorarioDoctor ?? true,
     anticipacionHoras: String(link?.anticipacionHoras ?? 12), diasMaxFuturo: String(link?.diasMaxFuturo ?? 30),
+    requierePago: link?.requierePago ?? false, montoAbono: String(link?.montoAbono ?? ''),
     mensajeConfirmacion: link?.mensajeConfirmacion ?? '',
   })
   const [ventanas, setVentanas] = useState<Ventana[]>(link?.ventanas?.length ? link.ventanas : [{ diaSemana: 1, horaInicio: '15:00', horaFin: '18:00' }])
@@ -114,7 +116,9 @@ function LinkModal({ link, doctores, onClose, onSaved, onError }: {
       nombre: form.nombre.trim(), descripcion: form.descripcion.trim() || null, profesionales: form.profesionales,
       tipoCita: form.tipoCita.trim() || 'EVALUACION', duracionMin: Number(form.duracionMin) || 30,
       usaHorarioDoctor: form.usaHorarioDoctor, anticipacionHoras: Number(form.anticipacionHoras) || 0,
-      diasMaxFuturo: Number(form.diasMaxFuturo) || 30, mensajeConfirmacion: form.mensajeConfirmacion.trim() || null,
+      diasMaxFuturo: Number(form.diasMaxFuturo) || 30,
+      requierePago: form.requierePago, montoAbono: form.requierePago ? (Number(form.montoAbono) || 0) : 0,
+      mensajeConfirmacion: form.mensajeConfirmacion.trim() || null,
       ...(form.usaHorarioDoctor ? {} : { ventanas }),
     }
     try {
@@ -148,6 +152,20 @@ function LinkModal({ link, doctores, onClose, onSaved, onError }: {
           <Campo label="Duración (min)"><input value={form.duracionMin} onChange={(e) => set({ duracionMin: e.target.value })} inputMode="numeric" className={inp} /></Campo>
           <Campo label="Antelación (h)"><input value={form.anticipacionHoras} onChange={(e) => set({ anticipacionHoras: e.target.value })} inputMode="numeric" className={inp} /></Campo>
           <Campo label="Días a futuro"><input value={form.diasMaxFuturo} onChange={(e) => set({ diasMaxFuturo: e.target.value })} inputMode="numeric" className={inp} /></Campo>
+        </div>
+
+        {/* Abono previo vía Flow */}
+        <div className="border border-slate-100 rounded-xl p-3">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={form.requierePago} onChange={(e) => set({ requierePago: e.target.checked })} />
+            Exigir un abono para confirmar la hora (pago con Flow)
+          </label>
+          {form.requierePago && (
+            <div className="mt-2">
+              <Campo label="Monto del abono (CLP)"><input value={form.montoAbono} onChange={(e) => set({ montoAbono: e.target.value })} inputMode="numeric" placeholder="Ej: 10000" className={inp} /></Campo>
+              <p className="text-[11px] text-slate-400 mt-1">El paciente pagará este abono al reservar. Requiere tener Flow configurado en Configuración → Pagos online.</p>
+            </div>
+          )}
         </div>
 
         <div className="border border-slate-100 rounded-xl p-3">

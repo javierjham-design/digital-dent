@@ -218,6 +218,8 @@ export const crearLinkSchema = z.object({
   usaHorarioDoctor: z.boolean().optional(),
   anticipacionHoras: z.number().optional(),
   diasMaxFuturo: z.number().optional(),
+  requierePago: z.boolean().optional(),
+  montoAbono: z.number().optional(),
   mensajeConfirmacion: z.string().nullish(),
   color: z.string().nullish(),
   ventanas: z.array(z.object({

@@ -1,18 +1,7 @@
 import type { Request, Response } from 'express'
 import { tenantDb, tenantDbPorSlug } from '@/middlewares/tenant'
+import { apiBaseDe as apiBase, appBaseDe as appBase } from '@/lib/req-url'
 import * as svc from '@/services/pagos-online.service'
-
-// Base pública del backend (para el webhook de Flow) y del frontend (retorno del
-// paciente). Se pueden fijar por env; si no, se derivan del request.
-function apiBase(req: Request): string {
-  if (process.env.API_PUBLIC_URL) return process.env.API_PUBLIC_URL.replace(/\/$/, '')
-  const proto = (req.get('x-forwarded-proto') ?? req.protocol ?? 'https').split(',')[0]
-  return `${proto}://${req.get('host')}/api/v1`
-}
-function appBase(req: Request): string {
-  if (process.env.APP_PUBLIC_URL) return process.env.APP_PUBLIC_URL.replace(/\/$/, '')
-  return (req.get('origin') ?? '').replace(/\/$/, '')
-}
 
 export async function getConfig(req: Request, res: Response) {
   res.json(await svc.obtenerConfigPagos(tenantDb(req)))

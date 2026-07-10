@@ -7,7 +7,7 @@ export interface ProfeRef { id: string; name: string | null; email: string | nul
 export interface LinkAgendaDTO {
   id: string; token: string; nombre: string; descripcion: string | null; doctorId: string
   tipoCita: string; duracionMin: number; usaHorarioDoctor: boolean; anticipacionHoras: number
-  diasMaxFuturo: number; mensajeConfirmacion: string | null; color: string | null; activo: boolean
+  diasMaxFuturo: number; requierePago: boolean; montoAbono: number; mensajeConfirmacion: string | null; color: string | null; activo: boolean
   doctor: ProfeRef
   profesionales: { userId: string; user: ProfeRef }[]
   ventanas: Ventana[]; reservas: number; createdAt: string
@@ -31,11 +31,11 @@ export const agendaOnlineService = {
 export interface PublicAgendaDTO {
   clinica: { nombre: string; logoUrl: string | null; direccion: string; telefono: string; ciudad: string }
   pixelId?: string | null
-  link: { nombre: string; descripcion: string | null; tipoCita: string; duracionMin: number; diasMaxFuturo: number; color: string | null; mensajeConfirmacion: string | null; profesionales: { id: string; nombre: string | null; especialidad: string | null }[] }
+  link: { nombre: string; descripcion: string | null; tipoCita: string; duracionMin: number; diasMaxFuturo: number; color: string | null; mensajeConfirmacion: string | null; requierePago: boolean; montoAbono: number; profesionales: { id: string; nombre: string | null; especialidad: string | null }[] }
   doctorId: string
   dias: { dia: string; slots: { inicio: string; hora: string }[] }[]
 }
-export interface ReservaResult { ok: true; citaId: string; inicio: string; duracionMin: number; profesional: string | null; mensaje: string | null }
+export interface ReservaResult { ok: true; citaId: string; inicio: string; duracionMin: number; profesional: string | null; mensaje: string | null; requierePago?: boolean; pagoUrl?: string | null; montoAbono?: number }
 
 async function pub<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {

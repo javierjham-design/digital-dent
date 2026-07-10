@@ -7,6 +7,8 @@ const diaLabel = (ymd: string) => {
   const d = new Date(`${ymd}T12:00:00`)
   return d.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
 }
+// El abono se guarda en la moneda local de la clínica (CLP en Chile).
+const fmtAbono = (n: number) => new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(n)
 
 export function AgendarPublico() {
   const { slug = '', token = '' } = useParams()
@@ -49,6 +51,8 @@ export function AgendarPublico() {
     try {
       if (data?.pixelId) trackPixel('Schedule', { content_name: data.link.tipoCita }, eventId)
       const r = await publicAgenda.reservar(slug, token, { inicio: slotSel.inicio, doctorId: doctorSel, ...form, eventId, ...trackingParams() })
+      // Si la reserva exige abono, se redirige al pago de Flow (allí se confirma la hora).
+      if (r.requierePago && r.pagoUrl) { window.location.href = r.pagoUrl; return }
       setResult(r)
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo reservar') } finally { setEnviando(false) }
   }
@@ -186,9 +190,14 @@ export function AgendarPublico() {
                       <input value={form.rut} onChange={(e) => set({ rut: e.target.value })} placeholder="RUT (opcional)" className={inp} />
                       <input value={form.motivo} onChange={(e) => set({ motivo: e.target.value })} placeholder="Motivo (opcional)" className={inp} />
                     </div>
+                    {link.requierePago && link.montoAbono > 0 && (
+                      <div className="mt-3 bg-cyan-50 border border-cyan-200 text-cyan-800 text-sm rounded-xl px-3 py-2">
+                        Para confirmar tu hora necesitas pagar un <span className="font-semibold">abono de {fmtAbono(link.montoAbono)}</span>. Al reservar te llevaremos al pago seguro.
+                      </div>
+                    )}
                     {error && <p className="text-sm text-rose-600 mt-3">{error}</p>}
                     <button onClick={reservar} disabled={enviando} className="w-full mt-4 px-4 py-3 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">
-                      {enviando ? 'Reservando…' : `Reservar ${slotSel.hora} h`}
+                      {enviando ? 'Procesando…' : link.requierePago && link.montoAbono > 0 ? `Pagar abono y reservar ${slotSel.hora} h` : `Reservar ${slotSel.hora} h`}
                     </button>
                   </div>
                 )}

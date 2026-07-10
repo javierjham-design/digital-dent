@@ -3,6 +3,7 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { listarHorarios } from '@/services/horarios.service'
 import { getMetaConfig, buscarLeadParaReserva, registrarEnvioMeta } from '@/services/crm.service'
+import { crearLinkParaCobro } from '@/services/pagos-online.service'
 import { enviarEventoMeta, metaHabilitado } from '@/lib/meta'
 import { ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
@@ -52,6 +53,7 @@ export async function listarLinks(db: TenantClient) {
 export interface CrearLinkInput {
   nombre: string; descripcion?: string | null; doctorId?: string; profesionales?: string[]; tipoCita?: string; duracionMin?: number
   usaHorarioDoctor?: boolean; anticipacionHoras?: number; diasMaxFuturo?: number
+  requierePago?: boolean; montoAbono?: number
   mensajeConfirmacion?: string | null; color?: string | null; ventanas?: unknown
 }
 
@@ -84,6 +86,8 @@ export async function crearLink(db: TenantClient, input: CrearLinkInput) {
       tipoCita: (input.tipoCita || 'EVALUACION').trim().toUpperCase(), duracionMin, usaHorarioDoctor,
       anticipacionHoras: clampInt(input.anticipacionHoras, 0, 720, 12),
       diasMaxFuturo: clampInt(input.diasMaxFuturo, 1, 365, 30),
+      requierePago: input.requierePago === true,
+      montoAbono: input.requierePago === true ? clampInt(input.montoAbono, 0, 99_999_999, 0) : 0,
       mensajeConfirmacion: input.mensajeConfirmacion?.trim() || null, color: input.color || null,
       ventanas: { create: ventanas },
       profesionales: { create: ids.map((userId) => ({ userId })) },
@@ -103,6 +107,10 @@ export async function actualizarLink(db: TenantClient, id: string, body: Record<
   if (body.usaHorarioDoctor !== undefined) data.usaHorarioDoctor = Boolean(body.usaHorarioDoctor)
   if (body.anticipacionHoras !== undefined) data.anticipacionHoras = clampInt(body.anticipacionHoras, 0, 720, 12)
   if (body.diasMaxFuturo !== undefined) data.diasMaxFuturo = clampInt(body.diasMaxFuturo, 1, 365, 30)
+  if (body.requierePago !== undefined) data.requierePago = Boolean(body.requierePago)
+  if (body.montoAbono !== undefined) data.montoAbono = clampInt(body.montoAbono, 0, 99_999_999, 0)
+  // Si se desactiva el pago, el monto queda en 0 (coherencia).
+  if (data.requierePago === false) data.montoAbono = 0
   if (body.mensajeConfirmacion !== undefined) data.mensajeConfirmacion = body.mensajeConfirmacion ? String(body.mensajeConfirmacion).trim() : null
   if (body.color !== undefined) data.color = body.color ? String(body.color) : null
   if (body.activo !== undefined) data.activo = Boolean(body.activo)
@@ -238,7 +246,9 @@ export interface ReservarInput {
   fbp?: string; fbc?: string; referrer?: string; landing?: string; tituloPagina?: string; pantalla?: string; locale?: string
 }
 
-export async function reservarPublico(db: TenantClient, link: Link, input: ReservarInput) {
+export interface ReservarOpts { apiBase: string; appBase: string; slug: string }
+
+export async function reservarPublico(db: TenantClient, link: Link, input: ReservarInput, opts?: ReservarOpts) {
   const nombre = (input.nombre ?? '').trim()
   const apellido = (input.apellido ?? '').trim()
   const telefono = (input.telefono ?? '').trim()
@@ -307,6 +317,36 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     },
     select: { id: true, fecha: true, duracion: true },
   })
+
+  // Pago previo (abono) vía Flow: si el link lo exige, crea el cobro del abono y su
+  // link de pago. El paciente debe pagarlo para confirmar. Si no se puede iniciar el
+  // pago, se revierte la reserva para no bloquear el cupo.
+  let pagoUrl: string | null = null
+  if (link.requierePago && link.montoAbono > 0) {
+    const revertir = async () => { await db.cita.delete({ where: { id: cita.id } }).catch(() => {}) }
+    if (!opts?.slug) { await revertir(); throw badRequest('No se pudo iniciar el pago del abono. Intenta más tarde.') }
+    const ultimoCobro = await db.cobro.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
+    const cobro = await db.cobro.create({
+      data: {
+        pacienteId: paciente.id, numero: (ultimoCobro?.numero ?? 0) + 1,
+        concepto: `Abono reserva online · ${link.nombre}`, monto: link.montoAbono, estado: 'PENDIENTE',
+      },
+      select: { id: true },
+    })
+    const res = await crearLinkParaCobro(db, cobro.id, {
+      apiBase: opts.apiBase, appBase: opts.appBase, slug: opts.slug,
+      urlReturn: `${opts.appBase}/c/${opts.slug}/agendar/${link.token}?pago=listo`,
+    })
+    if (res.estado !== 'ok') {
+      await db.cobro.delete({ where: { id: cobro.id } }).catch(() => {})
+      await revertir()
+      throw badRequest(res.estado === 'no_configurada'
+        ? 'Esta reserva requiere un abono, pero la clínica aún no habilitó el pago online. Contáctala para agendar tu hora.'
+        : `No se pudo iniciar el pago del abono: ${res.mensaje}`)
+    }
+    pagoUrl = res.url
+    await db.cita.update({ where: { id: cita.id }, data: { notas: `${motivo || `Reserva online · ${link.nombre}`} · Abono pendiente de pago` } }).catch(() => {})
+  }
 
   // CRM: registrar la reserva como lead (origen agenda online) + evento Schedule a
   // Meta (best-effort; nunca hace fallar la reserva).
@@ -377,6 +417,9 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     duracionMin: cita.duracion,
     profesional: profe?.name ?? profe?.email ?? link.doctor.name ?? link.doctor.email,
     mensaje: link.mensajeConfirmacion || null,
+    requierePago: Boolean(pagoUrl),
+    pagoUrl,
+    montoAbono: pagoUrl ? link.montoAbono : 0,
   }
 }
 

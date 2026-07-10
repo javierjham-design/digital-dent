@@ -7,6 +7,7 @@ import { rateLimit } from '@/lib/rate-limit'
 import * as svc from '@/services/agenda-online.service'
 import { crearLinkSchema, reservarOnlineSchema } from '@/validators/schemas'
 import { parseModulos } from '@shared/constants/modulos'
+import { apiBaseDe, appBaseDe } from '@/lib/req-url'
 
 // ── Admin (tenant) ────────────────────────────────────────────────────────────
 export async function getLinks(req: Request, res: Response) {
@@ -58,6 +59,7 @@ export async function getPublicAgenda(req: Request, res: Response) {
     link: {
       nombre: link.nombre, descripcion: link.descripcion, tipoCita: link.tipoCita, duracionMin: link.duracionMin,
       diasMaxFuturo: link.diasMaxFuturo, color: link.color, mensajeConfirmacion: link.mensajeConfirmacion,
+      requierePago: link.requierePago, montoAbono: link.montoAbono,
       profesionales: profes.map((p) => ({ id: p.id, nombre: p.name ?? p.email, especialidad: p.especialidad })),
     },
     doctorId: sel,
@@ -74,5 +76,5 @@ export async function postPublicReserva(req: Request, res: Response) {
   const db = await resolverTenant(slug)
   const link = await svc.obtenerLinkPorToken(db, token)
   if (!link) throw notFound('Link de agendamiento no encontrado o inactivo')
-  res.status(201).json(await svc.reservarPublico(db, link, input))
+  res.status(201).json(await svc.reservarPublico(db, link, input, { apiBase: apiBaseDe(req), appBase: appBaseDe(req), slug }))
 }
