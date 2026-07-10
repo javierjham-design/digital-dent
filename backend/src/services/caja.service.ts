@@ -48,6 +48,14 @@ async function asegurarNumerosCaja(db: TenantClient): Promise<void> {
   let n = await siguienteNumeroCaja(db)
   for (const c of sinNumero) { await db.caja.update({ where: { id: c.id }, data: { numero: n } }).catch(() => {}); n++ }
 }
+// Asigna correlativo de apertura a sesiones antiguas sin número (numero = 0).
+async function asegurarNumerosSesion(db: TenantClient): Promise<void> {
+  const sinNumero = await db.sesionCaja.findMany({ where: { numero: 0 }, orderBy: { abiertaAt: 'asc' }, select: { id: true } })
+  if (sinNumero.length === 0) return
+  const last = await db.sesionCaja.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
+  let n = (last?.numero ?? 0) + 1
+  for (const s of sinNumero) { await db.sesionCaja.update({ where: { id: s.id }, data: { numero: n } }).catch(() => {}); n++ }
+}
 
 // ── Cajas ────────────────────────────────────────────────────────────────────
 
@@ -85,6 +93,7 @@ export async function resumenCajas(db: TenantClient, actor: JwtPayload) {
 // (quién la abrió, ingresos/egresos) y el último cierre. Independientes entre sí.
 export async function gestionCajas(db: TenantClient) {
   await asegurarNumerosCaja(db)
+  await asegurarNumerosSesion(db)
   const cajas = await db.caja.findMany({ include: CAJA_INCLUDE, orderBy: [{ numero: 'asc' }] })
   return Promise.all(cajas.map(async (c) => {
     const sesionAbierta = await getSesionAbierta(db, c.id)
@@ -185,10 +194,16 @@ export async function abrirSesion(db: TenantClient, actor: JwtPayload, cajaId: s
   return abrirSesionCore(db, { cajaId, userId: actor.sub, userNombre: actorName(actor), saldoApertura })
 }
 
-export async function cerrarSesion(db: TenantClient, actor: JwtPayload, cajaId: string, body: { saldoReal: unknown; observaciones?: string }) {
+export async function cerrarSesion(db: TenantClient, actor: JwtPayload, cajaId: string, body: { saldoReal: unknown; efectivoRetirado?: unknown; efectivoDejado?: unknown; observaciones?: string }) {
   await cajaConAcceso(db, cajaId, actor)
-  const saldoReal = Number(body.saldoReal)
-  if (!Number.isFinite(saldoReal) || saldoReal < 0) throw badRequest('El conteo real es inválido.')
+  const saldoReal = Number(body.saldoReal) // efectivo contado
+  if (!Number.isFinite(saldoReal) || saldoReal < 0) throw badRequest('El efectivo contado es inválido.')
+  // Retiro (depósito/entrega) y efectivo que queda para la próxima apertura.
+  const retirado = body.efectivoRetirado === undefined || body.efectivoRetirado === '' ? 0 : Number(body.efectivoRetirado)
+  if (!Number.isFinite(retirado) || retirado < 0) throw badRequest('El monto retirado es inválido.')
+  if (retirado > saldoReal) throw badRequest('No puedes retirar más de lo contado.')
+  const dejado = body.efectivoDejado === undefined || body.efectivoDejado === '' ? (saldoReal - retirado) : Number(body.efectivoDejado)
+  if (!Number.isFinite(dejado) || dejado < 0) throw badRequest('El efectivo a dejar es inválido.')
   const observaciones = body.observaciones?.trim() || null
 
   const sesion = await getSesionAbierta(db, cajaId)
@@ -211,6 +226,7 @@ export async function cerrarSesion(db: TenantClient, actor: JwtPayload, cajaId: 
       data: {
         estado: 'CERRADA', cerradaPorId: actor.sub, cerradaPorNombre: actorName(actor), cerradaAt,
         saldoEsperado, saldoReal, diferencia: saldoReal - saldoEsperado,
+        efectivoRetirado: retirado, efectivoDejado: dejado,
         totalIngresos: ingresos, totalEgresos: egresos, observaciones,
       },
     })

@@ -347,11 +347,24 @@ function AbrirModal({ cajaId, nombre, onClose, onDone, onError }: { cajaId: stri
 }
 
 function CerrarModal({ cajaId, nombre, resumen, onClose, onDone, onError }: { cajaId: string; nombre: string; resumen: Resumen | null; onClose: () => void; onDone: () => void; onError: (m: string) => void }) {
-  const [saldo, setSaldo] = useState('')
+  const [contado, setContado] = useState('')
+  const [retirado, setRetirado] = useState('')
   const [obs, setObs] = useState('')
-  const [g, setG] = useState(false)
-  const dif = resumen && saldo !== '' ? Number(saldo) - resumen.saldoEsperado : null
-  async function cerrar() { setG(true); try { await cajasService.cerrar(cajaId, Number(saldo), obs || undefined); onDone() } catch (e) { onError(e instanceof ApiError ? e.message : 'Error') } finally { setG(false) } }
+  const [g, setG] = useState(''); const [err, setErr] = useState('')
+  const esperado = resumen?.saldoEsperado ?? 0
+  const nContado = Number(contado) || 0
+  const nRetirado = Number(retirado) || 0
+  const dejado = Math.max(0, nContado - nRetirado)
+  const dif = contado !== '' ? nContado - esperado : null
+  const cuadre = dif == null ? null : dif === 0 ? { l: 'Caja cuadrada', c: 'text-emerald-600' } : dif > 0 ? { l: `Sobrante ${fmt(dif)}`, c: 'text-amber-600' } : { l: `Faltante ${fmt(-dif)}`, c: 'text-rose-600' }
+
+  async function cerrar() {
+    if (contado === '') { setErr('Ingresa el efectivo contado.'); return }
+    if (nRetirado > nContado) { setErr('No puedes retirar más de lo contado.'); return }
+    setG('cerrar'); setErr('')
+    try { await cajasService.cerrar(cajaId, { saldoReal: nContado, efectivoRetirado: nRetirado, efectivoDejado: dejado, observaciones: obs || undefined }); onDone() }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo cerrar'); onError(e instanceof ApiError ? e.message : 'Error') } finally { setG('') }
+  }
   return (
     <Modal title={`Cerrar ${nombre}`} onClose={onClose}>
       {resumen && (
@@ -361,15 +374,23 @@ function CerrarModal({ cajaId, nombre, resumen, onClose, onDone, onError }: { ca
           <Stat label="Egresos" value={fmt(resumen.egresos)} tone="rose" />
         </div>
       )}
-      {resumen && <p className="text-sm text-slate-600 mb-3">Saldo esperado en caja: <span className="font-mono font-semibold">{fmt(resumen.saldoEsperado)}</span></p>}
-      <label className="block">
-        <span className="block text-sm font-medium text-slate-700 mb-1">Conteo real (arqueo)</span>
-        <input value={saldo} onChange={(e) => setSaldo(e.target.value)} inputMode="numeric" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-        {dif != null && <p className={`text-xs mt-1 ${dif === 0 ? 'text-emerald-600' : 'text-amber-600'}`}>Diferencia: {fmt(dif)}</p>}
+      <p className="text-sm text-slate-600 mb-3">Efectivo que debería haber en caja: <span className="font-mono font-semibold">{fmt(esperado)}</span></p>
+
+      <label className="block mb-3">
+        <span className="block text-sm font-medium text-slate-700 mb-1">Efectivo contado (arqueo) *</span>
+        <input value={contado} onChange={(e) => setContado(e.target.value)} inputMode="numeric" placeholder="Cuenta el efectivo real de la caja" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        {cuadre && <p className={`text-xs mt-1 font-semibold ${cuadre.c}`}>{cuadre.l}</p>}
       </label>
-      <div className="h-3" />
-      <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Observaciones (opcional)" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-      <Acciones onClose={onClose} onOk={cerrar} okLabel="Cerrar caja" loading={g} />
+
+      <label className="block mb-2">
+        <span className="block text-sm font-medium text-slate-700 mb-1">Efectivo retirado (depósito / entrega)</span>
+        <input value={retirado} onChange={(e) => setRetirado(e.target.value)} inputMode="numeric" placeholder="0" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+      </label>
+      <p className="text-sm text-slate-600 mb-3">Queda en la caja para la próxima apertura: <span className="font-mono font-semibold">{fmt(dejado)}</span></p>
+
+      <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Observaciones (opcional)" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500 mb-2" />
+      {err && <p className="text-sm text-rose-600 mb-1">{err}</p>}
+      <Acciones onClose={onClose} onOk={cerrar} okLabel="Cerrar caja y cuadrar" loading={g === 'cerrar'} />
     </Modal>
   )
 }

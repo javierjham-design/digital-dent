@@ -29,6 +29,7 @@ export function GestionCajas() {
   const [cargando, setCargando] = useState(true)
   const [ver, setVer] = useState<CajaGestion | null>(null)
   const [form, setForm] = useState<CajaGestion | 'nueva' | null>(null)
+  const [cerrar, setCerrar] = useState<CajaGestion | null>(null)
 
   const cargar = () => cajasService.gestion().then((r) => setCajas(r as CajaGestion[])).catch(() => {}).finally(() => setCargando(false))
   useEffect(() => { cargar() }, [])
@@ -81,6 +82,7 @@ export function GestionCajas() {
                       </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
+                      {abierta && <button onClick={() => setCerrar(c)} className="text-xs font-semibold text-rose-600 hover:text-rose-800">Cerrar caja</button>}
                       <button onClick={() => setForm(c)} className="text-xs font-semibold text-slate-500 hover:text-slate-800">Editar</button>
                       <button onClick={() => setVer(c)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900">Ver sesiones ({c.totalSesiones}) →</button>
                     </div>
@@ -109,6 +111,57 @@ export function GestionCajas() {
 
       {ver && <SesionesModal caja={ver} onClose={() => setVer(null)} />}
       {form && <CajaFormModal caja={form === 'nueva' ? null : form} onClose={() => setForm(null)} onSaved={() => { setForm(null); cargar() }} />}
+      {cerrar && <CerrarCajaModal caja={cerrar} onClose={() => setCerrar(null)} onDone={() => { setCerrar(null); cargar() }} />}
+    </div>
+  )
+}
+
+// Cerrar (cuadrar) una caja abierta: efectivo contado, retirado y lo que queda.
+function CerrarCajaModal({ caja, onClose, onDone }: { caja: CajaGestion; onClose: () => void; onDone: () => void }) {
+  const r = caja.sesionAbierta?.resumen
+  const esperado = r?.saldoEsperado ?? 0
+  const [contado, setContado] = useState('')
+  const [retirado, setRetirado] = useState('')
+  const [obs, setObs] = useState('')
+  const [g, setG] = useState(false); const [err, setErr] = useState('')
+  const nContado = Number(contado) || 0, nRetirado = Number(retirado) || 0
+  const dejado = Math.max(0, nContado - nRetirado)
+  const dif = contado !== '' ? nContado - esperado : null
+  const cuadre = dif == null ? null : dif === 0 ? { l: 'Caja cuadrada', c: 'text-emerald-600' } : dif > 0 ? { l: `Sobrante ${fmt(dif)}`, c: 'text-amber-600' } : { l: `Faltante ${fmt(-dif)}`, c: 'text-rose-600' }
+
+  async function cerrar() {
+    if (contado === '') { setErr('Ingresa el efectivo contado.'); return }
+    if (nRetirado > nContado) { setErr('No puedes retirar más de lo contado.'); return }
+    setG(true); setErr('')
+    try { await cajasService.cerrar(caja.id, { saldoReal: nContado, efectivoRetirado: nRetirado, efectivoDejado: dejado, observaciones: obs || undefined }); onDone() }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo cerrar') } finally { setG(false) }
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3"><h2 className="text-base font-semibold text-slate-900">Cerrar Caja Nº {caja.numero} · {caja.nombre}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
+        {r && (
+          <div className="grid grid-cols-3 gap-2 mb-3 text-center">
+            <div><p className="text-[10px] uppercase text-slate-400">Apertura</p><p className="text-sm font-semibold">{fmt(r.saldoApertura)}</p></div>
+            <div><p className="text-[10px] uppercase text-slate-400">Ingresos</p><p className="text-sm font-semibold text-emerald-700">{fmt(r.ingresos)}</p></div>
+            <div><p className="text-[10px] uppercase text-slate-400">Egresos</p><p className="text-sm font-semibold text-rose-600">{fmt(r.egresos)}</p></div>
+          </div>
+        )}
+        <p className="text-sm text-slate-600 mb-3">Debería haber en caja: <span className="font-mono font-semibold">{fmt(esperado)}</span></p>
+        <label className="block mb-3"><span className="block text-sm font-medium text-slate-700 mb-1">Efectivo contado *</span>
+          <input value={contado} onChange={(e) => setContado(e.target.value)} inputMode="numeric" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono" />
+          {cuadre && <p className={`text-xs mt-1 font-semibold ${cuadre.c}`}>{cuadre.l}</p>}
+        </label>
+        <label className="block mb-2"><span className="block text-sm font-medium text-slate-700 mb-1">Efectivo retirado (depósito / entrega)</span>
+          <input value={retirado} onChange={(e) => setRetirado(e.target.value)} inputMode="numeric" placeholder="0" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono" /></label>
+        <p className="text-sm text-slate-600 mb-3">Queda en la caja: <span className="font-mono font-semibold">{fmt(dejado)}</span></p>
+        <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Observaciones (opcional)" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm mb-2" />
+        {err && <p className="text-sm text-rose-600 mb-1">{err}</p>}
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+          <button onClick={cerrar} disabled={g} className="flex-1 px-4 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{g ? 'Cerrando…' : 'Cerrar y cuadrar'}</button>
+        </div>
+      </div>
     </div>
   )
 }

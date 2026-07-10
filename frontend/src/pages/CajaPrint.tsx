@@ -10,8 +10,9 @@ const fmtCLP = fmtMonto
 const fechaHora = (iso: string) => new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
 
 interface Sesion {
-  id: string; abiertaAt: string; cerradaAt: string | null; saldoApertura: number
+  id: string; numero?: number; abiertaAt: string; cerradaAt: string | null; saldoApertura: number
   saldoEsperado?: number | null; saldoReal?: number | null; diferencia?: number | null
+  efectivoRetirado?: number | null; efectivoDejado?: number | null
   totalIngresos?: number | null; totalEgresos?: number | null; observaciones?: string | null
   abiertaPorNombre?: string | null; cerradaPorNombre?: string | null
 }
@@ -44,6 +45,8 @@ export function CajaPrint() {
 
   const ingresos = movs.filter((m) => !m.anulado && m.tipo === 'INGRESO')
   const egresos = movs.filter((m) => !m.anulado && m.tipo === 'EGRESO')
+  const dif = sesion.diferencia ?? 0
+  const cuadreTxt = dif === 0 ? 'Cuadrada ✓' : dif > 0 ? `Sobrante ${fmtCLP(dif)}` : `Faltante ${fmtCLP(-dif)}`
 
   return (
     <div className="min-h-screen bg-white text-slate-800 p-8 max-w-3xl mx-auto print:p-0">
@@ -65,7 +68,7 @@ export function CajaPrint() {
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold text-slate-700">Cierre de caja</p>
-          <p className="text-xs text-slate-500">{cajaNombre}</p>
+          <p className="text-xs text-slate-500">{cajaNombre}{sesion.numero ? ` · Apertura Nº ${sesion.numero}` : ''}</p>
         </div>
       </div>
 
@@ -82,8 +85,10 @@ export function CajaPrint() {
           <Fila k="Total ingresos" v={fmtCLP(sesion.totalIngresos)} tone="emerald" />
           <Fila k="Total egresos (gastos)" v={fmtCLP(sesion.totalEgresos)} tone="rose" />
           <Fila k="Saldo esperado en caja" v={fmtCLP(sesion.saldoEsperado)} bold />
-          <Fila k="Conteo real (arqueo)" v={fmtCLP(sesion.saldoReal)} bold />
-          <Fila k="Diferencia" v={fmtCLP(sesion.diferencia)} tone={sesion.diferencia ? 'rose' : 'emerald'} bold />
+          <Fila k="Efectivo contado (arqueo)" v={fmtCLP(sesion.saldoReal)} bold />
+          <Fila k="Resultado del cuadre" v={cuadreTxt} tone={(sesion.diferencia ?? 0) === 0 ? 'emerald' : (sesion.diferencia ?? 0) > 0 ? undefined : 'rose'} bold />
+          {sesion.efectivoRetirado != null && <Fila k="Efectivo retirado (depósito/entrega)" v={fmtCLP(sesion.efectivoRetirado)} tone="rose" />}
+          {sesion.efectivoDejado != null && <Fila k="Efectivo que queda en la caja" v={fmtCLP(sesion.efectivoDejado)} bold />}
         </tbody>
       </table>
       {sesion.observaciones && <p className="text-xs text-slate-600 mb-5 italic">Observaciones: {sesion.observaciones}</p>}

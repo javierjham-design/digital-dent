@@ -484,8 +484,10 @@ model SesionCaja {
   cerradaPorNombre String?
   cerradaAt        DateTime?
   saldoEsperado    Float?
-  saldoReal        Float?
-  diferencia       Float?
+  saldoReal        Float?    // efectivo CONTADO al cerrar
+  diferencia       Float?    // saldoReal - saldoEsperado (cuadrada / a favor / en contra)
+  efectivoRetirado Float?    // efectivo que se retira de la caja al cerrar (depósito/entrega)
+  efectivoDejado   Float?    // efectivo que queda en la caja para la próxima apertura
   totalIngresos    Float?
   totalEgresos     Float?
   observaciones    String?

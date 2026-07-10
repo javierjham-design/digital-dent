@@ -19,6 +19,9 @@ export async function getUltimaSesionCerrada(db: TenantClient, cajaId: string) {
 // saldoInicial de la caja + saldo neto de movimientos huérfanos no anulados.
 export async function calcularSaldoSugerido(db: TenantClient, cajaId: string): Promise<number> {
   const ultimaCerrada = await getUltimaSesionCerrada(db, cajaId)
+  // El saldo de apertura sugerido es lo que quedó en la caja al último cierre
+  // (efectivo dejado); si no se registró, el conteo real.
+  if (ultimaCerrada?.efectivoDejado != null) return ultimaCerrada.efectivoDejado
   if (ultimaCerrada?.saldoReal != null) return ultimaCerrada.saldoReal
 
   const caja = await db.caja.findUnique({ where: { id: cajaId }, select: { saldoInicial: true } })

@@ -432,6 +432,8 @@ CREATE TABLE "SesionCaja" (
     "saldoEsperado" DOUBLE PRECISION,
     "saldoReal" DOUBLE PRECISION,
     "diferencia" DOUBLE PRECISION,
+    "efectivoRetirado" DOUBLE PRECISION,
+    "efectivoDejado" DOUBLE PRECISION,
     "totalIngresos" DOUBLE PRECISION,
     "totalEgresos" DOUBLE PRECISION,
     "observaciones" TEXT,

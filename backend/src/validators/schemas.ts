@@ -160,6 +160,8 @@ export const abrirCajaSchema = z.object({
 
 export const cerrarCajaSchema = z.object({
   saldoReal: z.number(),
+  efectivoRetirado: z.number().optional(),
+  efectivoDejado: z.number().optional(),
   observaciones: z.string().optional(),
 })
 
