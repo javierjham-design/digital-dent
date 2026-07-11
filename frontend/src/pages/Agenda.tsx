@@ -61,6 +61,7 @@ export function Agenda() {
   const [citas, setCitas] = useState<CitaDTO[]>([])
   const [bloqueos, setBloqueos] = useState<BloqueoDTO[]>([])
   const [horarios, setHorarios] = useState<HorarioDTO[]>([])
+  const [horariosTodos, setHorariosTodos] = useState<HorarioDTO[]>([])
   const [clinica, setClinica] = useState<ClinicaConfigDTO | null>(null)
 
   const [vista, setVista] = useState<Vista>('diaria')
@@ -76,6 +77,8 @@ export function Agenda() {
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
   const [pendientes, setPendientes] = useState<ReservaOnline[]>([])
   const [verPendientes, setVerPendientes] = useState(false)
+  // Reagendamiento por arrastre pendiente de confirmar (semanal y global).
+  const [pendienteMove, setPendienteMove] = useState<null | { cita: CitaDTO; nuevoDoctorId: string; nuevoISO: string; duracion: number; revert?: () => void }>(null)
 
   function notify(t: string, ok = true) { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
 
@@ -85,6 +88,9 @@ export function Agenda() {
     // inicial es la diaria (lista), donde "Todos" es una opción válida.
     usuariosService.doctores().then(setDoctores).catch(() => {})
     clinicaService.obtener().then(setClinica).catch(() => {})
+    // Todos los horarios de atención (para la vista Global: qué profesionales
+    // atienden cada día y en qué franjas).
+    horariosLectura.listar().then(setHorariosTodos).catch(() => {})
   }, [])
 
   // Rango visible según vista.
@@ -181,21 +187,45 @@ export function Agenda() {
     else if (props.cita) setSelected(props.cita)
   }, [])
 
-  const onDrop = useCallback(async (arg: MoveArg) => {
+  // Arrastrar una cita (semanal) → NO se guarda directo: pide confirmación con la
+  // nueva fecha/hora. Si se cancela, se revierte visualmente.
+  const onDrop = useCallback((arg: MoveArg) => {
     const props = arg.event.extendedProps as { kind: string; cita?: CitaDTO }
     if (props.kind !== 'cita' || !props.cita || !arg.event.start) { arg.revert(); return }
     const start = arg.event.start
     const end = arg.event.end
-    const duracion = end ? Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000)) : undefined
+    const cita = props.cita
+    const duracion = end
+      ? Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000))
+      : Math.max(15, Math.round((+new Date(cita.fin) - +new Date(cita.inicio)) / 60000))
+    setPendienteMove({ cita, nuevoDoctorId: cita.doctorId, nuevoISO: start.toISOString(), duracion, revert: arg.revert })
+  }, [])
+
+  // Redimensionar (cambiar duración) sí se aplica directo: es menos propenso a error.
+  const onResize = useCallback(async (arg: MoveArg) => {
+    const props = arg.event.extendedProps as { kind: string; cita?: CitaDTO }
+    if (props.kind !== 'cita' || !props.cita || !arg.event.start || !arg.event.end) { arg.revert(); return }
+    const duracion = Math.max(15, Math.round((arg.event.end.getTime() - arg.event.start.getTime()) / 60000))
     try {
-      await citasService.editar(props.cita.id, { fecha: start.toISOString(), ...(duracion ? { duracion } : {}) })
-      notify('Cita reagendada')
-      recargar()
+      await citasService.editar(props.cita.id, { fecha: arg.event.start.toISOString(), duracion })
+      notify('Duración actualizada'); recargar()
     } catch (e) {
-      notify(e instanceof ApiError ? e.message : 'No se pudo mover', false)
-      arg.revert()
+      notify(e instanceof ApiError ? e.message : 'No se pudo ajustar', false); arg.revert()
     }
   }, [recargar])
+
+  async function confirmarMove() {
+    if (!pendienteMove) return
+    const { cita, nuevoDoctorId, nuevoISO, duracion } = pendienteMove
+    try {
+      await citasService.editar(cita.id, { fecha: nuevoISO, duracion, ...(nuevoDoctorId !== cita.doctorId ? { doctorId: nuevoDoctorId } : {}) })
+      notify('Cita reagendada'); setPendienteMove(null); recargar()
+    } catch (e) {
+      notify(e instanceof ApiError ? e.message : 'No se pudo reagendar', false)
+      pendienteMove.revert?.(); setPendienteMove(null)
+    }
+  }
+  function cancelarMove() { pendienteMove?.revert?.(); setPendienteMove(null) }
 
   async function cambiarEstado(id: string, estado: string) {
     try { await citasService.cambiarEstado(id, estado); notify('Estado actualizado'); setSelected(null); recargar() }
@@ -372,7 +402,7 @@ export function Agenda() {
               eventClick={onEventClick}
               editable
               eventDrop={onDrop}
-              eventResize={onDrop}
+              eventResize={onResize}
               dateClick={(a) => setSlotAccion({ slotISO: a.date.toISOString() })}
               businessHours={businessHours}
               slotMinTime="07:00:00" slotMaxTime="21:00:00" slotDuration="00:15:00" slotLabelInterval="00:15:00"
@@ -383,9 +413,10 @@ export function Agenda() {
             />
           </div>
         ) : vista === 'global' ? (
-          <DiariaGlobal doctores={doctores} citas={citasGlobal} bloqueos={bloqueosGlobal} fecha={currentDate}
+          <DiariaGlobal doctores={doctores} horarios={horariosTodos} citas={citasGlobal} bloqueos={bloqueosGlobal} fecha={currentDate}
             onCita={setSelected} onBloqueo={setSelectedBloqueo}
-            onSlot={(docId, slotISO) => setCrear({ slotISO, doctorId: docId })} />
+            onSlot={(docId, slotISO) => setCrear({ slotISO, doctorId: docId })}
+            onMover={(cita, nuevoDoctorId, nuevoISO, duracion) => setPendienteMove({ cita, nuevoDoctorId, nuevoISO, duracion })} />
         ) : (
           <DiariaLista citas={citasDelDia} clinica={clinica} onClick={setSelected} onAvanzar={(c) => { const n = siguienteEstado(c.estado); if (n) cambiarEstado(c.id, n.estado) }} />
         )}
@@ -419,7 +450,43 @@ export function Agenda() {
       {verPendientes && (
         <ReservasPendientesModal reservas={pendientes} onConfirmar={confirmarReserva} onRechazar={rechazarReserva} onClose={() => setVerPendientes(false)} />
       )}
+      {pendienteMove && (
+        <ConfirmarMoveModal mov={pendienteMove} doctores={doctores} onConfirmar={confirmarMove} onCancelar={cancelarMove} />
+      )}
     </div>
+  )
+}
+
+// ── Modal: confirmar reagendamiento por arrastre ──
+function ConfirmarMoveModal({ mov, doctores, onConfirmar, onCancelar }: {
+  mov: { cita: CitaDTO; nuevoDoctorId: string; nuevoISO: string; duracion: number }
+  doctores: DoctorDTO[]; onConfirmar: () => void; onCancelar: () => void
+}) {
+  const nuevoInicio = new Date(mov.nuevoISO)
+  const nuevoFin = new Date(nuevoInicio.getTime() + mov.duracion * 60000)
+  const nombreDoc = (id: string) => doctores.find((d) => d.id === id)?.name ?? '—'
+  const cambiaDoc = mov.nuevoDoctorId !== mov.cita.doctorId
+  const fmt = (d: Date) => d.toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })
+  return (
+    <Modal title="Confirmar reagendamiento" onClose={onCancelar}>
+      <p className="text-sm text-slate-600 mb-4">¿Mover la cita de <span className="font-semibold text-slate-800">{mov.cita.pacienteNombre}</span> a este nuevo horario?</p>
+      <div className="space-y-2 mb-5">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Antes</p>
+          <p className="text-sm text-slate-600 capitalize">{fmt(new Date(mov.cita.inicio))} h</p>
+          <p className="text-xs text-slate-500">{mov.cita.doctor ?? '—'}</p>
+        </div>
+        <div className="rounded-xl border-2 border-cyan-300 bg-cyan-50 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-cyan-500">Ahora</p>
+          <p className="text-sm font-semibold text-cyan-800 capitalize">{fmt(nuevoInicio)} – {nuevoFin.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })} h</p>
+          <p className={`text-xs ${cambiaDoc ? 'font-semibold text-cyan-700' : 'text-slate-500'}`}>{nombreDoc(mov.nuevoDoctorId)}{cambiaDoc ? ' (cambia de profesional)' : ''}</p>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <button onClick={onCancelar} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+        <button onClick={onConfirmar} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Confirmar cambio</button>
+      </div>
+    </Modal>
   )
 }
 
@@ -547,10 +614,8 @@ function DiariaLista({ citas, clinica, onClick, onAvanzar }: { citas: CitaDTO[];
 }
 
 // ── Vista Diaria Global (estilo Dentalink): un profesional por columna ─────────
-const G_START_H = 7          // primera hora visible
-const G_END_H = 21           // última hora visible
-const G_PXMIN = 1            // 1px por minuto → 60px por hora
-const G_TOTAL = (G_END_H - G_START_H) * 60 * G_PXMIN
+const G_SLOT_H = 20          // px por bloque de 15 min → 80px por hora
+const G_PXMIN = G_SLOT_H / 15
 
 type GEvento =
   | { kind: 'cita'; id: string; ini: Date; fin: Date; cita: CitaDTO }
@@ -575,63 +640,117 @@ function conCarriles<T extends { ini: Date; fin: Date }>(evs: T[]): (T & { lane:
 }
 
 function minutosDelDia(d: Date): number { return d.getHours() * 60 + d.getMinutes() }
+const hhmmAMin = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + (m || 0) }
 
-function DiariaGlobal({ doctores, citas, bloqueos, fecha, onCita, onBloqueo, onSlot }: {
-  doctores: DoctorDTO[]; citas: CitaDTO[]; bloqueos: BloqueoDTO[]; fecha: Date
+// Bloques de atención (verde) de un profesional un día concreto, descontando el receso.
+function bloquesAtencion(h: HorarioDTO | undefined): [number, number][] {
+  if (!h || !h.activo) return []
+  const ini = hhmmAMin(h.horaInicio), fin = hhmmAMin(h.horaFin)
+  if (h.recesoActivo && h.recesoInicio && h.recesoFin && hhmmAMin(h.recesoInicio) < hhmmAMin(h.recesoFin)) {
+    return [[ini, hhmmAMin(h.recesoInicio)], [hhmmAMin(h.recesoFin), fin]]
+  }
+  return [[ini, fin]]
+}
+
+function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, onCita, onBloqueo, onSlot, onMover }: {
+  doctores: DoctorDTO[]; horarios: HorarioDTO[]; citas: CitaDTO[]; bloqueos: BloqueoDTO[]; fecha: Date
   onCita: (c: CitaDTO) => void; onBloqueo: (b: BloqueoDTO) => void; onSlot: (doctorId: string, slotISO: string) => void
+  onMover: (cita: CitaDTO, nuevoDoctorId: string, nuevoISO: string, duracion: number) => void
 }) {
-  const horas = useMemo(() => Array.from({ length: G_END_H - G_START_H + 1 }, (_, i) => G_START_H + i), [])
+  const dow = fecha.getDay() // 0=domingo … 6=sábado (misma convención que horario.diaSemana)
+  const dragRef = useRef<{ cita: CitaDTO; duracion: number } | null>(null)
+  const [dropHint, setDropHint] = useState<{ docId: string; min: number } | null>(null)
 
-  // Clic en zona vacía de una columna → agenda a esa hora (redondea a 15 min).
-  function clickColumna(e: React.MouseEvent<HTMLDivElement>, docId: string) {
+  // Horarios de atención del día (por profesional).
+  const horariosDia = useMemo(() => horarios.filter((h) => h.diaSemana === dow && h.activo), [horarios, dow])
+  const horarioDe = (docId: string) => horariosDia.find((h) => h.doctorId === docId)
+
+  // Profesionales a mostrar: SOLO los que atienden ese día (tienen horario activo)
+  // o los que ya tienen citas/bloqueos ese día (para no ocultar agenda existente).
+  const doctoresMostrar = useMemo(() => {
+    const conAgenda = new Set(horariosDia.map((h) => h.doctorId))
+    const conEventos = new Set<string>([...citas.map((c) => c.doctorId), ...bloqueos.map((b) => b.doctorId)])
+    return doctores.filter((d) => conAgenda.has(d.id) || conEventos.has(d.id))
+  }, [doctores, horariosDia, citas, bloqueos])
+
+  // Ventana horaria visible: se ajusta al horario de atención + citas del día.
+  const { startM, endM } = useMemo(() => {
+    let a = Infinity, b = -Infinity
+    for (const h of horariosDia) if (doctoresMostrar.some((d) => d.id === h.doctorId)) { a = Math.min(a, hhmmAMin(h.horaInicio)); b = Math.max(b, hhmmAMin(h.horaFin)) }
+    for (const c of citas) { a = Math.min(a, minutosDelDia(new Date(c.inicio))); b = Math.max(b, minutosDelDia(new Date(c.fin))) }
+    for (const bl of bloqueos) { a = Math.min(a, minutosDelDia(new Date(bl.inicio))); b = Math.max(b, minutosDelDia(new Date(bl.fin))) }
+    if (!Number.isFinite(a)) { a = 8 * 60; b = 20 * 60 }
+    let s = Math.floor(a / 60) * 60, e = Math.ceil(b / 60) * 60
+    s = Math.max(6 * 60, s); e = Math.min(22 * 60, e); if (e <= s + 60) e = Math.min(22 * 60, s + 120)
+    return { startM: s, endM: e }
+  }, [horariosDia, doctoresMostrar, citas, bloqueos])
+
+  const totalH = (endM - startM) * G_PXMIN
+  const horas = useMemo(() => { const r: number[] = []; for (let m = Math.ceil(startM / 60) * 60; m <= endM; m += 60) r.push(m); return r }, [startM, endM])
+  const yDeMin = (m: number) => (Math.max(startM, Math.min(endM, m)) - startM) * G_PXMIN
+
+  // Minuto (redondeado a 15) según la posición Y del cursor dentro de la columna.
+  const minEnY = (e: { clientY: number; currentTarget: HTMLElement }) => {
     const rect = e.currentTarget.getBoundingClientRect()
     const y = e.clientY - rect.top
-    let min = G_START_H * 60 + Math.round((y / G_PXMIN) / 15) * 15
-    min = Math.max(G_START_H * 60, Math.min(G_END_H * 60 - 15, min))
-    const base = new Date(fecha)
-    base.setHours(Math.floor(min / 60), min % 60, 0, 0)
-    onSlot(docId, base.toISOString())
+    const min = startM + Math.round((y / G_PXMIN) / 15) * 15
+    return Math.max(startM, Math.min(endM - 15, min))
   }
+  const isoDeMin = (min: number) => { const d = new Date(fecha); d.setHours(Math.floor(min / 60), min % 60, 0, 0); return d.toISOString() }
 
-  if (doctores.length === 0) {
-    return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 text-sm">No hay profesionales con agenda.</div>
+  if (doctoresMostrar.length === 0) {
+    return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 text-sm">Ningún profesional atiende este día.</div>
   }
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto">
-      <div className="flex min-w-max">
+      <p className="text-[11px] text-slate-400 px-3 pt-2">Arrastra una cita para reagendarla (te pedimos confirmar el nuevo horario).</p>
+      <div className="flex min-w-max p-2 pt-1">
         {/* Eje de horas (sticky a la izquierda) */}
-        <div className="sticky left-0 z-20 bg-white border-r border-slate-200 w-12 shrink-0">
-          <div className="h-10 border-b border-slate-200 bg-slate-50" /> {/* hueco del header */}
-          <div className="relative" style={{ height: G_TOTAL }}>
-            {horas.map((h) => (
-              <div key={h} className="absolute right-1.5 -translate-y-1/2 text-[10px] font-mono text-slate-400"
-                style={{ top: (h - G_START_H) * 60 * G_PXMIN }}>{String(h).padStart(2, '0')}:00</div>
+        <div className="sticky left-0 z-20 bg-white w-12 shrink-0">
+          <div className="h-10 border-b border-slate-200" /> {/* hueco del header */}
+          <div className="relative" style={{ height: totalH }}>
+            {horas.map((m) => (
+              <div key={m} className="absolute right-1.5 -translate-y-1/2 text-[10px] font-mono text-slate-400" style={{ top: yDeMin(m) }}>
+                {String(Math.floor(m / 60)).padStart(2, '0')}:00
+              </div>
             ))}
           </div>
         </div>
 
         {/* Una columna por profesional */}
-        {doctores.map((doc) => {
+        {doctoresMostrar.map((doc) => {
+          const verdes = bloquesAtencion(horarioDe(doc.id))
           const citasDoc: GEvento[] = citas.filter((c) => c.doctorId === doc.id).map((c) => ({ kind: 'cita', id: c.id, ini: new Date(c.inicio), fin: new Date(c.fin), cita: c }))
           const blqDoc: GEvento[] = bloqueos.filter((b) => b.doctorId === doc.id).map((b) => ({ kind: 'bloqueo', id: b.id, ini: new Date(b.inicio), fin: new Date(b.fin), bloqueo: b }))
           const layout = conCarriles<GEvento>([...citasDoc, ...blqDoc])
           return (
-            <div key={doc.id} className="w-40 shrink-0 border-r border-slate-200 last:border-r-0">
+            <div key={doc.id} className="w-44 shrink-0 border-l border-slate-200 first:border-l-0">
               <div className="h-10 flex items-center justify-center px-2 border-b border-slate-200 bg-slate-50 sticky top-0 z-10">
                 <span className="text-xs font-semibold text-slate-700 truncate">{doc.name ?? doc.email}</span>
               </div>
-              <div className="relative" style={{ height: G_TOTAL }} onClick={(e) => clickColumna(e, doc.id)}>
-                {/* Líneas de hora y media hora */}
-                {horas.map((h) => (
-                  <div key={h} className="absolute left-0 right-0 border-t border-slate-100" style={{ top: (h - G_START_H) * 60 * G_PXMIN }} />
+              <div className="relative bg-[#eceef1]" style={{ height: totalH }}
+                onClick={(e) => onSlot(doc.id, isoDeMin(minEnY(e)))}
+                onDragOver={(e) => { if (!dragRef.current) return; e.preventDefault(); const min = minEnY(e); setDropHint((h) => (h?.docId === doc.id && h.min === min ? h : { docId: doc.id, min })) }}
+                onDragLeave={() => setDropHint((h) => (h?.docId === doc.id ? null : h))}
+                onDrop={(e) => { e.preventDefault(); const drag = dragRef.current; setDropHint(null); if (!drag) return; onMover(drag.cita, doc.id, isoDeMin(minEnY(e)), drag.duracion); dragRef.current = null }}>
+                {/* Franjas de atención (verde) sobre el fondo gris de "fuera de horario" */}
+                {verdes.map(([s, ee], i) => (
+                  <div key={`v${i}`} className="absolute left-0 right-0 bg-[#dcfce7]" style={{ top: yDeMin(s), height: (Math.min(endM, ee) - Math.max(startM, s)) * G_PXMIN }} />
                 ))}
-                {horas.slice(0, -1).map((h) => (
-                  <div key={`m${h}`} className="absolute left-0 right-0 border-t border-dashed border-slate-50" style={{ top: ((h - G_START_H) * 60 + 30) * G_PXMIN }} />
+                {/* Líneas de bloque cada 15 min (hora sólida, resto tenue) */}
+                {Array.from({ length: Math.round((endM - startM) / 15) + 1 }, (_, i) => startM + i * 15).map((m) => (
+                  <div key={m} className={`absolute left-0 right-0 border-t ${m % 60 === 0 ? 'border-slate-300' : 'border-slate-200/60'}`} style={{ top: yDeMin(m) }} />
                 ))}
+                {/* Indicador de destino al arrastrar */}
+                {dropHint?.docId === doc.id && (
+                  <div className="absolute left-0 right-0 border-t-2 border-cyan-500 z-20 pointer-events-none" style={{ top: yDeMin(dropHint.min) }}>
+                    <span className="absolute -top-2 left-1 text-[9px] font-mono font-bold text-cyan-600 bg-white/90 px-1 rounded">{String(Math.floor(dropHint.min / 60)).padStart(2, '0')}:{String(dropHint.min % 60).padStart(2, '0')}</span>
+                  </div>
+                )}
                 {/* Eventos */}
                 {layout.map((ev) => {
-                  const top = Math.max(0, (minutosDelDia(ev.ini) - G_START_H * 60) * G_PXMIN)
+                  const top = yDeMin(minutosDelDia(ev.ini))
                   const alto = Math.max(15, (minutosDelDia(ev.fin) - minutosDelDia(ev.ini)) * G_PXMIN - 1)
                   const wPct = 100 / ev.lanes
                   const style = { top, height: alto, left: `${ev.lane * wPct}%`, width: `calc(${wPct}% - 2px)` } as React.CSSProperties
@@ -645,8 +764,11 @@ function DiariaGlobal({ doctores, citas, bloqueos, fecha, onCita, onBloqueo, onS
                   }
                   const cfg = CITA_ESTADOS[ev.cita.estado]
                   return (
-                    <button key={ev.id} onClick={(e) => { e.stopPropagation(); onCita(ev.cita) }}
-                      className="absolute rounded-md px-1.5 py-0.5 text-left overflow-hidden border" style={{ ...style, backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', color: '#fff' }}>
+                    <button key={ev.id} draggable
+                      onDragStart={() => { dragRef.current = { cita: ev.cita, duracion: Math.max(15, Math.round((+ev.fin - +ev.ini) / 60000)) } }}
+                      onDragEnd={() => { dragRef.current = null; setDropHint(null) }}
+                      onClick={(e) => { e.stopPropagation(); onCita(ev.cita) }}
+                      className="absolute rounded-md px-1.5 py-0.5 text-left overflow-hidden border cursor-move active:opacity-80" style={{ ...style, backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', color: '#fff' }}>
                       <span className="text-[10px] font-mono opacity-90 block leading-tight">{hora(ev.cita.inicio)}</span>
                       <span className="text-[11px] font-semibold block leading-tight truncate">{ev.cita.pacienteNombre}</span>
                       {alto > 40 && <span className="text-[10px] opacity-90 block leading-tight truncate">{ev.cita.tipo}</span>}
