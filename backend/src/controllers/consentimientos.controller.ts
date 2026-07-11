@@ -29,11 +29,11 @@ export async function getConsentimiento(req: Request, res: Response) {
 }
 export async function postPrevisualizar(req: Request, res: Response) {
   const b = req.body ?? {}
-  res.json(await svc.previsualizar(tenantDb(req), req.auth!, b.pacienteId, b.plantillaId, b.extra ?? {}))
+  res.json(await svc.previsualizar(tenantDb(req), req.auth!, b.pacienteId, b.plantillaId, b.responsableId || undefined, b.extra ?? {}))
 }
 export async function postGenerar(req: Request, res: Response) {
   const b = req.body ?? {}
-  res.status(201).json(await svc.generar(tenantDb(req), req.auth!, b.pacienteId, b.plantillaId, b.extra ?? {}))
+  res.status(201).json(await svc.generar(tenantDb(req), req.auth!, b.pacienteId, b.plantillaId, b.responsableId, b.planId, b.extra ?? {}))
 }
 export async function postFirmar(req: Request, res: Response) {
   res.json(await svc.firmar(tenantDb(req), req.auth!, req.params.id, req.body ?? {}))

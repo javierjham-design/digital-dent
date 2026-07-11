@@ -928,6 +928,9 @@ CREATE TABLE "Consentimiento" (
     "firmadoAt" TIMESTAMP(3),
     "generadoPorId" TEXT,
     "generadoPorNombre" TEXT,
+    "responsableId" TEXT,
+    "responsableNombre" TEXT,
+    "planId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
     CONSTRAINT "Consentimiento_pkey" PRIMARY KEY ("id")

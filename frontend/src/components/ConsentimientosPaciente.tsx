@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { consentimientosService, type PlantillaConsentimiento, type ConsentimientoResumen, type Consentimiento } from '@/services/consentimientos.service'
+import { usuariosService } from '@/services/equipo.service'
+import { planesService } from '@/services/clinico.service'
+import type { DoctorDTO } from '@shared/types'
 import { clinicaService } from '@/services/catalogo.service'
 import { ApiError } from '@/services/api'
 import { DocumentoConsentimiento, descargarConsentimientoPDF } from '@/components/DocumentoConsentimiento'
@@ -54,7 +57,7 @@ export function ConsentimientosPaciente({ pacienteId, pacienteNombre, pacienteEm
             <div key={c.id} className="flex items-center justify-between gap-3 px-5 py-3">
               <button onClick={() => consentimientosService.obtener(c.id).then(setVer).catch(() => {})} className="min-w-0 text-left flex-1">
                 <p className="font-medium text-slate-800 truncate">{c.titulo}</p>
-                <p className="text-xs text-slate-500">{c.codigo} · {fecha(c.createdAt)}{c.generadoPorNombre ? ` · ${c.generadoPorNombre}` : ''}</p>
+                <p className="text-xs text-slate-500">{c.codigo} · {fecha(c.createdAt)}{c.responsableNombre ? ` · Dr(a). ${c.responsableNombre}` : c.generadoPorNombre ? ` · ${c.generadoPorNombre}` : ''}</p>
               </button>
               <span className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${c.estado === 'FIRMADO' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                 {c.estado === 'FIRMADO' ? `Firmado${c.firmaTipo === 'DIGITAL' ? ' · digital' : ''}` : 'Borrador'}
@@ -77,34 +80,47 @@ function GenerarModal({ pacienteId, pacienteNombre, pacienteEmail, plantillas, c
   onClose: () => void; onDone: () => void; notify: (t: string, ok?: boolean) => void
 }) {
   const [plantillaId, setPlantillaId] = useState('')
+  const [responsableId, setResponsableId] = useState('')
+  const [planId, setPlanId] = useState('')
+  const [doctores, setDoctores] = useState<DoctorDTO[]>([])
+  const [planes, setPlanes] = useState<{ id: string; nombre: string; estado?: string }[]>([])
   const [prev, setPrev] = useState<{ faltantes: string[]; html: string; manuales: { name: string; label: string }[] } | null>(null)
   const [extra, setExtra] = useState<Record<string, string>>({})
   const [generado, setGenerado] = useState<Consentimiento | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // Carga profesionales con agenda (posibles responsables) y planes del paciente.
+  useEffect(() => {
+    usuariosService.doctores().then(setDoctores).catch(() => {})
+    planesService.listar(pacienteId).then((ps) => setPlanes(ps as { id: string; nombre: string; estado?: string }[])).catch(() => {})
+  }, [pacienteId])
+
   // Al cambiar de plantilla: reinicia los campos manuales y previsualiza.
   useEffect(() => {
     setExtra({})
     if (!plantillaId) { setPrev(null); return }
-    consentimientosService.previsualizar(pacienteId, plantillaId).then(setPrev).catch(() => setPrev(null))
-  }, [plantillaId, pacienteId])
+    consentimientosService.previsualizar(pacienteId, plantillaId, responsableId || undefined).then(setPrev).catch(() => setPrev(null))
+  }, [plantillaId, pacienteId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Al escribir en los campos manuales: re-previsualiza (debounced) para reflejar en la vista previa.
+  // Al escribir campos manuales o elegir responsable: re-previsualiza (debounced) para reflejar el profesional en la vista previa.
   useEffect(() => {
     if (!plantillaId) return
-    const t = setTimeout(() => { consentimientosService.previsualizar(pacienteId, plantillaId, extra).then(setPrev).catch(() => {}) }, 350)
+    const t = setTimeout(() => { consentimientosService.previsualizar(pacienteId, plantillaId, responsableId || undefined, extra).then(setPrev).catch(() => {}) }, 350)
     return () => clearTimeout(t)
-  }, [extra, plantillaId, pacienteId])
+  }, [extra, responsableId, plantillaId, pacienteId])
 
   async function generar() {
+    if (!responsableId) { notify('Selecciona el profesional responsable', false); return }
+    if (!planId) { notify('Asocia el consentimiento a un plan de tratamiento', false); return }
     setBusy(true)
-    try { const c = await consentimientosService.generar(pacienteId, plantillaId, extra); setGenerado(c); notify('Consentimiento generado') }
+    try { const c = await consentimientosService.generar(pacienteId, plantillaId, responsableId, planId, extra); setGenerado(c); notify('Consentimiento generado') }
     catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo generar', false) } finally { setBusy(false) }
   }
 
   if (generado) return <FirmarView consent={generado} clinica={clinica} pacienteId={pacienteId} pacienteNombre={pacienteNombre} pacienteEmail={pacienteEmail} onClose={onDone} onChanged={setGenerado} notify={notify} />
 
-  const bloqueado = !prev || prev.faltantes.length > 0
+  const sinPlanes = planes.length === 0
+  const bloqueado = !prev || prev.faltantes.length > 0 || !responsableId || !planId
   return (
     <Modal title="Generar consentimiento informado" onClose={onClose} ancho="max-w-3xl">
       <label className="block mb-3"><span className="text-xs font-medium text-slate-500">Formato</span>
@@ -113,6 +129,27 @@ function GenerarModal({ pacienteId, pacienteNombre, pacienteEmail, plantillas, c
           {plantillas.map((p) => <option key={p.id} value={p.id}>{p.titulo}</option>)}
         </select>
       </label>
+
+      <div className="grid sm:grid-cols-2 gap-3 mb-3">
+        <label className="block"><span className="text-xs font-medium text-slate-500">Profesional responsable <span className="text-rose-500">*</span></span>
+          <select value={responsableId} onChange={(e) => setResponsableId(e.target.value)} className={inp}>
+            <option value="">Selecciona un profesional…</option>
+            {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}{d.especialidad ? ` · ${d.especialidad}` : ''}</option>)}
+          </select>
+        </label>
+        <label className="block"><span className="text-xs font-medium text-slate-500">Plan de tratamiento <span className="text-rose-500">*</span></span>
+          <select value={planId} onChange={(e) => setPlanId(e.target.value)} disabled={sinPlanes} className={inp}>
+            <option value="">{sinPlanes ? 'El paciente no tiene planes' : 'Selecciona un plan…'}</option>
+            {planes.map((p) => <option key={p.id} value={p.id}>{p.nombre}{p.estado && p.estado !== 'ACTIVO' ? ` · ${p.estado.toLowerCase()}` : ''}</option>)}
+          </select>
+        </label>
+      </div>
+
+      {sinPlanes && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-700 rounded-xl px-4 py-3 mb-3 text-sm">
+          ⚠️ Este paciente no tiene un plan de tratamiento. Créalo en la pestaña <span className="font-semibold">Plan</span> para poder asociar el consentimiento.
+        </div>
+      )}
 
       {prev && prev.faltantes.length > 0 && (
         <div className="bg-rose-50 border border-rose-200 text-rose-700 rounded-xl px-4 py-3 mb-3 text-sm">

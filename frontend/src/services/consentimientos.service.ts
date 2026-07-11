@@ -6,7 +6,8 @@ export interface PlantillaConsentimiento {
 }
 export interface ConsentimientoResumen {
   id: string; codigo: string; titulo: string; estado: string
-  firmaTipo: string | null; firmadoAt: string | null; generadoPorNombre: string | null; createdAt: string
+  firmaTipo: string | null; firmadoAt: string | null; generadoPorNombre: string | null
+  responsableNombre?: string | null; planId?: string | null; createdAt: string
 }
 export interface Consentimiento extends ConsentimientoResumen {
   pacienteId: string; contenidoHtml: string
@@ -22,10 +23,10 @@ export const consentimientosService = {
   eliminarPlantilla: (id: string) => api.del<{ ok: true }>(`/consentimientos/plantillas/${id}`),
 
   // Generación / firma / consulta
-  previsualizar: (pacienteId: string, plantillaId: string, extra?: Record<string, string>) =>
-    api.post<Previsualizacion>('/consentimientos/previsualizar', { pacienteId, plantillaId, extra }),
-  generar: (pacienteId: string, plantillaId: string, extra?: Record<string, string>) =>
-    api.post<Consentimiento>('/consentimientos/generar', { pacienteId, plantillaId, extra }),
+  previsualizar: (pacienteId: string, plantillaId: string, responsableId?: string, extra?: Record<string, string>) =>
+    api.post<Previsualizacion>('/consentimientos/previsualizar', { pacienteId, plantillaId, responsableId, extra }),
+  generar: (pacienteId: string, plantillaId: string, responsableId: string, planId: string, extra?: Record<string, string>) =>
+    api.post<Consentimiento>('/consentimientos/generar', { pacienteId, plantillaId, responsableId, planId, extra }),
   firmar: (id: string, body: { tipo: 'MANUAL' | 'DIGITAL'; imagen?: string }) =>
     api.post<Consentimiento>(`/consentimientos/${id}/firmar`, body),
   porPaciente: (pacienteId: string) => api.get<ConsentimientoResumen[]>(`/pacientes/${pacienteId}/consentimientos`),

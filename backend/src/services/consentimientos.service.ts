@@ -196,31 +196,51 @@ export async function eliminarPlantilla(db: TenantClient, id: string) {
 
 // ── Generación / firma (ficha del paciente) ───────────────────────────────────
 
-async function profDe(db: TenantClient, actor: JwtPayload): Promise<{ nombre: string; rut: string }> {
-  const u = await db.user.findUnique({ where: { id: actor.sub }, select: { name: true, rut: true } })
-  return { nombre: u?.name ?? actorName(actor), rut: u?.rut ?? '' }
+// Roles con agenda = "profesionales". Deben coincidir con usuarios.service.
+const ROLES_CON_AGENDA = ['doctor', 'medico']
+
+// El responsable clínico del consentimiento SIEMPRE es un profesional con agenda,
+// NUNCA el usuario administrativo que opera la generación. Se resuelve por id.
+async function profResponsable(db: TenantClient, responsableId: string): Promise<{ id: string; nombre: string; rut: string }> {
+  if (!responsableId) throw badRequest('Debes seleccionar el profesional responsable del consentimiento.')
+  const u = await db.user.findUnique({ where: { id: responsableId }, select: { id: true, name: true, rut: true, role: true, activo: true } })
+  if (!u) throw notFound('Profesional responsable no encontrado.')
+  if (!u.activo || !ROLES_CON_AGENDA.includes(u.role)) {
+    throw badRequest('El responsable debe ser un profesional con agenda (doctor o médico) activo.')
+  }
+  return { id: u.id, nombre: u.name ?? '', rut: u.rut ?? '' }
 }
 
-// Vista previa + validación de datos faltantes (no crea nada).
-export async function previsualizar(db: TenantClient, actor: JwtPayload, pacienteId: string, plantillaId: string, extra: Record<string, string> = {}) {
-  const [paciente, plantilla, pais, prof] = await Promise.all([
+// Valida que el plan de tratamiento pertenezca al paciente. Devuelve su nombre.
+async function planDe(db: TenantClient, pacienteId: string, planId: string): Promise<{ id: string; nombre: string }> {
+  if (!planId) throw badRequest('Debes asociar el consentimiento a un plan de tratamiento.')
+  const p = await db.planTratamiento.findUnique({ where: { id: planId }, select: { id: true, pacienteId: true, nombre: true } })
+  if (!p || p.pacienteId !== pacienteId) throw badRequest('El plan de tratamiento no corresponde a este paciente.')
+  return { id: p.id, nombre: p.nombre }
+}
+
+// Vista previa + validación de datos faltantes (no crea nada). El profesional
+// responsable es opcional en la vista previa (puede aún no estar elegido).
+export async function previsualizar(db: TenantClient, _actor: JwtPayload, pacienteId: string, plantillaId: string, responsableId: string | undefined, extra: Record<string, string> = {}) {
+  const [paciente, plantilla, pais] = await Promise.all([
     db.paciente.findUnique({ where: { id: pacienteId }, select: PAC_SELECT }),
     db.plantillaConsentimiento.findUnique({ where: { id: plantillaId } }),
-    paisDe(db), profDe(db, actor),
+    paisDe(db),
   ])
   if (!paciente) throw notFound('Paciente no encontrado')
   if (!plantilla) throw notFound('Plantilla no encontrada')
+  const prof = responsableId ? await profResponsable(db, responsableId) : { nombre: '', rut: '' }
   const faltantes = camposFaltantes(paciente, parseReq(plantilla.camposRequeridos), pais)
   const html = render(plantilla.contenidoHtml, paciente, prof, extra)
   const manuales = variablesManuales(plantilla.contenidoHtml)
   return { faltantes, html, titulo: plantilla.titulo, codigo: plantilla.codigo, manuales }
 }
 
-export async function generar(db: TenantClient, actor: JwtPayload, pacienteId: string, plantillaId: string, extra: Record<string, string> = {}) {
-  const [paciente, plantilla, pais, prof] = await Promise.all([
+export async function generar(db: TenantClient, actor: JwtPayload, pacienteId: string, plantillaId: string, responsableId: string, planId: string, extra: Record<string, string> = {}) {
+  const [paciente, plantilla, pais, prof, plan] = await Promise.all([
     db.paciente.findUnique({ where: { id: pacienteId }, select: PAC_SELECT }),
     db.plantillaConsentimiento.findUnique({ where: { id: plantillaId } }),
-    paisDe(db), profDe(db, actor),
+    paisDe(db), profResponsable(db, responsableId), planDe(db, pacienteId, planId),
   ])
   if (!paciente) throw notFound('Paciente no encontrado')
   if (!plantilla) throw notFound('Plantilla no encontrada')
@@ -231,10 +251,13 @@ export async function generar(db: TenantClient, actor: JwtPayload, pacienteId: s
   const c = await db.consentimiento.create({
     data: {
       pacienteId, plantillaId, codigo: plantilla.codigo, titulo: plantilla.titulo, contenidoHtml: html,
-      estado: 'BORRADOR', generadoPorId: actor.sub, generadoPorNombre: prof.nombre,
+      estado: 'BORRADOR',
+      generadoPorId: actor.sub, generadoPorNombre: actorName(actor),
+      responsableId: prof.id, responsableNombre: prof.nombre,
+      planId: plan.id,
     },
   })
-  await audit(db, actor.sub, { accion: 'CREAR', entidad: 'Consentimiento', entidadId: c.id, pacienteId, resumen: `Generó consentimiento "${plantilla.titulo}"` })
+  await audit(db, actor.sub, { accion: 'CREAR', entidad: 'Consentimiento', entidadId: c.id, pacienteId, resumen: `Generó consentimiento "${plantilla.titulo}" (responsable: ${prof.nombre})` })
   return c
 }
 
@@ -275,7 +298,7 @@ export async function listarPorPaciente(db: TenantClient, pacienteId: string) {
   return db.consentimiento.findMany({
     where: { pacienteId },
     orderBy: { createdAt: 'desc' },
-    select: { id: true, codigo: true, titulo: true, estado: true, firmaTipo: true, firmadoAt: true, generadoPorNombre: true, createdAt: true },
+    select: { id: true, codigo: true, titulo: true, estado: true, firmaTipo: true, firmadoAt: true, generadoPorNombre: true, responsableNombre: true, planId: true, createdAt: true },
   })
 }
 export async function obtenerConsentimiento(db: TenantClient, id: string) {

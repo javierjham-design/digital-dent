@@ -239,6 +239,11 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
 
   return (
     <div className="space-y-5">
+      {/* Barra de guardar superior (sticky) — para no tener que bajar hasta el final. */}
+      <div className="sticky top-0 z-10 flex items-center justify-end gap-3 bg-slate-50/90 backdrop-blur -mx-1 px-1 py-2">
+        {msg && <span className="text-sm text-emerald-600">{msg}</span>}
+        <button onClick={guardar} disabled={saving || rutInvalido} className="px-5 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl shadow-sm">{saving ? 'Guardando…' : 'Guardar cambios'}</button>
+      </div>
       <div className="bg-white rounded-2xl border border-slate-200 p-5 grid sm:grid-cols-2 gap-3">
         <label className="block">
           <span className="block text-sm font-medium text-slate-700 mb-1">N° ficha clínica</span>

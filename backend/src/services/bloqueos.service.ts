@@ -90,7 +90,11 @@ export async function actualizarBloqueo(db: TenantClient, actor: JwtPayload, id:
 export async function eliminarBloqueo(db: TenantClient, actor: JwtPayload, id: string): Promise<void> {
   const existing = await db.bloqueoAgenda.findUnique({ where: { id }, select: { id: true, doctorId: true } })
   if (!existing) throw notFound('Bloqueo no encontrado')
-  if (actor.role !== 'admin' && existing.doctorId !== actor.sub) throw forbidden('No puedes eliminar bloqueos de otros usuarios.')
+  // Admin y el dueño del bloqueo siempre pueden; el resto necesita el permiso "puedeEliminar".
+  if (actor.role !== 'admin' && existing.doctorId !== actor.sub) {
+    const u = await db.user.findUnique({ where: { id: actor.sub }, select: { puedeEliminar: true } })
+    if (!u?.puedeEliminar) throw forbidden('No tienes permiso para eliminar bloqueos de otros. Pide el permiso "Eliminar registros" a un administrador.')
+  }
   // Borramos el evento en Google ANTES de eliminar la fila (necesita su googleEventId).
   await deleteBloqueoInGoogle(db, id).catch(() => {})
   await db.bloqueoAgenda.delete({ where: { id } })

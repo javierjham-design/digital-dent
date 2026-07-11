@@ -841,8 +841,11 @@ model Consentimiento {
   firmadoNombre    String?
   firmadoDocumento String?
   firmadoAt        DateTime?
-  generadoPorId    String?
+  generadoPorId    String?  // usuario que operó la generación (auditoría)
   generadoPorNombre String?
+  responsableId    String?  // profesional con agenda responsable clínico del consentimiento
+  responsableNombre String?
+  planId           String?  // plan de tratamiento asociado
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
   paciente         Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
