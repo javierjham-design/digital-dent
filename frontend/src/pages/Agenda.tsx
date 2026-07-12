@@ -187,8 +187,27 @@ export function Agenda() {
     else if (props.cita) setSelected(props.cita)
   }, [])
 
+  // Devuelve un mensaje si el horario destino choca con otra cita (que ocupa) o un
+  // bloqueo del profesional; null si está libre. Sirve para impedir reagendar
+  // sobre espacios ya tomados. Las citas en sobrecupo no ocupan de forma exclusiva.
+  const conflictoEn = useCallback((doctorId: string, iniISO: string, durMin: number, excluirCitaId: string): string | null => {
+    const ini = new Date(iniISO).getTime()
+    const fin = ini + durMin * 60000
+    const solapa = (aIni: number, aFin: number) => ini < aFin && aIni < fin
+    for (const c of citas) {
+      if (c.id === excluirCitaId || c.doctorId !== doctorId) continue
+      if (c.sobrecupo || ESTADOS_NO_OCUPAN.includes(c.estado)) continue
+      if (solapa(+new Date(c.inicio), +new Date(c.fin))) return `Ese horario choca con la cita de ${c.pacienteNombre} (${hora(c.inicio)}–${hora(c.fin)}). Elige otro horario.`
+    }
+    for (const b of bloqueos) {
+      if (b.doctorId !== doctorId) continue
+      if (solapa(+new Date(b.inicio), +new Date(b.fin))) return `Ese horario está bloqueado${b.motivo ? ` (${b.motivo})` : ''}.`
+    }
+    return null
+  }, [citas, bloqueos])
+
   // Arrastrar una cita (semanal) → NO se guarda directo: pide confirmación con la
-  // nueva fecha/hora. Si se cancela, se revierte visualmente.
+  // nueva fecha/hora. Si el destino está ocupado, se rechaza y se revierte.
   const onDrop = useCallback((arg: MoveArg) => {
     const props = arg.event.extendedProps as { kind: string; cita?: CitaDTO }
     if (props.kind !== 'cita' || !props.cita || !arg.event.start) { arg.revert(); return }
@@ -198,8 +217,12 @@ export function Agenda() {
     const duracion = end
       ? Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000))
       : Math.max(15, Math.round((+new Date(cita.fin) - +new Date(cita.inicio)) / 60000))
+    if (!cita.sobrecupo) {
+      const conf = conflictoEn(cita.doctorId, start.toISOString(), duracion, cita.id)
+      if (conf) { notify(conf, false); arg.revert(); return }
+    }
     setPendienteMove({ cita, nuevoDoctorId: cita.doctorId, nuevoISO: start.toISOString(), duracion, revert: arg.revert })
-  }, [])
+  }, [conflictoEn])
 
   // Redimensionar (cambiar duración) sí se aplica directo: es menos propenso a error.
   const onResize = useCallback(async (arg: MoveArg) => {
@@ -226,6 +249,18 @@ export function Agenda() {
     }
   }
   function cancelarMove() { pendienteMove?.revert?.(); setPendienteMove(null) }
+
+  // Reagendar/reprogramar desde el detalle de la cita (fecha, profesional y duración).
+  async function reagendarCita(cita: CitaDTO, campos: { fechaISO: string; doctorId: string; duracion: number }) {
+    if (!cita.sobrecupo) {
+      const conf = conflictoEn(campos.doctorId, campos.fechaISO, campos.duracion, cita.id)
+      if (conf) { notify(conf, false); return }
+    }
+    try {
+      await citasService.editar(cita.id, { fecha: campos.fechaISO, duracion: campos.duracion, ...(campos.doctorId !== cita.doctorId ? { doctorId: campos.doctorId } : {}) })
+      notify('Cita reagendada'); setSelected(null); recargar()
+    } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo reagendar', false) }
+  }
 
   async function cambiarEstado(id: string, estado: string) {
     try { await citasService.cambiarEstado(id, estado); notify('Estado actualizado'); setSelected(null); recargar() }
@@ -414,9 +449,16 @@ export function Agenda() {
           </div>
         ) : vista === 'global' ? (
           <DiariaGlobal doctores={doctores} horarios={horariosTodos} citas={citasGlobal} bloqueos={bloqueosGlobal} fecha={currentDate}
+            conflicto={conflictoEn}
             onCita={setSelected} onBloqueo={setSelectedBloqueo}
             onSlot={(docId, slotISO) => setCrear({ slotISO, doctorId: docId })}
-            onMover={(cita, nuevoDoctorId, nuevoISO, duracion) => setPendienteMove({ cita, nuevoDoctorId, nuevoISO, duracion })} />
+            onMover={(cita, nuevoDoctorId, nuevoISO, duracion) => {
+              if (!cita.sobrecupo) {
+                const conf = conflictoEn(nuevoDoctorId, nuevoISO, duracion, cita.id)
+                if (conf) { notify(conf, false); return }
+              }
+              setPendienteMove({ cita, nuevoDoctorId, nuevoISO, duracion })
+            }} />
         ) : (
           <DiariaLista citas={citasDelDia} clinica={clinica} onClick={setSelected} onAvanzar={(c) => { const n = siguienteEstado(c.estado); if (n) cambiarEstado(c.id, n.estado) }} />
         )}
@@ -429,7 +471,7 @@ export function Agenda() {
           onError={(m) => notify(m, false)} />
       )}
       {selected && (
-        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} />
+        <CitaDetalle cita={selected} clinica={clinica} doctores={doctores} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={reagendarCita} />
       )}
       {selectedBloqueo && (
         <BloqueoDetalle b={selectedBloqueo} onClose={() => setSelectedBloqueo(null)} onEliminar={eliminarBloqueo} />
@@ -652,14 +694,15 @@ function bloquesAtencion(h: HorarioDTO | undefined): [number, number][] {
   return [[ini, fin]]
 }
 
-function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, onCita, onBloqueo, onSlot, onMover }: {
+function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, conflicto, onCita, onBloqueo, onSlot, onMover }: {
   doctores: DoctorDTO[]; horarios: HorarioDTO[]; citas: CitaDTO[]; bloqueos: BloqueoDTO[]; fecha: Date
+  conflicto: (doctorId: string, iniISO: string, durMin: number, excluirCitaId: string) => string | null
   onCita: (c: CitaDTO) => void; onBloqueo: (b: BloqueoDTO) => void; onSlot: (doctorId: string, slotISO: string) => void
   onMover: (cita: CitaDTO, nuevoDoctorId: string, nuevoISO: string, duracion: number) => void
 }) {
   const dow = fecha.getDay() // 0=domingo … 6=sábado (misma convención que horario.diaSemana)
   const dragRef = useRef<{ cita: CitaDTO; duracion: number } | null>(null)
-  const [dropHint, setDropHint] = useState<{ docId: string; min: number } | null>(null)
+  const [dropHint, setDropHint] = useState<{ docId: string; min: number; ocupado: boolean } | null>(null)
 
   // Horarios de atención del día (por profesional).
   const horariosDia = useMemo(() => horarios.filter((h) => h.diaSemana === dow && h.activo), [horarios, dow])
@@ -731,7 +774,12 @@ function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, onCita, onBl
               </div>
               <div className="relative bg-[#eceef1]" style={{ height: totalH }}
                 onClick={(e) => onSlot(doc.id, isoDeMin(minEnY(e)))}
-                onDragOver={(e) => { if (!dragRef.current) return; e.preventDefault(); const min = minEnY(e); setDropHint((h) => (h?.docId === doc.id && h.min === min ? h : { docId: doc.id, min })) }}
+                onDragOver={(e) => {
+                  const drag = dragRef.current; if (!drag) return; e.preventDefault()
+                  const min = minEnY(e)
+                  const ocupado = !drag.cita.sobrecupo && conflicto(doc.id, isoDeMin(min), drag.duracion, drag.cita.id) !== null
+                  setDropHint((h) => (h?.docId === doc.id && h.min === min && h.ocupado === ocupado ? h : { docId: doc.id, min, ocupado }))
+                }}
                 onDragLeave={() => setDropHint((h) => (h?.docId === doc.id ? null : h))}
                 onDrop={(e) => { e.preventDefault(); const drag = dragRef.current; setDropHint(null); if (!drag) return; onMover(drag.cita, doc.id, isoDeMin(minEnY(e)), drag.duracion); dragRef.current = null }}>
                 {/* Franjas de atención (verde) sobre el fondo gris de "fuera de horario" */}
@@ -742,10 +790,12 @@ function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, onCita, onBl
                 {Array.from({ length: Math.round((endM - startM) / 15) + 1 }, (_, i) => startM + i * 15).map((m) => (
                   <div key={m} className={`absolute left-0 right-0 border-t ${m % 60 === 0 ? 'border-slate-300' : 'border-slate-200/60'}`} style={{ top: yDeMin(m) }} />
                 ))}
-                {/* Indicador de destino al arrastrar */}
+                {/* Indicador de destino al arrastrar (rojo si el horario está ocupado) */}
                 {dropHint?.docId === doc.id && (
-                  <div className="absolute left-0 right-0 border-t-2 border-cyan-500 z-20 pointer-events-none" style={{ top: yDeMin(dropHint.min) }}>
-                    <span className="absolute -top-2 left-1 text-[9px] font-mono font-bold text-cyan-600 bg-white/90 px-1 rounded">{String(Math.floor(dropHint.min / 60)).padStart(2, '0')}:{String(dropHint.min % 60).padStart(2, '0')}</span>
+                  <div className={`absolute left-0 right-0 border-t-2 z-20 pointer-events-none ${dropHint.ocupado ? 'border-rose-500' : 'border-cyan-500'}`} style={{ top: yDeMin(dropHint.min) }}>
+                    <span className={`absolute -top-2 left-1 text-[9px] font-mono font-bold bg-white/90 px-1 rounded ${dropHint.ocupado ? 'text-rose-600' : 'text-cyan-600'}`}>
+                      {dropHint.ocupado ? 'ocupado' : `${String(Math.floor(dropHint.min / 60)).padStart(2, '0')}:${String(dropHint.min % 60).padStart(2, '0')}`}
+                    </span>
                   </div>
                 )}
                 {/* Eventos */}
@@ -864,11 +914,28 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
 }
 
 // ── Modal: detalle de cita ──
-function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar }: {
-  cita: CitaDTO; clinica: ClinicaConfigDTO | null; onClose: () => void; onEstado: (id: string, estado: string) => void; onEliminar: (id: string) => void
+function CitaDetalle({ cita, clinica, doctores, onClose, onEstado, onEliminar, onReagendar }: {
+  cita: CitaDTO; clinica: ClinicaConfigDTO | null; doctores: DoctorDTO[]
+  onClose: () => void; onEstado: (id: string, estado: string) => void; onEliminar: (id: string) => void
+  onReagendar: (cita: CitaDTO, campos: { fechaISO: string; doctorId: string; duracion: number }) => void
 }) {
   const next = siguienteEstado(cita.estado)
   const waUrl = waLink(cita, clinica)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const toLocalInput = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}` }
+  const durActual = Math.max(15, Math.round((+new Date(cita.fin) - +new Date(cita.inicio)) / 60000))
+
+  const [reagendando, setReagendando] = useState(false)
+  const [fechaLocal, setFechaLocal] = useState(() => toLocalInput(cita.inicio))
+  const [docSel, setDocSel] = useState(cita.doctorId)
+  const [dur, setDur] = useState(durActual)
+
+  function guardarReagenda() {
+    const fecha = new Date(fechaLocal)
+    if (Number.isNaN(fecha.getTime())) return
+    onReagendar(cita, { fechaISO: fecha.toISOString(), doctorId: docSel, duracion: dur })
+  }
+
   return (
     <Modal title={cita.pacienteNombre} onClose={onClose}>
       <p className="text-sm text-slate-500 mb-4">{new Date(cita.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora(cita.inicio)}–{hora(cita.fin)}</p>
@@ -879,6 +946,36 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar }: {
         <Row k="Motivo" v={cita.tipo} />
         <Row k="Estado" v={CITA_ESTADOS[cita.estado]?.label ?? cita.estado} />
       </dl>
+
+      {/* Reagendar / reprogramar + cambiar duración (rápido, sin salir del detalle) */}
+      {!reagendando ? (
+        <button onClick={() => { setFechaLocal(toLocalInput(cita.inicio)); setDocSel(cita.doctorId); setDur(durActual); setReagendando(true) }}
+          className="w-full mb-3 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold">Reagendar / cambiar duración</button>
+      ) : (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
+          <p className="text-sm font-semibold text-amber-800">Reprogramar cita</p>
+          <label className="block"><span className="block text-xs font-medium text-slate-600 mb-1">Nueva fecha y hora</span>
+            <input type="datetime-local" value={fechaLocal} onChange={(e) => setFechaLocal(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" /></label>
+          <label className="block"><span className="block text-xs font-medium text-slate-600 mb-1">Profesional</span>
+            <select value={docSel} onChange={(e) => setDocSel(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+              {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
+            </select></label>
+          <div>
+            <span className="block text-xs font-medium text-slate-600 mb-1">Duración</span>
+            <div className="flex gap-1.5 flex-wrap">
+              {DURACIONES.map((d) => (
+                <button key={d} type="button" onClick={() => setDur(d)}
+                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border-2 ${dur === d ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-200 text-slate-600 bg-white'}`}>{d}m</button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => setReagendando(false)} className="flex-1 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
+            <button onClick={guardarReagenda} className="flex-1 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold">Guardar cambios</button>
+          </div>
+        </div>
+      )}
+
       <Link to={`/pacientes/${cita.pacienteId}?tab=planes`} className="block w-full text-center mb-3 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Ir a planes de tratamiento</Link>
       {waUrl && <a href={waUrl} target="_blank" rel="noopener noreferrer" className="block w-full text-center mb-3 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium">Escribir por WhatsApp</a>}
       {next && (
