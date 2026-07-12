@@ -255,9 +255,9 @@ export function Agenda() {
   // Reagendar/reprogramar desde el selector de disponibilidad. Puede lanzar
   // (ApiError) para que el modal muestre el error inline; los cupos ya vienen
   // pre-filtrados como libres, el backend es el guardián final.
-  async function reagendarCita(cita: CitaDTO, campos: { fechaISO: string; doctorId: string; duracion: number }) {
-    await citasService.editar(cita.id, { fecha: campos.fechaISO, duracion: campos.duracion, ...(campos.doctorId !== cita.doctorId ? { doctorId: campos.doctorId } : {}) })
-    notify('Cita reagendada'); setReagendar(null); recargar()
+  async function reagendarCita(cita: CitaDTO, campos: { fechaISO: string; doctorId: string; duracion: number; sobrecupo: boolean }) {
+    await citasService.editar(cita.id, { fecha: campos.fechaISO, duracion: campos.duracion, sobrecupo: campos.sobrecupo, ...(campos.doctorId !== cita.doctorId ? { doctorId: campos.doctorId } : {}) })
+    notify(campos.sobrecupo ? 'Cita reagendada en sobrecupo' : 'Cita reagendada'); setReagendar(null); recargar()
   }
 
   async function cambiarEstado(id: string, estado: string) {
@@ -962,7 +962,7 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
 // ── Modal: reprogramar cita viendo la disponibilidad real de la semana ─────────
 function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
   cita: CitaDTO; doctores: DoctorDTO[]; horarios: HorarioDTO[]
-  onReagendar: (cita: CitaDTO, campos: { fechaISO: string; doctorId: string; duracion: number }) => Promise<void>
+  onReagendar: (cita: CitaDTO, campos: { fechaISO: string; doctorId: string; duracion: number; sobrecupo: boolean }) => Promise<void>
   onClose: () => void
 }) {
   const durActual = Math.max(15, Math.round((+new Date(cita.fin) - +new Date(cita.inicio)) / 60000))
@@ -1019,11 +1019,39 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
     return res
   }
 
-  async function elegir(dia: Date, hhmm: string) {
+  // Horas de SOBRECUPO: dentro de la ventana de sobreagendamiento del horario, se
+  // pueden ofrecer aunque el hueco esté ocupado (se permite solapar). Se excluyen
+  // las que ya aparecen como cupo normal (para no duplicar).
+  function horasSobrecupo(dia: Date, libres: string[]): string[] {
+    const h = horarios.find((x) => x.doctorId === doctorId && x.diaSemana === dia.getDay() && x.activo)
+    if (!h || !h.sobrecupoActivo || !h.sobrecupoInicio || !h.sobrecupoFin) return []
+    const winS = hhmmAMin(h.sobrecupoInicio), winE = hhmmAMin(h.sobrecupoFin)
+    if (winS >= winE) return []
+    // Los bloqueos son barreras duras: no se puede sobre-agendar encima de ellos.
+    const blqs: [number, number][] = []
+    for (const b of bloqueosSemana) {
+      if (b.doctorId !== doctorId) continue
+      const bi = new Date(b.inicio); if (!mismoDia(bi, dia)) continue
+      blqs.push([minutosDelDia(bi), minutosDelDia(new Date(b.fin))])
+    }
+    const yaLibres = new Set(libres)
+    const res: string[] = []
+    for (let t = winS; t + duracion <= winE; t += 15) {
+      const hhmm = `${dosDig(Math.floor(t / 60))}:${dosDig(t % 60)}`
+      if (yaLibres.has(hhmm)) continue
+      if (blqs.some(([bi, bf]) => t < bf && bi < t + duracion)) continue
+      const cuando = new Date(dia); cuando.setHours(Math.floor(t / 60), t % 60, 0, 0)
+      if (+cuando < ahora) continue
+      res.push(hhmm)
+    }
+    return res
+  }
+
+  async function elegir(dia: Date, hhmm: string, sobrecupo: boolean) {
     const [hh, mm] = hhmm.split(':').map(Number)
     const cuando = new Date(dia); cuando.setHours(hh, mm, 0, 0)
     setGuardando(true); setError(null)
-    try { await onReagendar(cita, { fechaISO: cuando.toISOString(), doctorId, duracion }) }
+    try { await onReagendar(cita, { fechaISO: cuando.toISOString(), doctorId, duracion, sobrecupo }) }
     catch (e) { setError(e instanceof ApiError ? e.message : 'No se pudo reagendar la cita.'); setGuardando(false) }
   }
 
@@ -1068,6 +1096,7 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
             <div className="grid grid-cols-7 gap-2 min-w-[720px]">
               {dias.map((dia) => {
                 const libres = horasLibres(dia)
+                const sobre = horasSobrecupo(dia, libres)
                 const atiende = horarios.some((x) => x.doctorId === doctorId && x.diaSemana === dia.getDay() && x.activo)
                 return (
                   <div key={dia.toISOString()} className="min-w-0">
@@ -1078,12 +1107,25 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
                     <div className="space-y-1 max-h-[46vh] overflow-y-auto pr-0.5">
                       {!atiende ? (
                         <p className="text-[11px] text-slate-300 text-center pt-2">No atiende</p>
-                      ) : libres.length === 0 ? (
+                      ) : libres.length === 0 && sobre.length === 0 ? (
                         <p className="text-[11px] text-slate-400 text-center pt-2">Sin horas</p>
-                      ) : libres.map((hhmm) => (
-                        <button key={hhmm} disabled={guardando} onClick={() => elegir(dia, hhmm)}
-                          className="w-full py-1.5 rounded-lg text-xs font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-600 hover:text-white border border-cyan-100 disabled:opacity-50 transition-colors">{hhmm}</button>
-                      ))}
+                      ) : (
+                        <>
+                          {libres.map((hhmm) => (
+                            <button key={hhmm} disabled={guardando} onClick={() => elegir(dia, hhmm, false)}
+                              className="w-full py-1.5 rounded-lg text-xs font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-600 hover:text-white border border-cyan-100 disabled:opacity-50 transition-colors">{hhmm}</button>
+                          ))}
+                          {sobre.length > 0 && (
+                            <>
+                              <p className="text-[9px] font-semibold uppercase tracking-wide text-amber-500 text-center pt-2 pb-0.5">Sobrecupo</p>
+                              {sobre.map((hhmm) => (
+                                <button key={`s-${hhmm}`} disabled={guardando} onClick={() => elegir(dia, hhmm, true)} title="Sobreagendamiento (permite solaparse)"
+                                  className="w-full py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-500 hover:text-white border border-amber-200 disabled:opacity-50 transition-colors">{hhmm}</button>
+                              ))}
+                            </>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 )
@@ -1092,7 +1134,11 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
           )}
         </div>
         <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
-          <p className="text-xs text-slate-400">Elige un horario disponible para confirmar el cambio. Solo se muestran huecos libres para {duracion} min.</p>
+          <p className="text-xs text-slate-400 flex items-center gap-3 flex-wrap">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-cyan-100 border border-cyan-300" /> Libre</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded bg-amber-100 border border-amber-300" /> Sobrecupo (se solapa)</span>
+            <span>· Cupos para {duracion} min.</span>
+          </p>
           <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">Cerrar</button>
         </div>
       </div>
