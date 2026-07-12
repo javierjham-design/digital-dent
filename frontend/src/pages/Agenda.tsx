@@ -975,6 +975,7 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
   const [guardando, setGuardando] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [ahora] = useState(() => Date.now()) // referencia estable para no ofrecer horas pasadas
+  const [porConfirmar, setPorConfirmar] = useState<null | { fechaISO: string; sobrecupo: boolean }>(null)
 
   // Carga citas + bloqueos de la semana visible (para calcular los huecos libres).
   useEffect(() => {
@@ -1047,17 +1048,27 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
     return res
   }
 
-  async function elegir(dia: Date, hhmm: string, sobrecupo: boolean) {
+  // Al elegir un cupo NO se aplica de inmediato: se abre la confirmación (evita
+  // reagendar por un clic accidental).
+  function pedirConfirmacion(dia: Date, hhmm: string, sobrecupo: boolean) {
     const [hh, mm] = hhmm.split(':').map(Number)
     const cuando = new Date(dia); cuando.setHours(hh, mm, 0, 0)
+    setPorConfirmar({ fechaISO: cuando.toISOString(), sobrecupo })
+  }
+
+  async function confirmar() {
+    if (!porConfirmar) return
     setGuardando(true); setError(null)
-    try { await onReagendar(cita, { fechaISO: cuando.toISOString(), doctorId, duracion, sobrecupo }) }
-    catch (e) { setError(e instanceof ApiError ? e.message : 'No se pudo reagendar la cita.'); setGuardando(false) }
+    try { await onReagendar(cita, { fechaISO: porConfirmar.fechaISO, doctorId, duracion, sobrecupo: porConfirmar.sobrecupo }) }
+    catch (e) { setError(e instanceof ApiError ? e.message : 'No se pudo reagendar la cita.'); setGuardando(false); setPorConfirmar(null) }
   }
 
   const labelSemana = `${dias[0].toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })} – ${dias[6].toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}`
 
+  const nombreDoc = (id: string) => doctores.find((d) => d.id === id)?.name ?? '—'
+
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Encabezado */}
@@ -1112,14 +1123,14 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
                       ) : (
                         <>
                           {libres.map((hhmm) => (
-                            <button key={hhmm} disabled={guardando} onClick={() => elegir(dia, hhmm, false)}
+                            <button key={hhmm} disabled={guardando} onClick={() => pedirConfirmacion(dia, hhmm, false)}
                               className="w-full py-1.5 rounded-lg text-xs font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-600 hover:text-white border border-cyan-100 disabled:opacity-50 transition-colors">{hhmm}</button>
                           ))}
                           {sobre.length > 0 && (
                             <>
                               <p className="text-[9px] font-semibold uppercase tracking-wide text-amber-500 text-center pt-2 pb-0.5">Sobrecupo</p>
                               {sobre.map((hhmm) => (
-                                <button key={`s-${hhmm}`} disabled={guardando} onClick={() => elegir(dia, hhmm, true)} title="Sobreagendamiento (permite solaparse)"
+                                <button key={`s-${hhmm}`} disabled={guardando} onClick={() => pedirConfirmacion(dia, hhmm, true)} title="Sobreagendamiento (permite solaparse)"
                                   className="w-full py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-500 hover:text-white border border-amber-200 disabled:opacity-50 transition-colors">{hhmm}</button>
                               ))}
                             </>
@@ -1143,6 +1154,43 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
         </div>
       </div>
     </div>
+
+    {/* Confirmación del nuevo horario (evita reagendar por un clic accidental) */}
+    {porConfirmar && (() => {
+      const nuevoInicio = new Date(porConfirmar.fechaISO)
+      const nuevoFin = new Date(nuevoInicio.getTime() + duracion * 60000)
+      const cambiaDoc = doctorId !== cita.doctorId
+      const fmt = (d: Date) => d.toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })
+      return (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={() => setPorConfirmar(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-semibold text-slate-900">Confirmar reagendamiento</h2>
+              <button onClick={() => setPorConfirmar(null)} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">¿Mover la cita de <span className="font-semibold text-slate-800">{cita.pacienteNombre}</span> a este nuevo horario?</p>
+            <div className="space-y-2 mb-5">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <p className="text-[11px] uppercase tracking-wide text-slate-400">Antes</p>
+                <p className="text-sm text-slate-600 capitalize">{fmt(new Date(cita.inicio))} h</p>
+                <p className="text-xs text-slate-500">{cita.doctor ?? '—'}</p>
+              </div>
+              <div className={`rounded-xl border-2 px-3 py-2 ${porConfirmar.sobrecupo ? 'border-amber-300 bg-amber-50' : 'border-cyan-300 bg-cyan-50'}`}>
+                <p className={`text-[11px] uppercase tracking-wide ${porConfirmar.sobrecupo ? 'text-amber-600' : 'text-cyan-500'}`}>Ahora{porConfirmar.sobrecupo ? ' · sobrecupo' : ''}</p>
+                <p className={`text-sm font-semibold capitalize ${porConfirmar.sobrecupo ? 'text-amber-800' : 'text-cyan-800'}`}>{fmt(nuevoInicio)} – {nuevoFin.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })} h</p>
+                <p className={`text-xs ${cambiaDoc ? 'font-semibold text-slate-700' : 'text-slate-500'}`}>{nombreDoc(doctorId)}{cambiaDoc ? ' (cambia de profesional)' : ''}</p>
+                {porConfirmar.sobrecupo && <p className="text-xs text-amber-700 mt-1">Se agenda en sobrecupo (permite solaparse con otra cita).</p>}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => setPorConfirmar(null)} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+              <button onClick={confirmar} disabled={guardando} className={`flex-1 px-4 py-2.5 text-white rounded-xl text-sm font-semibold disabled:opacity-50 ${porConfirmar.sobrecupo ? 'bg-amber-600 hover:bg-amber-700' : 'bg-cyan-600 hover:bg-cyan-700'}`}>{guardando ? 'Guardando…' : 'Confirmar cambio'}</button>
+            </div>
+          </div>
+        </div>
+      )
+    })()}
+    </>
   )
 }
 
