@@ -29,6 +29,8 @@ model Configuracion {
   email     String  @default("")
   logoUrl   String?
   mensajeWA String  @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
+  // Mensaje base para escribir a un lead del CRM por WhatsApp (primer contacto).
+  mensajeWACrm String @default("Hola {nombre}, te contactamos de *{clinica}*. ¿Cómo podemos ayudarte?")
 
   // WhatsApp (Twilio). El auth token va cifrado (AES-256-GCM).
   waEnabled     Boolean @default(false)

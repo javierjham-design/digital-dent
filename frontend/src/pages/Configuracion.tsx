@@ -32,7 +32,7 @@ export function Configuracion() {
     try {
       const updated = await clinicaService.actualizar({
         nombre: data.nombre, direccion: data.direccion, telefono: data.telefono,
-        email: data.email, ciudad: data.ciudad, mensajeWA: data.mensajeWA, logoUrl: data.logoUrl,
+        email: data.email, ciudad: data.ciudad, mensajeWA: data.mensajeWA, mensajeWACrm: data.mensajeWACrm, logoUrl: data.logoUrl,
       })
       setData(updated)
       setOk(true)
@@ -79,11 +79,20 @@ export function Configuracion() {
           <Field label="Ciudad" value={data.ciudad} onChange={(v) => set('ciudad', v)} />
         </div>
         <label className="block">
-          <span className="block text-sm font-medium text-slate-700 mb-1">Plantilla de mensaje WhatsApp</span>
+          <span className="block text-sm font-medium text-slate-700 mb-1">Plantilla de mensaje WhatsApp · citas</span>
           <textarea value={data.mensajeWA} onChange={(e) => set('mensajeWA', e.target.value)} rows={3}
             className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
           <p className="text-xs text-slate-400 mt-1">
             Variables disponibles: {'{nombre}'} (primer nombre), {'{nombrecompleto}'}, {'{profesional}'}, {'{clinica}'}, {'{fecha}'} (día y hora), {'{dia}'}, {'{hora}'}, {'{direccion}'}, {'{telefono}'}, {'{motivo}'}
+          </p>
+        </label>
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Plantilla de mensaje WhatsApp · CRM (leads)</span>
+          <textarea value={data.mensajeWACrm} onChange={(e) => set('mensajeWACrm', e.target.value)} rows={3}
+            placeholder="Hola {nombre}, te contactamos de *{clinica}*. ¿Cómo podemos ayudarte?"
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+          <p className="text-xs text-slate-400 mt-1">
+            Es el mensaje que se prellena al escribirle a un lead por WhatsApp desde el CRM. Variables: {'{nombre}'} (primer nombre), {'{nombrecompleto}'}, {'{clinica}'}, {'{telefono}'}. Deja el campo vacío para no prellenar ningún texto.
           </p>
         </label>
 

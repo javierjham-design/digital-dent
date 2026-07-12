@@ -200,6 +200,7 @@ export interface ClinicaConfigDTO {
   email: string
   ciudad: string
   mensajeWA: string
+  mensajeWACrm: string
   logoUrl: string | null
   pais: string
 }

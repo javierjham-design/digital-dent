@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, type NavigateFunction } from 'react-router-dom'
 import { crmService, type Lead, type CrmResumen, type CrmConfig, type CampanaItem } from '@/services/crm.service'
 import { usuariosService } from '@/services/equipo.service'
+import { clinicaService } from '@/services/catalogo.service'
 import type { DoctorDTO } from '@shared/types'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
@@ -35,14 +36,27 @@ const agendoOnline = (l: Lead) => Boolean(l.agendaFuente && l.agendaFuente !== '
 // Nombre visible de campaña de un lead (etiqueta renombrada del backend, o campaña cruda).
 const campanaDe = (l: Lead) => l.campanaLabel ?? l.campana ?? '(Sin campaña)'
 
-// Link de WhatsApp con un saludo prellenado, para escribirle al lead sin copiar el
-// número. Devuelve null si no hay teléfono válido.
-function waHref(l: Pick<Lead, 'nombre' | 'telefono'>): string | null {
+// Link de WhatsApp con el mensaje base (configurable) prellenado, para escribirle
+// al lead sin copiar el número. Devuelve null si no hay teléfono válido.
+// `plantilla` viene de Configuración (mensajeWACrm); admite {nombre},
+// {nombrecompleto}, {clinica} y {telefono}. Si es undefined (config aún sin
+// cargar) usa un saludo simple; si es '' (vaciada a propósito) no prellena texto.
+function waHref(l: Pick<Lead, 'nombre' | 'apellido' | 'telefono'>, plantilla?: string, clinica?: string): string | null {
   const num = (l.telefono ?? '').replace(/\D/g, '')
   if (!num) return null
   const nombre = (l.nombre ?? '').trim().split(/\s+/)[0]
-  const saludo = nombre ? `Hola ${nombre}, ` : 'Hola, '
-  return `https://wa.me/${num}?text=${encodeURIComponent(saludo)}`
+  const nombreCompleto = `${l.nombre ?? ''} ${l.apellido ?? ''}`.trim()
+  let msg: string
+  if (plantilla === undefined) {
+    msg = nombre ? `Hola ${nombre}, ` : 'Hola, '
+  } else {
+    msg = plantilla
+      .replace(/\{nombrecompleto\}/gi, nombreCompleto)
+      .replace(/\{nombre\}/gi, nombre)
+      .replace(/\{clinica\}/gi, clinica ?? '')
+      .replace(/\{telefono\}/gi, l.telefono ?? '')
+  }
+  return `https://wa.me/${num}${msg.trim() ? `?text=${encodeURIComponent(msg)}` : ''}`
 }
 
 // Exporta a Excel las filas visibles como CSV (separador ; y BOM UTF-8: Excel es-CL
@@ -121,6 +135,10 @@ export function Crm() {
   const [modal, setModal] = useState<null | 'nuevo' | 'config' | 'campanas'>(null)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
   const notify = (t: string, ok = true) => { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
+  // Plantilla base de WhatsApp para leads + nombre de la clínica (para {clinica}).
+  const [waPlantilla, setWaPlantilla] = useState<string | undefined>(undefined)
+  const [clinicaNombre, setClinicaNombre] = useState('')
+  useEffect(() => { clinicaService.obtener().then((c) => { setWaPlantilla(c.mensajeWACrm); setClinicaNombre(c.nombre) }).catch(() => {}) }, [])
 
   const aplicarPreset = (p: Preset) => {
     setPreset(p)
@@ -244,8 +262,8 @@ export function Crm() {
                   </div>
                   <span className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${ec.c}`}>{ec.l}</span>
                 </button>
-                {waHref(l)
-                  ? <a href={waHref(l)!} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={`Escribir a ${l.nombre} por WhatsApp`}
+                {waHref(l, waPlantilla, clinicaNombre)
+                  ? <a href={waHref(l, waPlantilla, clinicaNombre)!} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} title={`Escribir a ${l.nombre} por WhatsApp`}
                       className="shrink-0 w-9 h-9 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-500 hover:text-white transition-colors" aria-label="WhatsApp">
                       <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor" aria-hidden="true"><path d="M.057 24l1.687-6.163a11.867 11.867 0 01-1.587-5.945C.16 5.335 5.495 0 12.05 0a11.817 11.817 0 018.413 3.488 11.824 11.824 0 013.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.599 5.407l-.999 3.648 3.9-1.354zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.372-.025-.521-.074-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.71.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
                     </a>
@@ -255,7 +273,7 @@ export function Crm() {
           })}
       </div>
 
-      {sel && <LeadDetalle lead={sel} onClose={() => setSel(null)} onChanged={() => { setSel(null); cargar() }} notify={notify} />}
+      {sel && <LeadDetalle lead={sel} waPlantilla={waPlantilla} clinicaNombre={clinicaNombre} onClose={() => setSel(null)} onChanged={() => { setSel(null); cargar() }} notify={notify} />}
       {modal === 'nuevo' && <NuevoLeadModal onClose={() => setModal(null)} onCreated={() => { setModal(null); notify('Lead creado'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal === 'config' && <ConfigModal onClose={() => setModal(null)} notify={notify} />}
       {modal === 'campanas' && <CampanasModal campanas={campanas} onClose={() => setModal(null)} notify={notify} onSaved={(cs) => { setCampanas(cs); cargar() }} />}
@@ -272,7 +290,7 @@ function FunnelCard({ label, v, activo, onClick, tone }: { label: string; v: num
   )
 }
 
-function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose: () => void; onChanged: () => void; notify: (t: string, ok?: boolean) => void }) {
+function LeadDetalle({ lead, waPlantilla, clinicaNombre, onClose, onChanged, notify }: { lead: Lead; waPlantilla?: string; clinicaNombre: string; onClose: () => void; onChanged: () => void; notify: (t: string, ok?: boolean) => void }) {
   const navigate = useNavigate()
   const [full, setFull] = useState<Lead>(lead)
   const [nota, setNota] = useState('')
@@ -399,8 +417,8 @@ function LeadDetalle({ lead, onClose, onChanged, notify }: { lead: Lead; onClose
         )}
       </div>
 
-      {waHref(full) && (
-        <a href={waHref(full)!} target="_blank" rel="noopener noreferrer"
+      {waHref(full, waPlantilla, clinicaNombre) && (
+        <a href={waHref(full, waPlantilla, clinicaNombre)!} target="_blank" rel="noopener noreferrer"
           className="flex items-center justify-center gap-2 w-full mb-3 px-3 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-semibold rounded-xl">
           <svg viewBox="0 0 24 24" className="w-4 h-4" fill="currentColor" aria-hidden="true"><path d="M.057 24l1.687-6.163a11.867 11.867 0 01-1.587-5.945C.16 5.335 5.495 0 12.05 0a11.817 11.817 0 018.413 3.488 11.824 11.824 0 013.48 8.414c-.003 6.557-5.338 11.892-11.893 11.892a11.9 11.9 0 01-5.688-1.448L.057 24zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884a9.86 9.86 0 001.599 5.407l-.999 3.648 3.9-1.354zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.372-.025-.521-.074-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.71.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>
           Escribir por WhatsApp

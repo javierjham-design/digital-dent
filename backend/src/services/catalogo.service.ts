@@ -96,9 +96,9 @@ export async function eliminarPrestacion(db: TenantClient, id: string): Promise<
 
 function clinicaDTO(c: {
   nombre: string; direccion: string; telefono: string
-  email: string; ciudad: string; mensajeWA: string; logoUrl: string | null; pais?: string
+  email: string; ciudad: string; mensajeWA: string; mensajeWACrm?: string; logoUrl: string | null; pais?: string
 }): ClinicaConfigDTO {
-  return { id: 'singleton', nombre: c.nombre, direccion: c.direccion, telefono: c.telefono, email: c.email, ciudad: c.ciudad, mensajeWA: c.mensajeWA, logoUrl: c.logoUrl, pais: c.pais ?? 'CL' }
+  return { id: 'singleton', nombre: c.nombre, direccion: c.direccion, telefono: c.telefono, email: c.email, ciudad: c.ciudad, mensajeWA: c.mensajeWA, mensajeWACrm: c.mensajeWACrm ?? '', logoUrl: c.logoUrl, pais: c.pais ?? 'CL' }
 }
 
 export async function obtenerClinica(db: TenantClient): Promise<ClinicaConfigDTO> {
@@ -115,6 +115,7 @@ export async function actualizarClinica(db: TenantClient, body: Record<string, u
   if (body.email !== undefined) data.email = String(body.email)
   if (body.ciudad !== undefined) data.ciudad = String(body.ciudad)
   if (body.mensajeWA !== undefined) data.mensajeWA = String(body.mensajeWA)
+  if (body.mensajeWACrm !== undefined) data.mensajeWACrm = String(body.mensajeWACrm)
   if (body.logoUrl !== undefined) data.logoUrl = body.logoUrl || null
   const c = await db.configuracion.upsert({ where: { id: 'singleton' }, update: data, create: { id: 'singleton', ...data } })
   return clinicaDTO(c)

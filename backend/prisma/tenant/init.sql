@@ -9,6 +9,7 @@ CREATE TABLE "Configuracion" (
     "email" TEXT NOT NULL DEFAULT '',
     "logoUrl" TEXT,
     "mensajeWA" TEXT NOT NULL DEFAULT 'Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.',
+    "mensajeWACrm" TEXT NOT NULL DEFAULT 'Hola {nombre}, te contactamos de *{clinica}*. ¿Cómo podemos ayudarte?',
     "waEnabled" BOOLEAN NOT NULL DEFAULT false,
     "waTwilioSid" TEXT,
     "waTwilioToken" TEXT,
