@@ -79,6 +79,8 @@ export function Agenda() {
   const [verPendientes, setVerPendientes] = useState(false)
   // Reagendamiento por arrastre pendiente de confirmar (semanal y global).
   const [pendienteMove, setPendienteMove] = useState<null | { cita: CitaDTO; nuevoDoctorId: string; nuevoISO: string; duracion: number; revert?: () => void }>(null)
+  // Cita en proceso de reprogramar con el selector de disponibilidad semanal.
+  const [reagendar, setReagendar] = useState<CitaDTO | null>(null)
 
   function notify(t: string, ok = true) { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
 
@@ -250,16 +252,12 @@ export function Agenda() {
   }
   function cancelarMove() { pendienteMove?.revert?.(); setPendienteMove(null) }
 
-  // Reagendar/reprogramar desde el detalle de la cita (fecha, profesional y duración).
+  // Reagendar/reprogramar desde el selector de disponibilidad. Puede lanzar
+  // (ApiError) para que el modal muestre el error inline; los cupos ya vienen
+  // pre-filtrados como libres, el backend es el guardián final.
   async function reagendarCita(cita: CitaDTO, campos: { fechaISO: string; doctorId: string; duracion: number }) {
-    if (!cita.sobrecupo) {
-      const conf = conflictoEn(campos.doctorId, campos.fechaISO, campos.duracion, cita.id)
-      if (conf) { notify(conf, false); return }
-    }
-    try {
-      await citasService.editar(cita.id, { fecha: campos.fechaISO, duracion: campos.duracion, ...(campos.doctorId !== cita.doctorId ? { doctorId: campos.doctorId } : {}) })
-      notify('Cita reagendada'); setSelected(null); recargar()
-    } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo reagendar', false) }
+    await citasService.editar(cita.id, { fecha: campos.fechaISO, duracion: campos.duracion, ...(campos.doctorId !== cita.doctorId ? { doctorId: campos.doctorId } : {}) })
+    notify('Cita reagendada'); setReagendar(null); recargar()
   }
 
   async function cambiarEstado(id: string, estado: string) {
@@ -471,7 +469,10 @@ export function Agenda() {
           onError={(m) => notify(m, false)} />
       )}
       {selected && (
-        <CitaDetalle cita={selected} clinica={clinica} doctores={doctores} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={reagendarCita} />
+        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={(c) => { setSelected(null); setReagendar(c) }} />
+      )}
+      {reagendar && (
+        <ReagendarModal cita={reagendar} doctores={doctores} horarios={horariosTodos} onReagendar={reagendarCita} onClose={() => setReagendar(null)} />
       )}
       {selectedBloqueo && (
         <BloqueoDetalle b={selectedBloqueo} onClose={() => setSelectedBloqueo(null)} onEliminar={eliminarBloqueo} />
@@ -683,6 +684,10 @@ function conCarriles<T extends { ini: Date; fin: Date }>(evs: T[]): (T & { lane:
 
 function minutosDelDia(d: Date): number { return d.getHours() * 60 + d.getMinutes() }
 const hhmmAMin = (s: string) => { const [h, m] = s.split(':').map(Number); return h * 60 + (m || 0) }
+const dosDig = (n: number) => String(n).padStart(2, '0')
+const mismoDia = (a: Date, b: Date) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+// Lunes (00:00) de la semana que contiene la fecha dada.
+function lunesDe(d: Date): Date { const r = new Date(d); r.setHours(0, 0, 0, 0); r.setDate(r.getDate() - ((r.getDay() + 6) % 7)); return r }
 
 // Bloques de atención (verde) de un profesional un día concreto, descontando el receso.
 function bloquesAtencion(h: HorarioDTO | undefined): [number, number][] {
@@ -914,28 +919,13 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
 }
 
 // ── Modal: detalle de cita ──
-function CitaDetalle({ cita, clinica, doctores, onClose, onEstado, onEliminar, onReagendar }: {
-  cita: CitaDTO; clinica: ClinicaConfigDTO | null; doctores: DoctorDTO[]
+function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar }: {
+  cita: CitaDTO; clinica: ClinicaConfigDTO | null
   onClose: () => void; onEstado: (id: string, estado: string) => void; onEliminar: (id: string) => void
-  onReagendar: (cita: CitaDTO, campos: { fechaISO: string; doctorId: string; duracion: number }) => void
+  onReagendar: (cita: CitaDTO) => void
 }) {
   const next = siguienteEstado(cita.estado)
   const waUrl = waLink(cita, clinica)
-  const pad = (n: number) => String(n).padStart(2, '0')
-  const toLocalInput = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}` }
-  const durActual = Math.max(15, Math.round((+new Date(cita.fin) - +new Date(cita.inicio)) / 60000))
-
-  const [reagendando, setReagendando] = useState(false)
-  const [fechaLocal, setFechaLocal] = useState(() => toLocalInput(cita.inicio))
-  const [docSel, setDocSel] = useState(cita.doctorId)
-  const [dur, setDur] = useState(durActual)
-
-  function guardarReagenda() {
-    const fecha = new Date(fechaLocal)
-    if (Number.isNaN(fecha.getTime())) return
-    onReagendar(cita, { fechaISO: fecha.toISOString(), doctorId: docSel, duracion: dur })
-  }
-
   return (
     <Modal title={cita.pacienteNombre} onClose={onClose}>
       <p className="text-sm text-slate-500 mb-4">{new Date(cita.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora(cita.inicio)}–{hora(cita.fin)}</p>
@@ -947,34 +937,8 @@ function CitaDetalle({ cita, clinica, doctores, onClose, onEstado, onEliminar, o
         <Row k="Estado" v={CITA_ESTADOS[cita.estado]?.label ?? cita.estado} />
       </dl>
 
-      {/* Reagendar / reprogramar + cambiar duración (rápido, sin salir del detalle) */}
-      {!reagendando ? (
-        <button onClick={() => { setFechaLocal(toLocalInput(cita.inicio)); setDocSel(cita.doctorId); setDur(durActual); setReagendando(true) }}
-          className="w-full mb-3 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold">Reagendar / cambiar duración</button>
-      ) : (
-        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-3">
-          <p className="text-sm font-semibold text-amber-800">Reprogramar cita</p>
-          <label className="block"><span className="block text-xs font-medium text-slate-600 mb-1">Nueva fecha y hora</span>
-            <input type="datetime-local" value={fechaLocal} onChange={(e) => setFechaLocal(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white" /></label>
-          <label className="block"><span className="block text-xs font-medium text-slate-600 mb-1">Profesional</span>
-            <select value={docSel} onChange={(e) => setDocSel(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
-              {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
-            </select></label>
-          <div>
-            <span className="block text-xs font-medium text-slate-600 mb-1">Duración</span>
-            <div className="flex gap-1.5 flex-wrap">
-              {DURACIONES.map((d) => (
-                <button key={d} type="button" onClick={() => setDur(d)}
-                  className={`px-2.5 py-1.5 rounded-lg text-xs font-medium border-2 ${dur === d ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-200 text-slate-600 bg-white'}`}>{d}m</button>
-              ))}
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setReagendando(false)} className="flex-1 px-3 py-2 border border-slate-200 bg-white rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">Cancelar</button>
-            <button onClick={guardarReagenda} className="flex-1 px-3 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-semibold">Guardar cambios</button>
-          </div>
-        </div>
-      )}
+      <button onClick={() => onReagendar(cita)}
+        className="w-full mb-3 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold">Reagendar / cambiar duración</button>
 
       <Link to={`/pacientes/${cita.pacienteId}?tab=planes`} className="block w-full text-center mb-3 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Ir a planes de tratamiento</Link>
       {waUrl && <a href={waUrl} target="_blank" rel="noopener noreferrer" className="block w-full text-center mb-3 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium">Escribir por WhatsApp</a>}
@@ -992,6 +956,147 @@ function CitaDetalle({ cita, clinica, doctores, onClose, onEstado, onEliminar, o
       </div>
       <button onClick={() => onEliminar(cita.id)} className="w-full mt-4 text-xs text-rose-500 hover:text-rose-700">Eliminar cita</button>
     </Modal>
+  )
+}
+
+// ── Modal: reprogramar cita viendo la disponibilidad real de la semana ─────────
+function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
+  cita: CitaDTO; doctores: DoctorDTO[]; horarios: HorarioDTO[]
+  onReagendar: (cita: CitaDTO, campos: { fechaISO: string; doctorId: string; duracion: number }) => Promise<void>
+  onClose: () => void
+}) {
+  const durActual = Math.max(15, Math.round((+new Date(cita.fin) - +new Date(cita.inicio)) / 60000))
+  const [doctorId, setDoctorId] = useState(cita.doctorId)
+  const [duracion, setDuracion] = useState(durActual)
+  const [semana, setSemana] = useState(() => lunesDe(new Date(cita.inicio)))
+  const [citasSemana, setCitasSemana] = useState<CitaDTO[]>([])
+  const [bloqueosSemana, setBloqueosSemana] = useState<BloqueoDTO[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [guardando, setGuardando] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [ahora] = useState(() => Date.now()) // referencia estable para no ofrecer horas pasadas
+
+  // Carga citas + bloqueos de la semana visible (para calcular los huecos libres).
+  useEffect(() => {
+    const from = new Date(semana)
+    const to = new Date(semana); to.setDate(to.getDate() + 6); to.setHours(23, 59, 59, 999)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- indicador de carga al cambiar de semana
+    setCargando(true)
+    Promise.all([
+      citasService.listar(from.toISOString(), to.toISOString()),
+      bloqueosService.listar(from.toISOString(), to.toISOString()),
+    ]).then(([cs, bs]) => { setCitasSemana(cs); setBloqueosSemana(bs) })
+      .catch(() => {}).finally(() => setCargando(false))
+  }, [semana])
+
+  const dias = useMemo(() => Array.from({ length: 7 }, (_, i) => { const d = new Date(semana); d.setDate(d.getDate() + i); return d }), [semana])
+
+  // Horas libres de un día para el profesional y la duración elegidos.
+  function horasLibres(dia: Date): string[] {
+    const h = horarios.find((x) => x.doctorId === doctorId && x.diaSemana === dia.getDay() && x.activo)
+    if (!h) return []
+    const ocupados: [number, number][] = []
+    for (const c of citasSemana) {
+      if (c.doctorId !== doctorId || c.id === cita.id) continue
+      if (c.sobrecupo || ESTADOS_NO_OCUPAN.includes(c.estado)) continue
+      const ci = new Date(c.inicio); if (!mismoDia(ci, dia)) continue
+      ocupados.push([minutosDelDia(ci), minutosDelDia(new Date(c.fin))])
+    }
+    for (const b of bloqueosSemana) {
+      if (b.doctorId !== doctorId) continue
+      const bi = new Date(b.inicio); if (!mismoDia(bi, dia)) continue
+      ocupados.push([minutosDelDia(bi), minutosDelDia(new Date(b.fin))])
+    }
+    const res: string[] = []
+    for (const [s, e] of bloquesAtencion(h)) {
+      for (let t = s; t + duracion <= e; t += 15) {
+        if (ocupados.some(([oi, ofin]) => t < ofin && oi < t + duracion)) continue
+        const cuando = new Date(dia); cuando.setHours(Math.floor(t / 60), t % 60, 0, 0)
+        if (+cuando < ahora) continue // no ofrecer horas pasadas
+        res.push(`${dosDig(Math.floor(t / 60))}:${dosDig(t % 60)}`)
+      }
+    }
+    return res
+  }
+
+  async function elegir(dia: Date, hhmm: string) {
+    const [hh, mm] = hhmm.split(':').map(Number)
+    const cuando = new Date(dia); cuando.setHours(hh, mm, 0, 0)
+    setGuardando(true); setError(null)
+    try { await onReagendar(cita, { fechaISO: cuando.toISOString(), doctorId, duracion }) }
+    catch (e) { setError(e instanceof ApiError ? e.message : 'No se pudo reagendar la cita.'); setGuardando(false) }
+  }
+
+  const labelSemana = `${dias[0].toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })} – ${dias[6].toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}`
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        {/* Encabezado */}
+        <div className="flex items-start justify-between gap-3 p-5 border-b border-slate-100">
+          <div>
+            <h2 className="text-base font-semibold text-slate-900">Reprogramar cita</h2>
+            <p className="text-sm text-slate-500">{cita.pacienteNombre} · actual: <span className="capitalize">{new Date(cita.inicio).toLocaleDateString('es-CL', { weekday: 'short', day: 'numeric', month: 'short' })}</span> {hora(cita.inicio)}–{hora(cita.fin)}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl leading-none">×</button>
+        </div>
+
+        {/* Controles */}
+        <div className="flex flex-wrap items-end gap-3 px-5 py-3 border-b border-slate-100">
+          <label className="block"><span className="block text-xs font-medium text-slate-500 mb-1">Profesional</span>
+            <select value={doctorId} onChange={(e) => setDoctorId(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm min-w-52">
+              {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
+            </select></label>
+          <label className="block"><span className="block text-xs font-medium text-slate-500 mb-1">Duración</span>
+            <select value={duracion} onChange={(e) => setDuracion(Number(e.target.value))} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
+              {Array.from(new Set([...DURACIONES, durActual])).sort((a, b) => a - b).map((d) => <option key={d} value={d}>{d} minutos</option>)}
+            </select></label>
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={() => setSemana((s) => { const n = new Date(s); n.setDate(n.getDate() - 7); return n })} className="px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50">‹ Semana anterior</button>
+            <span className="text-sm font-semibold text-slate-700 capitalize min-w-40 text-center">{labelSemana}</span>
+            <button onClick={() => setSemana((s) => { const n = new Date(s); n.setDate(n.getDate() + 7); return n })} className="px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50">Semana siguiente ›</button>
+          </div>
+        </div>
+
+        {error && <div className="mx-5 mt-3 text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700 border border-rose-200">{error}</div>}
+
+        {/* Rejilla de disponibilidad por día */}
+        <div className="p-4 overflow-auto">
+          {cargando ? (
+            <p className="text-center text-slate-400 text-sm py-10">Cargando disponibilidad…</p>
+          ) : (
+            <div className="grid grid-cols-7 gap-2 min-w-[720px]">
+              {dias.map((dia) => {
+                const libres = horasLibres(dia)
+                const atiende = horarios.some((x) => x.doctorId === doctorId && x.diaSemana === dia.getDay() && x.activo)
+                return (
+                  <div key={dia.toISOString()} className="min-w-0">
+                    <div className="text-center pb-2 mb-1 border-b border-slate-100">
+                      <p className="text-xs font-semibold text-slate-700 capitalize">{dia.toLocaleDateString('es-CL', { weekday: 'short' })}</p>
+                      <p className="text-[11px] text-slate-400">{dia.toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}</p>
+                    </div>
+                    <div className="space-y-1 max-h-[46vh] overflow-y-auto pr-0.5">
+                      {!atiende ? (
+                        <p className="text-[11px] text-slate-300 text-center pt-2">No atiende</p>
+                      ) : libres.length === 0 ? (
+                        <p className="text-[11px] text-slate-400 text-center pt-2">Sin horas</p>
+                      ) : libres.map((hhmm) => (
+                        <button key={hhmm} disabled={guardando} onClick={() => elegir(dia, hhmm)}
+                          className="w-full py-1.5 rounded-lg text-xs font-semibold text-cyan-700 bg-cyan-50 hover:bg-cyan-600 hover:text-white border border-cyan-100 disabled:opacity-50 transition-colors">{hhmm}</button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-slate-100 flex items-center justify-between gap-3">
+          <p className="text-xs text-slate-400">Elige un horario disponible para confirmar el cambio. Solo se muestran huecos libres para {duracion} min.</p>
+          <button onClick={onClose} className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">Cerrar</button>
+        </div>
+      </div>
+    </div>
   )
 }
 
