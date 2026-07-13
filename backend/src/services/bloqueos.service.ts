@@ -22,11 +22,11 @@ function toDTO(b: BloqueoRow): BloqueoDTO {
 
 const INCLUDE = { doctor: { select: { name: true, email: true } } } as const
 
-export async function listarBloqueos(db: TenantClient, actor: JwtPayload, filtros: { from?: string; to?: string; doctorId?: string }): Promise<BloqueoDTO[]> {
-  const isAdmin = actor.role === 'admin'
+export async function listarBloqueos(db: TenantClient, _actor: JwtPayload, filtros: { from?: string; to?: string; doctorId?: string }): Promise<BloqueoDTO[]> {
+  // Todos los usuarios ven la agenda completa: si se pasa doctorId se filtra por
+  // ese profesional, si no, se muestran los bloqueos de todos.
   const where: Record<string, unknown> = {}
   if (filtros.doctorId) where.doctorId = filtros.doctorId
-  else if (!isAdmin) where.doctorId = actor.sub
 
   if (filtros.from && filtros.to) {
     const from = new Date(filtros.from), to = new Date(filtros.to)
@@ -87,14 +87,10 @@ export async function actualizarBloqueo(db: TenantClient, actor: JwtPayload, id:
   return toDTO(bloqueo)
 }
 
-export async function eliminarBloqueo(db: TenantClient, actor: JwtPayload, id: string): Promise<void> {
-  const existing = await db.bloqueoAgenda.findUnique({ where: { id }, select: { id: true, doctorId: true } })
+export async function eliminarBloqueo(db: TenantClient, _actor: JwtPayload, id: string): Promise<void> {
+  const existing = await db.bloqueoAgenda.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Bloqueo no encontrado')
-  // Admin y el dueño del bloqueo siempre pueden; el resto necesita el permiso "puedeEliminar".
-  if (actor.role !== 'admin' && existing.doctorId !== actor.sub) {
-    const u = await db.user.findUnique({ where: { id: actor.sub }, select: { puedeEliminar: true } })
-    if (!u?.puedeEliminar) throw forbidden('No tienes permiso para eliminar bloqueos de otros. Pide el permiso "Eliminar registros" a un administrador.')
-  }
+  // Cualquier usuario de la clínica puede eliminar bloqueos de la agenda.
   // Borramos el evento en Google ANTES de eliminar la fila (necesita su googleEventId).
   await deleteBloqueoInGoogle(db, id).catch(() => {})
   await db.bloqueoAgenda.delete({ where: { id } })

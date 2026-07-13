@@ -68,6 +68,8 @@ export function Agenda() {
   const [currentDate, setCurrentDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })
   const [doctorId, setDoctorId] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(Object.keys(CITA_ESTADOS)))
+  // Expandir citas solapadas (sobrecupo) para verlas lado a lado, sin encimarse.
+  const [expandirSolapados, setExpandirSolapados] = useState(false)
 
   const [selected, setSelected] = useState<CitaDTO | null>(null)
   const [selectedBloqueo, setSelectedBloqueo] = useState<BloqueoDTO | null>(null)
@@ -168,6 +170,7 @@ export function Agenda() {
       return {
         id: `cita-${c.id}`, title: c.pacienteNombre, start: c.inicio, end: c.fin,
         backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', textColor: '#fff',
+        classNames: c.sobrecupo ? ['cita-sobrecupo'] : [],
         extendedProps: { kind: 'cita' as const, cita: c },
       }
     })
@@ -360,6 +363,12 @@ export function Agenda() {
                 </button>
               ))}
             </div>
+            {vista === 'semanal' && (
+              <button onClick={() => setExpandirSolapados((v) => !v)} title="Ver las citas en sobrecupo lado a lado, sin encimarse"
+                className={`text-sm font-semibold rounded-lg px-3 py-1.5 border ${expandirSolapados ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                Sobrecupos
+              </button>
+            )}
             <button onClick={() => setBloqueoForm(true)} className="text-sm font-semibold text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">Bloquear</button>
             <button onClick={() => setCrear({ slotISO: new Date(currentDate.getTime() + 9 * 3600000).toISOString() })}
               className="text-sm font-semibold bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg px-3.5 py-1.5">+ Nueva cita</button>
@@ -423,6 +432,8 @@ export function Agenda() {
               .fc .fc-timegrid-col-events { margin: 0 !important; }
               .fc .fc-timegrid-event-harness { margin-right: 0 !important; right: 1px !important; }
               .fc .fc-timegrid-event-harness-inset .fc-timegrid-event { box-shadow: none; }
+              /* Citas en sobrecupo: borde punteado blanco para distinguirlas de un vistazo. */
+              .fc .fc-timegrid-event.cita-sobrecupo { outline: 2px dashed rgba(255,255,255,0.9); outline-offset: -3px; }
             `}</style>
             <FullCalendar
               ref={calRef}
@@ -441,6 +452,7 @@ export function Agenda() {
               slotMinTime="07:00:00" slotMaxTime="21:00:00" slotDuration="00:15:00" slotLabelInterval="00:15:00"
               allDaySlot={false} height="auto" nowIndicator expandRows
               displayEventTime={false} eventMinHeight={32}
+              slotEventOverlap={!expandirSolapados}
               slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
               dayHeaderFormat={{ weekday: 'short', day: 'numeric' }}
             />
@@ -823,8 +835,9 @@ function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, conflicto, o
                       onDragStart={() => { dragRef.current = { cita: ev.cita, duracion: Math.max(15, Math.round((+ev.fin - +ev.ini) / 60000)) } }}
                       onDragEnd={() => { dragRef.current = null; setDropHint(null) }}
                       onClick={(e) => { e.stopPropagation(); onCita(ev.cita) }}
-                      className="absolute rounded-md px-1.5 py-0.5 text-left overflow-hidden border cursor-move active:opacity-80" style={{ ...style, backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', color: '#fff' }}>
-                      <span className="text-[10px] font-mono opacity-90 block leading-tight">{hora(ev.cita.inicio)}</span>
+                      title={ev.cita.sobrecupo ? 'Sobrecupo (sobreagendada)' : undefined}
+                      className="absolute rounded-md px-1.5 py-0.5 text-left overflow-hidden border cursor-move active:opacity-80" style={{ ...style, backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', color: '#fff', ...(ev.cita.sobrecupo ? { outline: '2px dashed rgba(255,255,255,0.9)', outlineOffset: '-3px' } : {}) }}>
+                      <span className="text-[10px] font-mono opacity-90 block leading-tight">{hora(ev.cita.inicio)}{ev.cita.sobrecupo ? ' · SC' : ''}</span>
                       <span className="text-[11px] font-semibold block leading-tight truncate">{ev.cita.pacienteNombre}</span>
                       {alto > 40 && <span className="text-[10px] opacity-90 block leading-tight truncate">{ev.cita.tipo}</span>}
                     </button>

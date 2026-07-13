@@ -370,6 +370,7 @@ interface TratNode {
   id: string; estado: string; precio: number; descuento: number; diente: number | null; cara: string | null; notas: string | null
   prestacion: { nombre: string; categoria: string | null }; cobroItems: CobroItemLite[]
   doctor: { id: string; name: string | null } | null
+  _count?: { liquidacionItems: number }
 }
 interface TratLite { estado: string; precio: number; descuento: number; cobroItems: CobroItemLite[] }
 interface SeccionNode { id: string; titulo: string; orden: number; fechaTentativa: string | null; diasDesdeAnterior: number | null; tratamientos: TratNode[] }
@@ -984,13 +985,21 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
   const puedeAplicarDescuento = esAdmin || Boolean(user?.permisos?.puedeAplicarDescuento)
   const completado = t.estado === 'COMPLETADO'
   const pagada = pagadaTrat(t)
+  const liquidada = (t._count?.liquidacionItems ?? 0) > 0 // ya pagada al profesional
   // Una acción realizada bloquea precio y descuento (hay que desrealizarla primero).
   const precioEditable = !bloqueado && !completado && puedeModificarPrecio
   const dsctoEditable = !bloqueado && !completado && puedeAplicarDescuento
   const [edit, setEdit] = useState<null | 'precio' | 'dscto'>(null)
   const [val, setVal] = useState('')
-  // Desrealizar (revertir a planificada): solo usuarios con el permiso.
-  const revertir = () => { if (puedeRevertir) accion(() => tratamientosService.actualizar(t.id, { estado: 'PLANIFICADO', fechaCompletado: null })) }
+  // Desevolucionar (revertir a planificada): requiere permiso, confirmación, y que
+  // la acción NO esté liquidada (ya pagada al profesional).
+  const puedeDesevolucionar = puedeRevertir && !liquidada
+  const revertir = () => {
+    if (!puedeRevertir) return
+    if (liquidada) { window.alert('Esta acción ya fue liquidada (pagada al profesional) y no se puede desevolucionar.'); return }
+    if (!window.confirm('¿Desevolucionar esta acción? Volverá a quedar como planificada (no realizada) y se quitará de lo realizado del paciente.')) return
+    accion(() => tratamientosService.actualizar(t.id, { estado: 'PLANIFICADO', fechaCompletado: null }))
+  }
   const piezaLabel = t.diente
     ? `${t.diente}${t.cara ? ` (${t.cara.split('').join(',')})` : ''}`
     : (t.cara ? t.cara : (t.notas ? t.notas.replace(/^Piezas:\s*/, '') : '—'))
@@ -1017,9 +1026,12 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
       draggable={!bloqueado && !edit}
       onDragStart={(e) => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move' }}>
       <button onClick={() => (completado ? revertir() : onEvolucionar(t))}
-        disabled={completado && !puedeRevertir}
-        title={completado ? (puedeRevertir ? 'Realizada — clic para desrealizar' : 'Realizada (no tienes permiso para desrealizar)') : 'Evolucionar / marcar como realizada'}
-        className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] shrink-0 ${completado ? `bg-emerald-500 text-white ${puedeRevertir ? '' : 'cursor-default opacity-90'}` : 'border-2 border-slate-300 hover:border-cyan-400'}`}>
+        disabled={completado && !puedeDesevolucionar}
+        title={completado
+          ? (liquidada ? 'Realizada y liquidada (pagada al profesional): no se puede desevolucionar'
+            : puedeRevertir ? 'Realizada — clic para desevolucionar' : 'Realizada (no tienes permiso para desevolucionar)')
+          : 'Evolucionar / marcar como realizada'}
+        className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] shrink-0 ${completado ? `bg-emerald-500 text-white ${puedeDesevolucionar ? '' : 'cursor-default opacity-90'}` : 'border-2 border-slate-300 hover:border-cyan-400'}`}>
         {completado ? '✓' : ''}
       </button>
       <div className="min-w-0 flex-1">

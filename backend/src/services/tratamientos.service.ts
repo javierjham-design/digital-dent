@@ -31,6 +31,8 @@ const TRAT_INCLUDE = {
   cobroItems: {
     select: { id: true, monto: true, cobro: { select: { id: true, numero: true, estado: true, fechaPago: true } } },
   },
+  // Si tiene ítems de liquidación, la acción ya fue liquidada (pagada al profesional).
+  _count: { select: { liquidacionItems: true } },
 } as const
 
 // ── Planes ───────────────────────────────────────────────────────────────────
@@ -248,8 +250,15 @@ export async function actualizarTratamiento(db: TenantClient, actorId: string, i
 
   if (typeof body.estado === 'string') {
     const saliendoDeCompletado = existing.estado === 'COMPLETADO' && body.estado !== 'COMPLETADO'
-    if (saliendoDeCompletado && !me.permisos.puedeRevertirCompletado) {
-      throw forbidden('No tienes permisos para revertir el estado de una acción completada')
+    if (saliendoDeCompletado) {
+      if (!me.permisos.puedeRevertirCompletado) {
+        throw forbidden('No tienes permisos para revertir el estado de una acción completada')
+      }
+      // Una acción ya liquidada fue pagada al profesional: NO se puede desevolucionar.
+      const liquidada = await db.liquidacionItem.count({ where: { tratamientoId: id } })
+      if (liquidada > 0) {
+        throw forbidden('Esta acción ya fue liquidada (pagada al profesional) y no se puede desevolucionar.')
+      }
     }
     data.estado = body.estado
   }
