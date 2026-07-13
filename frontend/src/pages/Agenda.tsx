@@ -478,7 +478,7 @@ export function Agenda() {
         <BloqueoDetalle b={selectedBloqueo} onClose={() => setSelectedBloqueo(null)} onEliminar={eliminarBloqueo} />
       )}
       {bloqueoForm && (
-        <BloqueoModal doctorId={doctorId || doctores[0]?.id || ''} doctores={doctores} fecha={currentDate}
+        <BloqueoModal doctorId={doctorId || doctores[0]?.id || ''} doctores={doctores} horarios={horariosTodos} fecha={currentDate}
           onClose={() => setBloqueoForm(false)} onCreated={() => { setBloqueoForm(false); notify('Horario bloqueado'); recargar() }}
           onError={(m) => notify(m, false)} />
       )}
@@ -1205,38 +1205,97 @@ function BloqueoDetalle({ b, onClose, onEliminar }: { b: BloqueoDTO; onClose: ()
   )
 }
 
-function BloqueoModal({ doctorId, doctores, fecha, onClose, onCreated, onError }: {
-  doctorId: string; doctores: DoctorDTO[]; fecha: Date; onClose: () => void; onCreated: () => void; onError: (m: string) => void
+function BloqueoModal({ doctorId, doctores, horarios, fecha, onClose, onCreated, onError }: {
+  doctorId: string; doctores: DoctorDTO[]; horarios: HorarioDTO[]; fecha: Date; onClose: () => void; onCreated: () => void; onError: (m: string) => void
 }) {
   const pad = (n: number) => String(n).padStart(2, '0')
-  const base = `${fecha.getFullYear()}-${pad(fecha.getMonth() + 1)}-${pad(fecha.getDate())}`
+  const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const minToHHMM = (m: number) => `${dosDig(Math.floor(m / 60))}:${dosDig(m % 60)}`
+
+  // Tramos de atención del profesional un día (sólo dentro de ellos se puede bloquear).
+  const segmentsFor = (docId: string, diaStr: string): [number, number][] => {
+    const dow = new Date(`${diaStr}T00:00`).getDay()
+    return bloquesAtencion(horarios.find((h) => h.doctorId === docId && h.diaSemana === dow && h.activo))
+  }
+  const startOptsFor = (segs: [number, number][]): string[] => {
+    const os = segs.length ? Math.min(...segs.map((s) => s[0])) : 0
+    const oe = segs.length ? Math.max(...segs.map((s) => s[1])) : 0
+    const a: string[] = []
+    for (let m = os; m < oe; m += 15) if (segs.some(([s, e]) => m >= s && m < e)) a.push(minToHHMM(m))
+    return a
+  }
+  // Selección por defecto (primer cupo, 1 hora) para un profesional/día.
+  const defaultsFor = (docId: string, diaStr: string): { desde: string; hasta: string } => {
+    const segs = segmentsFor(docId, diaStr); const opts = startOptsFor(segs)
+    if (opts.length === 0) return { desde: '', hasta: '' }
+    const oe = Math.max(...segs.map((s) => s[1])); const d0 = hhmmAMin(opts[0])
+    return { desde: opts[0], hasta: minToHHMM(Math.min(oe, d0 + 60)) }
+  }
+
   const [doc, setDoc] = useState(doctorId)
-  const [inicio, setInicio] = useState(`${base}T09:00`)
-  const [fin, setFin] = useState(`${base}T11:00`)
+  const [dia, setDia] = useState(() => ymd(fecha))
+  const [desde, setDesde] = useState(() => defaultsFor(doctorId, ymd(fecha)).desde)
+  const [hasta, setHasta] = useState(() => defaultsFor(doctorId, ymd(fecha)).hasta)
   const [motivo, setMotivo] = useState('')
   const [guardando, setGuardando] = useState(false)
+
+  const segments = segmentsFor(doc, dia)
+  const startOpts = startOptsFor(segments)
+  const overallStart = segments.length ? Math.min(...segments.map((s) => s[0])) : 0
+  const overallEnd = segments.length ? Math.max(...segments.map((s) => s[1])) : 0
+  const hastaOpts: string[] = []
+  { const d0 = desde ? hhmmAMin(desde) : overallStart; for (let m = d0 + 15; m <= overallEnd; m += 15) hastaOpts.push(minToHHMM(m)) }
+  const sinAtencion = startOpts.length === 0
+  const nombreDia = new Date(`${dia}T00:00`).toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
+
+  // Al cambiar profesional/día reencuadramos la selección dentro de la atención.
+  function cambiarDoc(v: string) { setDoc(v); const d = defaultsFor(v, dia); setDesde(d.desde); setHasta(d.hasta) }
+  function cambiarDia(v: string) { setDia(v); const d = defaultsFor(doc, v); setDesde(d.desde); setHasta(d.hasta) }
+  function cambiarDesde(v: string) { setDesde(v); if (hhmmAMin(hasta) <= hhmmAMin(v)) setHasta(minToHHMM(Math.min(overallEnd, hhmmAMin(v) + 60))) }
+
   async function guardar() {
+    if (sinAtencion || !desde || !hasta) return
+    const inicio = new Date(`${dia}T${desde}`)
+    const fin = new Date(`${dia}T${hasta}`)
+    if (fin <= inicio) { onError('La hora de término debe ser posterior al inicio.'); return }
     setGuardando(true)
     try {
-      await bloqueosService.crear({ doctorId: doc, inicio: new Date(inicio).toISOString(), fin: new Date(fin).toISOString(), motivo: motivo || undefined })
+      await bloqueosService.crear({ doctorId: doc, inicio: inicio.toISOString(), fin: fin.toISOString(), motivo: motivo || undefined })
       onCreated()
     } catch (e) { onError(e instanceof ApiError ? e.message : 'No se pudo bloquear') } finally { setGuardando(false) }
   }
+
   return (
     <Modal title="Bloquear horario" onClose={onClose}>
       <div className="space-y-3">
-        <Sel label="Profesional" value={doc} onChange={setDoc} options={doctores.map((d) => ({ v: d.id, l: d.name ?? d.email ?? '' }))} />
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block"><span className="block text-sm font-medium text-slate-700 mb-1">Desde</span>
-            <input type="datetime-local" value={inicio} onChange={(e) => setInicio(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm" /></label>
-          <label className="block"><span className="block text-sm font-medium text-slate-700 mb-1">Hasta</span>
-            <input type="datetime-local" value={fin} onChange={(e) => setFin(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm" /></label>
-        </div>
+        <Sel label="Profesional" value={doc} onChange={cambiarDoc} options={doctores.map((d) => ({ v: d.id, l: d.name ?? d.email ?? '' }))} />
+        <label className="block"><span className="block text-sm font-medium text-slate-700 mb-1">Día</span>
+          <input type="date" value={dia} onChange={(e) => cambiarDia(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm" /></label>
+
+        {sinAtencion ? (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+            Este profesional no atiende el <span className="capitalize">{nombreDia}</span>. Elige otro día o profesional.
+          </p>
+        ) : (
+          <>
+            <p className="text-xs text-slate-400">Sólo puedes bloquear dentro del horario de atención ({minToHHMM(overallStart)}–{minToHHMM(overallEnd)}).</p>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block"><span className="block text-sm font-medium text-slate-700 mb-1">Desde</span>
+                <select value={desde} onChange={(e) => cambiarDesde(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
+                  {startOpts.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select></label>
+              <label className="block"><span className="block text-sm font-medium text-slate-700 mb-1">Hasta</span>
+                <select value={hasta} onChange={(e) => setHasta(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
+                  {hastaOpts.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select></label>
+            </div>
+          </>
+        )}
         <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
       </div>
       <div className="flex gap-2 pt-5">
         <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-        <button onClick={guardar} disabled={guardando} className="flex-1 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{guardando ? 'Guardando…' : 'Bloquear'}</button>
+        <button onClick={guardar} disabled={guardando || sinAtencion} className="flex-1 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{guardando ? 'Guardando…' : 'Bloquear'}</button>
       </div>
     </Modal>
   )
