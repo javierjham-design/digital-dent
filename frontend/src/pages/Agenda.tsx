@@ -124,7 +124,7 @@ export function Agenda() {
   useEffect(() => { cargarPendientes() }, [cargarPendientes])
 
   async function confirmarReserva(id: string) {
-    try { await citasService.cambiarEstado(id, 'CONFIRMADA'); notify('Reserva confirmada'); cargarPendientes(); recargar() }
+    try { await citasService.cambiarEstado(id, 'CONFIRMADO'); notify('Reserva confirmada'); cargarPendientes(); recargar() }
     catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo confirmar', false) }
   }
   async function rechazarReserva(id: string) {

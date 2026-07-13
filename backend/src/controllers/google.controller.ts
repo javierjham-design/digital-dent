@@ -143,7 +143,7 @@ export async function postReconcileBloqueos(req: Request, res: Response) {
         db.cita.create({
           data: {
             pacienteId, doctorId: b.doctorId, fecha: b.inicio, duracion: duracionMin,
-            estado: 'CONFIRMADA', tipo: 'CONSULTA', googleEventId: b.googleEventId, googleSyncedAt: new Date(),
+            estado: 'CONFIRMADO', tipo: 'CONSULTA', googleEventId: b.googleEventId, googleSyncedAt: new Date(),
             logs: { create: { tipo: 'AGENDADA', detalle: `Convertida desde bloqueo (título original: "${b.motivo ?? ''}")`, userName } },
           },
         }),

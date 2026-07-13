@@ -15,13 +15,16 @@ export interface EstadoCitaConfig {
 // confirmada (verde), en espera (amarillo), en atención (teal), atendida (gris),
 // no asistió (lavanda), cancelada/anulado (gris apagado).
 export const CITA_ESTADOS: Record<string, EstadoCitaConfig> = {
-  PENDIENTE:   { label: 'Agendada',    color: '#e8923a', bg: '#fdebd0', text: '#9a5b1e', badgeClass: 'bg-amber-100 text-amber-700',     orden: 1 },
-  CONFIRMADA:  { label: 'Confirmada',  color: '#2bb673', bg: '#d4f3e3', text: '#0f5132', badgeClass: 'bg-emerald-100 text-emerald-700', orden: 2 },
-  EN_ESPERA:   { label: 'En espera',   color: '#eab308', bg: '#fef9c3', text: '#854d0e', badgeClass: 'bg-yellow-100 text-yellow-700',   orden: 3 },
-  EN_ATENCION: { label: 'En atención', color: '#14b8a6', bg: '#ccfbf1', text: '#115e59', badgeClass: 'bg-teal-100 text-teal-700',       orden: 4 },
-  ATENDIDA:    { label: 'Atendida',    color: '#94a3b8', bg: '#e2e8f0', text: '#334155', badgeClass: 'bg-slate-100 text-slate-600',     orden: 5 },
-  NO_ASISTIO:  { label: 'No asistió',  color: '#a78bfa', bg: '#ede9fe', text: '#5b21b6', badgeClass: 'bg-violet-100 text-violet-700',   orden: 6 },
-  CANCELADA:   { label: 'Cancelada',   color: '#cbd5e1', bg: '#f1f5f9', text: '#64748b', badgeClass: 'bg-slate-100 text-slate-500',     orden: 7 },
+  PENDIENTE:   { label: 'Agendada',                 color: '#e8923a', bg: '#fdebd0', text: '#9a5b1e', badgeClass: 'bg-amber-100 text-amber-700',     orden: 1 },
+  // Verde = se envió/notificó el WhatsApp al paciente (aún no confirma).
+  CONFIRMADA:  { label: 'Notificado por WhatsApp',  color: '#2bb673', bg: '#d4f3e3', text: '#0f5132', badgeClass: 'bg-emerald-100 text-emerald-700', orden: 2 },
+  // Azul claro = el paciente confirmó su asistencia.
+  CONFIRMADO:  { label: 'Confirmado',               color: '#0ea5e9', bg: '#e0f2fe', text: '#075985', badgeClass: 'bg-sky-100 text-sky-700',         orden: 3 },
+  EN_ESPERA:   { label: 'En espera',                color: '#eab308', bg: '#fef9c3', text: '#854d0e', badgeClass: 'bg-yellow-100 text-yellow-700',   orden: 4 },
+  EN_ATENCION: { label: 'En atención',              color: '#14b8a6', bg: '#ccfbf1', text: '#115e59', badgeClass: 'bg-teal-100 text-teal-700',       orden: 5 },
+  ATENDIDA:    { label: 'Atendida',                 color: '#94a3b8', bg: '#e2e8f0', text: '#334155', badgeClass: 'bg-slate-100 text-slate-600',     orden: 6 },
+  NO_ASISTIO:  { label: 'No asistió',               color: '#a78bfa', bg: '#ede9fe', text: '#5b21b6', badgeClass: 'bg-violet-100 text-violet-700',   orden: 7 },
+  CANCELADA:   { label: 'Cancelada',                color: '#cbd5e1', bg: '#f1f5f9', text: '#64748b', badgeClass: 'bg-slate-100 text-slate-500',     orden: 8 },
 }
 
 export const CITA_ESTADOS_KEYS = Object.keys(CITA_ESTADOS)
@@ -32,8 +35,9 @@ export const ESTADOS_NO_OCUPAN = ['CANCELADA', 'NO_ASISTIO']
 
 export function siguienteEstado(estado: string): { estado: string; accion: string } | null {
   switch (estado) {
-    case 'PENDIENTE':   return { estado: 'CONFIRMADA',  accion: 'Confirmar' }
-    case 'CONFIRMADA':  return { estado: 'EN_ESPERA',   accion: 'Llegó' }
+    case 'PENDIENTE':   return { estado: 'CONFIRMADA',  accion: 'Notificar WhatsApp' }
+    case 'CONFIRMADA':  return { estado: 'CONFIRMADO',  accion: 'Confirmar' }
+    case 'CONFIRMADO':  return { estado: 'EN_ESPERA',   accion: 'Llegó' }
     case 'EN_ESPERA':   return { estado: 'EN_ATENCION', accion: 'Pasar al sillón' }
     case 'EN_ATENCION': return { estado: 'ATENDIDA',    accion: 'Finalizar' }
     default:            return null

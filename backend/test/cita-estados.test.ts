@@ -5,8 +5,12 @@ import {
 } from '@shared/constants/cita-estados'
 
 describe('catálogo de estados', () => {
-  it('expone los 7 estados canónicos', () => {
-    expect(CITA_ESTADOS_KEYS).toEqual(['PENDIENTE', 'CONFIRMADA', 'EN_ESPERA', 'EN_ATENCION', 'ATENDIDA', 'NO_ASISTIO', 'CANCELADA'])
+  it('expone los estados canónicos', () => {
+    expect(CITA_ESTADOS_KEYS).toEqual(['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO', 'EN_ESPERA', 'EN_ATENCION', 'ATENDIDA', 'NO_ASISTIO', 'CANCELADA'])
+  })
+  it('CONFIRMADA es "Notificado por WhatsApp" (verde) y CONFIRMADO es "Confirmado" (azul)', () => {
+    expect(CITA_ESTADO_LABELS.CONFIRMADA).toBe('Notificado por WhatsApp')
+    expect(CITA_ESTADO_LABELS.CONFIRMADO).toBe('Confirmado')
   })
   it('cada estado tiene label', () => {
     for (const k of CITA_ESTADOS_KEYS) expect(CITA_ESTADO_LABELS[k]).toBeTruthy()
@@ -19,7 +23,8 @@ describe('catálogo de estados', () => {
 describe('siguienteEstado (máquina de estados)', () => {
   it('avanza por el flujo de atención', () => {
     expect(siguienteEstado('PENDIENTE')?.estado).toBe('CONFIRMADA')
-    expect(siguienteEstado('CONFIRMADA')?.estado).toBe('EN_ESPERA')
+    expect(siguienteEstado('CONFIRMADA')?.estado).toBe('CONFIRMADO')
+    expect(siguienteEstado('CONFIRMADO')?.estado).toBe('EN_ESPERA')
     expect(siguienteEstado('EN_ESPERA')?.estado).toBe('EN_ATENCION')
     expect(siguienteEstado('EN_ATENCION')?.estado).toBe('ATENDIDA')
   })
@@ -29,8 +34,9 @@ describe('siguienteEstado (máquina de estados)', () => {
     expect(siguienteEstado('CANCELADA')).toBeNull()
   })
   it('cada transición trae una acción descriptiva', () => {
-    expect(siguienteEstado('PENDIENTE')?.accion).toBe('Confirmar')
-    expect(siguienteEstado('CONFIRMADA')?.accion).toBe('Llegó')
+    expect(siguienteEstado('PENDIENTE')?.accion).toBe('Notificar WhatsApp')
+    expect(siguienteEstado('CONFIRMADA')?.accion).toBe('Confirmar')
+    expect(siguienteEstado('CONFIRMADO')?.accion).toBe('Llegó')
   })
 })
 

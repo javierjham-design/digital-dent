@@ -477,7 +477,7 @@ async function reconcileEvent(
         doctorId,
         fecha: startDate,
         duracion: duracionMin,
-        estado: 'CONFIRMADA',
+        estado: 'CONFIRMADO',
         tipo: 'CONSULTA',
         googleEventId: ev.id,
         googleSyncedAt: new Date(),

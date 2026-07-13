@@ -117,6 +117,9 @@ export async function enviarRecordatorioCita(
     where: { id: citaId },
     data: {
       waMessageSid: data.sid,
+      // Al enviar el WhatsApp, la cita pasa a "Notificado por WhatsApp" (verde).
+      // Sólo avanza desde "Agendada" para no retroceder citas ya más avanzadas.
+      ...(cita.estado === 'PENDIENTE' ? { estado: 'CONFIRMADA' } : {}),
       logs: {
         create: {
           tipo: 'WA_ENVIADO',
@@ -246,7 +249,7 @@ export async function procesarRespuestaEntrante(db: TenantClient, args: {
     const candidatos = await db.cita.findMany({
       where: {
         waMessageSid: { not: null },
-        estado: { in: ['PENDIENTE', 'CONFIRMADA'] },
+        estado: { in: ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO'] },
         fecha: { gte: new Date(Date.now() - 3600_000) },
       },
       include: { paciente: { select: { telefono: true } } },
@@ -269,7 +272,8 @@ export async function procesarRespuestaEntrante(db: TenantClient, args: {
     await db.cita.update({
       where: { id: cita.id },
       data: {
-        estado: 'CONFIRMADA',
+        // El paciente confirmó → "Confirmado" (azul), distinto de sólo notificado.
+        estado: 'CONFIRMADO',
         confirmadoWA: true,
         logs: { create: { tipo: 'ESTADO', detalle: 'Cita confirmada por el paciente vía WhatsApp', userName: 'Paciente (WhatsApp)' } },
       },
