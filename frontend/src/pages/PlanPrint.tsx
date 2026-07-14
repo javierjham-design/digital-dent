@@ -13,7 +13,11 @@ interface PTrat {
   id: string; estado: string; precio: number; descuento: number; diente: number | null; cara: string | null; notas: string | null
   prestacion: { nombre: string }; cobroItems: { monto: number; cobro: { estado: string } | null }[]
 }
-interface PSeccion { id: string; titulo: string; tratamientos: PTrat[] }
+interface PSeccion { id: string; titulo: string; fechaTentativa?: string | null; diasDesdeAnterior?: number | null; tratamientos: PTrat[] }
+const tiempoSeccion = (s: PSeccion): string | null => (
+  s.diasDesdeAnterior != null ? `~${s.diasDesdeAnterior} días estimados`
+    : s.fechaTentativa ? `Tentativa: ${new Date(s.fechaTentativa).toLocaleDateString('es-CL')}` : null
+)
 interface PPlan { id: string; nombre: string; pacienteId: string; doctorTitular: { name: string | null } | null; secciones: PSeccion[]; tratamientos: PTrat[]; abonoLibre?: number }
 
 const neto = (t: PTrat) => Math.round(t.precio * (1 - (t.descuento || 0) / 100))
@@ -98,8 +102,11 @@ export function PlanPrint() {
       {/* Secciones */}
       {secciones.map((s) => (
         <div key={s.id || 'sin'} className="mb-4 break-inside-avoid">
-          <div className="flex justify-between bg-slate-100 px-3 py-1.5 rounded-t-lg">
-            <span className="text-sm font-semibold text-slate-700">{s.titulo}</span>
+          <div className="flex justify-between items-center gap-3 bg-slate-100 px-3 py-1.5 rounded-t-lg">
+            <span className="text-sm font-semibold text-slate-700">
+              {s.titulo}
+              {tiempoSeccion(s) && <span className="ml-2 text-[11px] font-normal text-cyan-700">⏱ {tiempoSeccion(s)}</span>}
+            </span>
             <span className="text-sm font-mono text-slate-600">{fmtCLP(s.tratamientos.reduce((a, t) => a + neto(t), 0))}</span>
           </div>
           <table className="w-full text-sm border border-slate-200 border-t-0">

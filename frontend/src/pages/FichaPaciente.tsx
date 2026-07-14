@@ -931,6 +931,25 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
 }) {
   const [agregando, setAgregando] = useState(false)
   const [over, setOver] = useState(false)
+  // Edición inline del encabezado de la sección (nombre + tiempo tentativo).
+  const toYmd = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('sv-SE') : '')
+  const [editando, setEditando] = useState(false)
+  const [edTitulo, setEdTitulo] = useState(seccion.titulo)
+  const [edFecha, setEdFecha] = useState(toYmd(seccion.fechaTentativa))
+  const [edDias, setEdDias] = useState(seccion.diasDesdeAnterior != null ? String(seccion.diasDesdeAnterior) : '')
+  function abrirEdicion() {
+    setEdTitulo(seccion.titulo); setEdFecha(toYmd(seccion.fechaTentativa))
+    setEdDias(seccion.diasDesdeAnterior != null ? String(seccion.diasDesdeAnterior) : '')
+    setEditando(true)
+  }
+  async function guardarSeccion() {
+    await accion(() => seccionesService.actualizar(seccion.id, {
+      titulo: edTitulo.trim() || seccion.titulo,
+      fechaTentativa: edFecha ? new Date(`${edFecha}T00:00`).toISOString() : null,
+      diasDesdeAnterior: edDias.trim() ? Math.max(0, Number(edDias)) : null,
+    }))
+    setEditando(false)
+  }
   const totalSec = seccion.tratamientos.reduce((s, t) => s + netoTrat(t), 0)
   const tiempo = seccion.diasDesdeAnterior != null
     ? `~${seccion.diasDesdeAnterior} días estimados`
@@ -942,6 +961,18 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
       onDragOver={(e) => { if (!plan.bloqueado && onMoverAccion) { e.preventDefault(); setOver(true) } }}
       onDragLeave={() => setOver(false)}
       onDrop={(e) => { e.preventDefault(); setOver(false); const id = e.dataTransfer.getData('text/plain'); if (id && onMoverAccion) onMoverAccion(id, seccion.id) }}>
+      {editando && !sinSeccion ? (
+        <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex flex-wrap items-center gap-2">
+          <input value={edTitulo} onChange={(e) => setEdTitulo(e.target.value)} placeholder="Nombre de la sección"
+            className="flex-1 min-w-[10rem] px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+          <label className="flex items-center gap-1 text-xs text-slate-500">Fecha tentativa
+            <input type="date" value={edFecha} onChange={(e) => setEdFecha(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm" /></label>
+          <label className="flex items-center gap-1 text-xs text-slate-500">Días estimados
+            <input value={edDias} onChange={(e) => setEdDias(e.target.value)} inputMode="numeric" placeholder="—" className="w-16 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" /></label>
+          <button onClick={guardarSeccion} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm rounded-lg">Guardar</button>
+          <button onClick={() => setEditando(false)} className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg">Cancelar</button>
+        </div>
+      ) : (
       <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-100">
         <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <span className="font-semibold text-slate-800 text-sm truncate">{seccion.titulo}</span>
@@ -949,6 +980,9 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm font-mono text-slate-600">{fmtCLP(totalSec)}</span>
+          {!sinSeccion && !plan.bloqueado && (
+            <button onClick={abrirEdicion} className="text-slate-300 hover:text-cyan-600 text-sm" title="Editar nombre y tiempo tentativo">✎</button>
+          )}
           {!sinSeccion && !plan.bloqueado && onMover && idx != null && total != null && (
             <div className="flex flex-col -my-1 leading-none">
               <button disabled={idx === 0} onClick={() => onMover(idx, -1)} className="text-slate-300 hover:text-cyan-600 disabled:opacity-30 text-[10px]" title="Subir sección">▲</button>
@@ -960,6 +994,7 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
           )}
         </div>
       </div>
+      )}
       <div className="divide-y divide-slate-100">
         {seccion.tratamientos.length === 0 && <p className="px-4 py-3 text-xs text-slate-400">Sin acciones.</p>}
         {seccion.tratamientos.map((t) => <AccionFila key={t.id} t={t} bloqueado={plan.bloqueado} accion={accion} onEvolucionar={onEvolucionar} />)}
@@ -1165,25 +1200,32 @@ function AgregarSeccion({ planId, accion, sinSeccionIds }: { planId: string; acc
   const [abierto, setAbierto] = useState(false)
   const [titulo, setTitulo] = useState('')
   const [dias, setDias] = useState('')
+  const [fecha, setFecha] = useState('')
   const [incorporar, setIncorporar] = useState(true)
   const haySueltas = sinSeccionIds.length > 0
 
   async function crear() {
     await accion(async () => {
-      const sec = await planesService.crearSeccion(planId, { titulo: titulo.trim() || undefined, diasDesdeAnterior: dias ? Number(dias) : undefined }) as { id: string }
+      const sec = await planesService.crearSeccion(planId, {
+        titulo: titulo.trim() || undefined,
+        diasDesdeAnterior: dias ? Number(dias) : undefined,
+        fechaTentativa: fecha ? new Date(`${fecha}T00:00`).toISOString() : undefined,
+      }) as { id: string }
       // Mueve automáticamente todas las prestaciones "sin sección" a la nueva sección.
       if (incorporar && haySueltas && sec?.id) {
         await Promise.all(sinSeccionIds.map((tid) => tratamientosService.actualizar(tid, { seccionId: sec.id })))
       }
     })
-    setAbierto(false); setTitulo(''); setDias('')
+    setAbierto(false); setTitulo(''); setDias(''); setFecha('')
   }
 
   if (!abierto) return <button onClick={() => setAbierto(true)} className="text-sm font-semibold text-cyan-700">+ Sección</button>
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-3 flex gap-2 flex-wrap items-center">
       <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Nombre de la sección" className="flex-1 min-w-[12rem] px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
-      <input value={dias} onChange={(e) => setDias(e.target.value)} placeholder="Días estimados" inputMode="numeric" className="w-32 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+      <label className="flex items-center gap-1 text-xs text-slate-500">Fecha tentativa
+        <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm" /></label>
+      <input value={dias} onChange={(e) => setDias(e.target.value)} placeholder="Días estimados" inputMode="numeric" className="w-28 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
       {haySueltas && (
         <label className="flex items-center gap-1.5 text-xs text-slate-600 w-full">
           <input type="checkbox" checked={incorporar} onChange={(e) => setIncorporar(e.target.checked)} />
