@@ -317,6 +317,7 @@ CREATE TABLE "SeccionPlan" (
     "orden" INTEGER NOT NULL DEFAULT 0,
     "fechaTentativa" TIMESTAMP(3),
     "diasDesdeAnterior" INTEGER,
+    "tiempoUnidad" TEXT NOT NULL DEFAULT 'DIAS',
     "notas" TEXT,
 
     CONSTRAINT "SeccionPlan_pkey" PRIMARY KEY ("id")

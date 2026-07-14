@@ -96,6 +96,7 @@ export const crearSeccionSchema = z.object({
   titulo: z.string().optional(),
   fechaTentativa: z.string().optional(),
   diasDesdeAnterior: z.number().int().optional(),
+  tiempoUnidad: z.enum(['DIAS', 'SEMANAS', 'MESES']).optional(),
   notas: z.string().optional(),
 })
 

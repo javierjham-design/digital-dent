@@ -352,7 +352,8 @@ model SeccionPlan {
   titulo            String          @default("Sección")
   orden             Int             @default(0)
   fechaTentativa    DateTime?
-  diasDesdeAnterior Int?
+  diasDesdeAnterior Int?            // cantidad de tiempo estimado (se interpreta según tiempoUnidad)
+  tiempoUnidad      String          @default("DIAS") // DIAS | SEMANAS | MESES
   notas             String?
   plan              PlanTratamiento @relation(fields: [planId], references: [id], onDelete: Cascade)
   tratamientos      Tratamiento[]

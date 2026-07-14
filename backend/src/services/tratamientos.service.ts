@@ -135,7 +135,10 @@ export async function eliminarPlan(db: TenantClient, actorId: string, id: string
 
 // ── Secciones ──────────────────────────────────────────────────────────────
 
-export async function crearSeccion(db: TenantClient, planId: string, body: { titulo?: string; fechaTentativa?: string; diasDesdeAnterior?: number; notas?: string }) {
+const UNIDADES_TIEMPO = ['DIAS', 'SEMANAS', 'MESES']
+const normUnidad = (v: unknown) => (typeof v === 'string' && UNIDADES_TIEMPO.includes(v) ? v : 'DIAS')
+
+export async function crearSeccion(db: TenantClient, planId: string, body: { titulo?: string; fechaTentativa?: string; diasDesdeAnterior?: number; tiempoUnidad?: string; notas?: string }) {
   const plan = await db.planTratamiento.findUnique({ where: { id: planId }, select: { id: true } })
   if (!plan) throw notFound('Plan no existe')
   await assertPlanDesbloqueado(db, planId)
@@ -148,6 +151,7 @@ export async function crearSeccion(db: TenantClient, planId: string, body: { tit
       orden,
       fechaTentativa: body.fechaTentativa ? new Date(body.fechaTentativa) : null,
       diasDesdeAnterior: typeof body.diasDesdeAnterior === 'number' ? body.diasDesdeAnterior : null,
+      tiempoUnidad: normUnidad(body.tiempoUnidad),
       notas: body.notas || null,
     },
   })
@@ -159,6 +163,7 @@ export async function actualizarSeccion(db: TenantClient, id: string, body: Reco
   if (typeof body.notas === 'string' || body.notas === null) data.notas = body.notas
   if (typeof body.orden === 'number') data.orden = body.orden
   if (typeof body.diasDesdeAnterior === 'number' || body.diasDesdeAnterior === null) data.diasDesdeAnterior = body.diasDesdeAnterior
+  if (typeof body.tiempoUnidad === 'string') data.tiempoUnidad = normUnidad(body.tiempoUnidad)
   if (body.fechaTentativa === null) data.fechaTentativa = null
   else if (typeof body.fechaTentativa === 'string') data.fechaTentativa = new Date(body.fechaTentativa)
 

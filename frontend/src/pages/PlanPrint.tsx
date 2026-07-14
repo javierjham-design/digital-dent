@@ -13,9 +13,10 @@ interface PTrat {
   id: string; estado: string; precio: number; descuento: number; diente: number | null; cara: string | null; notas: string | null
   prestacion: { nombre: string }; cobroItems: { monto: number; cobro: { estado: string } | null }[]
 }
-interface PSeccion { id: string; titulo: string; fechaTentativa?: string | null; diasDesdeAnterior?: number | null; tratamientos: PTrat[] }
+interface PSeccion { id: string; titulo: string; fechaTentativa?: string | null; diasDesdeAnterior?: number | null; tiempoUnidad?: string; tratamientos: PTrat[] }
+const unidadLabel = (u?: string) => (u === 'MESES' ? 'meses' : u === 'SEMANAS' ? 'semanas' : 'días')
 const tiempoSeccion = (s: PSeccion): string | null => (
-  s.diasDesdeAnterior != null ? `~${s.diasDesdeAnterior} días estimados`
+  s.diasDesdeAnterior != null ? `~${s.diasDesdeAnterior} ${unidadLabel(s.tiempoUnidad)} estimados`
     : s.fechaTentativa ? `Tentativa: ${new Date(s.fechaTentativa).toLocaleDateString('es-CL')}` : null
 )
 interface PPlan { id: string; nombre: string; pacienteId: string; doctorTitular: { name: string | null } | null; secciones: PSeccion[]; tratamientos: PTrat[]; abonoLibre?: number }

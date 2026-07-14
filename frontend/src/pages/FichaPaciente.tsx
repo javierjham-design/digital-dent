@@ -373,7 +373,12 @@ interface TratNode {
   _count?: { liquidacionItems: number }
 }
 interface TratLite { estado: string; precio: number; descuento: number; cobroItems: CobroItemLite[] }
-interface SeccionNode { id: string; titulo: string; orden: number; fechaTentativa: string | null; diasDesdeAnterior: number | null; tratamientos: TratNode[] }
+interface SeccionNode { id: string; titulo: string; orden: number; fechaTentativa: string | null; diasDesdeAnterior: number | null; tiempoUnidad?: string; tratamientos: TratNode[] }
+// Etiqueta del tiempo estimado según su unidad (días/semanas/meses).
+function labelTiempoEstimado(cant: number, unidad?: string): string {
+  const u = unidad === 'MESES' ? 'meses' : unidad === 'SEMANAS' ? 'semanas' : 'días'
+  return `~${cant} ${u} estimados`
+}
 interface DoctorRef { id: string; name: string | null; email?: string | null }
 interface PlanCard {
   id: string; nombre: string; estado: string; bloqueado?: boolean
@@ -937,9 +942,11 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
   const [edTitulo, setEdTitulo] = useState(seccion.titulo)
   const [edFecha, setEdFecha] = useState(toYmd(seccion.fechaTentativa))
   const [edDias, setEdDias] = useState(seccion.diasDesdeAnterior != null ? String(seccion.diasDesdeAnterior) : '')
+  const [edUnidad, setEdUnidad] = useState(seccion.tiempoUnidad ?? 'DIAS')
   function abrirEdicion() {
     setEdTitulo(seccion.titulo); setEdFecha(toYmd(seccion.fechaTentativa))
     setEdDias(seccion.diasDesdeAnterior != null ? String(seccion.diasDesdeAnterior) : '')
+    setEdUnidad(seccion.tiempoUnidad ?? 'DIAS')
     setEditando(true)
   }
   async function guardarSeccion() {
@@ -947,12 +954,13 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
       titulo: edTitulo.trim() || seccion.titulo,
       fechaTentativa: edFecha ? new Date(`${edFecha}T00:00`).toISOString() : null,
       diasDesdeAnterior: edDias.trim() ? Math.max(0, Number(edDias)) : null,
+      tiempoUnidad: edUnidad,
     }))
     setEditando(false)
   }
   const totalSec = seccion.tratamientos.reduce((s, t) => s + netoTrat(t), 0)
   const tiempo = seccion.diasDesdeAnterior != null
-    ? `~${seccion.diasDesdeAnterior} días estimados`
+    ? labelTiempoEstimado(seccion.diasDesdeAnterior, seccion.tiempoUnidad)
     : (seccion.fechaTentativa ? `Tentativa: ${new Date(seccion.fechaTentativa).toLocaleDateString('es-CL')}` : null)
   const seleccion = selZona ?? (selPiezas.length ? `${selPiezas.length} pieza${selPiezas.length > 1 ? 's' : ''}` : '')
 
@@ -967,8 +975,13 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
             className="flex-1 min-w-[10rem] px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
           <label className="flex items-center gap-1 text-xs text-slate-500">Fecha tentativa
             <input type="date" value={edFecha} onChange={(e) => setEdFecha(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm" /></label>
-          <label className="flex items-center gap-1 text-xs text-slate-500">Días estimados
-            <input value={edDias} onChange={(e) => setEdDias(e.target.value)} inputMode="numeric" placeholder="—" className="w-16 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" /></label>
+          <label className="flex items-center gap-1 text-xs text-slate-500">Tiempo estimado
+            <input value={edDias} onChange={(e) => setEdDias(e.target.value)} inputMode="numeric" placeholder="—" className="w-14 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+            <select value={edUnidad} onChange={(e) => setEdUnidad(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm">
+              <option value="DIAS">días</option>
+              <option value="SEMANAS">semanas</option>
+              <option value="MESES">meses</option>
+            </select></label>
           <button onClick={guardarSeccion} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-sm rounded-lg">Guardar</button>
           <button onClick={() => setEditando(false)} className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg">Cancelar</button>
         </div>
@@ -1200,6 +1213,7 @@ function AgregarSeccion({ planId, accion, sinSeccionIds }: { planId: string; acc
   const [abierto, setAbierto] = useState(false)
   const [titulo, setTitulo] = useState('')
   const [dias, setDias] = useState('')
+  const [unidad, setUnidad] = useState('DIAS')
   const [fecha, setFecha] = useState('')
   const [incorporar, setIncorporar] = useState(true)
   const haySueltas = sinSeccionIds.length > 0
@@ -1209,6 +1223,7 @@ function AgregarSeccion({ planId, accion, sinSeccionIds }: { planId: string; acc
       const sec = await planesService.crearSeccion(planId, {
         titulo: titulo.trim() || undefined,
         diasDesdeAnterior: dias ? Number(dias) : undefined,
+        tiempoUnidad: unidad,
         fechaTentativa: fecha ? new Date(`${fecha}T00:00`).toISOString() : undefined,
       }) as { id: string }
       // Mueve automáticamente todas las prestaciones "sin sección" a la nueva sección.
@@ -1216,7 +1231,7 @@ function AgregarSeccion({ planId, accion, sinSeccionIds }: { planId: string; acc
         await Promise.all(sinSeccionIds.map((tid) => tratamientosService.actualizar(tid, { seccionId: sec.id })))
       }
     })
-    setAbierto(false); setTitulo(''); setDias(''); setFecha('')
+    setAbierto(false); setTitulo(''); setDias(''); setUnidad('DIAS'); setFecha('')
   }
 
   if (!abierto) return <button onClick={() => setAbierto(true)} className="text-sm font-semibold text-cyan-700">+ Sección</button>
@@ -1225,7 +1240,13 @@ function AgregarSeccion({ planId, accion, sinSeccionIds }: { planId: string; acc
       <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Nombre de la sección" className="flex-1 min-w-[12rem] px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
       <label className="flex items-center gap-1 text-xs text-slate-500">Fecha tentativa
         <input type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm" /></label>
-      <input value={dias} onChange={(e) => setDias(e.target.value)} placeholder="Días estimados" inputMode="numeric" className="w-28 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+      <label className="flex items-center gap-1 text-xs text-slate-500">Tiempo estimado
+        <input value={dias} onChange={(e) => setDias(e.target.value)} placeholder="—" inputMode="numeric" className="w-14 px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
+        <select value={unidad} onChange={(e) => setUnidad(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm">
+          <option value="DIAS">días</option>
+          <option value="SEMANAS">semanas</option>
+          <option value="MESES">meses</option>
+        </select></label>
       {haySueltas && (
         <label className="flex items-center gap-1.5 text-xs text-slate-600 w-full">
           <input type="checkbox" checked={incorporar} onChange={(e) => setIncorporar(e.target.checked)} />
