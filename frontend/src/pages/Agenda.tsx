@@ -1113,7 +1113,7 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
 
   return (
     <>
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         {/* Encabezado */}
         <div className="flex items-start justify-between gap-3 p-5 border-b border-slate-100">
@@ -1206,7 +1206,7 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
       const cambiaDoc = doctorId !== cita.doctorId
       const fmt = (d: Date) => d.toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })
       return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={() => setPorConfirmar(null)}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-base font-semibold text-slate-900">Confirmar reagendamiento</h2>
@@ -1348,7 +1348,7 @@ function BloqueoModal({ doctorId, doctores, horarios, fecha, onClose, onCreated,
 // ── Helpers UI ──
 function Modal({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[92vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-base font-semibold text-slate-900">{title}</h2>
