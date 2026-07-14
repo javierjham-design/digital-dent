@@ -32,7 +32,7 @@ const SELECT = {
   puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true,
   puedeRevertirCompletado: true, puedeEditarPagos: true, puedeGestionarLiquidaciones: true,
   puedeGestionarCrm: true, puedeEliminar: true, puedeGestionarCajas: true,
-  puedeConfigurarClinica: true, puedeGestionarEquipo: true,
+  puedeConfigurarClinica: true, puedeGestionarEquipo: true, puedeGestionarPrestaciones: true,
   googleCalendarId: true, createdAt: true,
 } as const
 
@@ -126,7 +126,7 @@ const CAMPOS_ADMIN = [
   'name', 'titulo', 'username', 'email', 'role', 'rut', 'especialidad', 'telefono', 'activo',
   'puedeRecibirPagos', 'puedeModificarPrecio', 'puedeAplicarDescuento', 'puedeRevertirCompletado',
   'puedeEditarPagos', 'puedeGestionarLiquidaciones', 'puedeGestionarCrm', 'puedeEliminar', 'puedeGestionarCajas',
-  'puedeConfigurarClinica', 'puedeGestionarEquipo', 'googleCalendarId',
+  'puedeConfigurarClinica', 'puedeGestionarEquipo', 'puedeGestionarPrestaciones', 'googleCalendarId',
 ]
 
 export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, targetId: string, body: Record<string, unknown>, clinicaId?: string): Promise<UsuarioDTO> {

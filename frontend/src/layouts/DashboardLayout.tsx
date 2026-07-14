@@ -18,7 +18,7 @@ const linkCls = ({ isActive }: { isActive: boolean }) =>
 
 // Menú "Administración": agrupa todo lo de gestión (config, equipo, prestaciones,
 // reportes, liquidaciones) para no saturar el header.
-function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, puedeCajas, puedeConfig, puedeEquipo, modCrm, modAgenda }: { puedeGestionar: boolean; esAdmin: boolean; puedeCrm: boolean; puedeCajas: boolean; puedeConfig: boolean; puedeEquipo: boolean; modCrm: boolean; modAgenda: boolean }) {
+function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, puedeCajas, puedeConfig, puedeEquipo, puedePrestaciones, modCrm, modAgenda }: { puedeGestionar: boolean; esAdmin: boolean; puedeCrm: boolean; puedeCajas: boolean; puedeConfig: boolean; puedeEquipo: boolean; puedePrestaciones: boolean; modCrm: boolean; modAgenda: boolean }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
@@ -50,7 +50,7 @@ function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, puedeCajas, pue
             {modCrm && (esAdmin || puedeCrm) && item('/crm', 'CRM · Leads')}
             {(esAdmin || puedeConfig) && item('/consentimientos', 'Consentimientos')}
             {esAdmin && item('/suscripcion', 'Suscripción y pagos')}
-            {item('/prestaciones', 'Prestaciones')}
+            {(esAdmin || puedePrestaciones) && item('/prestaciones', 'Prestaciones')}
             {item('/reportes', 'Reportes')}
             {(esAdmin || puedeCajas) && item('/gestion-cajas', 'Gestión de cajas')}
             {puedeGestionar && item('/liquidaciones', 'Gestión de liquidaciones')}
@@ -124,6 +124,7 @@ export function DashboardLayout() {
   const puedeCajas = Boolean(user?.permisos?.puedeGestionarCajas)
   const puedeConfig = Boolean(user?.permisos?.puedeConfigurarClinica)
   const puedeEquipo = Boolean(user?.permisos?.puedeGestionarEquipo)
+  const puedePrestaciones = Boolean(user?.permisos?.puedeGestionarPrestaciones)
   const esAdmin = user?.role === 'admin'
   const mods = user?.modulos ?? []
   const modCrm = mods.includes('crm')
@@ -147,7 +148,7 @@ export function DashboardLayout() {
         </div>
         <nav className="flex flex-wrap items-center gap-1 w-full order-4 sm:order-3 sm:w-auto sm:flex-1">
           {NAV_PRE.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
-          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} puedeCrm={puedeCrm} puedeCajas={puedeCajas} puedeConfig={puedeConfig} puedeEquipo={puedeEquipo} modCrm={modCrm} modAgenda={modAgenda} />
+          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} puedeCrm={puedeCrm} puedeCajas={puedeCajas} puedeConfig={puedeConfig} puedeEquipo={puedeEquipo} puedePrestaciones={puedePrestaciones} modCrm={modCrm} modAgenda={modAgenda} />
           <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
         </nav>
       </header>

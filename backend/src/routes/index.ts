@@ -63,6 +63,8 @@ const configTenant = [requireAuth, requireTenant, requirePermiso('puedeConfigura
 const agendaConfig = [requireAuth, requireTenant, requireModulo('agendamiento_online'), requirePermiso('puedeConfigurarClinica')]
 // Gestión del equipo (usuarios y permisos): admin o "puedeGestionarEquipo".
 const equipoTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarEquipo')]
+// Gestión del catálogo de prestaciones y sus secciones: admin o "puedeGestionarPrestaciones".
+const prestacionesTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarPrestaciones')]
 
 // Subida de archivos en memoria (import de pacientes XLSX, máx 5MB).
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
@@ -213,16 +215,16 @@ apiRouter.delete('/bloqueos/:id', tenant, asyncHandler(deleteBloqueo))
 // ── Prestaciones (convertido a database-per-tenant) ──────────────────────────
 apiRouter.get('/prestaciones', tenant, asyncHandler(getPrestaciones))
 apiRouter.post('/prestaciones/dedupe', adminTenant, asyncHandler(postDedupePrestaciones)) // limpiar duplicados (admin)
-apiRouter.post('/prestaciones', tenant, asyncHandler(postPrestacion))
-apiRouter.patch('/prestaciones/:id', tenant, asyncHandler(patchPrestacion))
-apiRouter.delete('/prestaciones/:id', tenant, asyncHandler(deletePrestacion))
+apiRouter.post('/prestaciones', prestacionesTenant, asyncHandler(postPrestacion))
+apiRouter.patch('/prestaciones/:id', prestacionesTenant, asyncHandler(patchPrestacion))
+apiRouter.delete('/prestaciones/:id', prestacionesTenant, asyncHandler(deletePrestacion))
 
 // Secciones / categorías del catálogo (ordenar, renombrar, marcar no liquidables).
 apiRouter.get('/categorias-prestacion', tenant, asyncHandler(getCategorias))
-apiRouter.post('/categorias-prestacion', configTenant, asyncHandler(postCategoria))
-apiRouter.post('/categorias-prestacion/reordenar', configTenant, asyncHandler(postReordenarCategorias))
-apiRouter.patch('/categorias-prestacion/:id', configTenant, asyncHandler(patchCategoria))
-apiRouter.delete('/categorias-prestacion/:id', configTenant, asyncHandler(deleteCategoria))
+apiRouter.post('/categorias-prestacion', prestacionesTenant, asyncHandler(postCategoria))
+apiRouter.post('/categorias-prestacion/reordenar', prestacionesTenant, asyncHandler(postReordenarCategorias))
+apiRouter.patch('/categorias-prestacion/:id', prestacionesTenant, asyncHandler(patchCategoria))
+apiRouter.delete('/categorias-prestacion/:id', prestacionesTenant, asyncHandler(deleteCategoria))
 
 // ── Medios de pago (convertido a database-per-tenant) ────────────────────────
 apiRouter.get('/medios-pago', tenant, asyncHandler(getMediosPago))

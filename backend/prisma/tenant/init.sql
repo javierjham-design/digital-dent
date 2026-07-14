@@ -115,6 +115,7 @@ CREATE TABLE "User" (
     "puedeGestionarCajas" BOOLEAN NOT NULL DEFAULT false,
     "puedeConfigurarClinica" BOOLEAN NOT NULL DEFAULT false,
     "puedeGestionarEquipo" BOOLEAN NOT NULL DEFAULT false,
+    "puedeGestionarPrestaciones" BOOLEAN NOT NULL DEFAULT false,
     "googleCalendarId" TEXT,
     "googleSyncToken" TEXT,
     "googleSyncedAt" TIMESTAMP(3),

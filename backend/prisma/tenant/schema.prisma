@@ -125,6 +125,7 @@ model User {
   puedeGestionarCajas         Boolean @default(false)
   puedeConfigurarClinica      Boolean @default(false) // Configuración, agendamiento online, consentimientos
   puedeGestionarEquipo        Boolean @default(false) // ver/crear/editar usuarios y sus permisos
+  puedeGestionarPrestaciones  Boolean @default(false) // editar prestaciones y secciones del catálogo
 
   // Mapeo a un calendario de Google (dentro de la cuenta de la clínica).
   googleCalendarId String?

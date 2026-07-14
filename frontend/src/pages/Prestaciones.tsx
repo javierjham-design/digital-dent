@@ -11,7 +11,7 @@ const SIN = '__sin__'
 export function Prestaciones() {
   const { user } = useAuth()
   const esAdmin = user?.role === 'admin'
-  const puedeConfig = esAdmin || Boolean(user?.permisos?.puedeConfigurarClinica)
+  const puedeGestionar = esAdmin || Boolean(user?.permisos?.puedeGestionarPrestaciones)
   const [items, setItems] = useState<PrestacionDTO[]>([])
   const [cats, setCats] = useState<CategoriaPrestacionDTO[]>([])
   const [cargando, setCargando] = useState(true)
@@ -66,6 +66,8 @@ export function Prestaciones() {
   }
   const sinCat = porCat.get(SIN) ?? []
 
+  if (!puedeGestionar) return <p className="text-slate-500 text-sm max-w-md">No tienes acceso a la gestión de prestaciones. Pídele a un administrador el permiso <span className="font-medium">“Gestionar prestaciones”</span>.</p>
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
@@ -98,7 +100,7 @@ export function Prestaciones() {
       )}
 
       {/* Agregar sección (solo quien puede configurar) */}
-      {puedeConfig && (
+      {puedeGestionar && (
         <div className="bg-white rounded-2xl border border-slate-200 p-3 mb-5 flex gap-2 items-center flex-wrap">
           <span className="text-sm font-medium text-slate-600">Nueva sección</span>
           <input value={nuevaSeccion} onChange={(e) => setNuevaSeccion(e.target.value)} placeholder="Ej: Laboratorio, Insumos, Ortodoncia…"
@@ -110,11 +112,11 @@ export function Prestaciones() {
       {cargando ? <p className="text-slate-500 text-sm">Cargando…</p> : (
         <div className="space-y-5">
           {cats.map((c, i) => (
-            <Seccion key={c.id} cat={c} idx={i} total={cats.length} puedeConfig={puedeConfig}
+            <Seccion key={c.id} cat={c} idx={i} total={cats.length} puedeGestionar={puedeGestionar}
               prestaciones={porCat.get(c.nombre) ?? []} cats={cats} correr={correr} onMover={moverSeccion} />
           ))}
           {sinCat.length > 0 && (
-            <Seccion cat={null} idx={-1} total={0} puedeConfig={puedeConfig} prestaciones={sinCat} cats={cats} correr={correr} onMover={moverSeccion} />
+            <Seccion cat={null} idx={-1} total={0} puedeGestionar={puedeGestionar} prestaciones={sinCat} cats={cats} correr={correr} onMover={moverSeccion} defaultOpen />
           )}
         </div>
       )}
@@ -122,33 +124,36 @@ export function Prestaciones() {
   )
 }
 
-function Seccion({ cat, idx, total, puedeConfig, prestaciones, cats, correr, onMover }: {
-  cat: CategoriaPrestacionDTO | null; idx: number; total: number; puedeConfig: boolean
+function Seccion({ cat, idx, total, puedeGestionar, prestaciones, cats, correr, onMover, defaultOpen }: {
+  cat: CategoriaPrestacionDTO | null; idx: number; total: number; puedeGestionar: boolean
   prestaciones: PrestacionDTO[]; cats: CategoriaPrestacionDTO[]
   correr: (fn: () => Promise<unknown>) => Promise<void>; onMover: (idx: number, dir: -1 | 1) => void
+  defaultOpen?: boolean
 }) {
   const [editNombre, setEditNombre] = useState(false)
   const [nombre, setNombre] = useState(cat?.nombre ?? '')
-  const totalSec = prestaciones.reduce((s, p) => s + p.precio, 0)
+  const [abierto, setAbierto] = useState(Boolean(defaultOpen))
+  const conteo = `${prestaciones.length} prestaci${prestaciones.length === 1 ? 'ón' : 'ones'}`
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
       <div className="flex items-center justify-between gap-2 px-4 py-2.5 bg-slate-50 border-b border-slate-100 flex-wrap">
-        <div className="flex items-center gap-2 min-w-0">
-          {cat && puedeConfig && editNombre ? (
-            <>
+        <button onClick={() => setAbierto((v) => !v)} className="flex items-center gap-2 min-w-0 text-left">
+          <span className="text-slate-400 text-xs w-3">{abierto ? '▾' : '▸'}</span>
+          {cat && puedeGestionar && editNombre ? (
+            <span onClick={(e) => e.stopPropagation()} className="flex items-center gap-2">
               <input value={nombre} onChange={(e) => setNombre(e.target.value)} className="px-2 py-1 border border-slate-200 rounded-lg text-sm" />
-              <button onClick={() => correr(async () => { await categoriasService.actualizar(cat.id, { nombre: nombre.trim() || cat.nombre }); setEditNombre(false) })} className="text-xs font-semibold text-cyan-700">Guardar</button>
-              <button onClick={() => { setNombre(cat.nombre); setEditNombre(false) }} className="text-xs text-slate-400">Cancelar</button>
-            </>
+              <button type="button" onClick={() => correr(async () => { await categoriasService.actualizar(cat.id, { nombre: nombre.trim() || cat.nombre }); setEditNombre(false) })} className="text-xs font-semibold text-cyan-700">Guardar</button>
+              <button type="button" onClick={() => { setNombre(cat.nombre); setEditNombre(false) }} className="text-xs text-slate-400">Cancelar</button>
+            </span>
           ) : (
             <span className="text-sm font-semibold text-slate-800 truncate">{cat?.nombre ?? 'Sin sección'}</span>
           )}
+          <span className="text-xs text-slate-400 whitespace-nowrap">· {conteo}</span>
           {cat?.noLiquidable && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 whitespace-nowrap">No liquidable</span>}
-        </div>
+        </button>
         <div className="flex items-center gap-3">
-          <span className="text-sm font-mono text-slate-500">{fmtCLP(totalSec)}</span>
-          {cat && puedeConfig && (
+          {cat && puedeGestionar && (
             <>
               <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer" title="No se considera para la liquidación del profesional (laboratorios/insumos)">
                 <input type="checkbox" checked={cat.noLiquidable} onChange={(e) => correr(() => categoriasService.actualizar(cat.id, { noLiquidable: e.target.checked }))} />
@@ -164,10 +169,12 @@ function Seccion({ cat, idx, total, puedeConfig, prestaciones, cats, correr, onM
           )}
         </div>
       </div>
-      <div className="divide-y divide-slate-100">
-        {prestaciones.length === 0 ? <p className="px-5 py-3 text-xs text-slate-400">Sin prestaciones.</p>
-          : prestaciones.map((p) => <PrestacionFila key={p.id} p={p} cats={cats} correr={correr} />)}
-      </div>
+      {abierto && (
+        <div className="divide-y divide-slate-100">
+          {prestaciones.length === 0 ? <p className="px-5 py-3 text-xs text-slate-400">Sin prestaciones.</p>
+            : prestaciones.map((p) => <PrestacionFila key={p.id} p={p} cats={cats} correr={correr} />)}
+        </div>
+      )}
     </div>
   )
 }
