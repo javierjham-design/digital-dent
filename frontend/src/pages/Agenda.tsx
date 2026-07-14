@@ -68,8 +68,9 @@ export function Agenda() {
   const [currentDate, setCurrentDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })
   const [doctorId, setDoctorId] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(Object.keys(CITA_ESTADOS)))
-  // Expandir citas solapadas (sobrecupo) para verlas lado a lado, sin encimarse.
-  const [expandirSolapados, setExpandirSolapados] = useState(false)
+  // Vista "agenda de sobrecupos": misma grilla semanal pero mostrando SÓLO las
+  // citas en sobrecupo (para revisarlas aparte, sin que se encimen con el resto).
+  const [soloSobrecupos, setSoloSobrecupos] = useState(false)
 
   const [selected, setSelected] = useState<CitaDTO | null>(null)
   const [selectedBloqueo, setSelectedBloqueo] = useState<BloqueoDTO | null>(null)
@@ -165,7 +166,10 @@ export function Agenda() {
   )
 
   const events = useMemo(() => {
-    const ev = citasVisibles.map((c) => {
+    // En la "agenda de sobrecupos" mostramos SÓLO las citas en sobrecupo (sin
+    // bloqueos), en la misma grilla semanal.
+    const base = soloSobrecupos ? citasVisibles.filter((c) => c.sobrecupo) : citasVisibles
+    const ev = base.map((c) => {
       const cfg = CITA_ESTADOS[c.estado]
       return {
         id: `cita-${c.id}`, title: c.pacienteNombre, start: c.inicio, end: c.fin,
@@ -174,13 +178,14 @@ export function Agenda() {
         extendedProps: { kind: 'cita' as const, cita: c },
       }
     })
+    if (soloSobrecupos) return ev
     const blq = bloqueos.filter((b) => !doctorId || b.doctorId === doctorId).map((b) => ({
       id: `blq-${b.id}`, title: `Bloqueo: ${b.motivo ?? ''}`, start: b.inicio, end: b.fin,
       backgroundColor: '#475569', borderColor: '#334155', textColor: '#f1f5f9', editable: false,
       extendedProps: { kind: 'bloqueo' as const, bloqueo: b },
     }))
     return [...ev, ...blq]
-  }, [citasVisibles, bloqueos, doctorId])
+  }, [citasVisibles, bloqueos, doctorId, soloSobrecupos])
 
   function shiftDate(dir: -1 | 1) {
     setCurrentDate((prev) => { const d = new Date(prev); d.setDate(d.getDate() + dir * (vista === 'semanal' ? 7 : 1)); return d })
@@ -357,16 +362,16 @@ export function Agenda() {
           <div className="flex items-center gap-2">
             <div className="flex bg-slate-100 rounded-lg p-0.5">
               {(['diaria', 'global', 'semanal'] as Vista[]).map((v) => (
-                <button key={v} onClick={() => { setVista(v); if (v === 'semanal' && !doctorId) setDoctorId(doctores[0]?.id ?? '') }}
+                <button key={v} onClick={() => { setVista(v); setSoloSobrecupos(false); if (v === 'semanal' && !doctorId) setDoctorId(doctores[0]?.id ?? '') }}
                   className={`text-xs font-semibold px-3 py-1.5 rounded-md ${vista === v ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500'}`}>
                   {v === 'diaria' ? 'Diaria' : v === 'global' ? 'Global' : 'Semanal'}
                 </button>
               ))}
             </div>
             {vista === 'semanal' && (
-              <button onClick={() => setExpandirSolapados((v) => !v)} title="Ver las citas en sobrecupo lado a lado, sin encimarse"
-                className={`text-sm font-semibold rounded-lg px-3 py-1.5 border ${expandirSolapados ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
-                Sobrecupos
+              <button onClick={() => setSoloSobrecupos((v) => !v)} title="Abrir la agenda de sobrecupos (solo las citas en sobrecupo, misma grilla semanal)"
+                className={`text-sm font-semibold rounded-lg px-3 py-1.5 border ${soloSobrecupos ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                {soloSobrecupos ? '← Agenda normal' : 'Sobrecupos'}
               </button>
             )}
             <button onClick={() => setBloqueoForm(true)} className="text-sm font-semibold text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">Bloquear</button>
@@ -399,6 +404,13 @@ export function Agenda() {
 
         {aviso && (
           <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>
+        )}
+
+        {vista === 'semanal' && soloSobrecupos && (
+          <div className="mb-3 flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+            <span className="text-sm font-semibold">📋 Agenda de sobrecupos — mostrando sólo las citas en sobrecupo.</span>
+            <button onClick={() => setSoloSobrecupos(false)} className="text-xs font-semibold underline">Volver a la agenda normal</button>
+          </div>
         )}
 
         {vista === 'semanal' ? (
@@ -452,7 +464,7 @@ export function Agenda() {
               slotMinTime="07:00:00" slotMaxTime="21:00:00" slotDuration="00:15:00" slotLabelInterval="00:15:00"
               allDaySlot={false} height="auto" nowIndicator expandRows
               displayEventTime={false} eventMinHeight={32}
-              slotEventOverlap={!expandirSolapados}
+              slotEventOverlap={!soloSobrecupos}
               slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
               dayHeaderFormat={{ weekday: 'short', day: 'numeric' }}
             />
