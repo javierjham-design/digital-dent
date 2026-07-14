@@ -80,7 +80,10 @@ export function Agenda() {
   const [horariosTodos, setHorariosTodos] = useState<HorarioDTO[]>([])
   const [clinica, setClinica] = useState<ClinicaConfigDTO | null>(null)
 
-  const [vista, setVista] = useState<Vista>('diaria')
+  const [vista, setVista] = useState<Vista>(() => {
+    const v = localStorage.getItem('agenda-vista')
+    return v === 'semanal' || v === 'global' || v === 'diaria' ? v : 'diaria'
+  })
   const [currentDate, setCurrentDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })
   const [doctorId, setDoctorId] = useState<string>('')
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(Object.keys(CITA_ESTADOS)))
@@ -105,14 +108,20 @@ export function Agenda() {
 
   // Carga inicial: doctores (los pacientes se buscan en el servidor al crear cita).
   useEffect(() => {
-    // Por defecto se muestran TODOS los profesionales (doctorId vacío); la vista
-    // inicial es la diaria (lista), donde "Todos" es una opción válida.
-    usuariosService.doctores().then(setDoctores).catch(() => {})
+    // Si la vista recordada es la semanal (necesita un profesional), al cargar los
+    // doctores se elige el primero; el resto de las vistas admiten "Todos".
+    usuariosService.doctores().then((ds) => {
+      setDoctores(ds)
+      if (vista === 'semanal') setDoctorId((cur) => cur || ds[0]?.id || '')
+    }).catch(() => {})
     clinicaService.obtener().then(setClinica).catch(() => {})
     // Todos los horarios de atención (para la vista Global: qué profesionales
     // atienden cada día y en qué franjas).
     horariosLectura.listar().then(setHorariosTodos).catch(() => {})
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Recuerda la última vista elegida (para que un F5 no vuelva a la diaria).
+  useEffect(() => { localStorage.setItem('agenda-vista', vista) }, [vista])
 
   // Rango visible según vista.
   const rango = useMemo(() => {
@@ -141,6 +150,14 @@ export function Agenda() {
     agendaOnlineService.reservas().then((rs) => setPendientes(rs.filter((r) => r.estado === 'PENDIENTE'))).catch(() => {})
   }, [])
   useEffect(() => { cargarPendientes() }, [cargarPendientes])
+
+  // Auto-actualización cada 30 s: refleja los cambios que hacen otros usuarios sin
+  // recargar la página ni cambiar la vista/fecha/profesional actual (recargar sólo
+  // vuelve a consultar citas/bloqueos del rango visible).
+  useEffect(() => {
+    const id = setInterval(() => { if (!document.hidden) { recargar(); cargarPendientes() } }, 30000)
+    return () => clearInterval(id)
+  }, [recargar, cargarPendientes])
 
   async function confirmarReserva(id: string) {
     try { await citasService.cambiarEstado(id, 'CONFIRMADO'); notify('Reserva confirmada'); cargarPendientes(); recargar() }
