@@ -92,6 +92,7 @@ ALTER TABLE "PagoOnline" ADD CONSTRAINT "PagoOnline_cobroId_fkey" FOREIGN KEY ("
 CREATE TABLE "User" (
     "id" TEXT NOT NULL,
     "name" TEXT,
+    "titulo" TEXT NOT NULL DEFAULT '',
     "email" TEXT,
     "username" TEXT,
     "password" TEXT NOT NULL,

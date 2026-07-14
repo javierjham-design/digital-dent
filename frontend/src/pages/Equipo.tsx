@@ -1,9 +1,23 @@
 import { useEffect, useState } from 'react'
 import type { UsuarioDTO, HorarioDTO } from '@shared/types'
+import { conTitulo, TITULOS_PROFESIONAL } from '@shared/utils/nombre'
 import { usuariosService, horariosService, type CupoProfesionales } from '@/services/equipo.service'
 import { contratosService } from '@/services/caja.service'
 import { ApiError } from '@/services/api'
 import { fmtMonto } from '@/lib/money'
+
+// Selector de título profesional (se muestra delante del nombre en toda la plataforma).
+function TituloSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <label className="block">
+      <span className="block text-sm font-medium text-slate-700 mb-1">Título</span>
+      <select value={value} onChange={(e) => onChange(e.target.value)}
+        className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+        {TITULOS_PROFESIONAL.map((t) => <option key={t} value={t}>{t || '— (sin título)'}</option>)}
+      </select>
+    </label>
+  )
+}
 
 const ROLES = [
   { v: 'doctor', l: 'Doctor / Médico' },
@@ -38,7 +52,7 @@ export function Equipo() {
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ name: '', username: '', password: '', role: 'doctor', especialidad: '', telefono: '' })
+  const [form, setForm] = useState({ name: '', titulo: '', username: '', password: '', role: 'doctor', especialidad: '', telefono: '' })
   const [guardando, setGuardando] = useState(false)
   const [formError, setFormError] = useState('')
   const [editar, setEditar] = useState<UsuarioDTO | null>(null)
@@ -60,7 +74,7 @@ export function Equipo() {
     setGuardando(true); setFormError('')
     try {
       await usuariosService.crear(form)
-      setForm({ name: '', username: '', password: '', role: 'doctor', especialidad: '', telefono: '' })
+      setForm({ name: '', titulo: '', username: '', password: '', role: 'doctor', especialidad: '', telefono: '' })
       setShowForm(false)
       cargar()
     } catch (err) {
@@ -86,6 +100,7 @@ export function Equipo() {
 
       {showForm && (
         <form onSubmit={crear} className="bg-white rounded-2xl border border-slate-200 p-5 mb-5 grid sm:grid-cols-2 gap-3">
+          <TituloSelect value={form.titulo} onChange={(v) => setForm({ ...form, titulo: v })} />
           <Field label="Nombre" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
           <Field label="Usuario (login)" value={form.username} onChange={(v) => setForm({ ...form, username: v.toLowerCase() })} required />
           <Field label="Contraseña" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required />
@@ -123,7 +138,7 @@ export function Equipo() {
         ) : usuarios.map((u) => (
           <div key={u.id} className="flex items-center justify-between px-5 py-3.5 gap-3">
             <div className="min-w-0">
-              <p className="font-semibold text-slate-900 truncate">{u.name ?? u.username}</p>
+              <p className="font-semibold text-slate-900 truncate">{conTitulo(u.titulo, u.name) || u.username}</p>
               <p className="text-xs text-slate-500">
                 @{u.username} · {ROL_LABEL[u.role] ?? u.role}{u.especialidad ? ` · ${u.especialidad}` : ''}
               </p>
@@ -154,7 +169,7 @@ function UsuarioEditor({ user, onClose, onSaved }: { user: UsuarioDTO; onClose: 
       <div className="bg-white rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between sticky top-0 bg-white z-10">
           <div>
-            <h3 className="text-lg font-bold text-slate-900">{user.name ?? user.username}</h3>
+            <h3 className="text-lg font-bold text-slate-900">{conTitulo(user.titulo, user.name) || user.username}</h3>
             <p className="text-xs text-slate-500">@{user.username} · {ROL_LABEL[user.role] ?? user.role}</p>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-2xl leading-none">×</button>
@@ -177,7 +192,7 @@ function UsuarioEditor({ user, onClose, onSaved }: { user: UsuarioDTO; onClose: 
 }
 
 function DatosForm({ user, onSaved }: { user: UsuarioDTO; onSaved: () => void }) {
-  const [f, setF] = useState({ name: user.name ?? '', role: user.role, especialidad: user.especialidad ?? '', telefono: user.telefono ?? '', rut: user.rut ?? '', activo: user.activo })
+  const [f, setF] = useState({ name: user.name ?? '', titulo: user.titulo ?? '', role: user.role, especialidad: user.especialidad ?? '', telefono: user.telefono ?? '', rut: user.rut ?? '', activo: user.activo })
   const [pwd, setPwd] = useState('')
   const [msg, setMsg] = useState(''); const [saving, setSaving] = useState(false)
   async function guardar() {
@@ -190,6 +205,7 @@ function DatosForm({ user, onSaved }: { user: UsuarioDTO; onSaved: () => void })
   return (
     <div className="space-y-3">
       <div className="grid sm:grid-cols-2 gap-3">
+        <TituloSelect value={f.titulo} onChange={(v) => setF({ ...f, titulo: v })} />
         <Field label="Nombre" value={f.name} onChange={(v) => setF({ ...f, name: v })} />
         <label className="block">
           <span className="block text-sm font-medium text-slate-700 mb-1">Rol</span>

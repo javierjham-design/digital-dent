@@ -137,6 +137,7 @@ export interface DoctorDTO {
 export interface UsuarioDTO {
   id: string
   name: string | null
+  titulo?: string
   username: string | null
   email: string | null
   role: string

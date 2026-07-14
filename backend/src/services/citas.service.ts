@@ -6,6 +6,7 @@ import { addMinutes, intervalsOverlap } from '@/lib/overlap'
 import { pushCita, deleteCitaInGoogle } from '@/lib/google-sync'
 import { enviarConfirmacionHora } from '@/services/email.service'
 import { assertDentroDeAtencion } from '@/lib/atencion'
+import { conTitulo } from '@shared/utils/nombre'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica.
 // La sincronización con Google es best-effort (fire-and-forget): nunca debe
@@ -16,7 +17,7 @@ type CitaRow = {
   id: string; pacienteId: string; doctorId: string; fecha: Date; duracion: number
   estado: string; tipo: string | null; notas: string | null; sobrecupo: boolean; confirmadoWA: boolean
   paciente: { nombre: string; apellido: string; rut: string | null; telefono: string | null }
-  doctor: { name: string | null; email: string | null }
+  doctor: { name: string | null; titulo?: string; email: string | null }
 }
 
 function toDTO(c: CitaRow): CitaDTO {
@@ -27,7 +28,7 @@ function toDTO(c: CitaRow): CitaDTO {
     pacienteRut: c.paciente.rut,
     pacienteTelefono: c.paciente.telefono,
     doctorId: c.doctorId,
-    doctor: c.doctor.name ?? c.doctor.email,
+    doctor: conTitulo(c.doctor.titulo, c.doctor.name) || c.doctor.email,
     inicio: c.fecha.toISOString(),
     fin: new Date(c.fecha.getTime() + c.duracion * 60000).toISOString(),
     estado: c.estado,
@@ -40,7 +41,7 @@ function toDTO(c: CitaRow): CitaDTO {
 
 const INCLUDE = {
   paciente: { select: { nombre: true, apellido: true, rut: true, telefono: true } },
-  doctor: { select: { name: true, email: true } },
+  doctor: { select: { name: true, titulo: true, email: true } },
 } as const
 
 // Detección de doble reserva (misma regla que el monolito).

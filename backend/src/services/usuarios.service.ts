@@ -3,6 +3,7 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
 import type { DoctorDTO, UsuarioDTO } from '@shared/types'
+import { conTitulo, normalizarTitulo } from '@shared/utils/nombre'
 import { getLimiteProfesionales, PROFESIONAL_EXTRA_PRECIO } from '@/lib/plans'
 
 const ROLES_PERMITIDOS = ['admin', 'doctor', 'medico', 'staff']
@@ -26,7 +27,7 @@ async function assertCupoProfesional(db: TenantClient, clinicaId: string | undef
 const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,30}$/
 
 const SELECT = {
-  id: true, name: true, username: true, email: true, role: true, rut: true,
+  id: true, name: true, titulo: true, username: true, email: true, role: true, rut: true,
   especialidad: true, telefono: true, activo: true,
   puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true,
   puedeRevertirCompletado: true, puedeEditarPagos: true, puedeGestionarLiquidaciones: true,
@@ -35,7 +36,7 @@ const SELECT = {
 } as const
 
 function toDTO(u: {
-  id: string; name: string | null; username: string | null; email: string | null; role: string
+  id: string; name: string | null; titulo?: string; username: string | null; email: string | null; role: string
   rut: string | null; especialidad: string | null; telefono: string | null; activo: boolean
   puedeRecibirPagos?: boolean; puedeModificarPrecio?: boolean; puedeAplicarDescuento?: boolean
   puedeRevertirCompletado?: boolean; puedeEditarPagos?: boolean; puedeGestionarLiquidaciones?: boolean
@@ -62,15 +63,18 @@ export async function listarUsuarios(db: TenantClient): Promise<UsuarioDTO[]> {
 export async function listarDoctores(db: TenantClient): Promise<DoctorDTO[]> {
   const docs = await db.user.findMany({
     where: { role: { in: ROLES_CON_AGENDA }, activo: true },
-    select: { id: true, name: true, email: true, especialidad: true },
+    select: { id: true, name: true, titulo: true, email: true, especialidad: true },
   })
-  // Orden alfabético por apellido (última palabra del nombre).
+  // Orden alfabético por apellido (última palabra del nombre, sin el título).
   const apellido = (n: string | null) => ((n ?? '').trim().split(/\s+/).pop() ?? '').toLowerCase()
-  return docs.sort((a, b) => apellido(a.name).localeCompare(apellido(b.name), 'es'))
+  return docs
+    .sort((a, b) => apellido(a.name).localeCompare(apellido(b.name), 'es'))
+    // El nombre visible lleva el título delante (ej. "Dra. Ana Pérez").
+    .map((d) => ({ id: d.id, name: conTitulo(d.titulo, d.name) || null, email: d.email, especialidad: d.especialidad }))
 }
 
 export interface CrearUsuarioInput {
-  name: string; username: string; password: string; role?: string
+  name: string; username: string; password: string; role?: string; titulo?: string | null
   email?: string | null; rut?: string | null; especialidad?: string | null; telefono?: string | null
 }
 
@@ -101,7 +105,7 @@ export async function crearUsuario(db: TenantClient, input: CrearUsuarioInput, c
 
   const usuario = await db.user.create({
     data: {
-      name: input.name.trim(), username, email,
+      name: input.name.trim(), titulo: normalizarTitulo(input.titulo), username, email,
       password: await bcrypt.hash(input.password, 10),
       role, rut: input.rut || null, especialidad: input.especialidad || null,
       telefono: input.telefono || null,
@@ -111,9 +115,9 @@ export async function crearUsuario(db: TenantClient, input: CrearUsuarioInput, c
   return toDTO(usuario)
 }
 
-const CAMPOS_PROPIOS = ['name', 'rut', 'especialidad', 'telefono']
+const CAMPOS_PROPIOS = ['name', 'titulo', 'rut', 'especialidad', 'telefono']
 const CAMPOS_ADMIN = [
-  'name', 'username', 'email', 'role', 'rut', 'especialidad', 'telefono', 'activo',
+  'name', 'titulo', 'username', 'email', 'role', 'rut', 'especialidad', 'telefono', 'activo',
   'puedeRecibirPagos', 'puedeModificarPrecio', 'puedeAplicarDescuento', 'puedeRevertirCompletado',
   'puedeEditarPagos', 'puedeGestionarLiquidaciones', 'puedeGestionarCrm', 'puedeEliminar', 'puedeGestionarCajas', 'googleCalendarId',
 ]
@@ -135,6 +139,7 @@ export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, tar
   if ('role' in data && !ROLES_PERMITIDOS.includes(String(data.role))) {
     throw badRequest(`role inválido. Use: ${ROLES_PERMITIDOS.join(', ')}`)
   }
+  if ('titulo' in data) data.titulo = normalizarTitulo(data.titulo)
 
   // Si el cambio CONVIERTE al usuario en profesional con agenda activo (por rol o
   // por reactivación) y antes no lo era, valida el tope del plan (+extras).

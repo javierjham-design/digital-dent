@@ -2,6 +2,13 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
 import { audit } from '@/lib/audit'
+import { conTitulo } from '@shared/utils/nombre'
+
+// El nombre del doctor titular se muestra con su título (ej. "Dra. Ana").
+type DocTit = { id: string; name: string | null; titulo?: string; email?: string | null } | null
+const conTitularNombre = <T extends { doctorTitular: DocTit }>(p: T): T => (
+  p.doctorTitular ? { ...p, doctorTitular: { ...p.doctorTitular, name: conTitulo(p.doctorTitular.titulo, p.doctorTitular.name) || null } } : p
+)
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica.
 
@@ -43,7 +50,7 @@ export async function listarPlanes(db: TenantClient, pacienteId: string) {
     where: { pacienteId },
     orderBy: { createdAt: 'desc' },
     include: {
-      doctorTitular: { select: { id: true, name: true, email: true } },
+      doctorTitular: { select: { id: true, name: true, titulo: true, email: true } },
       _count: { select: { tratamientos: true, secciones: true } },
       // Datos mínimos para que las tarjetas calculen progreso y estado financiero.
       tratamientos: {
@@ -65,7 +72,7 @@ export async function listarPlanes(db: TenantClient, pacienteId: string) {
     : []
   const abonoMap = new Map<string, number>()
   for (const it of itemsLibres) if (it.planId) abonoMap.set(it.planId, (abonoMap.get(it.planId) ?? 0) + it.monto)
-  return planes.map((p) => ({ ...p, abonoLibre: abonoMap.get(p.id) ?? 0 }))
+  return planes.map((p) => conTitularNombre({ ...p, abonoLibre: abonoMap.get(p.id) ?? 0 }))
 }
 
 export async function crearPlan(db: TenantClient, input: { pacienteId: string; nombre?: string; notas?: string; fechaInicio?: string; doctorTitularId?: string }) {
@@ -87,7 +94,7 @@ export async function obtenerPlan(db: TenantClient, id: string) {
   const plan = await db.planTratamiento.findUnique({
     where: { id },
     include: {
-      doctorTitular: { select: { id: true, name: true, email: true } },
+      doctorTitular: { select: { id: true, name: true, titulo: true, email: true } },
       secciones: { orderBy: { orden: 'asc' }, include: { tratamientos: { orderBy: { fecha: 'asc' }, include: TRAT_INCLUDE } } },
       tratamientos: { where: { seccionId: null }, orderBy: { fecha: 'asc' }, include: TRAT_INCLUDE },
     },
@@ -98,7 +105,7 @@ export async function obtenerPlan(db: TenantClient, id: string) {
     where: { planId: id, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } },
     _sum: { monto: true },
   })
-  return { ...plan, abonoLibre: abono._sum.monto ?? 0 }
+  return conTitularNombre({ ...plan, abonoLibre: abono._sum.monto ?? 0 })
 }
 
 export async function actualizarPlan(db: TenantClient, id: string, body: Record<string, unknown>) {

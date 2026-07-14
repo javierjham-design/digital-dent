@@ -4,24 +4,25 @@ import { actorName, type JwtPayload } from '@/services/auth.service'
 import type { BloqueoDTO } from '@shared/types'
 import { pushBloqueo, deleteBloqueoInGoogle } from '@/lib/google-sync'
 import { assertDentroDeAtencion } from '@/lib/atencion'
+import { conTitulo } from '@shared/utils/nombre'
 
 // La sincronización con Google es best-effort (fire-and-forget): nunca debe
 // hacer fallar la operación primaria sobre la base de la clínica.
 
 type BloqueoRow = {
   id: string; doctorId: string; inicio: Date; fin: Date; motivo: string | null; createdByName: string | null
-  doctor: { name: string | null; email: string | null }
+  doctor: { name: string | null; titulo?: string; email: string | null }
 }
 
 function toDTO(b: BloqueoRow): BloqueoDTO {
   return {
-    id: b.id, doctorId: b.doctorId, doctor: b.doctor.name ?? b.doctor.email,
+    id: b.id, doctorId: b.doctorId, doctor: conTitulo(b.doctor.titulo, b.doctor.name) || b.doctor.email,
     inicio: b.inicio.toISOString(), fin: b.fin.toISOString(),
     motivo: b.motivo, createdByName: b.createdByName,
   }
 }
 
-const INCLUDE = { doctor: { select: { name: true, email: true } } } as const
+const INCLUDE = { doctor: { select: { name: true, titulo: true, email: true } } } as const
 
 export async function listarBloqueos(db: TenantClient, _actor: JwtPayload, filtros: { from?: string; to?: string; doctorId?: string }): Promise<BloqueoDTO[]> {
   // Todos los usuarios ven la agenda completa: si se pasa doctorId se filtra por

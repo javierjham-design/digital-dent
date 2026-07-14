@@ -7,7 +7,7 @@ export const usuariosService = {
   listar: () => api.get<UsuarioDTO[]>('/usuarios'),
   doctores: () => api.get<DoctorDTO[]>('/doctores'),
   cupoProfesionales: () => api.get<CupoProfesionales>('/usuarios/cupo-profesionales'),
-  crear: (input: { name: string; username: string; password: string; role?: string; email?: string; rut?: string; especialidad?: string; telefono?: string }) =>
+  crear: (input: { name: string; username: string; password: string; role?: string; titulo?: string; email?: string; rut?: string; especialidad?: string; telefono?: string }) =>
     api.post<UsuarioDTO>('/usuarios', input),
   actualizar: (id: string, patch: Partial<UsuarioDTO> & { password?: string }) =>
     api.patch<UsuarioDTO>(`/usuarios/${id}`, patch),
