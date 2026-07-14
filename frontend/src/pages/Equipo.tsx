@@ -102,8 +102,8 @@ export function Equipo() {
         <form onSubmit={crear} className="bg-white rounded-2xl border border-slate-200 p-5 mb-5 grid sm:grid-cols-2 gap-3">
           <TituloSelect value={form.titulo} onChange={(v) => setForm({ ...form, titulo: v })} />
           <Field label="Nombre" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
-          <Field label="Usuario (login)" value={form.username} onChange={(v) => setForm({ ...form, username: v.toLowerCase() })} required />
-          <Field label="Contraseña" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required />
+          <Field label="Usuario (login)" value={form.username} onChange={(v) => setForm({ ...form, username: v.toLowerCase() })} required autoComplete="off" name="usuario-nuevo" />
+          <Field label="Contraseña" type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required autoComplete="new-password" name="password-nuevo" />
           <label className="block">
             <span className="block text-sm font-medium text-slate-700 mb-1">Rol</span>
             <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}
@@ -194,12 +194,14 @@ function UsuarioEditor({ user, onClose, onSaved }: { user: UsuarioDTO; onClose: 
 function DatosForm({ user, onSaved }: { user: UsuarioDTO; onSaved: () => void }) {
   const [f, setF] = useState({ name: user.name ?? '', titulo: user.titulo ?? '', role: user.role, especialidad: user.especialidad ?? '', telefono: user.telefono ?? '', rut: user.rut ?? '', activo: user.activo })
   const [pwd, setPwd] = useState('')
+  const [cambiarPwd, setCambiarPwd] = useState(false) // el campo sólo aparece si se pide (evita autofill/reseteos por error)
   const [msg, setMsg] = useState(''); const [saving, setSaving] = useState(false)
   async function guardar() {
     setSaving(true); setMsg('')
     try {
-      await usuariosService.actualizar(user.id, { ...f, ...(pwd ? { password: pwd } : {}) })
-      setPwd(''); setMsg('Cambios guardados'); onSaved()
+      // Sólo cambia la contraseña si el usuario abrió explícitamente el campo y escribió algo.
+      await usuariosService.actualizar(user.id, { ...f, ...(cambiarPwd && pwd ? { password: pwd } : {}) })
+      setPwd(''); setCambiarPwd(false); setMsg('Cambios guardados'); onSaved()
     } catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error') } finally { setSaving(false) }
   }
   return (
@@ -213,10 +215,22 @@ function DatosForm({ user, onSaved }: { user: UsuarioDTO; onSaved: () => void })
             {ROLES.map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
           </select>
         </label>
-        <Field label="Especialidad" value={f.especialidad} onChange={(v) => setF({ ...f, especialidad: v })} />
-        <Field label="Teléfono" value={f.telefono} onChange={(v) => setF({ ...f, telefono: v })} />
-        <Field label="RUT" value={f.rut} onChange={(v) => setF({ ...f, rut: v })} />
-        <Field label="Restablecer contraseña" type="password" value={pwd} onChange={setPwd} placeholder="(dejar vacío para no cambiar)" />
+        <Field label="Especialidad" value={f.especialidad} onChange={(v) => setF({ ...f, especialidad: v })} autoComplete="off" />
+        <Field label="Teléfono" value={f.telefono} onChange={(v) => setF({ ...f, telefono: v })} autoComplete="off" />
+        <Field label="RUT" value={f.rut} onChange={(v) => setF({ ...f, rut: v })} autoComplete="off" name="rut-clinica" />
+        <div className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Contraseña</span>
+          {!cambiarPwd ? (
+            <button type="button" onClick={() => setCambiarPwd(true)}
+              className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-600 hover:bg-slate-50 text-left">Restablecer contraseña…</button>
+          ) : (
+            <div className="flex gap-2">
+              <input type="password" value={pwd} onChange={(e) => setPwd(e.target.value)} autoComplete="new-password" placeholder="Nueva contraseña (mín. 8)"
+                className="flex-1 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+              <button type="button" onClick={() => { setCambiarPwd(false); setPwd('') }} className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm text-slate-500 hover:bg-slate-50">Cancelar</button>
+            </div>
+          )}
+        </div>
       </div>
       <label className="flex items-center gap-2 text-sm text-slate-700">
         <input type="checkbox" checked={f.activo} onChange={(e) => setF({ ...f, activo: e.target.checked })} /> Usuario activo
@@ -397,13 +411,14 @@ function ContratoForm({ doctorId }: { doctorId: string }) {
   )
 }
 
-function Field({ label, value, onChange, type = 'text', required = false, placeholder }: {
-  label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean; placeholder?: string
+function Field({ label, value, onChange, type = 'text', required = false, placeholder, autoComplete, name }: {
+  label: string; value: string; onChange: (v: string) => void; type?: string; required?: boolean; placeholder?: string; autoComplete?: string; name?: string
 }) {
   return (
     <label className="block">
       <span className="block text-sm font-medium text-slate-700 mb-1">{label}{required && <span className="text-rose-500"> *</span>}</span>
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} required={required} placeholder={placeholder}
+        autoComplete={autoComplete} name={name}
         className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
     </label>
   )
