@@ -187,6 +187,19 @@ export function Agenda() {
     return [...ev, ...blq]
   }, [citasVisibles, bloqueos, doctorId, soloSobrecupos])
 
+  // ¿La franja [inicio, inicio+dur) cae dentro del horario de atención del
+  // profesional? Se usa para no dejar agendar/bloquear fuera de sus bloques.
+  // Si el profesional no tiene horario configurado, no se restringe.
+  function dentroAtencion(docId: string, inicio: Date, dur: number): boolean {
+    const delDoc = horariosTodos.filter((h) => h.doctorId === docId && h.activo)
+    if (delDoc.length === 0) return true
+    const h = delDoc.find((x) => x.diaSemana === inicio.getDay())
+    if (!h) return false
+    const ini = inicio.getHours() * 60 + inicio.getMinutes()
+    const fin = ini + dur
+    return bloquesAtencion(h).some(([s, e]) => ini >= s && fin <= e)
+  }
+
   function shiftDate(dir: -1 | 1) {
     setCurrentDate((prev) => { const d = new Date(prev); d.setDate(d.getDate() + dir * (vista === 'semanal' ? 7 : 1)); return d })
   }
@@ -459,7 +472,10 @@ export function Agenda() {
               editable
               eventDrop={onDrop}
               eventResize={onResize}
-              dateClick={(a) => setSlotAccion({ slotISO: a.date.toISOString() })}
+              dateClick={(a) => {
+                if (!dentroAtencion(doctorId, a.date, 15)) { notify('Ese horario está fuera del horario de atención del profesional.', false); return }
+                setSlotAccion({ slotISO: a.date.toISOString() })
+              }}
               businessHours={businessHours}
               slotMinTime="07:00:00" slotMaxTime="21:00:00" slotDuration="00:15:00" slotLabelInterval="00:15:00"
               allDaySlot={false} height="auto" nowIndicator expandRows
@@ -473,7 +489,10 @@ export function Agenda() {
           <DiariaGlobal doctores={doctores} horarios={horariosTodos} citas={citasGlobal} bloqueos={bloqueosGlobal} fecha={currentDate}
             conflicto={conflictoEn}
             onCita={setSelected} onBloqueo={setSelectedBloqueo}
-            onSlot={(docId, slotISO) => setCrear({ slotISO, doctorId: docId })}
+            onSlot={(docId, slotISO) => {
+              if (!dentroAtencion(docId, new Date(slotISO), 15)) { notify('Ese horario está fuera del horario de atención del profesional.', false); return }
+              setCrear({ slotISO, doctorId: docId })
+            }}
             onMover={(cita, nuevoDoctorId, nuevoISO, duracion) => {
               if (!cita.sobrecupo) {
                 const conf = conflictoEn(nuevoDoctorId, nuevoISO, duracion, cita.id)

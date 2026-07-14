@@ -5,6 +5,7 @@ import type { CitaDTO } from '@shared/types'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
 import { pushCita, deleteCitaInGoogle } from '@/lib/google-sync'
 import { enviarConfirmacionHora } from '@/services/email.service'
+import { assertDentroDeAtencion } from '@/lib/atencion'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica.
 // La sincronización con Google es best-effort (fire-and-forget): nunca debe
@@ -93,6 +94,9 @@ export async function crearCita(db: TenantClient, userName: string, input: Crear
   const dur = Number(input.duracion) || 30
   const fin = addMinutes(inicio, dur)
 
+  // Sólo se puede agendar dentro del horario de atención del profesional.
+  await assertDentroDeAtencion(db, input.doctorId, inicio, fin)
+
   const bloqueo = await db.bloqueoAgenda.findFirst({
     where: { doctorId: input.doctorId, inicio: { lt: fin }, fin: { gt: inicio } },
     select: { motivo: true },
@@ -161,6 +165,9 @@ export async function editarCita(db: TenantClient, id: string, userName: string,
     const nuevoDoctor = (data.doctorId as string) ?? current.doctorId
     const esSobrecupo = data.sobrecupo !== undefined ? (data.sobrecupo as boolean) : current.sobrecupo
     const fin = addMinutes(nuevaFecha, nuevaDur)
+
+    // Reagendar/mover también debe quedar dentro del horario de atención.
+    await assertDentroDeAtencion(db, nuevoDoctor, nuevaFecha, fin)
 
     const bloqueo = await db.bloqueoAgenda.findFirst({
       where: { doctorId: nuevoDoctor, inicio: { lt: fin }, fin: { gt: nuevaFecha } },

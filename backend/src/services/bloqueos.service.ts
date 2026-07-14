@@ -3,6 +3,7 @@ import { badRequest, forbidden, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import type { BloqueoDTO } from '@shared/types'
 import { pushBloqueo, deleteBloqueoInGoogle } from '@/lib/google-sync'
+import { assertDentroDeAtencion } from '@/lib/atencion'
 
 // La sincronización con Google es best-effort (fire-and-forget): nunca debe
 // hacer fallar la operación primaria sobre la base de la clínica.
@@ -54,6 +55,9 @@ export async function crearBloqueo(db: TenantClient, actor: JwtPayload, input: {
 
   const doctor = await db.user.findUnique({ where: { id: input.doctorId }, select: { id: true } })
   if (!doctor) throw notFound('Doctor no encontrado.')
+
+  // Sólo se puede bloquear dentro del horario de atención del profesional.
+  await assertDentroDeAtencion(db, input.doctorId, inicio, fin)
 
   const motivo = input.motivo?.trim() || null
   const bloqueo = await db.bloqueoAgenda.create({
