@@ -32,6 +32,7 @@ const SELECT = {
   puedeRecibirPagos: true, puedeModificarPrecio: true, puedeAplicarDescuento: true,
   puedeRevertirCompletado: true, puedeEditarPagos: true, puedeGestionarLiquidaciones: true,
   puedeGestionarCrm: true, puedeEliminar: true, puedeGestionarCajas: true,
+  puedeConfigurarClinica: true, puedeGestionarEquipo: true,
   googleCalendarId: true, createdAt: true,
 } as const
 
@@ -124,7 +125,8 @@ const CAMPOS_PROPIOS = ['name', 'titulo', 'rut', 'especialidad', 'telefono']
 const CAMPOS_ADMIN = [
   'name', 'titulo', 'username', 'email', 'role', 'rut', 'especialidad', 'telefono', 'activo',
   'puedeRecibirPagos', 'puedeModificarPrecio', 'puedeAplicarDescuento', 'puedeRevertirCompletado',
-  'puedeEditarPagos', 'puedeGestionarLiquidaciones', 'puedeGestionarCrm', 'puedeEliminar', 'puedeGestionarCajas', 'googleCalendarId',
+  'puedeEditarPagos', 'puedeGestionarLiquidaciones', 'puedeGestionarCrm', 'puedeEliminar', 'puedeGestionarCajas',
+  'puedeConfigurarClinica', 'puedeGestionarEquipo', 'googleCalendarId',
 ]
 
 export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, targetId: string, body: Record<string, unknown>, clinicaId?: string): Promise<UsuarioDTO> {
@@ -133,9 +135,19 @@ export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, tar
 
   const editandoOtro = actor.sub !== targetId
   const isAdmin = actor.role === 'admin'
-  if (editandoOtro && !isAdmin) throw forbidden('Solo admin puede editar a otros usuarios')
+  // Un gestor de equipo (permiso puedeGestionarEquipo) puede administrar a otros
+  // usuarios como el admin, con dos salvaguardas: no puede editar a un admin ni
+  // convertir a nadie en admin (evita escalada de privilegios).
+  const puedeEquipo = isAdmin || (editandoOtro
+    ? (await db.user.findUnique({ where: { id: actor.sub }, select: { puedeGestionarEquipo: true } }))?.puedeGestionarEquipo === true
+    : false)
+  if (editandoOtro && !puedeEquipo) throw forbidden('No tienes permiso para editar a otros usuarios.')
+  if (editandoOtro && !isAdmin) {
+    if (existing.role === 'admin') throw forbidden('Solo un administrador puede editar a otro administrador.')
+    if (String(body.role) === 'admin') throw forbidden('Solo un administrador puede asignar el rol de administrador.')
+  }
 
-  const allowed = isAdmin ? CAMPOS_ADMIN : CAMPOS_PROPIOS
+  const allowed = (isAdmin || puedeEquipo) ? CAMPOS_ADMIN : CAMPOS_PROPIOS
   const data: Record<string, unknown> = {}
   for (const key of allowed) {
     if (body[key] !== undefined) data[key] = body[key]

@@ -10,6 +10,7 @@ import { ApiError } from '@/services/api'
 export function Configuracion() {
   const { user } = useAuth()
   const esAdmin = user?.role === 'admin'
+  const puedeConfig = esAdmin || Boolean(user?.permisos?.puedeConfigurarClinica)
   const [data, setData] = useState<ClinicaConfigDTO | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
@@ -41,6 +42,7 @@ export function Configuracion() {
     } finally { setGuardando(false) }
   }
 
+  if (!puedeConfig) return <p className="text-slate-500 text-sm max-w-md">No tienes acceso a la configuración de la clínica. Pídele a un administrador el permiso <span className="font-medium">“Configurar la clínica”</span>.</p>
   if (cargando) return <p className="text-slate-500 text-sm">Cargando…</p>
   if (!data) return <p className="text-rose-600 text-sm">{error || 'No se pudo cargar la configuración'}</p>
 

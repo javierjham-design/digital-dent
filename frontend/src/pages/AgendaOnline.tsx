@@ -3,6 +3,7 @@ import { agendaOnlineService, type LinkAgendaDTO, type ReservaOnline, type Venta
 import { usuariosService } from '@/services/equipo.service'
 import type { DoctorDTO } from '@shared/types'
 import { ApiError } from '@/services/api'
+import { useAuth } from '@/hooks/useAuth'
 
 const DIAS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb']
 const fechaHora = (iso: string) => new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
@@ -10,6 +11,8 @@ const nombresProfes = (l: LinkAgendaDTO) =>
   (l.profesionales.length ? l.profesionales.map((p) => p.user.name ?? p.user.email) : [l.doctor.name ?? l.doctor.email]).join(', ')
 
 export function AgendaOnline() {
+  const { user } = useAuth()
+  const puedeConfig = user?.role === 'admin' || Boolean(user?.permisos?.puedeConfigurarClinica)
   const [slug, setSlug] = useState('')
   const [links, setLinks] = useState<LinkAgendaDTO[]>([])
   const [doctores, setDoctores] = useState<DoctorDTO[]>([])
@@ -34,6 +37,8 @@ export function AgendaOnline() {
     if (!window.confirm(`¿Eliminar el link "${l.nombre}"? Las citas ya reservadas se conservan.`)) return
     try { await agendaOnlineService.eliminar(l.id); cargar() } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
+
+  if (!puedeConfig) return <p className="text-slate-500 text-sm max-w-md">No tienes acceso al agendamiento online. Pídele a un administrador el permiso <span className="font-medium">“Configurar la clínica”</span>.</p>
 
   return (
     <div>

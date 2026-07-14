@@ -123,6 +123,8 @@ model User {
   puedeGestionarCrm           Boolean @default(false)
   puedeEliminar               Boolean @default(false)
   puedeGestionarCajas         Boolean @default(false)
+  puedeConfigurarClinica      Boolean @default(false) // Configuración, agendamiento online, consentimientos
+  puedeGestionarEquipo        Boolean @default(false) // ver/crear/editar usuarios y sus permisos
 
   // Mapeo a un calendario de Google (dentro de la cuenta de la clínica).
   googleCalendarId String?

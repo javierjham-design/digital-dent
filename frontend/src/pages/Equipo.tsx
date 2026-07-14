@@ -5,6 +5,7 @@ import { usuariosService, horariosService, type CupoProfesionales } from '@/serv
 import { contratosService } from '@/services/caja.service'
 import { ApiError } from '@/services/api'
 import { fmtMonto } from '@/lib/money'
+import { useAuth } from '@/hooks/useAuth'
 
 // Selector de título profesional (se muestra delante del nombre en toda la plataforma).
 function TituloSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -37,6 +38,8 @@ const PERMISOS: [keyof UsuarioDTO, string][] = [
   ['puedeGestionarCrm', 'Gestionar CRM (leads y seguimiento)'],
   ['puedeEliminar', 'Eliminar registros (radiografías, consentimientos)'],
   ['puedeGestionarCajas', 'Gestionar cajas (ver todas las cajas y sus movimientos)'],
+  ['puedeConfigurarClinica', 'Configurar la clínica (configuración, agendamiento online, consentimientos)'],
+  ['puedeGestionarEquipo', 'Gestionar el equipo (crear/editar usuarios y asignar permisos)'],
 ]
 const DIAS: [number, string][] = [[1, 'Lunes'], [2, 'Martes'], [3, 'Miércoles'], [4, 'Jueves'], [5, 'Viernes'], [6, 'Sábado'], [0, 'Domingo']]
 const hoyISO = () => new Date().toISOString().slice(0, 10)
@@ -48,6 +51,8 @@ interface ContratoLite {
 }
 
 export function Equipo() {
+  const { user } = useAuth()
+  const puedeEquipo = user?.role === 'admin' || Boolean(user?.permisos?.puedeGestionarEquipo)
   const [usuarios, setUsuarios] = useState<UsuarioDTO[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
@@ -81,6 +86,8 @@ export function Equipo() {
       setFormError(err instanceof ApiError ? err.message : 'No se pudo crear el usuario')
     } finally { setGuardando(false) }
   }
+
+  if (!puedeEquipo) return <p className="text-slate-500 text-sm max-w-md">No tienes acceso a la gestión del equipo. Pídele a un administrador el permiso <span className="font-medium">“Gestionar el equipo”</span>.</p>
 
   return (
     <div>

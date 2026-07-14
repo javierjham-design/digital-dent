@@ -47,6 +47,7 @@ type TenantUserRow = {
   puedeModificarPrecio: boolean; puedeAplicarDescuento: boolean; puedeRevertirCompletado: boolean
   puedeEditarPagos: boolean; puedeGestionarLiquidaciones: boolean; puedeGestionarCrm: boolean; puedeEliminar: boolean
   puedeGestionarCajas: boolean; puedeRecibirPagos: boolean
+  puedeConfigurarClinica: boolean; puedeGestionarEquipo: boolean
 }
 function tenantUserDTO(u: TenantUserRow, clinicaId: string, pais: string, modulos: string[]): SessionUserDTO {
   const isAdmin = u.role === 'admin'
@@ -63,6 +64,8 @@ function tenantUserDTO(u: TenantUserRow, clinicaId: string, pais: string, modulo
       puedeEliminar: isAdmin || u.puedeEliminar,
       puedeGestionarCajas: isAdmin || u.puedeGestionarCajas,
       puedeRecibirPagos: isAdmin || u.puedeRecibirPagos,
+      puedeConfigurarClinica: isAdmin || u.puedeConfigurarClinica,
+      puedeGestionarEquipo: isAdmin || u.puedeGestionarEquipo,
     },
   }
 }
@@ -74,6 +77,7 @@ function platformAdminDTO(a: { id: string; name: string | null; email: string; p
     permisos: {
       puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
       puedeEditarPagos: true, puedeGestionarLiquidaciones: true, puedeGestionarCrm: true, puedeEliminar: true, puedeGestionarCajas: true, puedeRecibirPagos: true,
+      puedeConfigurarClinica: true, puedeGestionarEquipo: true,
     },
   }
 }

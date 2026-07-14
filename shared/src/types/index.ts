@@ -23,6 +23,8 @@ export interface SessionUserDTO {
     puedeEliminar: boolean
     puedeGestionarCajas: boolean
     puedeRecibirPagos: boolean
+    puedeConfigurarClinica: boolean
+    puedeGestionarEquipo: boolean
   }
 }
 
@@ -154,6 +156,8 @@ export interface UsuarioDTO {
   puedeGestionarCrm?: boolean
   puedeEliminar?: boolean
   puedeGestionarCajas?: boolean
+  puedeConfigurarClinica?: boolean
+  puedeGestionarEquipo?: boolean
   googleCalendarId?: string | null
   createdAt: string
 }

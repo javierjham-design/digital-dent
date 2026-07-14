@@ -54,9 +54,14 @@ const crmTenant = [requireAuth, requireTenant, requireModulo('crm'), requirePerm
 const crmAdmin = [requireAuth, requireTenant, requireModulo('crm'), requireAdmin]
 // Agendamiento online (módulo asignable).
 const agendaTenant = [requireAuth, requireTenant, requireModulo('agendamiento_online')]
-const agendaAdmin = [requireAuth, requireTenant, requireModulo('agendamiento_online'), requireAdmin]
 // Eliminar registros clínicos: admin o usuario con el permiso "puedeEliminar".
 const eliminarTenant = [requireAuth, requireTenant, requirePermiso('puedeEliminar')]
+// Configuración de la clínica / agendamiento online / consentimientos: admin o
+// usuario con el permiso "puedeConfigurarClinica".
+const configTenant = [requireAuth, requireTenant, requirePermiso('puedeConfigurarClinica')]
+const agendaConfig = [requireAuth, requireTenant, requireModulo('agendamiento_online'), requirePermiso('puedeConfigurarClinica')]
+// Gestión del equipo (usuarios y permisos): admin o "puedeGestionarEquipo".
+const equipoTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarEquipo')]
 
 // Subida de archivos en memoria (import de pacientes XLSX, máx 5MB).
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
@@ -128,7 +133,7 @@ apiRouter.patch('/citas/:id/estado', tenant, asyncHandler(patchEstado))
 apiRouter.get('/usuarios', tenant, asyncHandler(getUsuarios))
 apiRouter.get('/usuarios/cupo-profesionales', tenant, asyncHandler(getCupoProfesionales))
 apiRouter.get('/doctores', tenant, asyncHandler(getDoctores))
-apiRouter.post('/usuarios', adminTenant, asyncHandler(postUsuario))
+apiRouter.post('/usuarios', equipoTenant, asyncHandler(postUsuario))
 apiRouter.patch('/usuarios/:id', tenant, asyncHandler(patchUsuario)) // self o admin (validado en service)
 
 // ── Horarios (convertido a database-per-tenant) ──────────────────────────────
@@ -137,9 +142,9 @@ apiRouter.post('/horarios', tenant, asyncHandler(postHorarios))
 
 // ── Agendamiento online: links (admin) + reservas ────────────────────────────
 apiRouter.get('/agenda-links', agendaTenant, asyncHandler(agendaOnline.getLinks))
-apiRouter.post('/agenda-links', agendaAdmin, asyncHandler(agendaOnline.postLink))
-apiRouter.patch('/agenda-links/:id', agendaAdmin, asyncHandler(agendaOnline.patchLink))
-apiRouter.delete('/agenda-links/:id', agendaAdmin, asyncHandler(agendaOnline.deleteLink))
+apiRouter.post('/agenda-links', agendaConfig, asyncHandler(agendaOnline.postLink))
+apiRouter.patch('/agenda-links/:id', agendaConfig, asyncHandler(agendaOnline.patchLink))
+apiRouter.delete('/agenda-links/:id', agendaConfig, asyncHandler(agendaOnline.deleteLink))
 apiRouter.get('/reservas-online', agendaTenant, asyncHandler(agendaOnline.getReservas))
 
 // ── Suscripción de la clínica (su propio plan/pago) — admin de la clínica ─────
@@ -179,10 +184,10 @@ apiRouter.delete('/crm/leads/:id', crmAdmin, asyncHandler(crm.deleteLead))
 // ── Consentimientos informados ───────────────────────────────────────────────
 // Plantillas: listar (cualquier usuario, para generar) / gestionar (admin).
 apiRouter.get('/consentimientos/plantillas', tenant, asyncHandler(consent.getPlantillas))
-apiRouter.post('/consentimientos/plantillas', adminTenant, asyncHandler(consent.postPlantilla))
-apiRouter.get('/consentimientos/plantillas/:id', adminTenant, asyncHandler(consent.getPlantilla))
-apiRouter.patch('/consentimientos/plantillas/:id', adminTenant, asyncHandler(consent.patchPlantilla))
-apiRouter.delete('/consentimientos/plantillas/:id', adminTenant, asyncHandler(consent.deletePlantilla))
+apiRouter.post('/consentimientos/plantillas', configTenant, asyncHandler(consent.postPlantilla))
+apiRouter.get('/consentimientos/plantillas/:id', configTenant, asyncHandler(consent.getPlantilla))
+apiRouter.patch('/consentimientos/plantillas/:id', configTenant, asyncHandler(consent.patchPlantilla))
+apiRouter.delete('/consentimientos/plantillas/:id', configTenant, asyncHandler(consent.deletePlantilla))
 // Generación / firma / consulta (usuarios de la clínica).
 apiRouter.post('/consentimientos/previsualizar', tenant, asyncHandler(consent.postPrevisualizar))
 apiRouter.post('/consentimientos/generar', tenant, asyncHandler(consent.postGenerar))
@@ -219,7 +224,7 @@ apiRouter.delete('/medios-pago/:id', tenant, asyncHandler(deleteMedioPago))
 
 // ── Configuración de la clínica (convertido a database-per-tenant) ───────────
 apiRouter.get('/clinica', tenant, asyncHandler(getClinica))
-apiRouter.patch('/clinica', adminTenant, asyncHandler(patchClinica))
+apiRouter.patch('/clinica', configTenant, asyncHandler(patchClinica))
 
 // ── Clínico: planes de tratamiento ───────────────────────────────────────────
 apiRouter.get('/planes-tratamiento', tenant, asyncHandler(clinico.getPlanes))

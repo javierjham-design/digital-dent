@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { consentimientosService, type PlantillaConsentimiento } from '@/services/consentimientos.service'
 import { ApiError } from '@/services/api'
+import { useAuth } from '@/hooks/useAuth'
 
 const CAMPOS: [string, string][] = [
   ['nombre', 'Nombre y apellido'], ['rut', 'Documento (RUT/cédula)'], ['fechaNacimiento', 'Fecha de nacimiento'],
@@ -9,6 +10,8 @@ const CAMPOS: [string, string][] = [
 const VARIABLES = ['PACIENTE_NOMBRE_COMPLETO', 'PACIENTE_RUT', 'PACIENTE_FECHA_NACIMIENTO', 'PACIENTE_EDAD', 'PACIENTE_TELEFONO_CORREO', 'FICHA_CLINICA_N', 'REPRESENTANTE_NOMBRE', 'REPRESENTANTE_RUT_VINCULO', 'PROFESIONAL_NOMBRE', 'PROFESIONAL_RUT_REGISTRO', 'FECHA_HORA']
 
 export function Consentimientos() {
+  const { user } = useAuth()
+  const puedeConfig = user?.role === 'admin' || Boolean(user?.permisos?.puedeConfigurarClinica)
   const [lista, setLista] = useState<PlantillaConsentimiento[]>([])
   const [sel, setSel] = useState<PlantillaConsentimiento | null>(null)
   const [cargando, setCargando] = useState(true)
@@ -22,6 +25,8 @@ export function Consentimientos() {
     try { const p = await consentimientosService.crearPlantilla({ titulo: 'Nuevo consentimiento', codigo: 'CI', contenidoHtml: '<h1>Nuevo consentimiento</h1><p>Contenido…</p>' }); cargar(); setSel(p); notify('Plantilla creada') }
     catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
+
+  if (!puedeConfig) return <p className="text-slate-500 text-sm max-w-md">No tienes acceso a las plantillas de consentimientos. Pídele a un administrador el permiso <span className="font-medium">“Configurar la clínica”</span>.</p>
 
   return (
     <div>
