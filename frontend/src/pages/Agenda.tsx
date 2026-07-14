@@ -456,29 +456,30 @@ export function Agenda() {
             {/* Estilo tipo Dentalink: espacios disponibles en verde, fuera de horario en gris,
                 bloques anchos con el nombre del paciente. En móvil el grid scrollea horizontal. */}
             <style>{`
-              .fc { min-width: 720px; --fc-border-color: #94a3b8; }
-              .fc .fc-timegrid-slot { height: 1.95em; }
-              .fc .fc-timegrid-slot-lane { background: #dcfce7; }
-              .fc .fc-non-business { background: #eceef1 !important; }
+              .fc { min-width: 720px; --fc-border-color: #e5e9ef; }
+              /* Alto de bloque = 2em (32px) = eventMinHeight={32}: las citas calzan
+                 EXACTO con la grilla, sin sobresalir ni dejar huecos entre ellas. */
+              .fc .fc-timegrid-slot { height: 2em; }
+              /* Disponible = verde muy tenue; fuera de horario = gris suave. */
+              .fc .fc-timegrid-slot-lane { background: #eefaf3; }
+              .fc .fc-non-business { background: #f1f5f9 !important; }
               .fc .fc-day-today { background: transparent !important; }
-              /* Separación entre días: barra gris sólida (pseudo-elemento posicionado) en el borde
-                 de cada columna, con z-index alto para que SIEMPRE se vea sobre el verde y corte las
-                 líneas horizontales. pointer-events:none para no bloquear el clic. */
+              /* Separador entre días: línea gris tenue (sobre el fondo, no bloquea el clic). */
               .fc .fc-timegrid-col { position: relative; }
-              .fc td.fc-timegrid-col::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 2px; background: #9aa6b2; pointer-events: none; z-index: 4; }
+              .fc td.fc-timegrid-col::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 1px; background: #dfe4ea; pointer-events: none; z-index: 4; }
               .fc td.fc-timegrid-axis::after { display: none; }
-              /* Divisor horizontal entre cada bloque */
-              .fc .fc-timegrid-slot { border-bottom: 1px solid #8fc2a4 !important; }
-              .fc .fc-timegrid-slot-minor { border-top: 1px dotted #b9dcc8 !important; }
-              .fc .fc-col-header-cell { padding: 6px 0; background: #f1f5f9; }
+              /* Líneas de bloque tenues (gris muy claro), sin el rayado verde anterior. */
+              .fc .fc-timegrid-slot { border-bottom: 1px solid #eef1f5 !important; }
+              .fc .fc-timegrid-slot-minor { border-top: 0 !important; }
+              .fc .fc-col-header-cell { padding: 6px 0; background: #f8fafc; }
               .fc .fc-col-header-cell-cushion { font-weight: 600; color: #334155; text-transform: capitalize; }
               .fc .fc-day-today .fc-col-header-cell-cushion { color: #0891b2; }
               .fc .fc-timegrid-now-indicator-line { border-color: #ef4444; }
-              .fc .fc-timegrid-event { border-radius: 5px; box-shadow: none; border: none; }
+              .fc .fc-timegrid-event { border-radius: 6px; box-shadow: none; border: none; }
               .fc .fc-timegrid-event .fc-event-main { padding: 2px 5px; height: 100%; }
               .fc .fc-event-title { white-space: normal; font-weight: 600; font-size: 0.78rem; line-height: 1.12; }
-              /* Que el bloque ocupe TODO el ancho de la celda (sin el margen derecho
-                 que FullCalendar deja por defecto) y todo su alto. */
+              /* El bloque ocupa TODO el ancho y alto de su celda (sin el margen que
+                 FullCalendar deja por defecto), para que se vean parejos. */
               .fc .fc-timegrid-col-events { margin: 0 !important; }
               .fc .fc-timegrid-event-harness { margin-right: 0 !important; right: 1px !important; }
               .fc .fc-timegrid-event-harness-inset .fc-timegrid-event { box-shadow: none; }
