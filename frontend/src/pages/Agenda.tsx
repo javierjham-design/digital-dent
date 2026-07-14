@@ -4,7 +4,7 @@ import FullCalendar from '@fullcalendar/react'
 import timeGridPlugin from '@fullcalendar/timegrid'
 import interactionPlugin from '@fullcalendar/interaction'
 import esLocale from '@fullcalendar/core/locales/es'
-import type { EventClickArg } from '@fullcalendar/core'
+import type { EventClickArg, EventContentArg } from '@fullcalendar/core'
 
 // Tipo estructural común a eventDrop y eventResize (ambos traen event + revert).
 type MoveArg = { event: { start: Date | null; end: Date | null; extendedProps: Record<string, unknown> }; revert: () => void }
@@ -52,6 +52,22 @@ const MOTIVOS = ['Consulta diagnóstico', 'Control', 'Detartraje / Profilaxis', 
 const DURACIONES = [15, 30, 45, 60, 90, 120]
 
 const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+
+// Render de cada evento en la vista semanal: nombre del paciente + comentario
+// (📝) para verlo de un vistazo; tooltip con el detalle completo.
+function renderEventoSemanal(arg: EventContentArg) {
+  const props = arg.event.extendedProps as { kind?: string; cita?: CitaDTO }
+  if (props.kind === 'bloqueo') {
+    return <div className="px-1 text-[0.72rem] font-semibold leading-tight truncate">🔒 {arg.event.title}</div>
+  }
+  const nota = props.cita?.notas?.trim()
+  return (
+    <div className="px-0.5 leading-tight overflow-hidden w-full" title={`${arg.event.title}${nota ? ` — ${nota}` : ''}`}>
+      <div className="font-semibold text-[0.78rem] truncate">{nota ? '📝 ' : ''}{arg.event.title}</div>
+      {nota && <div className="text-[0.68rem] opacity-95 truncate">{nota}</div>}
+    </div>
+  )
+}
 
 type Vista = 'semanal' | 'diaria' | 'global'
 
@@ -286,6 +302,15 @@ export function Agenda() {
     catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
 
+  // Guardar el comentario de una cita sin cerrar el detalle.
+  async function guardarComentario(cita: CitaDTO, notas: string) {
+    try {
+      await citasService.editar(cita.id, { notas })
+      setSelected((s) => (s && s.id === cita.id ? { ...s, notas } : s))
+      notify('Comentario guardado'); recargar()
+    } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo guardar el comentario', false) }
+  }
+
   async function eliminarCita(id: string) {
     if (!confirm('¿Eliminar esta cita?')) return
     try { await citasService.eliminar(id); notify('Cita eliminada'); setSelected(null); recargar() }
@@ -468,6 +493,7 @@ export function Agenda() {
               locale={esLocale}
               headerToolbar={false}
               events={events}
+              eventContent={renderEventoSemanal}
               eventClick={onEventClick}
               editable
               eventDrop={onDrop}
@@ -512,7 +538,7 @@ export function Agenda() {
           onError={(m) => notify(m, false)} />
       )}
       {selected && (
-        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={(c) => { setSelected(null); setReagendar(c) }} />
+        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={(c) => { setSelected(null); setReagendar(c) }} onComentario={guardarComentario} />
       )}
       {reagendar && (
         <ReagendarModal cita={reagendar} doctores={doctores} horarios={horariosTodos} onReagendar={reagendarCita} onClose={() => setReagendar(null)} />
@@ -687,6 +713,7 @@ function DiariaLista({ citas, clinica, onClick, onAvanzar }: { citas: CitaDTO[];
             <button onClick={() => onClick(c)} className="flex-1 min-w-0 text-left">
               <p className="font-semibold text-cyan-800 hover:text-cyan-600 truncate">{c.pacienteNombre}</p>
               <p className="text-xs text-slate-500 truncate">{c.doctor} · {c.tipo}</p>
+              {c.notas?.trim() && <p className="text-xs text-amber-700 truncate">📝 {c.notas.trim()}</p>}
             </button>
             <span className="hidden sm:inline text-xs font-semibold px-2.5 py-1 rounded-full shrink-0" style={{ backgroundColor: cfg?.bg, color: cfg?.text }}>{cfg?.label ?? c.estado}</span>
             {wa && <a href={wa} target="_blank" rel="noopener noreferrer" title="Confirmar por WhatsApp"
@@ -861,16 +888,19 @@ function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, conflicto, o
                     )
                   }
                   const cfg = CITA_ESTADOS[ev.cita.estado]
+                  const corto = alto < 30 // bloque de ~15 min: prioriza mostrar el nombre
+                  const nota = ev.cita.notas?.trim()
                   return (
                     <button key={ev.id} draggable
                       onDragStart={() => { dragRef.current = { cita: ev.cita, duracion: Math.max(15, Math.round((+ev.fin - +ev.ini) / 60000)) } }}
                       onDragEnd={() => { dragRef.current = null; setDropHint(null) }}
                       onClick={(e) => { e.stopPropagation(); onCita(ev.cita) }}
-                      title={ev.cita.sobrecupo ? 'Sobrecupo (sobreagendada)' : undefined}
-                      className="absolute rounded-md px-1.5 py-0.5 text-left overflow-hidden border cursor-move active:opacity-80" style={{ ...style, backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', color: '#fff', ...(ev.cita.sobrecupo ? { outline: '2px dashed rgba(255,255,255,0.9)', outlineOffset: '-3px' } : {}) }}>
-                      <span className="text-[10px] font-mono opacity-90 block leading-tight">{hora(ev.cita.inicio)}{ev.cita.sobrecupo ? ' · SC' : ''}</span>
-                      <span className="text-[11px] font-semibold block leading-tight truncate">{ev.cita.pacienteNombre}</span>
-                      {alto > 40 && <span className="text-[10px] opacity-90 block leading-tight truncate">{ev.cita.tipo}</span>}
+                      title={`${hora(ev.cita.inicio)} ${ev.cita.pacienteNombre}${ev.cita.sobrecupo ? ' (sobrecupo)' : ''}${nota ? ` — ${nota}` : ''}`}
+                      className={`absolute rounded-md px-1 ${corto ? 'py-0' : 'py-0.5'} text-left overflow-hidden border cursor-move active:opacity-80`} style={{ ...style, backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', color: '#fff', ...(ev.cita.sobrecupo ? { outline: '2px dashed rgba(255,255,255,0.9)', outlineOffset: '-3px' } : {}) }}>
+                      {!corto && <span className="text-[10px] font-mono opacity-90 block leading-tight">{hora(ev.cita.inicio)}{ev.cita.sobrecupo ? ' · SC' : ''}</span>}
+                      <span className="text-[11px] font-semibold block leading-tight truncate">{nota ? '📝 ' : ''}{ev.cita.pacienteNombre}</span>
+                      {alto > 40 && nota && <span className="text-[10px] opacity-95 block leading-tight truncate">{nota}</span>}
+                      {alto > 56 && <span className="text-[10px] opacity-90 block leading-tight truncate">{ev.cita.tipo}</span>}
                     </button>
                   )
                 })}
@@ -892,6 +922,7 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
   const [tipo, setTipo] = useState('')
   const [duracion, setDuracion] = useState(30)
   const [sobrecupo, setSobrecupo] = useState(false)
+  const [comentario, setComentario] = useState('')
   const [modo, setModo] = useState<'existente' | 'nuevo'>('existente')
   const [pacienteId, setPacienteId] = useState('')
   const [nuevo, setNuevo] = useState({ nombre: '', apellido: '', rut: '', otroDoc: '', telefono: '' })
@@ -908,7 +939,7 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
         const p = await pacientesService.crear({ nombre: nuevo.nombre, apellido: nuevo.apellido, rut: nuevo.rut || undefined, otroDocId: nuevo.otroDoc || undefined, telefono: nuevo.telefono || undefined })
         pid = p.id
       }
-      await citasService.crear({ pacienteId: pid, doctorId: doc, fecha: slotISO, duracion, tipo: tipo || 'CONSULTA', sobrecupo })
+      await citasService.crear({ pacienteId: pid, doctorId: doc, fecha: slotISO, duracion, tipo: tipo || 'CONSULTA', sobrecupo, notas: comentario.trim() || undefined })
       onCreated()
     } catch (e) {
       onError(e instanceof ApiError ? e.message : 'No se pudo agendar')
@@ -933,6 +964,12 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
         <label className="flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" checked={sobrecupo} onChange={(e) => setSobrecupo(e.target.checked)} /> Sobrecupo (permite solaparse)
         </label>
+
+        <div>
+          <span className="block text-sm font-medium text-slate-700 mb-1">Comentario <span className="text-slate-400 font-normal">(opcional, visible en la agenda)</span></span>
+          <input value={comentario} onChange={(e) => setComentario(e.target.value)} placeholder="Ej: paciente con movilidad reducida, traer radiografías…"
+            className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        </div>
 
         <div className="flex gap-2 pt-1">
           {(['existente', 'nuevo'] as const).map((m) => (
@@ -963,13 +1000,17 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
 }
 
 // ── Modal: detalle de cita ──
-function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar }: {
+function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar, onComentario }: {
   cita: CitaDTO; clinica: ClinicaConfigDTO | null
   onClose: () => void; onEstado: (id: string, estado: string) => void; onEliminar: (id: string) => void
-  onReagendar: (cita: CitaDTO) => void
+  onReagendar: (cita: CitaDTO) => void; onComentario: (cita: CitaDTO, notas: string) => Promise<void>
 }) {
   const next = siguienteEstado(cita.estado)
   const waUrl = waLink(cita, clinica)
+  const [nota, setNota] = useState(cita.notas ?? '')
+  const [guardandoNota, setGuardandoNota] = useState(false)
+  const notaCambiada = (nota.trim()) !== (cita.notas ?? '').trim()
+  async function guardarNota() { setGuardandoNota(true); try { await onComentario(cita, nota.trim()) } finally { setGuardandoNota(false) } }
   return (
     <Modal title={cita.pacienteNombre} onClose={onClose}>
       <p className="text-sm text-slate-500 mb-4">{new Date(cita.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora(cita.inicio)}–{hora(cita.fin)}</p>
@@ -980,6 +1021,16 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
         <Row k="Motivo" v={cita.tipo} />
         <Row k="Estado" v={CITA_ESTADOS[cita.estado]?.label ?? cita.estado} />
       </dl>
+
+      {/* Comentario del agendamiento (visible en la agenda) */}
+      <div className="mb-3">
+        <span className="block text-xs font-medium text-slate-500 mb-1">Comentario</span>
+        <textarea value={nota} onChange={(e) => setNota(e.target.value)} rows={2} placeholder="Agrega un comentario para verlo rápido en la agenda…"
+          className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        {notaCambiada && (
+          <button onClick={guardarNota} disabled={guardandoNota} className="mt-1 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white text-xs font-semibold rounded-lg">{guardandoNota ? 'Guardando…' : 'Guardar comentario'}</button>
+        )}
+      </div>
 
       <button onClick={() => onReagendar(cita)}
         className="w-full mb-3 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold">Reagendar / cambiar duración</button>
