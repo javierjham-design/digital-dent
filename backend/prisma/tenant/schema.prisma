@@ -310,6 +310,17 @@ model Prestacion {
   itemsPresupuesto ItemPresupuesto[]
 }
 
+// Metadata de las secciones/categorías del catálogo de prestaciones. Se enlazan
+// por nombre (Prestacion.categoria == CategoriaPrestacion.nombre). Permiten
+// ordenar las secciones y marcar las NO liquidables (laboratorios/insumos que no
+// se pagan al profesional y no cuentan en la liquidación).
+model CategoriaPrestacion {
+  id           String  @id @default(cuid())
+  nombre       String  @unique
+  orden        Int     @default(0)
+  noLiquidable Boolean @default(false)
+}
+
 model Tratamiento {
   id              String           @id @default(cuid())
   fichaId         String

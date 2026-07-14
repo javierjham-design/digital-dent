@@ -18,6 +18,16 @@ export const prestacionesService = {
   dedupe: () => api.post<{ duplicados: number; eliminadas: number; restantes: number }>('/prestaciones/dedupe', {}),
 }
 
+export interface CategoriaPrestacionDTO { id: string; nombre: string; orden: number; noLiquidable: boolean }
+
+export const categoriasService = {
+  listar: () => api.get<CategoriaPrestacionDTO[]>('/categorias-prestacion'),
+  crear: (nombre: string) => api.post<CategoriaPrestacionDTO>('/categorias-prestacion', { nombre }),
+  actualizar: (id: string, patch: { nombre?: string; noLiquidable?: boolean }) => api.patch<CategoriaPrestacionDTO>(`/categorias-prestacion/${id}`, patch),
+  reordenar: (ids: string[]) => api.post<{ ok: true }>('/categorias-prestacion/reordenar', { ids }),
+  eliminar: (id: string) => api.del<{ ok: true }>(`/categorias-prestacion/${id}`),
+}
+
 export const mediosPagoService = {
   listar: () => api.get<MedioPagoDTO[]>('/medios-pago'),
   crear: (input: { nombre: string; comision?: number; requiereReferencia?: boolean }) => api.post<MedioPagoDTO>('/medios-pago', input),

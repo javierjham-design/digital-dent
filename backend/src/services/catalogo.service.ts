@@ -16,6 +16,72 @@ export async function listarPrestaciones(db: TenantClient): Promise<PrestacionDT
   return prestaciones.map(prestacionDTO)
 }
 
+// ─── Categorías / secciones del catálogo ─────────────────────────────────────
+
+export interface CategoriaPrestacionDTO { id: string; nombre: string; orden: number; noLiquidable: boolean }
+
+// Lista las secciones (categorías) del catálogo, ordenadas. La primera vez las
+// siembra a partir de las categorías ya usadas por las prestaciones existentes.
+export async function listarCategorias(db: TenantClient): Promise<CategoriaPrestacionDTO[]> {
+  let cats = await db.categoriaPrestacion.findMany({ orderBy: [{ orden: 'asc' }, { nombre: 'asc' }] })
+  if (cats.length === 0) {
+    const usadas = await db.prestacion.findMany({ where: { categoria: { not: null } }, select: { categoria: true }, distinct: ['categoria'] })
+    const nombres = [...new Set(usadas.map((u) => (u.categoria ?? '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))
+    if (nombres.length) {
+      await db.categoriaPrestacion.createMany({ data: nombres.map((nombre, i) => ({ nombre, orden: i })) })
+      cats = await db.categoriaPrestacion.findMany({ orderBy: [{ orden: 'asc' }, { nombre: 'asc' }] })
+    }
+  }
+  return cats
+}
+
+export async function crearCategoria(db: TenantClient, nombre: string): Promise<CategoriaPrestacionDTO> {
+  const n = (nombre ?? '').trim()
+  if (!n) throw badRequest('Falta el nombre de la sección')
+  const dup = await db.categoriaPrestacion.findUnique({ where: { nombre: n }, select: { id: true } })
+  if (dup) throw badRequest('Ya existe una sección con ese nombre')
+  const max = await db.categoriaPrestacion.aggregate({ _max: { orden: true } })
+  return db.categoriaPrestacion.create({ data: { nombre: n, orden: (max._max.orden ?? -1) + 1 } })
+}
+
+export async function actualizarCategoria(db: TenantClient, id: string, body: { nombre?: string; noLiquidable?: boolean }): Promise<CategoriaPrestacionDTO> {
+  const existing = await db.categoriaPrestacion.findUnique({ where: { id } })
+  if (!existing) throw notFound('Sección no encontrada')
+  const data: Record<string, unknown> = {}
+  if (typeof body.noLiquidable === 'boolean') data.noLiquidable = body.noLiquidable
+  if (typeof body.nombre === 'string') {
+    const n = body.nombre.trim()
+    if (!n) throw badRequest('El nombre no puede quedar vacío')
+    if (n !== existing.nombre) {
+      const dup = await db.categoriaPrestacion.findFirst({ where: { nombre: n, NOT: { id } }, select: { id: true } })
+      if (dup) throw badRequest('Ya existe una sección con ese nombre')
+      data.nombre = n
+      // Renombrar la categoría también en las prestaciones que la usaban.
+      await db.prestacion.updateMany({ where: { categoria: existing.nombre }, data: { categoria: n } })
+    }
+  }
+  return db.categoriaPrestacion.update({ where: { id }, data })
+}
+
+export async function reordenarCategorias(db: TenantClient, ids: string[]): Promise<void> {
+  await db.$transaction(ids.map((id, i) => db.categoriaPrestacion.update({ where: { id }, data: { orden: i } })))
+}
+
+export async function eliminarCategoria(db: TenantClient, id: string): Promise<void> {
+  const existing = await db.categoriaPrestacion.findUnique({ where: { id } })
+  if (!existing) throw notFound('Sección no encontrada')
+  // Las prestaciones que la usaban quedan "Sin categoría" (no se borran).
+  await db.prestacion.updateMany({ where: { categoria: existing.nombre }, data: { categoria: null } })
+  await db.categoriaPrestacion.delete({ where: { id } })
+}
+
+// Conjunto de nombres de categorías NO liquidables (laboratorios/insumos). Se usa
+// para excluir esas acciones del cálculo de la liquidación del profesional.
+export async function categoriasNoLiquidables(db: TenantClient): Promise<Set<string>> {
+  const cats = await db.categoriaPrestacion.findMany({ where: { noLiquidable: true }, select: { nombre: true } })
+  return new Set(cats.map((c) => c.nombre))
+}
+
 const normNombre = (s: string | null | undefined) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 // Clave de identidad de una prestación: nombre + categoría (ambos normalizados).
 // Solo se fusionan prestaciones realmente equivalentes (mismo nombre Y categoría).

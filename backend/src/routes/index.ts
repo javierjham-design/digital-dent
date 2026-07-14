@@ -14,6 +14,7 @@ import { getUsuarios, getDoctores, getCupoProfesionales, postUsuario, patchUsuar
 import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo } from '@/controllers/agenda.controller'
 import {
   getPrestaciones, postPrestacion, patchPrestacion, deletePrestacion, postDedupePrestaciones,
+  getCategorias, postCategoria, patchCategoria, postReordenarCategorias, deleteCategoria,
   getMediosPago, postMedioPago, patchMedioPago, deleteMedioPago,
   getClinica, patchClinica,
 } from '@/controllers/catalogo.controller'
@@ -215,6 +216,13 @@ apiRouter.post('/prestaciones/dedupe', adminTenant, asyncHandler(postDedupePrest
 apiRouter.post('/prestaciones', tenant, asyncHandler(postPrestacion))
 apiRouter.patch('/prestaciones/:id', tenant, asyncHandler(patchPrestacion))
 apiRouter.delete('/prestaciones/:id', tenant, asyncHandler(deletePrestacion))
+
+// Secciones / categorías del catálogo (ordenar, renombrar, marcar no liquidables).
+apiRouter.get('/categorias-prestacion', tenant, asyncHandler(getCategorias))
+apiRouter.post('/categorias-prestacion', configTenant, asyncHandler(postCategoria))
+apiRouter.post('/categorias-prestacion/reordenar', configTenant, asyncHandler(postReordenarCategorias))
+apiRouter.patch('/categorias-prestacion/:id', configTenant, asyncHandler(patchCategoria))
+apiRouter.delete('/categorias-prestacion/:id', configTenant, asyncHandler(deleteCategoria))
 
 // ── Medios de pago (convertido a database-per-tenant) ────────────────────────
 apiRouter.get('/medios-pago', tenant, asyncHandler(getMediosPago))

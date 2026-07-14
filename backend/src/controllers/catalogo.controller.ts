@@ -4,6 +4,7 @@ import {
   actualizarClinica, actualizarPrestacion, crearPrestacion,
   eliminarPrestacion, listarPrestaciones, dedupePrestaciones, obtenerClinica,
   listarMediosPago, crearMedioPago, actualizarMedioPago, eliminarMedioPago,
+  listarCategorias, crearCategoria, actualizarCategoria, reordenarCategorias, eliminarCategoria,
 } from '@/services/catalogo.service'
 import { crearPrestacionSchema } from '@/validators/schemas'
 
@@ -28,6 +29,26 @@ export async function deletePrestacion(req: Request, res: Response) {
 
 export async function postDedupePrestaciones(req: Request, res: Response) {
   res.json(await dedupePrestaciones(tenantDb(req)))
+}
+
+// ── Secciones / categorías del catálogo ──
+export async function getCategorias(req: Request, res: Response) {
+  res.json(await listarCategorias(tenantDb(req)))
+}
+export async function postCategoria(req: Request, res: Response) {
+  res.status(201).json(await crearCategoria(tenantDb(req), String((req.body ?? {}).nombre ?? '')))
+}
+export async function patchCategoria(req: Request, res: Response) {
+  res.json(await actualizarCategoria(tenantDb(req), req.params.id, req.body ?? {}))
+}
+export async function postReordenarCategorias(req: Request, res: Response) {
+  const ids = Array.isArray((req.body ?? {}).ids) ? (req.body.ids as string[]) : []
+  await reordenarCategorias(tenantDb(req), ids)
+  res.json({ ok: true })
+}
+export async function deleteCategoria(req: Request, res: Response) {
+  await eliminarCategoria(tenantDb(req), req.params.id)
+  res.json({ ok: true })
 }
 
 // ── Medios de pago ──

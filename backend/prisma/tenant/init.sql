@@ -280,6 +280,17 @@ CREATE TABLE "Prestacion" (
 );
 
 -- CreateTable
+CREATE TABLE "CategoriaPrestacion" (
+    "id" TEXT NOT NULL,
+    "nombre" TEXT NOT NULL,
+    "orden" INTEGER NOT NULL DEFAULT 0,
+    "noLiquidable" BOOLEAN NOT NULL DEFAULT false,
+
+    CONSTRAINT "CategoriaPrestacion_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX "CategoriaPrestacion_nombre_key" ON "CategoriaPrestacion"("nombre");
+
+-- CreateTable
 CREATE TABLE "Tratamiento" (
     "id" TEXT NOT NULL,
     "fichaId" TEXT NOT NULL,
