@@ -468,8 +468,10 @@ export function Agenda() {
               .fc .fc-timegrid-col { position: relative; }
               .fc td.fc-timegrid-col::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 1px; background: #dfe4ea; pointer-events: none; z-index: 4; }
               .fc td.fc-timegrid-axis::after { display: none; }
-              /* Líneas de bloque tenues (gris muy claro), sin el rayado verde anterior. */
-              .fc .fc-timegrid-slot { border-bottom: 1px solid #eef1f5 !important; }
+              /* Divisiones de bloque BIEN visibles (para ver los espacios libres),
+                 en gris limpio; la hora en punto va más marcada. */
+              .fc .fc-timegrid-slot { border-bottom: 1px solid #cbd5e1 !important; }
+              .fc .fc-timegrid-slot[data-time$=":00:00"] { border-bottom: 1px solid #94a3b8 !important; }
               .fc .fc-timegrid-slot-minor { border-top: 0 !important; }
               .fc .fc-col-header-cell { padding: 6px 0; background: #f8fafc; }
               .fc .fc-col-header-cell-cushion { font-weight: 600; color: #334155; text-transform: capitalize; }
@@ -534,6 +536,7 @@ export function Agenda() {
 
       {crear && (
         <CrearCitaModal slotISO={crear.slotISO} doctorId={crear.doctorId || doctorId || doctores[0]?.id || ''} doctores={doctores}
+          citas={citas} bloqueos={bloqueos} horarios={horariosTodos}
           onClose={() => setCrear(null)}
           onCreated={() => { setCrear(null); notify('Cita agendada'); recargar() }}
           onError={(m) => notify(m, false)} />
@@ -915,10 +918,11 @@ function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, conflicto, o
 }
 
 // ── Modal: crear cita ──
-function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onError }: {
-  slotISO: string; doctorId: string; doctores: DoctorDTO[]
+function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios, onClose, onCreated, onError }: {
+  slotISO: string; doctorId: string; doctores: DoctorDTO[]; citas: CitaDTO[]; bloqueos: BloqueoDTO[]; horarios: HorarioDTO[]
   onClose: () => void; onCreated: () => void; onError: (m: string) => void
 }) {
+  const start = useMemo(() => new Date(slotISO), [slotISO])
   const [doc, setDoc] = useState(doctorId)
   const [tipo, setTipo] = useState('')
   const [duracion, setDuracion] = useState(30)
@@ -928,22 +932,52 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
   const [pacienteId, setPacienteId] = useState('')
   const [nuevo, setNuevo] = useState({ nombre: '', apellido: '', rut: '', otroDoc: '', telefono: '' })
   const [guardando, setGuardando] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  // Minutos disponibles desde el inicio del slot hasta la próxima cita/bloqueo o el
+  // fin del tramo de atención. Con sobrecupo se ignoran las citas (se permite solapar).
+  const maxMin = useMemo(() => {
+    const startMin = minutosDelDia(start)
+    const h = horarios.find((x) => x.doctorId === doc && x.diaSemana === start.getDay() && x.activo)
+    let limite = 21 * 60
+    if (h) {
+      const seg = bloquesAtencion(h).find(([s, e]) => startMin >= s && startMin < e)
+      if (!seg) return 0 // fuera del horario de atención
+      limite = seg[1]
+    }
+    for (const b of bloqueos) {
+      if (b.doctorId !== doc || !mismoDia(new Date(b.inicio), start)) continue
+      const m = minutosDelDia(new Date(b.inicio)); if (m > startMin && m < limite) limite = m
+    }
+    if (!sobrecupo) for (const c of citas) {
+      if (c.doctorId !== doc || !mismoDia(new Date(c.inicio), start)) continue
+      if (c.sobrecupo || ESTADOS_NO_OCUPAN.includes(c.estado)) continue
+      const m = minutosDelDia(new Date(c.inicio)); if (m > startMin && m < limite) limite = m
+    }
+    return Math.max(0, limite - startMin)
+  }, [doc, sobrecupo, citas, bloqueos, horarios, start])
+
+  const opciones = DURACIONES.filter((d) => d <= maxMin)
+  const durSel = opciones.includes(duracion) ? duracion : (opciones[opciones.length - 1] ?? 0)
+  const sinEspacio = maxMin < 15
 
   const rutInvalido = Boolean(nuevo.rut) && !validarDoc(paisMoneda(), nuevo.rut)
-  const puede = modo === 'existente' ? !!pacienteId : (!!nuevo.nombre && !!nuevo.apellido && !rutInvalido)
+  const pacienteOk = modo === 'existente' ? !!pacienteId : (!!nuevo.nombre && !!nuevo.apellido && !rutInvalido)
+  const puede = pacienteOk && durSel >= 15
 
   async function guardar() {
-    setGuardando(true)
+    setGuardando(true); setErr(null)
     try {
       let pid = pacienteId
       if (modo === 'nuevo') {
         const p = await pacientesService.crear({ nombre: nuevo.nombre, apellido: nuevo.apellido, rut: nuevo.rut || undefined, otroDocId: nuevo.otroDoc || undefined, telefono: nuevo.telefono || undefined })
         pid = p.id
       }
-      await citasService.crear({ pacienteId: pid, doctorId: doc, fecha: slotISO, duracion, tipo: tipo || 'CONSULTA', sobrecupo, notas: comentario.trim() || undefined })
+      await citasService.crear({ pacienteId: pid, doctorId: doc, fecha: slotISO, duracion: durSel, tipo: tipo || 'CONSULTA', sobrecupo, notas: comentario.trim() || undefined })
       onCreated()
     } catch (e) {
-      onError(e instanceof ApiError ? e.message : 'No se pudo agendar')
+      const m = e instanceof ApiError ? e.message : 'No se pudo agendar'
+      setErr(m); onError(m)
     } finally { setGuardando(false) }
   }
 
@@ -955,12 +989,26 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
         <Sel label="Motivo" value={tipo} onChange={setTipo} options={[{ v: '', l: 'Consulta' }, ...MOTIVOS.map((m) => ({ v: m, l: m }))]} />
         <div>
           <span className="block text-sm font-medium text-slate-700 mb-1">Duración</span>
-          <div className="flex gap-2 flex-wrap">
-            {DURACIONES.map((d) => (
-              <button key={d} type="button" onClick={() => setDuracion(d)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium border-2 ${duracion === d ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-200 text-slate-600'}`}>{d}m</button>
-            ))}
-          </div>
+          {sinEspacio ? (
+            <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+              No hay tiempo disponible en este horario: {maxMin <= 0 ? 'está fuera del horario de atención o justo hay un bloqueo.' : `sólo quedan ${maxMin} min hasta la próxima cita/bloqueo.`}
+              {!sobrecupo && ' Marca “Sobrecupo” para agendar encima, o elige otro horario.'}
+            </p>
+          ) : (
+            <>
+              <div className="flex gap-2 flex-wrap">
+                {opciones.map((d) => (
+                  <button key={d} type="button" onClick={() => setDuracion(d)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border-2 ${durSel === d ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-200 text-slate-600'}`}>{d}m</button>
+                ))}
+              </div>
+              {maxMin < 120 && (
+                <p className="text-[11px] text-amber-700 mt-1">
+                  Máximo {maxMin} min disponibles aquí (hasta la próxima cita o el fin de atención).{!sobrecupo ? ' Marca “Sobrecupo” para agendar sobre otra cita.' : ''}
+                </p>
+              )}
+            </>
+          )}
         </div>
         <label className="flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" checked={sobrecupo} onChange={(e) => setSobrecupo(e.target.checked)} /> Sobrecupo (permite solaparse)
@@ -992,6 +1040,7 @@ function CrearCitaModal({ slotISO, doctorId, doctores, onClose, onCreated, onErr
           </div>
         )}
       </div>
+      {err && <p className="mt-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{err}</p>}
       <div className="flex gap-2 pt-5">
         <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
         <button onClick={guardar} disabled={!puede || guardando} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{guardando ? 'Agendando…' : 'Agendar'}</button>
