@@ -228,6 +228,7 @@ export const crearLinkSchema = z.object({
   doctorId: z.string().optional(),
   profesionales: z.array(z.string()).optional(),
   tipoCita: z.string().optional(),
+  comentarioCita: z.string().nullish(),
   duracionMin: z.number().optional(),
   usaHorarioDoctor: z.boolean().optional(),
   anticipacionHoras: z.number().optional(),

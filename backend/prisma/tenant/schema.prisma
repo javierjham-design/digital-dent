@@ -693,6 +693,7 @@ model LinkAgenda {
   descripcion         String?
   doctorId            String
   tipoCita            String   @default("EVALUACION") // se guarda en Cita.tipo
+  comentarioCita      String?  // comentario fijo que se agrega a la cita (origen/campaña, ej. "Promoción Limpieza")
   duracionMin         Int      @default(30)
   usaHorarioDoctor    Boolean  @default(true)   // false → usa solo sus ventanas
   anticipacionHoras   Int      @default(12)     // antelación mínima para reservar

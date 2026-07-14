@@ -766,6 +766,7 @@ CREATE TABLE "LinkAgenda" (
     "descripcion" TEXT,
     "doctorId" TEXT NOT NULL,
     "tipoCita" TEXT NOT NULL DEFAULT 'EVALUACION',
+    "comentarioCita" TEXT,
     "duracionMin" INTEGER NOT NULL DEFAULT 30,
     "usaHorarioDoctor" BOOLEAN NOT NULL DEFAULT true,
     "anticipacionHoras" INTEGER NOT NULL DEFAULT 12,

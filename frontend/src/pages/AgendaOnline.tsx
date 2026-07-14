@@ -99,6 +99,7 @@ function LinkModal({ link, doctores, onClose, onSaved, onError }: {
     nombre: link?.nombre ?? '', descripcion: link?.descripcion ?? '',
     profesionales: link?.profesionales?.length ? link.profesionales.map((p) => p.userId) : (link?.doctorId ? [link.doctorId] : []),
     tipoCita: link?.tipoCita ?? 'EVALUACION',
+    comentarioCita: link?.comentarioCita ?? '',
     duracionMin: String(link?.duracionMin ?? 30), usaHorarioDoctor: link?.usaHorarioDoctor ?? true,
     anticipacionHoras: String(link?.anticipacionHoras ?? 12), diasMaxFuturo: String(link?.diasMaxFuturo ?? 30),
     requierePago: link?.requierePago ?? false, montoAbono: String(link?.montoAbono ?? ''),
@@ -114,7 +115,7 @@ function LinkModal({ link, doctores, onClose, onSaved, onError }: {
     setGuardando(true)
     const payload = {
       nombre: form.nombre.trim(), descripcion: form.descripcion.trim() || null, profesionales: form.profesionales,
-      tipoCita: form.tipoCita.trim() || 'EVALUACION', duracionMin: Number(form.duracionMin) || 30,
+      tipoCita: form.tipoCita.trim() || 'EVALUACION', comentarioCita: form.comentarioCita.trim() || null, duracionMin: Number(form.duracionMin) || 30,
       usaHorarioDoctor: form.usaHorarioDoctor, anticipacionHoras: Number(form.anticipacionHoras) || 0,
       diasMaxFuturo: Number(form.diasMaxFuturo) || 30,
       requierePago: form.requierePago, montoAbono: form.requierePago ? (Number(form.montoAbono) || 0) : 0,
@@ -151,6 +152,10 @@ function LinkModal({ link, doctores, onClose, onSaved, onError }: {
           <p className="text-[11px] text-slate-400 mt-1">Si eliges varios, el paciente podrá elegir con quién atenderse.</p>
         </Campo>
         <Campo label="Tipo / etiqueta"><input value={form.tipoCita} onChange={(e) => set({ tipoCita: e.target.value })} placeholder="EVALUACION" className={inp} /></Campo>
+        <Campo label="Comentario en la cita (origen/campaña)">
+          <input value={form.comentarioCita} onChange={(e) => set({ comentarioCita: e.target.value })} placeholder="Ej: Promoción Limpieza · Evaluación Implantes" className={inp} />
+          <p className="text-[11px] text-slate-400 mt-1">Se agrega automáticamente como comentario a TODA cita reservada por este link (para saber de dónde viene el paciente). Editable.</p>
+        </Campo>
         <div className="grid grid-cols-3 gap-3">
           <Campo label="Duración (min)"><input value={form.duracionMin} onChange={(e) => set({ duracionMin: e.target.value })} inputMode="numeric" className={inp} /></Campo>
           <Campo label="Antelación (h)"><input value={form.anticipacionHoras} onChange={(e) => set({ anticipacionHoras: e.target.value })} inputMode="numeric" className={inp} /></Campo>

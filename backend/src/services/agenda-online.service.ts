@@ -52,7 +52,7 @@ export async function listarLinks(db: TenantClient) {
 }
 
 export interface CrearLinkInput {
-  nombre: string; descripcion?: string | null; doctorId?: string; profesionales?: string[]; tipoCita?: string; duracionMin?: number
+  nombre: string; descripcion?: string | null; doctorId?: string; profesionales?: string[]; tipoCita?: string; comentarioCita?: string | null; duracionMin?: number
   usaHorarioDoctor?: boolean; anticipacionHoras?: number; diasMaxFuturo?: number
   requierePago?: boolean; montoAbono?: number
   mensajeConfirmacion?: string | null; color?: string | null; ventanas?: unknown
@@ -84,7 +84,9 @@ export async function crearLink(db: TenantClient, input: CrearLinkInput) {
   return db.linkAgenda.create({
     data: {
       token: tk, nombre, descripcion: input.descripcion?.trim() || null, doctorId: ids[0],
-      tipoCita: (input.tipoCita || 'EVALUACION').trim().toUpperCase(), duracionMin, usaHorarioDoctor,
+      tipoCita: (input.tipoCita || 'EVALUACION').trim().toUpperCase(),
+      comentarioCita: input.comentarioCita?.trim() || null,
+      duracionMin, usaHorarioDoctor,
       anticipacionHoras: clampInt(input.anticipacionHoras, 0, 720, 12),
       diasMaxFuturo: clampInt(input.diasMaxFuturo, 1, 365, 30),
       requierePago: input.requierePago === true,
@@ -104,6 +106,7 @@ export async function actualizarLink(db: TenantClient, id: string, body: Record<
   if (typeof body.nombre === 'string') { const n = body.nombre.trim(); if (!n) throw badRequest('El nombre no puede quedar vacío'); data.nombre = n }
   if (body.descripcion !== undefined) data.descripcion = body.descripcion ? String(body.descripcion).trim() : null
   if (typeof body.tipoCita === 'string') data.tipoCita = body.tipoCita.trim().toUpperCase()
+  if (body.comentarioCita !== undefined) data.comentarioCita = body.comentarioCita ? String(body.comentarioCita).trim() : null
   if (body.duracionMin !== undefined) { const d = Number(body.duracionMin); if (!(d >= 5 && d <= 480)) throw badRequest('Duración inválida'); data.duracionMin = d }
   if (body.usaHorarioDoctor !== undefined) data.usaHorarioDoctor = Boolean(body.usaHorarioDoctor)
   if (body.anticipacionHoras !== undefined) data.anticipacionHoras = clampInt(body.anticipacionHoras, 0, 720, 12)
@@ -319,12 +322,14 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
 
   const motivo = input.motivo?.trim()
   const requiereAbono = link.requierePago && link.montoAbono > 0
+  // Comentario fijo del link (ej. "Promoción Limpieza") + el motivo del paciente.
+  const notasCita = [link.comentarioCita?.trim(), motivo].filter(Boolean).join(' · ') || `Reserva online · ${link.nombre}`
   const cita = await db.cita.create({
     data: {
       pacienteId: paciente.id, doctorId, fecha: inicio, duracion: link.duracionMin,
       tipo: link.tipoCita, estado: 'PENDIENTE', origen: 'ONLINE', linkAgendaId: link.id,
       abonoRequerido: requiereAbono, abonoPagado: false,
-      notas: motivo || `Reserva online · ${link.nombre}`,
+      notas: notasCita,
       logs: { create: { tipo: 'AGENDADA', detalle: `Reserva online (${link.nombre})${requiereAbono ? ' · abono pendiente' : ''}`, userName: `${nombre} ${apellido}` } },
     },
     select: { id: true, fecha: true, duracion: true },

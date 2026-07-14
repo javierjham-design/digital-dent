@@ -6,7 +6,7 @@ export interface Ventana { id?: string; diaSemana: number; horaInicio: string; h
 export interface ProfeRef { id: string; name: string | null; email: string | null; especialidad: string | null }
 export interface LinkAgendaDTO {
   id: string; token: string; nombre: string; descripcion: string | null; doctorId: string
-  tipoCita: string; duracionMin: number; usaHorarioDoctor: boolean; anticipacionHoras: number
+  tipoCita: string; comentarioCita: string | null; duracionMin: number; usaHorarioDoctor: boolean; anticipacionHoras: number
   diasMaxFuturo: number; requierePago: boolean; montoAbono: number; mensajeConfirmacion: string | null; color: string | null; activo: boolean
   doctor: ProfeRef
   profesionales: { userId: string; user: ProfeRef }[]
