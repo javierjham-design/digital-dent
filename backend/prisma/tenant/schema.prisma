@@ -26,11 +26,14 @@ model Configuracion {
   direccion String  @default("")
   ciudad    String  @default("Temuco")
   telefono  String  @default("")
+  whatsapp  String  @default("") // WhatsApp de la clínica (para derivar al paciente tras reservar online)
   email     String  @default("")
   logoUrl   String?
   mensajeWA String  @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
   // Mensaje base para escribir a un lead del CRM por WhatsApp (primer contacto).
   mensajeWACrm String @default("Hola {nombre}, te contactamos de *{clinica}*. ¿Cómo podemos ayudarte?")
+  // Mensaje que el paciente envía por WhatsApp tras reservar online ({dia}/{hora} automáticos).
+  mensajeReservaWA String @default("¡Hola! Ya agendé mi hora para el {dia} a las {hora} h. Quedo atento/a a la confirmación.")
 
   // WhatsApp (Twilio). El auth token va cifrado (AES-256-GCM).
   waEnabled     Boolean @default(false)

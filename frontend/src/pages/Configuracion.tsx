@@ -31,8 +31,8 @@ export function Configuracion() {
     setGuardando(true); setError(''); setOk(false)
     try {
       const updated = await clinicaService.actualizar({
-        nombre: data.nombre, direccion: data.direccion, telefono: data.telefono,
-        email: data.email, ciudad: data.ciudad, mensajeWA: data.mensajeWA, mensajeWACrm: data.mensajeWACrm, logoUrl: data.logoUrl,
+        nombre: data.nombre, direccion: data.direccion, telefono: data.telefono, whatsapp: data.whatsapp,
+        email: data.email, ciudad: data.ciudad, mensajeWA: data.mensajeWA, mensajeWACrm: data.mensajeWACrm, mensajeReservaWA: data.mensajeReservaWA, logoUrl: data.logoUrl,
       })
       setData(updated)
       setOk(true)
@@ -74,6 +74,10 @@ export function Configuracion() {
           <Field label="Teléfono" value={data.telefono} onChange={(v) => set('telefono', v)} />
           <Field label="Email" value={data.email} onChange={(v) => set('email', v)} />
         </div>
+        <div>
+          <Field label="WhatsApp de la clínica" value={data.whatsapp} onChange={(v) => set('whatsapp', v)} />
+          <p className="text-xs text-slate-400 mt-1">Con código de país (ej. +56 9 1234 5678). Es a donde se deriva al paciente tras reservar online. Si lo dejas vacío se usa el teléfono.</p>
+        </div>
         <div className="grid sm:grid-cols-2 gap-4">
           <Field label="Dirección" value={data.direccion} onChange={(v) => set('direccion', v)} />
           <Field label="Ciudad" value={data.ciudad} onChange={(v) => set('ciudad', v)} />
@@ -93,6 +97,15 @@ export function Configuracion() {
             className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
           <p className="text-xs text-slate-400 mt-1">
             Es el mensaje que se prellena al escribirle a un lead por WhatsApp desde el CRM. Variables: {'{nombre}'} (primer nombre), {'{nombrecompleto}'}, {'{clinica}'}, {'{telefono}'}. Deja el campo vacío para no prellenar ningún texto.
+          </p>
+        </label>
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-700 mb-1">Mensaje de confirmación WhatsApp · reserva online</span>
+          <textarea value={data.mensajeReservaWA} onChange={(e) => set('mensajeReservaWA', e.target.value)} rows={2}
+            placeholder="¡Hola! Ya agendé mi hora para el {dia} a las {hora} h. Quedo atento/a a la confirmación."
+            className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+          <p className="text-xs text-slate-400 mt-1">
+            Al terminar de reservar por el link online, el paciente ve un botón que lo deriva al WhatsApp de la clínica con este mensaje. El día y la hora se completan solos. Variables: {'{dia}'}, {'{hora}'}, {'{profesional}'}, {'{clinica}'}.
           </p>
         </label>
 

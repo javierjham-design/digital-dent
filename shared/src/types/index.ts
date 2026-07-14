@@ -199,8 +199,10 @@ export interface ClinicaConfigDTO {
   telefono: string
   email: string
   ciudad: string
+  whatsapp: string
   mensajeWA: string
   mensajeWACrm: string
+  mensajeReservaWA: string
   logoUrl: string | null
   pais: string
 }
