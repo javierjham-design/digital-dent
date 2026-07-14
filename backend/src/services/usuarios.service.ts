@@ -102,12 +102,17 @@ export async function crearUsuario(db: TenantClient, input: CrearUsuarioInput, c
     const dupEmail = await db.user.findUnique({ where: { email }, select: { id: true } })
     if (dupEmail) throw conflict('Ya existe un usuario con ese email')
   }
+  const rutLimpio = (input.rut ?? '').trim() || null
+  if (rutLimpio) {
+    const dupRut = await db.user.findFirst({ where: { rut: rutLimpio }, select: { id: true } })
+    if (dupRut) throw conflict('Ya existe un usuario con ese RUT')
+  }
 
   const usuario = await db.user.create({
     data: {
       name: input.name.trim(), titulo: normalizarTitulo(input.titulo), username, email,
       password: await bcrypt.hash(input.password, 10),
-      role, rut: input.rut || null, especialidad: input.especialidad || null,
+      role, rut: rutLimpio, especialidad: input.especialidad || null,
       telefono: input.telefono || null,
     },
     select: SELECT,
@@ -165,6 +170,18 @@ export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, tar
       const otro = await db.user.findUnique({ where: { email }, select: { id: true } })
       if (otro && otro.id !== targetId) throw conflict('Ya existe otro usuario con ese email')
       data.email = email
+    }
+  }
+
+  // RUT es único: un RUT vacío debe quedar en null (múltiples null son válidos);
+  // si viene uno real, validamos que no lo tenga otro usuario (evita error 500).
+  if ('rut' in data) {
+    const rut = String(data.rut ?? '').trim()
+    if (!rut) data.rut = null
+    else {
+      const otro = await db.user.findFirst({ where: { rut, NOT: { id: targetId } }, select: { id: true } })
+      if (otro) throw conflict('Ya existe otro usuario con ese RUT')
+      data.rut = rut
     }
   }
 
