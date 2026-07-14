@@ -557,7 +557,7 @@ export function Agenda() {
       )}
       {slotAccion && (
         <SlotAccionModal slotISO={slotAccion.slotISO} doctorId={doctorId || doctores[0]?.id || ''} doctores={doctores}
-          citas={citas} bloqueos={bloqueos}
+          citas={citas} bloqueos={bloqueos} horarios={horariosTodos}
           onClose={() => setSlotAccion(null)}
           onCita={() => { setCrear({ slotISO: slotAccion.slotISO }); setSlotAccion(null) }}
           onBloqueado={() => { setSlotAccion(null); notify('Horario bloqueado'); recargar() }}
@@ -646,38 +646,53 @@ function ReservasPendientesModal({ reservas, onConfirmar, onRechazar, onClose }:
 }
 
 // ── Modal: ¿qué hacer en este slot? Agendar cita o bloquear (con duración tope) ──
-function SlotAccionModal({ slotISO, doctorId, doctores, citas, bloqueos, onClose, onCita, onBloqueado, onError }: {
-  slotISO: string; doctorId: string; doctores: DoctorDTO[]; citas: CitaDTO[]; bloqueos: BloqueoDTO[]
+function SlotAccionModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios, onClose, onCita, onBloqueado, onError }: {
+  slotISO: string; doctorId: string; doctores: DoctorDTO[]; citas: CitaDTO[]; bloqueos: BloqueoDTO[]; horarios: HorarioDTO[]
   onClose: () => void; onCita: () => void; onBloqueado: () => void; onError: (m: string) => void
 }) {
   const start = useMemo(() => new Date(slotISO), [slotISO])
   const [doc, setDoc] = useState(doctorId)
   const [motivo, setMotivo] = useState('')
+  const [dur, setDur] = useState(30)
   const [guardando, setGuardando] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
 
-  // Tope: hasta el próximo evento ocupado del profesional ese día, o el fin de agenda (21:00).
+  // Tope disponible: desde el slot hasta el FIN DEL HORARIO DE ATENCIÓN del profesional
+  // ese día (no las 21:00), acotado además por la próxima cita/bloqueo. Fuera de
+  // atención → 0 (no se puede bloquear).
   const maxMin = useMemo(() => {
-    const fin = new Date(start); fin.setHours(21, 0, 0, 0)
-    let limite = fin.getTime()
-    const ocupados = [
-      ...citas.filter((c) => c.doctorId === doc && !ESTADOS_NO_OCUPAN.includes(c.estado)),
-      ...bloqueos.filter((b) => b.doctorId === doc),
-    ]
-    for (const o of ocupados) { const s = new Date(o.inicio).getTime(); if (s > start.getTime() && s < limite) limite = s }
-    return Math.max(15, Math.round((limite - start.getTime()) / 60000))
-  }, [doc, citas, bloqueos, start])
+    const startMin = minutosDelDia(start)
+    const h = horarios.find((x) => x.doctorId === doc && x.diaSemana === start.getDay() && x.activo)
+    let limite = 21 * 60
+    if (h) {
+      const seg = bloquesAtencion(h).find(([s, e]) => startMin >= s && startMin < e)
+      if (!seg) return 0 // fuera del horario de atención
+      limite = seg[1]
+    }
+    for (const c of citas) {
+      if (c.doctorId !== doc || ESTADOS_NO_OCUPAN.includes(c.estado) || !mismoDia(new Date(c.inicio), start)) continue
+      const m = minutosDelDia(new Date(c.inicio)); if (m > startMin && m < limite) limite = m
+    }
+    for (const b of bloqueos) {
+      if (b.doctorId !== doc || !mismoDia(new Date(b.inicio), start)) continue
+      const m = minutosDelDia(new Date(b.inicio)); if (m > startMin && m < limite) limite = m
+    }
+    return Math.max(0, limite - startMin)
+  }, [doc, citas, bloqueos, horarios, start])
 
+  const sinEspacio = maxMin < 15
   const opciones = [15, 30, 45, 60, 90, 120, 180, 240].filter((d) => d < maxMin)
-  opciones.push(maxMin) // siempre incluir "todo el espacio disponible"
-  const [dur, setDur] = useState(Math.min(30, maxMin))
+  if (maxMin >= 15) opciones.push(maxMin) // "todo el espacio disponible" (hasta el fin de atención)
+  const durSel = opciones.includes(dur) ? dur : (opciones[opciones.length - 1] ?? 0)
 
   async function bloquear() {
-    setGuardando(true)
+    if (durSel < 15) return
+    setGuardando(true); setErr(null)
     try {
-      const fin = new Date(start.getTime() + dur * 60000)
+      const fin = new Date(start.getTime() + durSel * 60000)
       await bloqueosService.crear({ doctorId: doc, inicio: start.toISOString(), fin: fin.toISOString(), motivo: motivo || undefined })
       onBloqueado()
-    } catch (e) { onError(e instanceof ApiError ? e.message : 'No se pudo bloquear') } finally { setGuardando(false) }
+    } catch (e) { const m = e instanceof ApiError ? e.message : 'No se pudo bloquear'; setErr(m); onError(m) } finally { setGuardando(false) }
   }
 
   return (
@@ -685,15 +700,25 @@ function SlotAccionModal({ slotISO, doctorId, doctores, citas, bloqueos, onClose
       <button onClick={onCita} className="w-full mb-4 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Agendar cita</button>
       <div className="border-t border-slate-100 pt-4 space-y-3">
         <p className="text-sm font-semibold text-slate-700">Bloquear este horario</p>
-        <Sel label="Profesional" value={doc} onChange={setDoc} options={doctores.map((d) => ({ v: d.id, l: d.name ?? d.email ?? '' }))} />
-        <label className="block">
-          <span className="block text-sm font-medium text-slate-700 mb-1">Duración</span>
-          <select value={dur} onChange={(e) => setDur(Number(e.target.value))} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
-            {opciones.map((d) => <option key={d} value={d}>{d >= maxMin ? `${d} min (todo el espacio disponible)` : `${d} min`}</option>)}
-          </select>
-        </label>
-        <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-        <button onClick={bloquear} disabled={guardando} className="w-full px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{guardando ? 'Bloqueando…' : `Bloquear ${dur} min`}</button>
+        <Sel label="Profesional" value={doc} onChange={(v) => { setDoc(v); setErr(null) }} options={doctores.map((d) => ({ v: d.id, l: d.name ?? d.email ?? '' }))} />
+        {sinEspacio ? (
+          <p className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+            Este horario está fuera del horario de atención del profesional (o justo hay una cita/bloqueo). Elige otro horario o profesional.
+          </p>
+        ) : (
+          <>
+            <label className="block">
+              <span className="block text-sm font-medium text-slate-700 mb-1">Duración</span>
+              <select value={durSel} onChange={(e) => setDur(Number(e.target.value))} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
+                {opciones.map((d) => <option key={d} value={d}>{d >= maxMin ? `${d} min (todo el espacio disponible)` : `${d} min`}</option>)}
+              </select>
+              <p className="text-[11px] text-slate-400 mt-1">Máximo {maxMin} min (hasta la próxima cita/bloqueo o el fin de atención).</p>
+            </label>
+            <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+            {err && <p className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{err}</p>}
+            <button onClick={bloquear} disabled={guardando} className="w-full px-4 py-2.5 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{guardando ? 'Bloqueando…' : `Bloquear ${durSel} min`}</button>
+          </>
+        )}
       </div>
     </Modal>
   )
