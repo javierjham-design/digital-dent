@@ -93,7 +93,7 @@ export function Agenda() {
 
   const [selected, setSelected] = useState<CitaDTO | null>(null)
   const [selectedBloqueo, setSelectedBloqueo] = useState<BloqueoDTO | null>(null)
-  const [crear, setCrear] = useState<null | { slotISO: string; doctorId?: string }>(null)
+  const [crear, setCrear] = useState<null | { slotISO: string; doctorId?: string; sobrecupo?: boolean }>(null)
   const [bloqueoForm, setBloqueoForm] = useState(false)
   const [slotAccion, setSlotAccion] = useState<null | { slotISO: string }>(null)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
@@ -520,6 +520,9 @@ export function Agenda() {
               eventResize={onResize}
               dateClick={(a) => {
                 if (!dentroAtencion(doctorId, a.date, 15)) { notify('Ese horario está fuera del horario de atención del profesional.', false); return }
+                // En la agenda de sobrecupos se agenda directo en sobrecupo (agenda
+                // independiente): no pasa por "crear/bloquear" ni choca con la agenda normal.
+                if (soloSobrecupos) { setCrear({ slotISO: a.date.toISOString(), sobrecupo: true }); return }
                 setSlotAccion({ slotISO: a.date.toISOString() })
               }}
               businessHours={businessHours}
@@ -537,7 +540,7 @@ export function Agenda() {
             onCita={setSelected} onBloqueo={setSelectedBloqueo}
             onSlot={(docId, slotISO) => {
               if (!dentroAtencion(docId, new Date(slotISO), 15)) { notify('Ese horario está fuera del horario de atención del profesional.', false); return }
-              setCrear({ slotISO, doctorId: docId })
+              setCrear({ slotISO, doctorId: docId, sobrecupo: soloSobrecupos })
             }}
             onMover={(cita, nuevoDoctorId, nuevoISO, duracion) => {
               if (!cita.sobrecupo) {
@@ -553,7 +556,7 @@ export function Agenda() {
 
       {crear && (
         <CrearCitaModal slotISO={crear.slotISO} doctorId={crear.doctorId || doctorId || doctores[0]?.id || ''} doctores={doctores}
-          citas={citas} bloqueos={bloqueos} horarios={horariosTodos}
+          citas={citas} bloqueos={bloqueos} horarios={horariosTodos} sobrecupoInicial={crear.sobrecupo}
           onClose={() => setCrear(null)}
           onCreated={() => { setCrear(null); notify('Cita agendada'); recargar() }}
           onError={(m) => notify(m, false)} />
@@ -576,7 +579,7 @@ export function Agenda() {
         <SlotAccionModal slotISO={slotAccion.slotISO} doctorId={doctorId || doctores[0]?.id || ''} doctores={doctores}
           citas={citas} bloqueos={bloqueos} horarios={horariosTodos}
           onClose={() => setSlotAccion(null)}
-          onCita={() => { setCrear({ slotISO: slotAccion.slotISO }); setSlotAccion(null) }}
+          onCita={() => { setCrear({ slotISO: slotAccion.slotISO, sobrecupo: soloSobrecupos }); setSlotAccion(null) }}
           onBloqueado={() => { setSlotAccion(null); notify('Horario bloqueado'); recargar() }}
           onError={(m) => notify(m, false)} />
       )}
@@ -960,15 +963,15 @@ function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, conflicto, o
 }
 
 // ── Modal: crear cita ──
-function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios, onClose, onCreated, onError }: {
+function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios, sobrecupoInicial, onClose, onCreated, onError }: {
   slotISO: string; doctorId: string; doctores: DoctorDTO[]; citas: CitaDTO[]; bloqueos: BloqueoDTO[]; horarios: HorarioDTO[]
-  onClose: () => void; onCreated: () => void; onError: (m: string) => void
+  sobrecupoInicial?: boolean; onClose: () => void; onCreated: () => void; onError: (m: string) => void
 }) {
   const start = useMemo(() => new Date(slotISO), [slotISO])
   const [doc, setDoc] = useState(doctorId)
   const [tipo, setTipo] = useState('')
   const [duracion, setDuracion] = useState(30)
-  const [sobrecupo, setSobrecupo] = useState(false)
+  const [sobrecupo, setSobrecupo] = useState(Boolean(sobrecupoInicial))
   const [comentario, setComentario] = useState('')
   const [modo, setModo] = useState<'existente' | 'nuevo'>('existente')
   const [pacienteId, setPacienteId] = useState('')
@@ -1024,8 +1027,10 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
   }
 
   return (
-    <Modal title="Nueva cita" onClose={onClose}>
-      <p className="text-sm text-slate-500 mb-4">{new Date(slotISO).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })}</p>
+    <Modal title={sobrecupo ? 'Nuevo sobrecupo' : 'Nueva cita'} onClose={onClose}>
+      <p className="text-sm text-slate-500 mb-1">{new Date(slotISO).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })}</p>
+      {sobrecupo && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">Sobreagendamiento: se agenda en la agenda de sobrecupos y puede solaparse con la agenda normal.</p>}
+      {!sobrecupo && <div className="mb-3" />}
       <div className="space-y-3">
         <Sel label="Profesional" value={doc} onChange={setDoc} options={doctores.map((d) => ({ v: d.id, l: d.name ?? d.email ?? '' }))} />
         <Sel label="Motivo" value={tipo} onChange={setTipo} options={[{ v: '', l: 'Consulta' }, ...MOTIVOS.map((m) => ({ v: m, l: m }))]} />
