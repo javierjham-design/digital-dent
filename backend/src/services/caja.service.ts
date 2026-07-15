@@ -5,6 +5,7 @@ import {
   abrirSesion as abrirSesionCore, calcularResumenSesion, calcularSaldoSugerido, getSesionAbierta,
   getUltimaSesionCerrada,
 } from '@/lib/caja'
+import { rangoFechasUtc } from '@/lib/tz'
 
 const CATEGORIAS_EGRESO = ['ARRIENDO', 'INSUMOS', 'SUELDO', 'SERVICIOS', 'RETIRO', 'OTRO']
 
@@ -294,4 +295,86 @@ export async function anularMovimiento(db: TenantClient, actor: JwtPayload, caja
     where: { id: movId },
     data: { anulado: true, motivoAnulacion: motivo.trim(), anuladoAt: new Date(), anuladoPorId: actor.sub, anuladoPorNombre: actorName(actor) },
   })
+}
+
+// ── Reportes de pagos recibidos (Gestión de cajas) ────────────────────────────
+// Muestran lo EXACTAMENTE cobrado (bruto), sin descontar la retención del medio
+// de pago (esa retención sólo aplica a las liquidaciones). Fechas interpretadas
+// en hora de la clínica (America/Santiago).
+
+interface ReporteFiltro { desde?: string; hasta?: string }
+
+async function cobrosDelPeriodo(db: TenantClient, f: ReporteFiltro) {
+  return db.cobro.findMany({
+    where: {
+      estado: 'PAGADO', anulado: false,
+      ...(f.desde || f.hasta ? { fechaPago: rangoFechasUtc(f.desde, f.hasta) } : {}),
+    },
+    select: {
+      id: true, numero: true, monto: true, fechaPago: true,
+      paciente: { select: { nombre: true, apellido: true } },
+      medioPago: { select: { nombre: true } },
+      reciboUsuario: { select: { id: true, name: true, email: true } },
+      caja: { select: { numero: true } },
+    },
+    orderBy: { fechaPago: 'desc' },
+  })
+}
+type CobroPeriodo = Awaited<ReturnType<typeof cobrosDelPeriodo>>[number]
+
+const metodoDeCobro = (c: { medioPago: { nombre: string | null } | null }) => c.medioPago?.nombre || 'Efectivo'
+
+function agruparPorMetodo(cobros: { monto: number; medioPago: { nombre: string | null } | null }[]) {
+  const map = new Map<string, { monto: number; cantidad: number }>()
+  for (const c of cobros) {
+    const metodo = metodoDeCobro(c)
+    const e = map.get(metodo) ?? { monto: 0, cantidad: 0 }
+    e.monto += c.monto; e.cantidad++; map.set(metodo, e)
+  }
+  return [...map.entries()].map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto)
+}
+
+// Reporte 1: todos los pagos recibidos en el periodo, con total y desglose por medio.
+export async function reportePagosPeriodo(db: TenantClient, f: ReporteFiltro) {
+  const cobros = await cobrosDelPeriodo(db, f)
+  return {
+    desde: f.desde ?? null, hasta: f.hasta ?? null,
+    total: cobros.reduce((s, c) => s + c.monto, 0),
+    cantidad: cobros.length,
+    porMetodo: agruparPorMetodo(cobros),
+    items: cobros.map((c) => ({
+      id: c.id, numero: c.numero, monto: c.monto,
+      fechaPago: c.fechaPago?.toISOString() ?? null,
+      paciente: `${c.paciente.nombre} ${c.paciente.apellido}`.trim(),
+      metodo: metodoDeCobro(c),
+      recibidoPor: c.reciboUsuario?.name ?? c.reciboUsuario?.email ?? '—',
+      cajaNumero: c.caja?.numero ?? null,
+    })),
+  }
+}
+
+// Reporte 2: pagos recibidos agrupados por profesional (quien recibió el pago),
+// cada uno con su total, cantidad y desglose por medio de pago.
+export async function reportePorProfesional(db: TenantClient, f: ReporteFiltro) {
+  const cobros = await cobrosDelPeriodo(db, f)
+  const map = new Map<string, { nombre: string; cobros: CobroPeriodo[] }>()
+  for (const c of cobros) {
+    const key = c.reciboUsuario?.id ?? 'sin'
+    const nombre = c.reciboUsuario?.name ?? c.reciboUsuario?.email ?? 'Sin asignar'
+    const e = map.get(key) ?? { nombre, cobros: [] }
+    e.cobros.push(c); map.set(key, e)
+  }
+  const profesionales = [...map.entries()].map(([profesionalId, v]) => ({
+    profesionalId, nombre: v.nombre,
+    total: v.cobros.reduce((s, c) => s + c.monto, 0),
+    cantidad: v.cobros.length,
+    porMetodo: agruparPorMetodo(v.cobros),
+  })).sort((a, b) => b.total - a.total)
+  return {
+    desde: f.desde ?? null, hasta: f.hasta ?? null,
+    total: cobros.reduce((s, c) => s + c.monto, 0),
+    cantidad: cobros.length,
+    porMetodo: agruparPorMetodo(cobros),
+    profesionales,
+  }
 }

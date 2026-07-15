@@ -12,6 +12,18 @@ export async function getResumenCajas(req: Request, res: Response) {
 export async function getGestionCajas(req: Request, res: Response) {
   res.json(await svc.gestionCajas(tenantDb(req)))
 }
+function rangoReq(req: Request) {
+  return {
+    desde: typeof req.query.desde === 'string' ? req.query.desde : undefined,
+    hasta: typeof req.query.hasta === 'string' ? req.query.hasta : undefined,
+  }
+}
+export async function getReportePagos(req: Request, res: Response) {
+  res.json(await svc.reportePagosPeriodo(tenantDb(req), rangoReq(req)))
+}
+export async function getReporteProfesionales(req: Request, res: Response) {
+  res.json(await svc.reportePorProfesional(tenantDb(req), rangoReq(req)))
+}
 export async function getCaja(req: Request, res: Response) {
   res.json(await svc.obtenerCaja(tenantDb(req), req.auth!, req.params.id))
 }

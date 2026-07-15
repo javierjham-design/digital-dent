@@ -16,10 +16,12 @@ interface Sesion {
   totalIngresos?: number | null; totalEgresos?: number | null; observaciones?: string | null
   abiertaPorNombre?: string | null; cerradaPorNombre?: string | null
 }
-interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { medioPago?: { nombre: string | null } | null } | null }
+interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { monto?: number; medioPago?: { nombre: string | null } | null } | null }
 interface MetodoResumen { metodo: string; monto: number; cantidad: number }
 interface Resumen { ingresos: number; ingresosEfectivo: number; ingresosOtros: number; egresos: number; efectivoEsperado: number; porMetodo: MetodoResumen[] }
 const metodoDe = (m: Movimiento) => m.cobro?.medioPago?.nombre || 'Efectivo'
+// La caja muestra el bruto cobrado (sin descontar la retención del medio de pago).
+const brutoDe = (m: Movimiento) => m.cobro?.monto ?? m.monto
 
 export function CajaPrint() {
   const { cajaId = '', sesionId = '' } = useParams()
@@ -164,7 +166,7 @@ function Bloque({ titulo, movs, signo, mostrarMetodo }: { titulo: string; movs: 
               <td className="px-3 py-1.5 text-slate-700">{m.descripcion}{m.categoria ? ` · ${m.categoria}` : ''}</td>
               {mostrarMetodo && <td className="px-3 py-1.5 text-slate-500 w-28">{metodoDe(m)}</td>}
               <td className="px-3 py-1.5 text-slate-500 w-36">{fechaHora(m.fecha)}</td>
-              <td className="px-3 py-1.5 text-right font-mono text-slate-700 w-28">{signo}{fmtCLP(m.monto)}</td>
+              <td className="px-3 py-1.5 text-right font-mono text-slate-700 w-28">{signo}{fmtCLP(signo === '+' ? brutoDe(m) : m.monto)}</td>
             </tr>
           ))}
         </tbody>

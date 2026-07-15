@@ -79,12 +79,16 @@ export async function calcularResumenSesion(db: TenantClient, sesionId: string) 
         { sesionCajaId: null, fecha: { gte: sesion.abiertaAt, lte: hasta } },
       ],
     },
-    select: { tipo: true, monto: true, cobro: { select: { medioPago: { select: { nombre: true } } } } },
+    select: { tipo: true, monto: true, cobro: { select: { monto: true, medioPago: { select: { nombre: true } } } } },
   })
+  // La caja registra lo EXACTAMENTE cobrado (bruto): si el movimiento viene de un
+  // cobro, se usa el monto bruto del cobro (sin descontar la retención del medio,
+  // que sólo aplica a liquidaciones). Para movimientos manuales se usa su monto.
+  const bruto = (m: { monto: number; cobro: { monto: number } | null }) => m.cobro ? m.cobro.monto : m.monto
   const ingresosMov = movs.filter((m) => m.tipo === 'INGRESO')
   const egresos = movs.filter((m) => m.tipo === 'EGRESO').reduce((s, m) => s + m.monto, 0)
-  const ingresos = ingresosMov.reduce((s, m) => s + m.monto, 0) // recaudación total (todos los medios)
-  const ingresosEfectivo = ingresosMov.filter((m) => cobroEsEfectivo(m.cobro)).reduce((s, m) => s + m.monto, 0)
+  const ingresos = ingresosMov.reduce((s, m) => s + bruto(m), 0) // recaudación total (todos los medios)
+  const ingresosEfectivo = ingresosMov.filter((m) => cobroEsEfectivo(m.cobro)).reduce((s, m) => s + bruto(m), 0)
   const ingresosOtros = ingresos - ingresosEfectivo
 
   // Desglose por método de pago (para el reporte de recaudación).
@@ -92,7 +96,7 @@ export async function calcularResumenSesion(db: TenantClient, sesionId: string) 
   for (const m of ingresosMov) {
     const metodo = cobroEsEfectivo(m.cobro) ? 'Efectivo' : (m.cobro?.medioPago?.nombre ?? 'Otro')
     const e = map.get(metodo) ?? { monto: 0, cantidad: 0 }
-    e.monto += m.monto; e.cantidad++; map.set(metodo, e)
+    e.monto += bruto(m); e.cantidad++; map.set(metodo, e)
   }
   const porMetodo = [...map.entries()].map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto)
 

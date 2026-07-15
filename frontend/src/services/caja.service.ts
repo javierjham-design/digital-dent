@@ -17,10 +17,19 @@ export const cobrosService = {
     api.post<{ estado: 'ok'; url: string; cobroId: string; numero: number }>('/cobros/link-pago', input),
 }
 
+export interface ReporteMetodo { metodo: string; monto: number; cantidad: number }
+export interface ReportePagoItem { id: string; numero: number; monto: number; fechaPago: string | null; paciente: string; metodo: string; recibidoPor: string; cajaNumero: number | null }
+export interface ReportePagos { desde: string | null; hasta: string | null; total: number; cantidad: number; porMetodo: ReporteMetodo[]; items: ReportePagoItem[] }
+export interface ReporteProfesional { profesionalId: string; nombre: string; total: number; cantidad: number; porMetodo: ReporteMetodo[] }
+export interface ReporteProfesionales { desde: string | null; hasta: string | null; total: number; cantidad: number; porMetodo: ReporteMetodo[]; profesionales: ReporteProfesional[] }
+const rangoQS = (desde?: string, hasta?: string) => { const p = new URLSearchParams(); if (desde) p.set('desde', desde); if (hasta) p.set('hasta', hasta); const s = p.toString(); return s ? `?${s}` : '' }
+
 export const cajasService = {
   listar: () => api.get<unknown[]>('/cajas'),
   resumen: () => api.get<unknown[]>('/cajas/resumen'),
   gestion: () => api.get<unknown[]>('/cajas/gestion'),
+  reportePagos: (desde?: string, hasta?: string) => api.get<ReportePagos>(`/cajas/reporte-pagos${rangoQS(desde, hasta)}`),
+  reporteProfesionales: (desde?: string, hasta?: string) => api.get<ReporteProfesionales>(`/cajas/reporte-profesionales${rangoQS(desde, hasta)}`),
   obtener: (id: string) => api.get<unknown>(`/cajas/${id}`),
   crear: (input: Record<string, unknown>) => api.post<unknown>('/cajas', input),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/cajas/${id}`, patch),

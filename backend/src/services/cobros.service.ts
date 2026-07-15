@@ -143,7 +143,10 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
     })
     await tx.movimientoCaja.create({
       data: {
-        cajaId: caja.id, sesionCajaId: sesion.id, tipo: 'INGRESO', monto: montoNeto,
+        // La caja registra lo que EXACTAMENTE se cobró (bruto). La retención del
+        // medio de pago (comisionMonto/montoNeto) queda en el Cobro y sólo se usa
+        // para el cálculo de liquidaciones, no para el resumen de caja.
+        cajaId: caja.id, sesionCajaId: sesion.id, tipo: 'INGRESO', monto,
         descripcion: `Cobro #${numero} · ${paciente.nombre} ${paciente.apellido}`, categoria: 'COBRO',
         fecha: fechaPago, cobroId: creado.id, userId: actor.sub,
       },

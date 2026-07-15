@@ -278,6 +278,9 @@ apiRouter.patch('/presupuestos/:id', tenant, asyncHandler(presupuestos.patchPres
 apiRouter.get('/cajas', tenant, asyncHandler(caja.getCajas))
 apiRouter.get('/cajas/resumen', tenant, asyncHandler(caja.getResumenCajas)) // estado abiertas/cerradas (antes de /:id)
 apiRouter.get('/cajas/gestion', [requireAuth, requireTenant, requirePermiso('puedeGestionarCajas')], asyncHandler(caja.getGestionCajas)) // todas las cajas (admin o autorizado)
+// Reportes de pagos recibidos por periodo (antes de /:id). Admin o gestor de cajas.
+apiRouter.get('/cajas/reporte-pagos', [requireAuth, requireTenant, requirePermiso('puedeGestionarCajas')], asyncHandler(caja.getReportePagos))
+apiRouter.get('/cajas/reporte-profesionales', [requireAuth, requireTenant, requirePermiso('puedeGestionarCajas')], asyncHandler(caja.getReporteProfesionales))
 // Crear caja: admin o usuario con permiso de recibir pagos (crea su propia caja).
 apiRouter.post('/cajas', [requireAuth, requireTenant, requirePermiso('puedeRecibirPagos')], asyncHandler(caja.postCaja))
 apiRouter.get('/cajas/:id', tenant, asyncHandler(caja.getCaja))

@@ -8,8 +8,11 @@ export interface FlujoMovimiento {
   id: string; tipo: string; monto: number; descripcion: string; categoria: string | null
   fecha: string; anulado: boolean
   user?: { name: string | null } | null
-  cobro?: { numero?: number; paciente?: { nombre: string; apellido: string } | null; medioPago?: { nombre: string | null } | null } | null
+  cobro?: { numero?: number; monto?: number; paciente?: { nombre: string; apellido: string } | null; medioPago?: { nombre: string | null } | null } | null
 }
+// La caja muestra lo EXACTAMENTE cobrado (bruto). Si el movimiento viene de un
+// cobro, se usa el monto bruto del cobro (sin la retención del medio de pago).
+const brutoDe = (m: FlujoMovimiento) => m.cobro?.monto ?? m.monto
 export interface FlujoResumen {
   ingresos: number; egresos: number; ingresosEfectivo?: number
   porMetodo?: { metodo: string; monto: number; cantidad: number }[]
@@ -26,7 +29,7 @@ export function FlujoCaja({ movimientos, resumen }: { movimientos: FlujoMovimien
   const pagos = asc.filter((m) => m.tipo === 'INGRESO')
   const egresos = asc.filter((m) => m.tipo === 'EGRESO')
   const porMetodo = (resumen?.porMetodo ?? []).filter((x) => x.monto > 0)
-  const recaudacion = resumen?.ingresos ?? pagos.filter((m) => !m.anulado).reduce((s, m) => s + m.monto, 0)
+  const recaudacion = resumen?.ingresos ?? pagos.filter((m) => !m.anulado).reduce((s, m) => s + brutoDe(m), 0)
   const totalEgresos = resumen?.egresos ?? egresos.filter((m) => !m.anulado).reduce((s, m) => s + m.monto, 0)
 
   return (
@@ -54,7 +57,7 @@ export function FlujoCaja({ movimientos, resumen }: { movimientos: FlujoMovimien
                   <p className="text-sm text-slate-700 truncate">{m.descripcion}</p>
                   <p className="text-[11px] text-slate-400">{hora(m.fecha)} · {metodoDe(m)}{m.user?.name ? ` · ${m.user.name}` : ''}</p>
                 </div>
-                <span className="font-mono text-sm font-semibold text-emerald-600 shrink-0">+{fmt(m.monto)}</span>
+                <span className="font-mono text-sm font-semibold text-emerald-600 shrink-0">+{fmt(brutoDe(m))}</span>
               </div>
             ))}
           </div>

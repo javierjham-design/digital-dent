@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { cajasService } from '@/services/caja.service'
+import { cajasService, type ReportePagos, type ReporteProfesionales, type ReporteMetodo } from '@/services/caja.service'
 import { ApiError } from '@/services/api'
 import { fmtMonto } from '@/lib/money'
 import { useAuth } from '@/hooks/useAuth'
@@ -31,7 +31,7 @@ export function GestionCajas() {
   const [form, setForm] = useState<CajaGestion | 'nueva' | null>(null)
   const [cerrar, setCerrar] = useState<CajaGestion | null>(null)
   const [abrir, setAbrir] = useState<CajaGestion | null>(null)
-  const [tab, setTab] = useState<'abiertas' | 'cerradas'>('abiertas')
+  const [tab, setTab] = useState<'abiertas' | 'cerradas' | 'reportes'>('abiertas')
 
   const cargar = () => cajasService.gestion().then((r) => setCajas(r as CajaGestion[])).catch(() => {}).finally(() => setCargando(false))
   useEffect(() => { cargar() }, [])
@@ -59,9 +59,14 @@ export function GestionCajas() {
       <div className="flex gap-1 mb-5 border-b border-slate-200">
         <TabBtn activo={tab === 'abiertas'} onClick={() => setTab('abiertas')} label="Cajas abiertas" count={cajasAbiertas.length} tone="emerald" />
         <TabBtn activo={tab === 'cerradas'} onClick={() => setTab('cerradas')} label="Cajas cerradas" count={cajasCerradas.length} tone="slate" />
+        <button onClick={() => setTab('reportes')}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${tab === 'reportes' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+          Reportes
+        </button>
       </div>
 
-      {cargando ? <p className="text-slate-500 text-sm">Cargando…</p>
+      {tab === 'reportes' ? <ReportesPanel />
+        : cargando ? <p className="text-slate-500 text-sm">Cargando…</p>
         : cajas.length === 0 ? <p className="text-slate-500 text-sm">No hay cajas creadas. Créalas desde Cobros.</p>
         : lista.length === 0 ? <p className="text-slate-500 text-sm">{tab === 'abiertas' ? 'No hay cajas abiertas en este momento.' : 'No hay cajas cerradas. Las cajas cerradas y su historial aparecen aquí.'}</p>
         : (
@@ -120,6 +125,136 @@ export function GestionCajas() {
       {abrir && <AbrirCajaModal caja={abrir} onClose={() => setAbrir(null)} onDone={() => { setAbrir(null); cargar() }} />}
     </div>
   )
+}
+
+// ── Reportes de pagos recibidos por periodo ───────────────────────────────────
+// Fecha local (Chile) para que "hoy" coincida con la operación de la clínica.
+const ymdLocal = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
+const hoyYmd = () => ymdLocal(new Date())
+const haceYmd = (n: number) => { const d = new Date(); d.setDate(d.getDate() - n); return ymdLocal(d) }
+const inicioMesYmd = () => { const d = new Date(); return ymdLocal(new Date(d.getFullYear(), d.getMonth(), 1)) }
+const fechaHoraR = (iso: string | null) => (iso ? new Date(iso).toLocaleString('es-CL', { dateStyle: 'short', timeStyle: 'short' }) : '—')
+
+function ChipsMetodo({ porMetodo }: { porMetodo: ReporteMetodo[] }) {
+  if (porMetodo.length === 0) return null
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {porMetodo.map((m) => (
+        <span key={m.metodo} className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+          {m.metodo}: <span className="font-semibold font-mono">{fmt(m.monto)}</span> <span className="text-slate-400">({m.cantidad})</span>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function ReportesPanel() {
+  const [desde, setDesde] = useState(inicioMesYmd())
+  const [hasta, setHasta] = useState(hoyYmd())
+  const [vista, setVista] = useState<'pagos' | 'profesionales'>('pagos')
+  const [pagos, setPagos] = useState<ReportePagos | null>(null)
+  const [profes, setProfes] = useState<ReporteProfesionales | null>(null)
+  const [cargando, setCargando] = useState(false)
+
+  useEffect(() => {
+    setCargando(true)
+    Promise.all([
+      cajasService.reportePagos(desde || undefined, hasta || undefined).then(setPagos).catch(() => setPagos(null)),
+      cajasService.reporteProfesionales(desde || undefined, hasta || undefined).then(setProfes).catch(() => setProfes(null)),
+    ]).finally(() => setCargando(false))
+  }, [desde, hasta])
+
+  const preset = (d: string, h: string) => { setDesde(d); setHasta(h) }
+  const printUrl = `/print/reporte-cajas?desde=${desde}&hasta=${hasta}&tipo=${vista}`
+
+  return (
+    <div>
+      {/* Filtros de periodo */}
+      <div className="flex flex-wrap items-end gap-3 mb-4">
+        <div className="flex gap-1.5 flex-wrap">
+          <BtnPreset label="Hoy" onClick={() => preset(hoyYmd(), hoyYmd())} />
+          <BtnPreset label="7 días" onClick={() => preset(haceYmd(7), hoyYmd())} />
+          <BtnPreset label="30 días" onClick={() => preset(haceYmd(30), hoyYmd())} />
+          <BtnPreset label="Este mes" onClick={() => preset(inicioMesYmd(), hoyYmd())} />
+        </div>
+        <label className="text-xs text-slate-500">Desde
+          <input type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} className="block mt-0.5 px-2 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600" /></label>
+        <label className="text-xs text-slate-500">Hasta
+          <input type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} className="block mt-0.5 px-2 py-1.5 border border-slate-200 rounded-lg text-xs text-slate-600" /></label>
+        <a href={printUrl} target="_blank" rel="noopener noreferrer" className="ml-auto px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-xl">Imprimir / PDF</a>
+      </div>
+
+      {/* Sub-pestañas del reporte */}
+      <div className="flex gap-1 mb-4">
+        {([['pagos', 'Pagos del periodo'], ['profesionales', 'Por profesional']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setVista(k)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 ${vista === k ? 'border-cyan-500 bg-cyan-50 text-cyan-700' : 'border-slate-200 text-slate-500'}`}>{l}</button>
+        ))}
+      </div>
+
+      {cargando ? <p className="text-slate-500 text-sm">Cargando…</p> : vista === 'pagos' ? (
+        !pagos ? <p className="text-slate-400 text-sm">Sin datos.</p> : (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+              <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+                <p className="text-sm text-slate-500">Recaudado (bruto cobrado) · {pagos.cantidad} pago{pagos.cantidad === 1 ? '' : 's'}</p>
+                <p className="text-2xl font-bold font-mono text-emerald-600">{fmt(pagos.total)}</p>
+              </div>
+              <ChipsMetodo porMetodo={pagos.porMetodo} />
+            </div>
+            <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              {pagos.items.length === 0 ? <p className="px-4 py-8 text-center text-slate-400 text-sm">No hay pagos en este periodo.</p> : (
+                <table className="w-full text-sm">
+                  <thead><tr className="text-[11px] uppercase tracking-wide text-slate-400 text-left border-b border-slate-100">
+                    <th className="px-3 py-2 font-medium">Fecha</th><th className="px-3 py-2 font-medium">Nº</th><th className="px-3 py-2 font-medium">Paciente</th>
+                    <th className="px-3 py-2 font-medium">Medio</th><th className="px-3 py-2 font-medium">Recibió</th><th className="px-3 py-2 font-medium">Caja</th>
+                    <th className="px-3 py-2 font-medium text-right">Monto</th>
+                  </tr></thead>
+                  <tbody>
+                    {pagos.items.map((it) => (
+                      <tr key={it.id} className="border-b border-slate-50">
+                        <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{fechaHoraR(it.fechaPago)}</td>
+                        <td className="px-3 py-2 text-slate-400 font-mono">#{it.numero}</td>
+                        <td className="px-3 py-2 text-slate-700">{it.paciente}</td>
+                        <td className="px-3 py-2 text-slate-600">{it.metodo}</td>
+                        <td className="px-3 py-2 text-slate-600">{it.recibidoPor}</td>
+                        <td className="px-3 py-2 text-slate-500">{it.cajaNumero ? `Nº ${it.cajaNumero}` : '—'}</td>
+                        <td className="px-3 py-2 text-right font-mono font-semibold text-slate-800">{fmt(it.monto)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )
+      ) : (
+        !profes ? <p className="text-slate-400 text-sm">Sin datos.</p> : (
+          <div className="space-y-3">
+            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+              <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+                <p className="text-sm text-slate-500">Total recibido · {profes.cantidad} pago{profes.cantidad === 1 ? '' : 's'}</p>
+                <p className="text-2xl font-bold font-mono text-emerald-600">{fmt(profes.total)}</p>
+              </div>
+              <ChipsMetodo porMetodo={profes.porMetodo} />
+            </div>
+            {profes.profesionales.length === 0 ? <p className="text-slate-400 text-sm">No hay pagos en este periodo.</p> : profes.profesionales.map((p) => (
+              <div key={p.profesionalId} className="bg-white rounded-2xl border border-slate-200 p-4">
+                <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+                  <p className="text-sm font-semibold text-slate-800">{p.nombre} <span className="text-xs font-normal text-slate-400">· {p.cantidad} pago{p.cantidad === 1 ? '' : 's'}</span></p>
+                  <p className="text-lg font-bold font-mono text-emerald-600">{fmt(p.total)}</p>
+                </div>
+                <ChipsMetodo porMetodo={p.porMetodo} />
+              </div>
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  )
+}
+function BtnPreset({ label, onClick }: { label: string; onClick: () => void }) {
+  return <button onClick={onClick} className="px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-200 text-slate-600 hover:bg-slate-50">{label}</button>
 }
 
 // Abrir una caja cerrada. El saldo de apertura se sugiere automáticamente con el
