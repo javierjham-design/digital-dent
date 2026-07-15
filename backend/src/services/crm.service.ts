@@ -4,6 +4,7 @@ import { badRequest, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import { enviarEventoMeta, metaHabilitado, probarConexionMeta, type MetaConfig, type MetaSendResult } from '@/lib/meta'
 import { crearCita } from '@/services/citas.service'
+import { rangoFechasUtc } from '@/lib/tz'
 
 const ESTADOS = ['NUEVO', 'CONTACTADO', 'AGENDADO', 'CONVERTIDO', 'PERDIDO']
 // Leads "abiertos" que requieren seguimiento; si pasan de N días sin gestión humana, alertan.
@@ -128,7 +129,9 @@ export async function listarLeads(db: TenantClient, f: { estado?: string; origen
   const where: Record<string, unknown> = {}
   if (f.estado && ESTADOS.includes(f.estado)) where.estado = f.estado
   if (f.origen) where.origen = f.origen
-  if (f.desde || f.hasta) where.createdAt = { ...(f.desde ? { gte: new Date(f.desde) } : {}), ...(f.hasta ? { lte: new Date(`${f.hasta}T23:59:59`) } : {}) }
+  // Rango de fechas interpretado en hora de la clínica (America/Santiago), no en
+  // UTC: un lead creado a las 22:00 hora Chile cuenta en el día correcto.
+  if (f.desde || f.hasta) where.createdAt = rangoFechasUtc(f.desde, f.hasta)
   const [leads, campanasMap, dias] = await Promise.all([
     db.lead.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 }),
     getCampanasMap(db),
@@ -157,7 +160,7 @@ export async function listarLeads(db: TenantClient, f: { estado?: string; origen
 // panel de renombres. Escanea los leads del rango (o todos si no se pasa rango).
 export async function listarCampanas(db: TenantClient, f?: { desde?: string; hasta?: string }) {
   const where: Record<string, unknown> = {}
-  if (f?.desde || f?.hasta) where.createdAt = { ...(f?.desde ? { gte: new Date(f.desde) } : {}), ...(f?.hasta ? { lte: new Date(`${f.hasta}T23:59:59`) } : {}) }
+  if (f?.desde || f?.hasta) where.createdAt = rangoFechasUtc(f?.desde, f?.hasta)
   const [leads, map] = await Promise.all([
     db.lead.findMany({ where, select: { campana: true, utmCampaign: true, landing: true }, take: 2000 }),
     getCampanasMap(db),

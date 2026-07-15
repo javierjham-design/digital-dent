@@ -33,6 +33,18 @@ export function todayYmd(tz = CLINIC_TZ, now = new Date()): string {
   return dtf.format(now) // en-CA da YYYY-MM-DD
 }
 
+// Rango [gte, lte] en UTC para un filtro "desde/hasta" (YYYY-MM-DD) expresado en
+// hora de la clínica: del inicio del día (00:00:00.000) al fin del día
+// (23:59:59.999) LOCAL. Fin de día = inicio del día siguiente − 1 ms, así el DST
+// se respeta correctamente. Evita que un lead creado de noche (hora Chile) caiga
+// en el día UTC siguiente y quede fuera del rango "hoy".
+export function rangoFechasUtc(desde?: string, hasta?: string, tz = CLINIC_TZ): { gte?: Date; lte?: Date } {
+  return {
+    ...(desde ? { gte: wallClockToUtc(desde, '00:00', tz) } : {}),
+    ...(hasta ? { lte: new Date(wallClockToUtc(addDaysYmd(hasta, 1), '00:00', tz).getTime() - 1) } : {}),
+  }
+}
+
 // YYYY-MM-DD + n días → YYYY-MM-DD (aritmética de calendario, sin tz).
 export function addDaysYmd(ymd: string, n: number): string {
   const [y, mo, d] = ymd.split('-').map(Number)
