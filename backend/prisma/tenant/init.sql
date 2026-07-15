@@ -209,6 +209,7 @@ CREATE TABLE "Cita" (
     "linkAgendaId" TEXT,
     "abonoRequerido" BOOLEAN NOT NULL DEFAULT false,
     "abonoPagado" BOOLEAN NOT NULL DEFAULT false,
+    "reservaRevisada" BOOLEAN NOT NULL DEFAULT false,
     "googleEventId" TEXT,
     "googleSyncedAt" TIMESTAMP(3),
     "googleSyncError" TEXT,

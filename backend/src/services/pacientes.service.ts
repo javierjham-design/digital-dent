@@ -46,6 +46,18 @@ function toDTO(p: {
 }
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+// Sólo los caracteres significativos de un RUT/documento: dígitos y el DV "k".
+// Permite buscar por RUT sin puntos ni guión (ej. "12345678" encuentra "12.345.678-9").
+const soloRut = (s: string | null | undefined) => (s ?? '').toLowerCase().replace(/[^0-9k]/g, '')
+
+// ¿El paciente coincide con la búsqueda? Por nombre+apellido (insensible a
+// acentos/mayúsculas) o por RUT. El RUT se compara sin puntos ni guión cuando la
+// búsqueda trae dígitos, para no exigir el formato completo.
+const coincide = (p: { nombre: string; apellido: string; rut: string | null }, needle: string, rutDigits: string) => {
+  if (norm(`${p.nombre} ${p.apellido}`).includes(needle)) return true
+  if (rutDigits.length >= 2) return soloRut(p.rut).includes(rutDigits)
+  return (p.rut ?? '').toLowerCase().includes(needle)
+}
 
 // Solo los campos que necesita la lista (aligera el payload con miles de pacientes).
 const LIST_SELECT = {
@@ -63,9 +75,10 @@ export async function listarPacientes(db: TenantClient, q?: string): Promise<Pac
   // mayúsculas. (Antes filtraba sobre un tope de 500 → no encontraba apellidos
   // alfabéticamente posteriores.) A esta escala (miles) es instantáneo.
   if (needle) {
+    const rutDigits = soloRut(q)
     const todos = await db.paciente.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' }, select: LIST_SELECT })
     return todos
-      .filter((p) => norm(`${p.nombre} ${p.apellido}`).includes(needle) || (p.rut ?? '').toLowerCase().includes(needle))
+      .filter((p) => coincide(p, needle, rutDigits))
       .slice(0, LIST_LIMIT)
       .map(toDTO)
   }
@@ -90,10 +103,9 @@ export async function listarPacientesPaginado(
   if (needle) {
     // Búsqueda: traemos todos los activos, filtramos (insensible a acentos/mayúsculas)
     // y paginamos en memoria. A esta escala (miles) es instantáneo.
+    const rutDigits = soloRut(opts.q)
     const todos = await db.paciente.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' }, select: LIST_SELECT })
-    const filtrados = todos.filter((p) =>
-      norm(`${p.nombre} ${p.apellido}`).includes(needle) || (p.rut ?? '').toLowerCase().includes(needle),
-    )
+    const filtrados = todos.filter((p) => coincide(p, needle, rutDigits))
     const start = (page - 1) * pageSize
     return { items: filtrados.slice(start, start + pageSize).map(toDTO), total: filtrados.length, page, pageSize }
   }

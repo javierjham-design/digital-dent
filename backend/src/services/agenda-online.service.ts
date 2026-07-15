@@ -162,12 +162,28 @@ export async function listarReservas(db: TenantClient, opts?: { linkId?: string 
     where: { origen: 'ONLINE', ...(opts?.linkId ? { linkAgendaId: opts.linkId } : {}) },
     select: {
       id: true, fecha: true, duracion: true, estado: true, tipo: true, notas: true, linkAgendaId: true, createdAt: true,
-      abonoRequerido: true, abonoPagado: true,
+      abonoRequerido: true, abonoPagado: true, reservaRevisada: true,
       paciente: { select: { id: true, nombre: true, apellido: true, telefono: true, rut: true } },
       doctor: { select: { name: true } },
     },
     orderBy: { createdAt: 'desc' },
     take: 200,
+  })
+}
+
+// Aceptar una reserva online: la clínica la revisó y la deja AGENDADA (naranjo).
+// No la confirma ni la mueve de etapa — desde "Agendada" se sigue el flujo normal
+// (notificar por WhatsApp → paciente confirma asistencia). Sólo sale de la cola
+// de "reservas por confirmar" (reservaRevisada = true).
+export async function aceptarReserva(db: TenantClient, id: string, userName: string) {
+  const cita = await db.cita.findUnique({ where: { id }, select: { origen: true, estado: true } })
+  if (!cita) throw badRequest('Reserva no encontrada.')
+  await db.cita.update({
+    where: { id },
+    data: {
+      reservaRevisada: true,
+      logs: { create: { tipo: 'RESERVA_ACEPTADA', detalle: 'Reserva online aceptada (queda Agendada)', userName } },
+    },
   })
 }
 

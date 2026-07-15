@@ -4,6 +4,7 @@ import { control } from '@/db/control'
 import { tenantClient, type TenantClient } from '@/db/tenant'
 import { notFound, tooMany } from '@/lib/errors'
 import { rateLimit } from '@/lib/rate-limit'
+import { actorName } from '@/services/auth.service'
 import * as svc from '@/services/agenda-online.service'
 import { crearLinkSchema, reservarOnlineSchema } from '@/validators/schemas'
 import { parseModulos } from '@shared/constants/modulos'
@@ -27,6 +28,10 @@ export async function deleteLink(req: Request, res: Response) {
 export async function getReservas(req: Request, res: Response) {
   const linkId = typeof req.query.linkId === 'string' ? req.query.linkId : undefined
   res.json(await svc.listarReservas(tenantDb(req), { linkId }))
+}
+export async function postAceptarReserva(req: Request, res: Response) {
+  await svc.aceptarReserva(tenantDb(req), req.params.id, req.auth ? actorName(req.auth) : 'Sistema')
+  res.json({ ok: true })
 }
 
 // ── Público (sin auth, resuelve la clínica por slug) ──────────────────────────

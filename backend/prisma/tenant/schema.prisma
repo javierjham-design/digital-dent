@@ -237,6 +237,7 @@ model Cita {
   linkAgendaId String?  // link de agendamiento online que la generó
   abonoRequerido Boolean @default(false) // la reserva online exigía un abono (pago previo)
   abonoPagado    Boolean @default(false) // el abono fue confirmado por la pasarela (Flow)
+  reservaRevisada Boolean @default(false) // reserva online ya aceptada por la clínica (sale de "por confirmar"; sigue Agendada)
   googleEventId   String?
   googleSyncedAt  DateTime?
   googleSyncError String?

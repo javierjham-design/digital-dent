@@ -14,7 +14,7 @@ export interface LinkAgendaDTO {
 }
 export interface ReservaOnline {
   id: string; fecha: string; duracion: number; estado: string; tipo: string | null; notas: string | null
-  linkAgendaId: string | null; createdAt: string; abonoRequerido: boolean; abonoPagado: boolean
+  linkAgendaId: string | null; createdAt: string; abonoRequerido: boolean; abonoPagado: boolean; reservaRevisada: boolean
   paciente: { id: string; nombre: string; apellido: string; telefono: string | null; rut: string | null }
   doctor: { name: string | null }
 }
@@ -25,6 +25,8 @@ export const agendaOnlineService = {
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<LinkAgendaDTO>(`/agenda-links/${id}`, patch),
   eliminar: (id: string) => api.del<{ ok: true }>(`/agenda-links/${id}`),
   reservas: (linkId?: string) => api.get<ReservaOnline[]>(`/reservas-online${linkId ? `?linkId=${linkId}` : ''}`),
+  // Aceptar una reserva online: la deja Agendada (naranjo) y la saca de "por confirmar".
+  aceptar: (id: string) => api.post<{ ok: true }>(`/reservas-online/${id}/aceptar`),
 }
 
 // ── Público (sin token, sin redirect a login) ──

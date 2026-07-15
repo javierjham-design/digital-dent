@@ -147,7 +147,7 @@ export function Agenda() {
 
   // Reservas online por confirmar (origen ONLINE + estado PENDIENTE), para el aviso.
   const cargarPendientes = useCallback(() => {
-    agendaOnlineService.reservas().then((rs) => setPendientes(rs.filter((r) => r.estado === 'PENDIENTE'))).catch(() => {})
+    agendaOnlineService.reservas().then((rs) => setPendientes(rs.filter((r) => r.estado === 'PENDIENTE' && !r.reservaRevisada))).catch(() => {})
   }, [])
   useEffect(() => { cargarPendientes() }, [cargarPendientes])
 
@@ -160,8 +160,10 @@ export function Agenda() {
   }, [recargar, cargarPendientes])
 
   async function confirmarReserva(id: string) {
-    try { await citasService.cambiarEstado(id, 'CONFIRMADO'); notify('Reserva confirmada'); cargarPendientes(); recargar() }
-    catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo confirmar', false) }
+    // Aceptar la reserva la deja AGENDADA (naranjo). Desde ahí se notifica por
+    // WhatsApp y luego el paciente confirma su asistencia. No la confirma directo.
+    try { await agendaOnlineService.aceptar(id); notify('Reserva aceptada (queda Agendada)'); cargarPendientes(); recargar() }
+    catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo aceptar', false) }
   }
   async function rechazarReserva(id: string) {
     if (!confirm('¿Cancelar esta reserva? El cupo quedará libre.')) return
@@ -402,9 +404,9 @@ export function Agenda() {
             className="w-full mb-3 flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 hover:bg-amber-100 transition-colors">
             <span className="text-sm font-semibold flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" /><span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" /></span>
-              {pendientes.length} reserva{pendientes.length === 1 ? '' : 's'} online por confirmar
+              {pendientes.length} reserva{pendientes.length === 1 ? '' : 's'} online por revisar
             </span>
-            <span className="text-xs font-semibold">Ver y confirmar →</span>
+            <span className="text-xs font-semibold">Ver y aceptar →</span>
           </button>
         )}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -631,8 +633,8 @@ function ReservasPendientesModal({ reservas, onConfirmar, onRechazar, onClose }:
   reservas: ReservaOnline[]; onConfirmar: (id: string) => void; onRechazar: (id: string) => void; onClose: () => void
 }) {
   return (
-    <Modal title={`Reservas online por confirmar (${reservas.length})`} onClose={onClose}>
-      {reservas.length === 0 ? <p className="text-sm text-slate-500">No hay reservas pendientes. ¡Todo confirmado!</p> : (
+    <Modal title={`Reservas online por revisar (${reservas.length})`} onClose={onClose}>
+      {reservas.length === 0 ? <p className="text-sm text-slate-500">No hay reservas por revisar. Al aceptarlas quedan Agendadas.</p> : (
         <div className="divide-y divide-slate-100 max-h-[65vh] overflow-y-auto">
           {reservas.map((r) => {
             const wa = r.paciente.telefono ? `https://wa.me/${r.paciente.telefono.replace(/\D/g, '')}` : null
@@ -652,7 +654,7 @@ function ReservasPendientesModal({ reservas, onConfirmar, onRechazar, onClose }:
                 <p className="text-xs text-slate-500">{r.doctor.name ?? '—'}{r.paciente.telefono ? ` · ${r.paciente.telefono}` : ''}{r.paciente.rut ? ` · ${r.paciente.rut}` : ''}</p>
                 {r.notas && <p className="text-xs text-slate-400 mt-0.5">{r.notas}</p>}
                 <div className="flex items-center gap-2 mt-2">
-                  <button onClick={() => onConfirmar(r.id)} className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold rounded-lg">Confirmar</button>
+                  <button onClick={() => onConfirmar(r.id)} className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg" title="Aceptar la reserva: queda Agendada (naranjo)">Aceptar (Agendada)</button>
                   {wa && <a href={wa} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 border border-emerald-200 text-emerald-600 hover:bg-emerald-50 text-xs font-semibold rounded-lg">WhatsApp</a>}
                   <button onClick={() => onRechazar(r.id)} className="ml-auto px-3 py-1.5 border border-slate-200 text-slate-500 hover:text-rose-600 text-xs font-semibold rounded-lg">Cancelar</button>
                 </div>

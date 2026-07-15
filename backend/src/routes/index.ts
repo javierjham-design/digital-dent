@@ -149,6 +149,7 @@ apiRouter.post('/agenda-links', agendaConfig, asyncHandler(agendaOnline.postLink
 apiRouter.patch('/agenda-links/:id', agendaConfig, asyncHandler(agendaOnline.patchLink))
 apiRouter.delete('/agenda-links/:id', agendaConfig, asyncHandler(agendaOnline.deleteLink))
 apiRouter.get('/reservas-online', agendaTenant, asyncHandler(agendaOnline.getReservas))
+apiRouter.post('/reservas-online/:id/aceptar', agendaTenant, asyncHandler(agendaOnline.postAceptarReserva))
 
 // ── Suscripción de la clínica (su propio plan/pago) — admin de la clínica ─────
 apiRouter.get('/suscripcion', adminTenant, asyncHandler(suscripcion.getSuscripcion))
