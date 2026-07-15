@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { publicCrm, type PublicFormDTO } from '@/services/crm.service'
 import { initPixel, trackPixel, fbCookies, trackingParams, genEventId, captureTracking } from '@/lib/pixel'
+import { aplicarBrandingClinica } from '@/lib/branding'
 
 export function FormularioPublico() {
   const { slug = '', token = '' } = useParams()
@@ -16,7 +17,7 @@ export function FormularioPublico() {
   useEffect(() => {
     captureTracking() // fija la primera visita + persiste UTM/click-ids apenas carga
     publicCrm.form(slug, token)
-      .then((d) => { setData(d); if (d.pixelId) initPixel(d.pixelId) })
+      .then((d) => { setData(d); if (d.pixelId) initPixel(d.pixelId); aplicarBrandingClinica({ nombre: d.clinica.nombre, logoUrl: d.clinica.logoUrl }) })
       .catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar'))
       .finally(() => setCargando(false))
   }, [slug, token])

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { publicAgenda, type PublicAgendaDTO, type ReservaResult } from '@/services/agenda-online.service'
 import { initPixel, trackPixel, trackingParams, genEventId, captureTracking } from '@/lib/pixel'
+import { aplicarBrandingClinica } from '@/lib/branding'
 
 const diaLabel = (ymd: string) => {
   const d = new Date(`${ymd}T12:00:00`)
@@ -46,7 +47,7 @@ export function AgendarPublico() {
   useEffect(() => {
     captureTracking() // fija la primera visita + persiste UTM/click-ids apenas carga
     publicAgenda.obtener(slug, token)
-      .then((d) => { setData(d); setDoctorSel(d.doctorId); setDias(d.dias); setDiaSel(d.dias[0]?.dia ?? ''); if (d.pixelId) initPixel(d.pixelId) })
+      .then((d) => { setData(d); setDoctorSel(d.doctorId); setDias(d.dias); setDiaSel(d.dias[0]?.dia ?? ''); if (d.pixelId) initPixel(d.pixelId); aplicarBrandingClinica({ nombre: d.clinica.nombre, logoUrl: d.clinica.logoUrl }) })
       .catch((e) => setError(e instanceof Error ? e.message : 'No se pudo cargar'))
       .finally(() => setCargando(false))
   }, [slug, token])

@@ -6,6 +6,7 @@ import { pacientesService } from '@/services/clinica.service'
 import { clinicaService } from '@/services/catalogo.service'
 import { CambiarPasswordModal } from '@/components/CambiarPasswordModal'
 import { HelpWidget } from '@/components/HelpWidget'
+import { aplicarBrandingClinica } from '@/lib/branding'
 
 const NAV_PRE = [
   { to: '/agenda', label: 'Agenda' },
@@ -113,7 +114,12 @@ export function DashboardLayout() {
   const { user, logout } = useAuth()
   const [cambiarPass, setCambiarPass] = useState(false)
   const [logo, setLogo] = useState<string | null>(null)
-  useEffect(() => { clinicaService.obtener().then((c) => setLogo(c.logoUrl)).catch(() => {}) }, [])
+  useEffect(() => {
+    clinicaService.obtener().then((c) => {
+      setLogo(c.logoUrl)
+      aplicarBrandingClinica({ nombre: c.nombre, logoUrl: c.logoUrl })
+    }).catch(() => {})
+  }, [])
   // Si el admin reseteó la contraseña o es el primer ingreso, forzar el cambio.
   const forzado = Boolean(user?.requirePasswordChange)
   useEffect(() => { if (forzado) setCambiarPass(true) }, [forzado])
