@@ -1271,12 +1271,13 @@ function AgregarSeccion({ planId, accion, sinSeccionIds }: { planId: string; acc
 
 // ── Recaudación: pagar acciones pendientes o registrar un abono libre al plan ──
 function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
+  const { user } = useAuth()
   const [planes, setPlanes] = useState<PlanCard[]>([])
   const [planId, setPlanId] = useState('')
   const [detalle, setDetalle] = useState<PlanDetalle | null>(null)
-  const [cajas, setCajas] = useState<{ id: string; nombre: string }[]>([])
+  // Cada usuario recibe pagos SÓLO con su propia caja abierta: no hay selector.
+  const [miCaja, setMiCaja] = useState<{ id: string; numero: number } | null>(null)
   const [medios, setMedios] = useState<MedioPagoDTO[]>([])
-  const [cajaId, setCajaId] = useState('')
   const [medioPagoId, setMedioPagoId] = useState('')
   const [numeroReferencia, setNumeroReferencia] = useState('')
   const [numeroBoleta, setNumeroBoleta] = useState('')
@@ -1292,9 +1293,14 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   const cargarDetalle = (id: string) => { if (id) planesService.obtener(id).then((d) => setDetalle(d as PlanDetalle)).catch(() => {}) }
   useEffect(() => {
     planesService.listar(pacienteId).then((p) => { const ps = p as PlanCard[]; setPlanes(ps); setPlanId((x) => x || ps[0]?.id || '') }).catch(() => {})
-    cajasService.listar().then((c) => { const cc = c as { id: string; nombre: string }[]; setCajas(cc); setCajaId((x) => x || cc[0]?.id || '') }).catch(() => {})
+    // Sólo la caja PROPIA del usuario que esté abierta (no las de otros usuarios).
+    cajasService.resumen().then((c) => {
+      const list = c as { id: string; numero: number; sesionAbierta: unknown | null; usuarios?: { user: { id: string } }[] }[]
+      const propia = list.find((x) => x.sesionAbierta && x.usuarios?.some((u) => u.user.id === user?.id))
+      setMiCaja(propia ? { id: propia.id, numero: propia.numero } : null)
+    }).catch(() => {})
     mediosPagoService.listar().then((m) => setMedios(m.filter((x) => x.activo))).catch(() => {})
-  }, [pacienteId])
+  }, [pacienteId, user?.id])
   useEffect(() => { cargarDetalle(planId); setSel({}); setAbono('') }, [planId])
 
   const acciones = detalle ? [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos] : []
@@ -1314,12 +1320,12 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
     }
     if (Number(abono) > 0) items.push({ planId, descripcion: 'Abono libre al plan', monto: Number(abono) })
     if (items.length === 0) { setMsg({ t: 'Selecciona acciones o ingresa un abono.', ok: false }); return }
-    if (!cajaId) { setMsg({ t: 'Selecciona una caja.', ok: false }); return }
+    if (!miCaja) { setMsg({ t: 'No tienes una caja abierta. Abre tu caja en Cobros para recibir pagos.', ok: false }); return }
     if (requiereRef && !numeroReferencia.trim()) { setMsg({ t: `Ingresa el N° de referencia de la operación (${medioSel?.nombre}).`, ok: false }); return }
     setSaving(true); setMsg(null)
     try {
       await cobrosService.crear({
-        pacienteId, cajaId, medioPagoId: medioPagoId || undefined, items,
+        pacienteId, cajaId: miCaja.id, medioPagoId: medioPagoId || undefined, items,
         numeroReferencia: numeroReferencia.trim() || undefined, numeroBoleta: numeroBoleta.trim() || undefined,
       })
       setMsg({ t: `Recaudación de ${fmtCLP(totalSel)} registrada.`, ok: true })
@@ -1384,10 +1390,15 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
             <div className="grid sm:grid-cols-2 gap-3">
               <label className="block">
                 <span className="text-xs font-medium text-slate-500">Caja</span>
-                <select value={cajaId} onChange={(e) => setCajaId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                  {cajas.length === 0 && <option value="">Sin cajas</option>}
-                  {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                </select>
+                {miCaja ? (
+                  <div className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-slate-50 text-slate-700 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> Caja N° {miCaja.numero} <span className="text-slate-400">· tu caja</span>
+                  </div>
+                ) : (
+                  <div className="mt-1 w-full px-3 py-2 border border-amber-200 bg-amber-50 rounded-lg text-xs text-amber-700">
+                    No tienes una caja abierta. <Link to="/cobros" className="font-semibold underline">Abre tu caja</Link> para recibir pagos.
+                  </div>
+                )}
               </label>
               <label className="block">
                 <span className="text-xs font-medium text-slate-500">Medio de pago</span>

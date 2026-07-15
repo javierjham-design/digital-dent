@@ -99,7 +99,7 @@ export function Cobros() {
           </h2>
           <div className="space-y-4">
             {abiertas.map((c) => (
-              <CajaAbiertaCard key={c.id} caja={c}
+              <CajaAbiertaCard key={c.id} caja={c} esPropia={Boolean(c.usuarios?.some((u) => u.user.id === user?.id))}
                 onPago={() => setModal({ kind: 'pago', cajaId: c.id, nombre: etiquetaCaja(c) })}
                 onGasto={() => setModal({ kind: 'mov', cajaId: c.id, nombre: etiquetaCaja(c) })}
                 onMovs={() => c.sesionAbierta && setModal({ kind: 'movs', cajaId: c.id, sesionId: c.sesionAbierta.id, nombre: etiquetaCaja(c) })}
@@ -199,8 +199,8 @@ function LinkPagoBtn({ cobroId, notify }: { cobroId: string; notify: (m: string,
 }
 
 // ── Tarjeta de caja abierta ──
-function CajaAbiertaCard({ caja, onPago, onGasto, onMovs, onCerrar }: {
-  caja: ResumenCaja; onPago: () => void; onGasto: () => void; onMovs: () => void; onCerrar: () => void
+function CajaAbiertaCard({ caja, esPropia, onPago, onGasto, onMovs, onCerrar }: {
+  caja: ResumenCaja; esPropia: boolean; onPago: () => void; onGasto: () => void; onMovs: () => void; onCerrar: () => void
 }) {
   const s = caja.sesionAbierta!
   const r = s.resumen
@@ -208,17 +208,19 @@ function CajaAbiertaCard({ caja, onPago, onGasto, onMovs, onCerrar }: {
     <div className="bg-white rounded-2xl border border-slate-200 p-5">
       <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-base font-bold text-slate-900">{caja.nombre}</span>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Abierta</span>
+            {!esPropia && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Caja de otro usuario</span>}
           </div>
           <p className="text-xs text-slate-500 mt-1">
             Abierta el {fechaHora(s.abiertaAt)}{s.abiertaPorNombre ? ` · ${s.abiertaPorNombre}` : ''}
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
-          <button onClick={onPago} className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Recibir pago</button>
-          <button onClick={onGasto} className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl">Registrar gasto</button>
+          {/* Recibir pagos / registrar gastos SÓLO en la caja propia. */}
+          {esPropia && <button onClick={onPago} className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Recibir pago</button>}
+          {esPropia && <button onClick={onGasto} className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl">Registrar gasto</button>}
           <button onClick={onMovs} className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl">Movimientos</button>
           <button onClick={onCerrar} className="px-3.5 py-2 border border-rose-200 text-rose-700 hover:bg-rose-50 text-sm font-semibold rounded-xl">Cerrar caja</button>
         </div>
