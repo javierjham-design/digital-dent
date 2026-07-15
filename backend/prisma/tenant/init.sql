@@ -242,6 +242,7 @@ CREATE TABLE "FichaClinica" (
     "diabetico" BOOLEAN NOT NULL DEFAULT false,
     "hipertenso" BOOLEAN NOT NULL DEFAULT false,
     "cardiopatia" BOOLEAN NOT NULL DEFAULT false,
+    "anticoagulantes" BOOLEAN NOT NULL DEFAULT false,
     "medicamentos" TEXT,
     "notasClinicas" TEXT,
     "alertasMedicas" TEXT,

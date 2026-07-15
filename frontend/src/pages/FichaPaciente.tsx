@@ -60,11 +60,14 @@ export function FichaPaciente() {
   const [planesNonce, setPlanesNonce] = useState(0)
   const [paciente, setPaciente] = useState<PacienteDTO | null>(null)
   const [resumen, setResumen] = useState<ResumenPaciente | null>(null)
+  const [ficha, setFicha] = useState<FichaClinica | null>(null)
   const [avisoDeuda, setAvisoDeuda] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => { pacientesService.obtener(id).then(setPaciente).catch((e) => setError(e.message)) }, [id])
   useEffect(() => { pacientesService.resumen(id).then(setResumen).catch(() => {}) }, [id])
+  // Ficha a nivel de página para mostrar las advertencias médicas en el encabezado.
+  useEffect(() => { pacientesService.ficha(id).then((f) => setFicha(f.ficha)).catch(() => {}) }, [id])
 
   if (error) return <p className="text-rose-600 text-sm">{error}</p>
   if (!paciente) return <p className="text-slate-500 text-sm">Cargando…</p>
@@ -77,6 +80,12 @@ export function FichaPaciente() {
         <p className="text-cyan-100 text-sm mt-1">
           {paciente.rut ?? 'Sin RUT'} · {edadTexto(paciente.fechaNacimiento)}{paciente.prevision ? ` · ${paciente.prevision}` : ''}
         </p>
+        {ficha?.anticoagulantes && (
+          <div className="mt-3 flex items-center gap-2 rounded-xl bg-red-600 ring-1 ring-red-300/60 px-3 py-2 shadow-sm">
+            <span className="text-lg leading-none">⚠️</span>
+            <span className="text-sm font-bold tracking-wide">PACIENTE ANTICOAGULADO — precaución ante sangrado y procedimientos invasivos.</span>
+          </div>
+        )}
         {resumen && (
           <div className="grid grid-cols-3 gap-x-4 gap-y-2 mt-4 text-sm sm:flex sm:flex-wrap sm:gap-x-6">
             <KpiInline l="Tratamientos activos" v={String(resumen.activos)} />
@@ -110,7 +119,7 @@ export function FichaPaciente() {
 
       {/* Las pestañas de contenido tipo formulario/lista se acotan a un ancho
           cómodo de lectura; Planes de Tratamiento usa todo el ancho disponible. */}
-      {tab === 'Datos' && <div className="max-w-5xl"><DatosTab paciente={paciente} onSaved={setPaciente} /></div>}
+      {tab === 'Datos' && <div className="max-w-5xl"><DatosTab paciente={paciente} onSaved={setPaciente} onFichaSaved={setFicha} /></div>}
       {tab === 'Citas' && <div className="max-w-4xl"><CitasTab pacienteId={id} /></div>}
       {tab === 'Planes de Tratamiento' && <PlanesTab key={planesNonce} pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} pacienteEmail={paciente.email} />}
       {tab === 'Recaudación' && <RecaudacionTab pacienteId={id} />}
@@ -190,7 +199,7 @@ function MensajesTab({ pacienteId }: { pacienteId: string }) {
 }
 
 // ── Datos + ficha clínica ──
-function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: PacienteDTO) => void }) {
+function DatosTab({ paciente, onSaved, onFichaSaved }: { paciente: PacienteDTO; onSaved: (p: PacienteDTO) => void; onFichaSaved?: (f: FichaClinica) => void }) {
   const [form, setForm] = useState({
     nombre: paciente.nombre, apellido: paciente.apellido, nombreSocial: paciente.nombreSocial ?? '',
     rut: paciente.rut ?? '', otroDoc: paciente.otroDocId ?? '',
@@ -205,7 +214,7 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
   const rutInvalido = Boolean(form.rut) && !validarDoc(paisMoneda(), form.rut)
   const [ficha, setFicha] = useState<FichaClinica | null>(null)
   const [flags, setFlags] = useState({
-    fumador: false, diabetico: false, hipertenso: false, cardiopatia: false,
+    fumador: false, diabetico: false, hipertenso: false, cardiopatia: false, anticoagulantes: false,
     otras: false, enfermedadesNotas: '',
     motivoAtencion: '', alertasMedicas: '', medicamentos: '', impresionMedica: '', resumenDiagnostico: '',
   })
@@ -216,7 +225,7 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
     pacientesService.ficha(paciente.id).then((f) => {
       setFicha(f.ficha)
       if (f.ficha) setFlags({
-        fumador: f.ficha.fumador, diabetico: f.ficha.diabetico, hipertenso: f.ficha.hipertenso, cardiopatia: f.ficha.cardiopatia,
+        fumador: f.ficha.fumador, diabetico: f.ficha.diabetico, hipertenso: f.ficha.hipertenso, cardiopatia: f.ficha.cardiopatia, anticoagulantes: f.ficha.anticoagulantes,
         otras: !!f.ficha.enfermedadesNotas, enfermedadesNotas: f.ficha.enfermedadesNotas ?? '',
         motivoAtencion: f.ficha.motivoAtencion ?? '', alertasMedicas: f.ficha.alertasMedicas ?? '', medicamentos: f.ficha.medicamentos ?? '',
         impresionMedica: f.ficha.impresionMedica ?? '', resumenDiagnostico: f.ficha.resumenDiagnostico ?? '',
@@ -231,7 +240,8 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
       const { otroDoc, ...rest } = form
       const p = await pacientesService.actualizar(paciente.id, { ...rest, otroDocId: otroDoc })
       const { otras, ...fichaData } = flags
-      await pacientesService.guardarFicha(paciente.id, { ...fichaData, enfermedadesNotas: otras ? flags.enfermedadesNotas : '' })
+      const nuevaFicha = await pacientesService.guardarFicha(paciente.id, { ...fichaData, enfermedadesNotas: otras ? flags.enfermedadesNotas : '' })
+      onFichaSaved?.(nuevaFicha)
       onSaved(p)
       setMsg('Cambios guardados')
     } catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error al guardar') } finally { setSaving(false) }
@@ -300,7 +310,7 @@ function DatosTab({ paciente, onSaved }: { paciente: PacienteDTO; onSaved: (p: P
         <div>
           <span className="block text-sm font-medium text-slate-700 mb-2">Condiciones</span>
           <div className="flex flex-wrap gap-4">
-            {([['fumador', 'Fumador'], ['diabetico', 'Diabético'], ['hipertenso', 'Hipertenso'], ['cardiopatia', 'Cardiopatía']] as const).map(([k, l]) => (
+            {([['fumador', 'Fumador'], ['diabetico', 'Diabético'], ['hipertenso', 'Hipertenso'], ['cardiopatia', 'Cardiopatía'], ['anticoagulantes', 'Anticoagulantes']] as const).map(([k, l]) => (
               <label key={k} className="flex items-center gap-2 text-sm text-slate-700">
                 <input type="checkbox" checked={flags[k]} onChange={(e) => setFlags({ ...flags, [k]: e.target.checked })} /> {l}
               </label>

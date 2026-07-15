@@ -273,6 +273,7 @@ model FichaClinica {
   diabetico         Boolean       @default(false)
   hipertenso        Boolean       @default(false)
   cardiopatia       Boolean       @default(false)
+  anticoagulantes   Boolean       @default(false)
   medicamentos      String?
   notasClinicas     String?
   alertasMedicas    String?

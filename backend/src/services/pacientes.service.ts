@@ -278,7 +278,7 @@ export async function obtenerFicha(db: TenantClient, pacienteId: string) {
   return { ficha: flags, odontograma }
 }
 
-const FICHA_FLAGS = ['grupoSanguineo', 'fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia', 'medicamentos', 'notasClinicas', 'alertasMedicas', 'enfermedadesNotas', 'motivoAtencion', 'impresionMedica', 'resumenDiagnostico']
+const FICHA_FLAGS = ['grupoSanguineo', 'fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia', 'anticoagulantes', 'medicamentos', 'notasClinicas', 'alertasMedicas', 'enfermedadesNotas', 'motivoAtencion', 'impresionMedica', 'resumenDiagnostico']
 
 export async function guardarFicha(db: TenantClient, pacienteId: string, body: Record<string, unknown>) {
   const paciente = await db.paciente.findUnique({ where: { id: pacienteId }, select: { id: true } })
@@ -287,7 +287,7 @@ export async function guardarFicha(db: TenantClient, pacienteId: string, body: R
   for (const k of FICHA_FLAGS) {
     if (!(k in body)) continue
     const v = body[k]
-    if (['fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia'].includes(k)) data[k] = Boolean(v)
+    if (['fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia', 'anticoagulantes'].includes(k)) data[k] = Boolean(v)
     else data[k] = v ? String(v) : null
   }
   return db.fichaClinica.upsert({ where: { pacienteId }, update: data, create: { pacienteId, ...data } })

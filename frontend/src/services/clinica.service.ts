@@ -37,7 +37,7 @@ export const horariosLectura = {
 
 export interface FichaClinica {
   grupoSanguineo: string | null; fumador: boolean; embarazada: boolean; diabetico: boolean
-  hipertenso: boolean; cardiopatia: boolean; medicamentos: string | null
+  hipertenso: boolean; cardiopatia: boolean; anticoagulantes: boolean; medicamentos: string | null
   notasClinicas: string | null; alertasMedicas: string | null; enfermedadesNotas: string | null
   motivoAtencion: string | null; impresionMedica: string | null; resumenDiagnostico: string | null
 }
