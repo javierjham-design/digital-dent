@@ -29,6 +29,7 @@ export function GestionCajas() {
   const [ver, setVer] = useState<CajaGestion | null>(null)
   const [form, setForm] = useState<CajaGestion | 'nueva' | null>(null)
   const [cerrar, setCerrar] = useState<CajaGestion | null>(null)
+  const [abrir, setAbrir] = useState<CajaGestion | null>(null)
 
   const cargar = () => cajasService.gestion().then((r) => setCajas(r as CajaGestion[])).catch(() => {}).finally(() => setCargando(false))
   useEffect(() => { cargar() }, [])
@@ -48,7 +49,7 @@ export function GestionCajas() {
       <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
         <h1 className="text-2xl font-bold text-slate-900">Gestión de cajas</h1>
       </div>
-      <p className="text-sm text-slate-500 mb-5">Todas las cajas de la clínica y su estado. Cada caja es de un usuario (exclusiva): registra sus propios cobros y gastos. El cuadre de caja es sólo sobre el efectivo; los pagos con tarjeta/transferencia se registran por su medio. Cada usuario abre su caja desde Cobros.</p>
+      <p className="text-sm text-slate-500 mb-5">Todas las cajas de la clínica y su estado. Cada caja es de un usuario (exclusiva): sólo su usuario recibe pagos con ella, por lo que los pagos de uno nunca se mezclan con los de otro. Como administrador puedes abrir y cerrar la caja de otro usuario; al cerrar, el efectivo que dejes se arrastra automáticamente a la próxima apertura sin perderse. El cuadre es sólo sobre el efectivo; tarjeta/transferencia se registran por su medio.</p>
 
       <div className="grid grid-cols-3 gap-3 mb-5 max-w-md">
         <Kpi l="Cajas" v={String(cajas.length)} />
@@ -79,7 +80,9 @@ export function GestionCajas() {
                       </p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
-                      {abierta && <button onClick={() => setCerrar(c)} className="text-xs font-semibold text-rose-600 hover:text-rose-800">Cerrar caja</button>}
+                      {abierta
+                        ? <button onClick={() => setCerrar(c)} className="text-xs font-semibold text-rose-600 hover:text-rose-800">Cerrar caja</button>
+                        : c.activo && <button onClick={() => setAbrir(c)} className="text-xs font-semibold text-emerald-700 hover:text-emerald-900">Abrir caja</button>}
                       <button onClick={() => setForm(c)} className="text-xs font-semibold text-slate-500 hover:text-slate-800">Editar</button>
                       <button onClick={() => setVer(c)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900">Ver sesiones ({c.totalSesiones}) →</button>
                     </div>
@@ -109,6 +112,49 @@ export function GestionCajas() {
       {ver && <SesionesModal caja={ver} onClose={() => setVer(null)} />}
       {form && <CajaFormModal caja={form === 'nueva' ? null : form} onClose={() => setForm(null)} onSaved={() => { setForm(null); cargar() }} />}
       {cerrar && <CerrarCajaModal caja={cerrar} onClose={() => setCerrar(null)} onDone={() => { setCerrar(null); cargar() }} />}
+      {abrir && <AbrirCajaModal caja={abrir} onClose={() => setAbrir(null)} onDone={() => { setAbrir(null); cargar() }} />}
+    </div>
+  )
+}
+
+// Abrir una caja cerrada. El saldo de apertura se sugiere automáticamente con el
+// efectivo que quedó en el último cierre (arrastre): ese saldo no se pierde. El
+// admin puede abrir la caja de otro usuario; los pagos siguen siendo exclusivos.
+function AbrirCajaModal({ caja, onClose, onDone }: { caja: CajaGestion; onClose: () => void; onDone: () => void }) {
+  const [saldo, setSaldo] = useState('')
+  const [sugerido, setSugerido] = useState<number | null>(null)
+  const [g, setG] = useState(false); const [err, setErr] = useState('')
+
+  useEffect(() => {
+    cajasService.saldoSugerido(caja.id)
+      .then((r) => { setSugerido(r.saldoSugerido); setSaldo(String(r.saldoSugerido)) })
+      .catch(() => { setSugerido(0); setSaldo('0') })
+  }, [caja.id])
+
+  async function abrir() {
+    setG(true); setErr('')
+    try { await cajasService.abrir(caja.id, Number(saldo) || 0); onDone() }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo abrir') } finally { setG(false) }
+  }
+  const responsable = caja.usuarios.map((u) => u.user.name ?? u.user.email).filter(Boolean).join(', ') || 'sin usuario'
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3"><h2 className="text-base font-semibold text-slate-900">Abrir Caja Nº {caja.numero}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
+        <p className="text-xs text-slate-500 mb-3">Responsable: <span className="font-medium text-slate-700">{responsable}</span></p>
+        <label className="block mb-2"><span className="block text-sm font-medium text-slate-700 mb-1">Efectivo de apertura</span>
+          <input value={saldo} onChange={(e) => setSaldo(e.target.value)} inputMode="numeric" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono" /></label>
+        {sugerido != null && (
+          <p className="text-xs text-slate-500 mb-3">
+            Se arrastra automáticamente el efectivo que quedó en el último cierre: <span className="font-mono font-semibold text-slate-700">{fmt(sugerido)}</span>. Ese saldo no se pierde.
+          </p>
+        )}
+        {err && <p className="text-sm text-rose-600 mb-1">{err}</p>}
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+          <button onClick={abrir} disabled={g || sugerido == null} className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{g ? 'Abriendo…' : 'Abrir caja'}</button>
+        </div>
+      </div>
     </div>
   )
 }

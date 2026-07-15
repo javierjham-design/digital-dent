@@ -12,13 +12,15 @@ const CAJA_INCLUDE = {
   usuarios: { include: { user: { select: { id: true, name: true, email: true } } } },
 } as const
 
-// Verifica acceso de OPERACIÓN a una caja (abrir/cerrar/movimientos/recibir pagos):
-// la caja es EXCLUSIVA de su usuario, nadie más la opera (ni el administrador).
+// Verifica acceso de OPERACIÓN a una caja (abrir/cerrar/movimientos): su usuario
+// o el administrador (que puede abrir/cerrar la caja de otros para supervisar).
+// Recibir PAGOS es aparte y sí es exclusivo del usuario (ver cobros.service): los
+// pagos de cada usuario no se mezclan aunque el admin opere la caja.
 async function cajaConAcceso(db: TenantClient, cajaId: string, actor: JwtPayload) {
   const caja = await db.caja.findUnique({ where: { id: cajaId }, include: { usuarios: { select: { userId: true } } } })
   if (!caja) throw notFound('Caja no encontrada')
-  if (!caja.usuarios.some((cu) => cu.userId === actor.sub)) {
-    throw forbidden('Esta caja es de otro usuario. Sólo su usuario puede operarla.')
+  if (actor.role !== 'admin' && !caja.usuarios.some((cu) => cu.userId === actor.sub)) {
+    throw forbidden('Esta caja es de otro usuario. Sólo su usuario o un administrador pueden operarla.')
   }
   return caja
 }
