@@ -7,7 +7,7 @@ import { getMe, postLogin, postCambiarPassword } from '@/controllers/auth.contro
 import {
   getPacientes, getPaciente, postPaciente, patchPaciente, getFicha, putFicha,
   getComentarios, postComentario, getMensajes, postMensaje, getResumen,
-  getExport, getTemplate, postImport,
+  getExport, getTemplate, postImport, getPacientesSinProxima,
 } from '@/controllers/pacientes.controller'
 import { getCitas, postCita, patchCita, deleteCita, patchEstado } from '@/controllers/citas.controller'
 import { getUsuarios, getDoctores, getCupoProfesionales, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
@@ -113,6 +113,7 @@ apiRouter.get('/pacientes', tenant, asyncHandler(getPacientes))
 // Rutas estáticas ANTES de /pacientes/:id (si no, ":id" captura export/template/import).
 apiRouter.get('/pacientes/export', tenant, asyncHandler(getExport))
 apiRouter.get('/pacientes/template', tenant, asyncHandler(getTemplate))
+apiRouter.get('/pacientes/sin-proxima-cita', tenant, asyncHandler(getPacientesSinProxima))
 apiRouter.post('/pacientes/import', adminTenant, upload.single('file'), asyncHandler(postImport))
 apiRouter.post('/pacientes', tenant, asyncHandler(postPaciente))
 apiRouter.get('/pacientes/:id', tenant, asyncHandler(getPaciente))

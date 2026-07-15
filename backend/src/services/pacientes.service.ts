@@ -4,7 +4,7 @@ import { badRequest, notFound } from '@/lib/errors'
 import { buildXlsx, formatRUT, isoDate } from '@/lib/excel'
 import { audit } from '@/lib/audit'
 import { validarDoc, formatDoc, getPais } from '@shared/constants/paises'
-import type { PacienteDTO, PacientesPagina } from '@shared/types'
+import type { PacienteDTO, PacientesPagina, PacientesRecallPagina } from '@shared/types'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica
 // (req.tenant). Ya no hay clinicaId — la base ES la clínica.
@@ -119,6 +119,68 @@ export async function listarPacientesPaginado(
     }),
   ])
   return { items: pacientes.map(toDTO), total, page, pageSize }
+}
+
+// Pacientes con citas PASADAS (asistieron o tuvieron hora) pero SIN próxima cita
+// agendada, para gestionarlos (recall / reactivación). Una cita cancelada no
+// cuenta ni como pasada ni como futura. Ordena por última cita (más reciente primero).
+export async function pacientesSinProximaCita(
+  db: TenantClient,
+  opts: { q?: string; page?: number; pageSize?: number },
+): Promise<PacientesRecallPagina> {
+  const pageSize = PAGE_SIZES.includes(Number(opts.pageSize)) ? Number(opts.pageSize) : 25
+  const page = Math.max(1, Number(opts.page) || 1)
+  const now = new Date()
+  const NO_CUENTA = ['CANCELADA']
+
+  // Pacientes con alguna cita FUTURA activa → se excluyen (ya tienen próxima hora).
+  const futuras = await db.cita.findMany({
+    where: { fecha: { gte: now }, estado: { notIn: NO_CUENTA } },
+    select: { pacienteId: true }, distinct: ['pacienteId'],
+  })
+  const conFutura = new Set(futuras.map((c) => c.pacienteId))
+
+  // Pacientes con citas PASADAS (no canceladas): última cita + conteo.
+  const pasadas = await db.cita.groupBy({
+    by: ['pacienteId'],
+    where: { fecha: { lt: now }, estado: { notIn: NO_CUENTA } },
+    _max: { fecha: true }, _count: { _all: true },
+  })
+  // Quiénes asistieron alguna vez (al menos una cita ATENDIDA en el pasado).
+  const atendidas = await db.cita.findMany({
+    where: { fecha: { lt: now }, estado: 'ATENDIDA' },
+    select: { pacienteId: true }, distinct: ['pacienteId'],
+  })
+  const asistieron = new Set(atendidas.map((c) => c.pacienteId))
+
+  const candidatos = pasadas.filter((p) => !conFutura.has(p.pacienteId))
+  if (candidatos.length === 0) return { items: [], total: 0, page, pageSize }
+
+  const pacientes = await db.paciente.findMany({
+    where: { id: { in: candidatos.map((p) => p.pacienteId) }, activo: true }, select: LIST_SELECT,
+  })
+  const mapPac = new Map(pacientes.map((p) => [p.id, p]))
+
+  let items = candidatos
+    .filter((p) => mapPac.has(p.pacienteId))
+    .map((p) => ({ pac: mapPac.get(p.pacienteId)!, ultimaCita: p._max.fecha ?? now, totalCitas: p._count._all, asistio: asistieron.has(p.pacienteId) }))
+
+  if (opts.q && opts.q.trim().length >= 2) {
+    const needle = norm(opts.q.trim())
+    const rutDigits = soloRut(opts.q)
+    items = items.filter((it) => coincide(it.pac, needle, rutDigits))
+  }
+
+  items.sort((a, b) => +new Date(b.ultimaCita) - +new Date(a.ultimaCita))
+
+  const total = items.length
+  const start = (page - 1) * pageSize
+  return {
+    items: items.slice(start, start + pageSize).map((it) => ({
+      paciente: toDTO(it.pac), ultimaCita: new Date(it.ultimaCita).toISOString(), totalCitas: it.totalCitas, asistio: it.asistio,
+    })),
+    total, page, pageSize,
+  }
 }
 
 export async function obtenerPaciente(db: TenantClient, id: string): Promise<PacienteDTO> {

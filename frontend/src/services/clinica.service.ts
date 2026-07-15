@@ -1,5 +1,5 @@
 import { api, tokenStore, ApiError } from './api'
-import type { BloqueoDTO, CitaDTO, HorarioDTO, PacienteDTO, PacientesPagina } from '@shared/types'
+import type { BloqueoDTO, CitaDTO, HorarioDTO, PacienteDTO, PacientesPagina, PacientesRecallPagina } from '@shared/types'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
 
@@ -51,6 +51,14 @@ export const pacientesService = {
     p.set('page', String(page))
     p.set('pageSize', String(pageSize))
     return api.get<PacientesPagina>(`/pacientes?${p.toString()}`)
+  },
+  // Pacientes con citas pasadas pero sin próxima cita agendada (recall).
+  sinProximaCita: (q: string | undefined, page: number, pageSize: number) => {
+    const p = new URLSearchParams()
+    if (q) p.set('q', q)
+    p.set('page', String(page))
+    p.set('pageSize', String(pageSize))
+    return api.get<PacientesRecallPagina>(`/pacientes/sin-proxima-cita?${p.toString()}`)
   },
   obtener: (id: string) => api.get<PacienteDTO>(`/pacientes/${id}`),
   crear: (input: { nombre: string; apellido: string; rut?: string; otroDocId?: string; telefono?: string; email?: string; prevision?: string }) =>

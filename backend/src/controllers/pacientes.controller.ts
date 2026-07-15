@@ -4,6 +4,7 @@ import {
   actualizarPaciente, crearPaciente, guardarFicha, listarPacientes, listarPacientesPaginado, obtenerFicha, obtenerPaciente,
   listarComentarios, crearComentario, listarMensajes, crearMensaje, resumenPaciente,
   exportarPacientes, plantillaPacientes, importarPacientes, registrarAccesoFicha,
+  pacientesSinProximaCita,
 } from '@/services/pacientes.service'
 import { actorName } from '@/services/auth.service'
 import { crearPacienteSchema } from '@/validators/schemas'
@@ -19,6 +20,13 @@ export async function getPacientes(req: Request, res: Response) {
     return
   }
   res.json(await listarPacientes(tenantDb(req), q))
+}
+
+export async function getPacientesSinProxima(req: Request, res: Response) {
+  const q = typeof req.query.q === 'string' ? req.query.q : undefined
+  const page = req.query.page !== undefined ? Number(req.query.page) : undefined
+  const pageSize = req.query.pageSize !== undefined ? Number(req.query.pageSize) : undefined
+  res.json(await pacientesSinProximaCita(tenantDb(req), { q, page, pageSize }))
 }
 
 export async function getPaciente(req: Request, res: Response) {

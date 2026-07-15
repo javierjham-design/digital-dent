@@ -73,6 +73,20 @@ export interface PacientesPagina {
   pageSize: number
 }
 
+// Pacientes con citas pasadas pero SIN próxima cita agendada (recall/seguimiento).
+export interface PacienteRecall {
+  paciente: PacienteDTO
+  ultimaCita: string   // ISO de la última cita pasada (no cancelada)
+  totalCitas: number   // citas pasadas no canceladas
+  asistio: boolean     // tuvo al menos una cita ATENDIDA
+}
+export interface PacientesRecallPagina {
+  items: PacienteRecall[]
+  total: number
+  page: number
+  pageSize: number
+}
+
 // ── Liquidaciones (saldo corriente por profesional) ──────────────────────────
 export interface LiquidacionAccion {
   tratamientoId: string
