@@ -16,21 +16,25 @@ interface Sesion {
   totalIngresos?: number | null; totalEgresos?: number | null; observaciones?: string | null
   abiertaPorNombre?: string | null; cerradaPorNombre?: string | null
 }
-interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null }
+interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { medioPago?: { nombre: string | null } | null } | null }
+interface MetodoResumen { metodo: string; monto: number; cantidad: number }
+interface Resumen { ingresos: number; ingresosEfectivo: number; ingresosOtros: number; egresos: number; efectivoEsperado: number; porMetodo: MetodoResumen[] }
+const metodoDe = (m: Movimiento) => m.cobro?.medioPago?.nombre || 'Efectivo'
 
 export function CajaPrint() {
   const { cajaId = '', sesionId = '' } = useParams()
   const [sesion, setSesion] = useState<Sesion | null>(null)
   const [movs, setMovs] = useState<Movimiento[]>([])
-  const [cajaNombre, setCajaNombre] = useState('')
+  const [resumen, setResumen] = useState<Resumen | null>(null)
+  const [cajaNumero, setCajaNumero] = useState<number | null>(null)
   const [clinica, setClinica] = useState<ClinicaConfigDTO | null>(null)
 
   useEffect(() => {
     cajasService.sesion(cajaId, sesionId).then((d) => {
-      const dd = d as { sesion: Sesion; movimientos: Movimiento[] }
-      setSesion(dd.sesion); setMovs(dd.movimientos)
+      const dd = d as { sesion: Sesion; movimientos: Movimiento[]; resumen?: Resumen }
+      setSesion(dd.sesion); setMovs(dd.movimientos); setResumen(dd.resumen ?? null)
     }).catch(() => {})
-    cajasService.obtener(cajaId).then((c) => setCajaNombre((c as { nombre: string }).nombre)).catch(() => {})
+    cajasService.obtener(cajaId).then((c) => setCajaNumero((c as { numero: number }).numero ?? null)).catch(() => {})
     clinicaService.obtener().then(setClinica).catch(() => {})
   }, [cajaId, sesionId])
 
@@ -68,7 +72,8 @@ export function CajaPrint() {
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold text-slate-700">Cierre de caja</p>
-          <p className="text-xs text-slate-500">{cajaNombre}{sesion.numero ? ` · Apertura Nº ${sesion.numero}` : ''}</p>
+          <p className="text-xs text-slate-500">{cajaNumero != null ? `Caja N° ${cajaNumero}` : 'Caja'}{sesion.numero ? ` · Apertura Nº ${sesion.numero}` : ''}</p>
+          <p className="text-xs text-slate-500">Responsable: {sesion.abiertaPorNombre ?? '—'}</p>
         </div>
       </div>
 
@@ -78,23 +83,49 @@ export function CajaPrint() {
         <Linea k="Cierre" v={`${sesion.cerradaAt ? fechaHora(sesion.cerradaAt) : '—'} · ${sesion.cerradaPorNombre ?? '—'}`} />
       </div>
 
-      {/* Resumen */}
-      <table className="w-full text-sm border border-slate-200 mb-5">
+      {/* Cuadre — SÓLO efectivo (dinero físico en caja) */}
+      <p className="text-sm font-semibold text-slate-700 mb-1">Cuadre de efectivo (dinero físico en caja)</p>
+      <table className="w-full text-sm border border-slate-200 mb-2">
         <tbody>
-          <Fila k="Saldo de apertura" v={fmtCLP(sesion.saldoApertura)} />
-          <Fila k="Total ingresos" v={fmtCLP(sesion.totalIngresos)} tone="emerald" />
-          <Fila k="Total egresos (gastos)" v={fmtCLP(sesion.totalEgresos)} tone="rose" />
-          <Fila k="Saldo esperado en caja" v={fmtCLP(sesion.saldoEsperado)} bold />
+          <Fila k="Saldo de apertura (efectivo)" v={fmtCLP(sesion.saldoApertura)} />
+          <Fila k="+ Ingresos en efectivo" v={fmtCLP(resumen ? resumen.ingresosEfectivo : sesion.totalIngresos)} tone="emerald" />
+          <Fila k="− Egresos (gastos)" v={fmtCLP(resumen ? resumen.egresos : sesion.totalEgresos)} tone="rose" />
+          <Fila k="= Efectivo esperado en caja" v={fmtCLP(sesion.saldoEsperado)} bold />
           <Fila k="Efectivo contado (arqueo)" v={fmtCLP(sesion.saldoReal)} bold />
           <Fila k="Resultado del cuadre" v={cuadreTxt} tone={(sesion.diferencia ?? 0) === 0 ? 'emerald' : (sesion.diferencia ?? 0) > 0 ? undefined : 'rose'} bold />
           {sesion.efectivoRetirado != null && <Fila k="Efectivo retirado (depósito/entrega)" v={fmtCLP(sesion.efectivoRetirado)} tone="rose" />}
           {sesion.efectivoDejado != null && <Fila k="Efectivo que queda en la caja" v={fmtCLP(sesion.efectivoDejado)} bold />}
         </tbody>
       </table>
+      <p className="text-[11px] text-slate-400 mb-5">Sólo el efectivo cuenta para el cuadre de caja. Los pagos con tarjeta/transferencia se registran por su medio y NO suman al efectivo.</p>
+
+      {/* Recaudación por medio de pago (todos los medios) */}
+      {resumen && resumen.porMetodo.length > 0 && (
+        <div className="mb-5 break-inside-avoid">
+          <p className="text-sm font-semibold text-slate-700 mb-1">Recaudación por medio de pago</p>
+          <table className="w-full text-sm border border-slate-200">
+            <thead><tr className="text-[11px] uppercase tracking-wide text-slate-400 text-left"><th className="px-3 py-1 font-medium">Medio</th><th className="px-3 py-1 font-medium w-20 text-center">Pagos</th><th className="px-3 py-1 font-medium w-32 text-right">Monto</th></tr></thead>
+            <tbody>
+              {resumen.porMetodo.map((m) => (
+                <tr key={m.metodo} className="border-t border-slate-100">
+                  <td className="px-3 py-1.5 text-slate-700">{m.metodo}</td>
+                  <td className="px-3 py-1.5 text-center text-slate-500">{m.cantidad}</td>
+                  <td className="px-3 py-1.5 text-right font-mono text-slate-700">{fmtCLP(m.monto)}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-cyan-600">
+                <td className="px-3 py-1.5 font-bold text-slate-800">Recaudación total</td>
+                <td />
+                <td className="px-3 py-1.5 text-right font-mono font-bold text-cyan-700">{fmtCLP(resumen.ingresos)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
       {sesion.observaciones && <p className="text-xs text-slate-600 mb-5 italic">Observaciones: {sesion.observaciones}</p>}
 
       {/* Detalle de movimientos */}
-      <Bloque titulo={`Ingresos (${ingresos.length})`} movs={ingresos} signo="+" />
+      <Bloque titulo={`Ingresos (${ingresos.length})`} movs={ingresos} signo="+" mostrarMetodo />
       <Bloque titulo={`Egresos / gastos (${egresos.length})`} movs={egresos} signo="−" />
 
       {/* Firmas */}
@@ -122,7 +153,7 @@ function Fila({ k, v, tone, bold }: { k: string; v: string; tone?: 'emerald' | '
     </tr>
   )
 }
-function Bloque({ titulo, movs, signo }: { titulo: string; movs: Movimiento[]; signo: string }) {
+function Bloque({ titulo, movs, signo, mostrarMetodo }: { titulo: string; movs: Movimiento[]; signo: string; mostrarMetodo?: boolean }) {
   return (
     <div className="mb-4 break-inside-avoid">
       <p className="text-sm font-semibold text-slate-700 bg-slate-100 px-3 py-1.5 rounded-t-lg">{titulo}</p>
@@ -131,6 +162,7 @@ function Bloque({ titulo, movs, signo }: { titulo: string; movs: Movimiento[]; s
           {movs.length === 0 ? <tr><td className="px-3 py-2 text-xs text-slate-400">Sin movimientos.</td></tr> : movs.map((m) => (
             <tr key={m.id} className="border-t border-slate-100">
               <td className="px-3 py-1.5 text-slate-700">{m.descripcion}{m.categoria ? ` · ${m.categoria}` : ''}</td>
+              {mostrarMetodo && <td className="px-3 py-1.5 text-slate-500 w-28">{metodoDe(m)}</td>}
               <td className="px-3 py-1.5 text-slate-500 w-36">{fechaHora(m.fecha)}</td>
               <td className="px-3 py-1.5 text-right font-mono text-slate-700 w-28">{signo}{fmtCLP(m.monto)}</td>
             </tr>

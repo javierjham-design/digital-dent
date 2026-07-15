@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { cajasService } from '@/services/caja.service'
-import { usuariosService } from '@/services/equipo.service'
-import type { UsuarioDTO } from '@shared/types'
 import { ApiError } from '@/services/api'
 import { fmtMonto } from '@/lib/money'
 import { useAuth } from '@/hooks/useAuth'
@@ -11,7 +9,8 @@ const fmt = fmtMonto
 const fechaHora = (s: string | null | undefined) => (s ? new Date(s).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '—')
 
 interface UsuarioRef { user: { id: string; name: string | null; email: string | null } }
-interface ResumenSesion { saldoApertura: number; ingresos: number; egresos: number; saldoEsperado: number }
+interface MetodoResumen { metodo: string; monto: number; cantidad: number }
+interface ResumenSesion { saldoApertura: number; ingresos: number; egresos: number; saldoEsperado: number; ingresosEfectivo?: number; ingresosOtros?: number; porMetodo?: MetodoResumen[] }
 interface Sesion {
   id: string; numero: number; estado: string; saldoApertura: number; abiertaPorNombre: string | null; abiertaAt: string
   cerradaPorNombre: string | null; cerradaAt: string | null; saldoEsperado: number | null; saldoReal: number | null
@@ -48,9 +47,8 @@ export function GestionCajas() {
     <div>
       <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
         <h1 className="text-2xl font-bold text-slate-900">Gestión de cajas</h1>
-        <button onClick={() => setForm('nueva')} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">+ Nueva caja</button>
       </div>
-      <p className="text-sm text-slate-500 mb-5">Todas las cajas de la clínica y su estado. Cada caja es independiente: registra sus propios cobros y gastos, y su responsable rinde por su efectivo y pagos con tarjeta.</p>
+      <p className="text-sm text-slate-500 mb-5">Todas las cajas de la clínica y su estado. Cada caja es de un usuario (exclusiva): registra sus propios cobros y gastos. El cuadre de caja es sólo sobre el efectivo; los pagos con tarjeta/transferencia se registran por su medio. Cada usuario abre su caja desde Cobros.</p>
 
       <div className="grid grid-cols-3 gap-3 mb-5 max-w-md">
         <Kpi l="Cajas" v={String(cajas.length)} />
@@ -71,7 +69,6 @@ export function GestionCajas() {
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-bold px-2 py-0.5 rounded-lg bg-slate-800 text-white">Caja Nº {c.numero || '—'}</span>
-                        <span className="font-semibold text-slate-900">{c.nombre}</span>
                         {!c.activo && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">Inactiva</span>}
                         {abierta
                           ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">● Abierta · Apertura Nº {abierta.numero || '—'}</span>
@@ -91,9 +88,9 @@ export function GestionCajas() {
                   {abierta ? (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 border-t border-slate-100 pt-3">
                       <Dato l="Abrió" v={`${abierta.abiertaPorNombre ?? '—'}`} sub={fechaHora(abierta.abiertaAt)} />
-                      <Dato l="Ingresos" v={fmt(r?.ingresos ?? 0)} tone="emerald" />
+                      <Dato l="Recaudación" v={fmt(r?.ingresos ?? 0)} tone="emerald" sub={r?.ingresosOtros ? `Efectivo ${fmt(r?.ingresosEfectivo ?? 0)}` : undefined} />
                       <Dato l="Egresos" v={fmt(r?.egresos ?? 0)} tone="rose" />
-                      <Dato l="Saldo esperado" v={fmt(r?.saldoEsperado ?? 0)} tone="cyan" />
+                      <Dato l="Efectivo esperado" v={fmt(r?.saldoEsperado ?? 0)} tone="cyan" />
                     </div>
                   ) : c.ultimaCerrada ? (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-3 border-t border-slate-100 pt-3">
@@ -166,46 +163,28 @@ function CerrarCajaModal({ caja, onClose, onDone }: { caja: CajaGestion; onClose
   )
 }
 
-// Crear o editar una caja: nombre, saldo inicial, responsables y estado activo.
+// Editar una caja (sin nombre): saldo inicial y estado activo. Las cajas son de
+// un usuario y se crean desde Cobros; aquí sólo se ajusta el saldo o se desactiva.
 function CajaFormModal({ caja, onClose, onSaved }: { caja: CajaGestion | null; onClose: () => void; onSaved: () => void }) {
-  const [usuarios, setUsuarios] = useState<UsuarioDTO[]>([])
-  const [nombre, setNombre] = useState(caja?.nombre ?? '')
   const [saldoInicial, setSaldoInicial] = useState(caja ? String(caja.saldoInicial) : '')
   const [activo, setActivo] = useState(caja ? caja.activo : true)
-  const [sel, setSel] = useState<string[]>(caja ? caja.usuarios.map((u) => u.user.id) : [])
   const [g, setG] = useState(false); const [err, setErr] = useState('')
-  useEffect(() => { usuariosService.listar().then((us) => setUsuarios(us.filter((u) => u.activo))).catch(() => {}) }, [])
 
   async function guardar() {
-    if (!nombre.trim()) { setErr('Ponle un nombre a la caja.'); return }
+    if (!caja) { onClose(); return }
     setG(true); setErr('')
     try {
-      if (caja) await cajasService.actualizar(caja.id, { nombre: nombre.trim(), saldoInicial: Number(saldoInicial) || 0, activo, usuarioIds: sel })
-      else await cajasService.crear({ nombre: nombre.trim(), saldoInicial: Number(saldoInicial) || 0, usuarioIds: sel })
+      await cajasService.actualizar(caja.id, { saldoInicial: Number(saldoInicial) || 0, activo })
       onSaved()
     } catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo guardar') } finally { setG(false) }
   }
-  const toggle = (id: string) => setSel((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4"><h2 className="text-base font-semibold text-slate-900">{caja ? 'Editar caja' : 'Nueva caja'}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
-        <label className="block mb-3"><span className="text-xs font-medium text-slate-500">Nombre</span>
-          <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: Caja recepción" className="mt-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" /></label>
+        <div className="flex items-center justify-between mb-4"><h2 className="text-base font-semibold text-slate-900">Caja Nº {caja?.numero ?? ''} · {caja?.usuarios.map((u) => u.user.name ?? u.user.email).filter(Boolean).join(', ') || 'sin usuario'}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
         <label className="block mb-3"><span className="text-xs font-medium text-slate-500">Saldo inicial</span>
           <input value={saldoInicial} onChange={(e) => setSaldoInicial(e.target.value)} inputMode="numeric" placeholder="0" className="mt-1 w-40 px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono" /></label>
-        <div className="mb-3">
-          <span className="text-xs font-medium text-slate-500">Responsable(s)</span>
-          <div className="mt-1 border border-slate-200 rounded-xl p-2 max-h-44 overflow-y-auto space-y-0.5">
-            {usuarios.length === 0 && <p className="text-xs text-slate-400 px-1">Cargando…</p>}
-            {usuarios.map((u) => (
-              <label key={u.id} className="flex items-center gap-2 text-sm text-slate-700 px-1.5 py-1 rounded-lg hover:bg-slate-50 cursor-pointer">
-                <input type="checkbox" checked={sel.includes(u.id)} onChange={() => toggle(u.id)} /> {u.name ?? u.username}
-              </label>
-            ))}
-          </div>
-        </div>
         {caja && <label className="flex items-center gap-2 text-sm text-slate-700 mb-3"><input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} /> Caja activa</label>}
         {err && <p className="text-sm text-rose-600 mb-2">{err}</p>}
         <div className="flex gap-2 pt-1">

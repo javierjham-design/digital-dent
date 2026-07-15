@@ -12,14 +12,13 @@ const CAJA_INCLUDE = {
   usuarios: { include: { user: { select: { id: true, name: true, email: true } } } },
 } as const
 
-// Verifica acceso de OPERACIÓN a una caja (abrir/cerrar/movimientos): admin ve
-// todas; el resto solo las asignadas.
+// Verifica acceso de OPERACIÓN a una caja (abrir/cerrar/movimientos/recibir pagos):
+// la caja es EXCLUSIVA de su usuario, nadie más la opera (ni el administrador).
 async function cajaConAcceso(db: TenantClient, cajaId: string, actor: JwtPayload) {
   const caja = await db.caja.findUnique({ where: { id: cajaId }, include: { usuarios: { select: { userId: true } } } })
   if (!caja) throw notFound('Caja no encontrada')
-  const isAdmin = actor.role === 'admin'
-  if (!isAdmin && !caja.usuarios.some((cu) => cu.userId === actor.sub)) {
-    throw forbidden('No tienes acceso a esta caja.')
+  if (!caja.usuarios.some((cu) => cu.userId === actor.sub)) {
+    throw forbidden('Esta caja es de otro usuario. Sólo su usuario puede operarla.')
   }
   return caja
 }
@@ -80,7 +79,7 @@ export async function resumenCajas(db: TenantClient, actor: JwtPayload) {
     const resumen = sesionAbierta ? await calcularResumenSesion(db, sesionAbierta.id) : null
     const ultimaCerrada = await getUltimaSesionCerrada(db, c.id)
     return {
-      id: c.id, nombre: c.nombre, descripcion: c.descripcion, saldoInicial: c.saldoInicial,
+      id: c.id, numero: c.numero, nombre: c.nombre, descripcion: c.descripcion, saldoInicial: c.saldoInicial,
       usuarios: c.usuarios,
       sesionAbierta: sesionAbierta ? { ...sesionAbierta, resumen } : null,
       ultimaCerrada,
@@ -109,59 +108,36 @@ export async function gestionCajas(db: TenantClient) {
   }))
 }
 
-export async function crearCaja(db: TenantClient, actor: JwtPayload, body: { nombre: string; descripcion?: string; saldoInicial?: number; usuarioIds?: string[] }) {
-  const nombre = (body.nombre ?? '').trim()
-  if (!nombre) throw badRequest('Falta el nombre')
-  const isAdmin = actor.role === 'admin'
-  // Un usuario NO admin crea SU propia caja: se auto-asigna y no puede asignar a otros.
-  let usuarioIds = Array.isArray(body.usuarioIds) ? [...new Set(body.usuarioIds)] : []
-  if (!isAdmin) usuarioIds = [actor.sub]
-  else if (!usuarioIds.includes(actor.sub) && usuarioIds.length === 0) usuarioIds = [actor.sub]
-  if (usuarioIds.length > 0) {
-    const count = await db.user.count({ where: { id: { in: usuarioIds } } })
-    if (count !== usuarioIds.length) throw badRequest('Usuarios inválidos')
-  }
-  try {
-    return await db.caja.create({
-      data: {
-        numero: await siguienteNumeroCaja(db),
-        nombre, descripcion: body.descripcion ? String(body.descripcion) : null,
-        saldoInicial: Number(body.saldoInicial) || 0,
-        usuarios: { create: usuarioIds.map((userId) => ({ userId })) },
-      },
-      include: CAJA_INCLUDE,
-    })
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : ''
-    if (msg.includes('Unique constraint')) throw conflict(`Ya existe una caja "${nombre}" en esta clínica`)
-    throw e
-  }
+export async function crearCaja(db: TenantClient, actor: JwtPayload, body: { saldoInicial?: number }) {
+  // Cada usuario tiene UNA caja propia (sin nombre), exclusiva. Si ya la tiene,
+  // se devuelve esa misma (idempotente: "abrir mi caja").
+  const existente = await db.caja.findFirst({
+    where: { activo: true, usuarios: { some: { userId: actor.sub } } },
+    include: CAJA_INCLUDE,
+  })
+  if (existente) return existente
+
+  const numero = await siguienteNumeroCaja(db)
+  return db.caja.create({
+    data: {
+      numero, nombre: `Caja ${numero}`, // nombre interno (no se muestra); único por correlativo
+      saldoInicial: Number(body?.saldoInicial) || 0,
+      usuarios: { create: [{ userId: actor.sub }] },
+    },
+    include: CAJA_INCLUDE,
+  })
 }
 
 export async function actualizarCaja(db: TenantClient, id: string, body: Record<string, unknown>) {
   const existing = await db.caja.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Caja no encontrada')
   const data: Record<string, unknown> = {}
-  if (body.nombre !== undefined) data.nombre = String(body.nombre).trim()
-  if (body.descripcion !== undefined) data.descripcion = body.descripcion ? String(body.descripcion) : null
   if (body.saldoInicial !== undefined) {
     const n = Number(body.saldoInicial)
     if (!Number.isFinite(n)) throw badRequest('saldoInicial inválido')
     data.saldoInicial = n
   }
   if (body.activo !== undefined) data.activo = Boolean(body.activo)
-
-  if (Array.isArray(body.usuarioIds)) {
-    const usuarioIds = body.usuarioIds as string[]
-    if (usuarioIds.length > 0) {
-      const count = await db.user.count({ where: { id: { in: usuarioIds } } })
-      if (count !== usuarioIds.length) throw badRequest('Usuarios inválidos')
-    }
-    await db.cajaUsuario.deleteMany({ where: { cajaId: id } })
-    if (usuarioIds.length > 0) {
-      await db.cajaUsuario.createMany({ data: usuarioIds.map((userId) => ({ cajaId: id, userId })) })
-    }
-  }
   return db.caja.update({ where: { id }, data, include: CAJA_INCLUDE })
 }
 
@@ -215,19 +191,19 @@ export async function cerrarSesion(db: TenantClient, actor: JwtPayload, cajaId: 
       where: { cajaId, sesionCajaId: null, fecha: { gte: sesion.abiertaAt, lte: cerradaAt } },
       data: { sesionCajaId: sesion.id },
     })
-    const movs = await tx.movimientoCaja.findMany({
-      where: { sesionCajaId: sesion.id, anulado: false }, select: { tipo: true, monto: true },
-    })
-    const ingresos = movs.filter((m) => m.tipo === 'INGRESO').reduce((s, m) => s + m.monto, 0)
-    const egresos = movs.filter((m) => m.tipo === 'EGRESO').reduce((s, m) => s + m.monto, 0)
-    const saldoEsperado = sesion.saldoApertura + ingresos - egresos
+    // El cuadre es SÓLO sobre efectivo: el esperado en caja = apertura + ingresos
+    // en efectivo − egresos. Los pagos con tarjeta/transferencia NO suman al efectivo.
+    const resumen = await calcularResumenSesion(tx as unknown as TenantClient, sesion.id)
+    const efectivoEsperado = resumen?.efectivoEsperado ?? sesion.saldoApertura
     return tx.sesionCaja.update({
       where: { id: sesion.id },
       data: {
         estado: 'CERRADA', cerradaPorId: actor.sub, cerradaPorNombre: actorName(actor), cerradaAt,
-        saldoEsperado, saldoReal, diferencia: saldoReal - saldoEsperado,
+        saldoEsperado: efectivoEsperado, saldoReal, diferencia: saldoReal - efectivoEsperado,
         efectivoRetirado: retirado, efectivoDejado: dejado,
-        totalIngresos: ingresos, totalEgresos: egresos, observaciones,
+        // totalIngresos = ingresos EN EFECTIVO (para que el cuadre de caja cierre);
+        // la recaudación total y el desglose por medio se ven en el detalle/reporte.
+        totalIngresos: resumen?.ingresosEfectivo ?? 0, totalEgresos: resumen?.egresos ?? 0, observaciones,
       },
     })
   })

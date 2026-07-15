@@ -26,9 +26,14 @@ export async function calcularSaldoSugerido(db: TenantClient, cajaId: string): P
 
   const caja = await db.caja.findUnique({ where: { id: cajaId }, select: { saldoInicial: true } })
   const orphans = await db.movimientoCaja.findMany({
-    where: { cajaId, sesionCajaId: null, anulado: false }, select: { tipo: true, monto: true },
+    where: { cajaId, sesionCajaId: null, anulado: false },
+    select: { tipo: true, monto: true, cobro: { select: { medioPago: { select: { nombre: true } } } } },
   })
-  const orphanSaldo = orphans.reduce((s, m) => s + (m.tipo === 'INGRESO' ? m.monto : -m.monto), 0)
+  // Sólo el efectivo afecta el saldo físico de caja (ingresos con tarjeta no).
+  const orphanSaldo = orphans.reduce((s, m) => {
+    if (m.tipo === 'EGRESO') return s - m.monto
+    return cobroEsEfectivo(m.cobro) ? s + m.monto : s
+  }, 0)
   return (caja?.saldoInicial ?? 0) + orphanSaldo
 }
 
@@ -48,7 +53,16 @@ export async function abrirSesion(db: TenantClient, args: {
   })
 }
 
-// Resumen acumulado de una sesión: ingresos / egresos / saldo esperado.
+// ¿El medio de pago es efectivo (dinero físico)? Sin medio = Efectivo (default).
+export const esMedioEfectivo = (nombre?: string | null): boolean => !nombre || /efectivo/i.test(nombre.trim())
+// Un movimiento cuenta como EFECTIVO en la caja si es un ingreso sin cobro
+// (aporte manual) o el cobro se pagó en efectivo. Tarjetas/transferencias NO.
+export const cobroEsEfectivo = (cobro: { medioPago: { nombre: string | null } | null } | null | undefined): boolean =>
+  !cobro || !cobro.medioPago || esMedioEfectivo(cobro.medioPago.nombre)
+
+// Resumen acumulado de una sesión. IMPORTANTE: el dinero FÍSICO en caja
+// (saldoEsperado/efectivoEsperado) considera SÓLO el efectivo; los pagos con
+// tarjeta/transferencia se registran por su medio pero NO suman al efectivo.
 export async function calcularResumenSesion(db: TenantClient, sesionId: string) {
   const sesion = await db.sesionCaja.findUnique({
     where: { id: sesionId },
@@ -65,12 +79,26 @@ export async function calcularResumenSesion(db: TenantClient, sesionId: string) 
         { sesionCajaId: null, fecha: { gte: sesion.abiertaAt, lte: hasta } },
       ],
     },
-    select: { tipo: true, monto: true },
+    select: { tipo: true, monto: true, cobro: { select: { medioPago: { select: { nombre: true } } } } },
   })
-  const ingresos = movs.filter((m) => m.tipo === 'INGRESO').reduce((s, m) => s + m.monto, 0)
+  const ingresosMov = movs.filter((m) => m.tipo === 'INGRESO')
   const egresos = movs.filter((m) => m.tipo === 'EGRESO').reduce((s, m) => s + m.monto, 0)
-  const saldoEsperado = sesion.saldoApertura + ingresos - egresos
-  return { ingresos, egresos, saldoEsperado, saldoApertura: sesion.saldoApertura }
+  const ingresos = ingresosMov.reduce((s, m) => s + m.monto, 0) // recaudación total (todos los medios)
+  const ingresosEfectivo = ingresosMov.filter((m) => cobroEsEfectivo(m.cobro)).reduce((s, m) => s + m.monto, 0)
+  const ingresosOtros = ingresos - ingresosEfectivo
+
+  // Desglose por método de pago (para el reporte de recaudación).
+  const map = new Map<string, { monto: number; cantidad: number }>()
+  for (const m of ingresosMov) {
+    const metodo = cobroEsEfectivo(m.cobro) ? 'Efectivo' : (m.cobro?.medioPago?.nombre ?? 'Otro')
+    const e = map.get(metodo) ?? { monto: 0, cantidad: 0 }
+    e.monto += m.monto; e.cantidad++; map.set(metodo, e)
+  }
+  const porMetodo = [...map.entries()].map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto)
+
+  const efectivoEsperado = sesion.saldoApertura + ingresosEfectivo - egresos
+  // `saldoEsperado` = efectivo esperado (dinero físico), para el cuadre.
+  return { ingresos, ingresosEfectivo, ingresosOtros, egresos, saldoEsperado: efectivoEsperado, efectivoEsperado, saldoApertura: sesion.saldoApertura, porMetodo }
 }
 
 export function diasDesde(fecha: Date): number {

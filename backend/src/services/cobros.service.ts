@@ -100,7 +100,9 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
   if (!input.cajaId) throw badRequest('Debes seleccionar una caja.')
   const caja = await db.caja.findFirst({ where: { id: input.cajaId, activo: true }, include: { usuarios: { select: { userId: true } } } })
   if (!caja) throw notFound('Caja no encontrada')
-  if (me?.role !== 'admin' && !caja.usuarios.some((cu) => cu.userId === actor.sub)) throw forbidden('No tienes acceso a esta caja.')
+  // La caja es EXCLUSIVA de su usuario: nadie más (ni el administrador) puede
+  // recibir pagos con la caja de otro.
+  if (!caja.usuarios.some((cu) => cu.userId === actor.sub)) throw forbidden('Esta caja es de otro usuario. Recibe los pagos con tu propia caja.')
 
   const items = input.items ?? []
   const monto = await validarItemsCobro(db, input.pacienteId, items)

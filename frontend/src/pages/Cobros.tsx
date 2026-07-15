@@ -9,7 +9,8 @@ import { EnviarCorreoModal } from '@/components/EnviarCorreoModal'
 import { useAuth } from '@/hooks/useAuth'
 
 // ── Tipos ──
-interface Resumen { ingresos: number; egresos: number; saldoEsperado: number; saldoApertura: number }
+interface MetodoResumen { metodo: string; monto: number; cantidad: number }
+interface Resumen { ingresos: number; egresos: number; saldoEsperado: number; saldoApertura: number; ingresosEfectivo?: number; ingresosOtros?: number; porMetodo?: MetodoResumen[] }
 interface SesionAbierta { id: string; abiertaAt: string; saldoApertura: number; abiertaPorNombre?: string | null; resumen: Resumen | null }
 interface SesionCerrada {
   id: string; estado: string; abiertaAt: string; cerradaAt: string | null
@@ -18,9 +19,10 @@ interface SesionCerrada {
   abiertaPorNombre?: string | null; cerradaPorNombre?: string | null
 }
 interface ResumenCaja {
-  id: string; nombre: string; descripcion: string | null; saldoInicial: number
+  id: string; numero: number; nombre: string; descripcion: string | null; saldoInicial: number
   sesionAbierta: SesionAbierta | null; ultimaCerrada: SesionCerrada | null
 }
+const etiquetaCaja = (c: { numero?: number }) => `Caja N° ${c.numero ?? '—'}`
 interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { numero: number } | null }
 interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; pacienteId: string; paciente: { nombre: string; apellido: string; email?: string | null }; medioPago?: { nombre: string } | null; caja?: { numero: number; nombre: string } | null }
 
@@ -76,7 +78,7 @@ export function Cobros() {
     <div>
       <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
         <h1 className="text-2xl font-bold text-slate-900">Cobros y cajas</h1>
-        {puedeCrearCaja && <button onClick={() => setNuevaCaja(true)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">+ Nueva caja</button>}
+        {puedeCrearCaja && resumenes.length === 0 && <button onClick={() => setNuevaCaja(true)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Crear mi caja</button>}
       </div>
       {aviso && <div className={`mb-4 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>}
 
@@ -95,10 +97,10 @@ export function Cobros() {
           <div className="space-y-4">
             {abiertas.map((c) => (
               <CajaAbiertaCard key={c.id} caja={c}
-                onPago={() => setModal({ kind: 'pago', cajaId: c.id, nombre: c.nombre })}
-                onGasto={() => setModal({ kind: 'mov', cajaId: c.id, nombre: c.nombre })}
-                onMovs={() => c.sesionAbierta && setModal({ kind: 'movs', cajaId: c.id, sesionId: c.sesionAbierta.id, nombre: c.nombre })}
-                onCerrar={() => setModal({ kind: 'cerrar', cajaId: c.id, nombre: c.nombre, resumen: c.sesionAbierta?.resumen ?? null })} />
+                onPago={() => setModal({ kind: 'pago', cajaId: c.id, nombre: etiquetaCaja(c) })}
+                onGasto={() => setModal({ kind: 'mov', cajaId: c.id, nombre: etiquetaCaja(c) })}
+                onMovs={() => c.sesionAbierta && setModal({ kind: 'movs', cajaId: c.id, sesionId: c.sesionAbierta.id, nombre: etiquetaCaja(c) })}
+                onCerrar={() => setModal({ kind: 'cerrar', cajaId: c.id, nombre: etiquetaCaja(c), resumen: c.sesionAbierta?.resumen ?? null })} />
             ))}
           </div>
         </section>
@@ -114,14 +116,14 @@ export function Cobros() {
             {sinAbrir.map((c) => (
               <div key={c.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
                 <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-800">{c.nombre}</p>
+                  <p className="text-sm font-semibold text-slate-800">{etiquetaCaja(c)}</p>
                   <p className="text-xs text-slate-500">
                     {c.ultimaCerrada?.cerradaAt
                       ? `Último cierre ${fechaHora(c.ultimaCerrada.cerradaAt)} · saldo ${fmt(c.ultimaCerrada.saldoReal)}`
                       : 'Sin cierres previos'}
                   </p>
                 </div>
-                <button onClick={() => setModal({ kind: 'abrir', cajaId: c.id, nombre: c.nombre })}
+                <button onClick={() => setModal({ kind: 'abrir', cajaId: c.id, nombre: etiquetaCaja(c) })}
                   className="shrink-0 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Abrir caja</button>
               </div>
             ))}
@@ -140,7 +142,7 @@ export function Cobros() {
               <HistorialCaja key={c.id} caja={c}
                 abierto={histCajaId === c.id}
                 onToggle={() => setHistCajaId((x) => (x === c.id ? null : c.id))}
-                onVer={(sesionId) => setModal({ kind: 'sesion', cajaId: c.id, sesionId, nombre: c.nombre })} />
+                onVer={(sesionId) => setModal({ kind: 'sesion', cajaId: c.id, sesionId, nombre: etiquetaCaja(c) })} />
             ))}
           </div>
         </section>
@@ -241,11 +243,18 @@ function CajaAbiertaCard({ caja, onPago, onGasto, onMovs, onCerrar }: {
         </div>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <Stat label="Apertura" value={fmt(r?.saldoApertura ?? s.saldoApertura)} />
-        <Stat label="Ingresos" value={fmt(r?.ingresos)} tone="emerald" />
+        <Stat label="Apertura (efectivo)" value={fmt(r?.saldoApertura ?? s.saldoApertura)} />
+        <Stat label="Recaudación" value={fmt(r?.ingresos)} tone="emerald" />
         <Stat label="Egresos" value={fmt(r?.egresos)} tone="rose" />
-        <Stat label="Saldo esperado" value={fmt(r?.saldoEsperado)} tone="cyan" />
+        <Stat label="Efectivo esperado" value={fmt(r?.saldoEsperado)} tone="cyan" />
       </div>
+      {r && r.porMetodo && r.porMetodo.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+          {r.porMetodo.map((m) => (
+            <span key={m.metodo} className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600">{m.metodo}: <span className="font-mono font-semibold">{fmt(m.monto)}</span> ({m.cantidad})</span>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -303,26 +312,22 @@ function Stat({ label, value, tone = 'slate' }: { label: string; value: string; 
 // Crear una caja nueva (el creador queda como responsable). Para el flujo diario
 // de quien recibe pagos: crea su caja, la abre y luego la cierra.
 function NuevaCajaModal({ onClose, onDone, onError }: { onClose: () => void; onDone: () => void; onError: (m: string) => void }) {
-  const [nombre, setNombre] = useState('')
   const [saldoInicial, setSaldoInicial] = useState('')
   const [g, setG] = useState(false); const [err, setErr] = useState('')
   async function crear() {
-    if (!nombre.trim()) { setErr('Ponle un nombre a la caja (ej: Caja recepción).'); return }
     setG(true); setErr('')
-    try { await cajasService.crear({ nombre: nombre.trim(), saldoInicial: Number(saldoInicial) || 0 }); onDone() }
+    try { await cajasService.crear({ saldoInicial: Number(saldoInicial) || 0 }); onDone() }
     catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo crear la caja'); onError(e instanceof ApiError ? e.message : 'Error') } finally { setG(false) }
   }
   return (
-    <Modal title="Nueva caja" onClose={onClose}>
-      <p className="text-xs text-slate-500 mb-3">Quedas como responsable de esta caja. Tus cobros y gastos van solo a ella, separados de las demás.</p>
-      <label className="block mb-3"><span className="text-xs font-medium text-slate-500">Nombre</span>
-        <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: Caja recepción, Caja Dr. Aedo" className="mt-1 w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" /></label>
+    <Modal title="Mi caja" onClose={onClose}>
+      <p className="text-xs text-slate-500 mb-3">Cada usuario tiene UNA caja propia (sin nombre), identificada por su número. Es exclusiva tuya: sólo tú recibes pagos y la cierras. Si ya la tenías, se usa esa misma.</p>
       <label className="block"><span className="text-xs font-medium text-slate-500">Saldo inicial (opcional)</span>
         <input value={saldoInicial} onChange={(e) => setSaldoInicial(e.target.value)} inputMode="numeric" placeholder="0" className="mt-1 w-40 px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500" /></label>
       {err && <p className="text-sm text-rose-600 mt-3">{err}</p>}
       <div className="flex gap-2 pt-4">
         <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-        <button onClick={crear} disabled={g} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{g ? 'Creando…' : 'Crear caja'}</button>
+        <button onClick={crear} disabled={g} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{g ? 'Creando…' : 'Crear mi caja'}</button>
       </div>
     </Modal>
   )
@@ -369,9 +374,19 @@ function CerrarModal({ cajaId, nombre, resumen, onClose, onDone, onError }: { ca
     <Modal title={`Cerrar ${nombre}`} onClose={onClose}>
       {resumen && (
         <div className="grid grid-cols-3 gap-2 mb-3">
-          <Stat label="Apertura" value={fmt(resumen.saldoApertura)} />
-          <Stat label="Ingresos" value={fmt(resumen.ingresos)} tone="emerald" />
+          <Stat label="Apertura (efectivo)" value={fmt(resumen.saldoApertura)} />
+          <Stat label="Ingresos en efectivo" value={fmt(resumen.ingresosEfectivo ?? resumen.ingresos)} tone="emerald" />
           <Stat label="Egresos" value={fmt(resumen.egresos)} tone="rose" />
+        </div>
+      )}
+      {resumen && resumen.porMetodo && resumen.porMetodo.filter((m) => m.metodo !== 'Efectivo').length > 0 && (
+        <div className="mb-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-600">
+          <p className="font-semibold text-slate-500 mb-1">Otros medios (no cuentan en el efectivo):</p>
+          <div className="flex flex-wrap gap-2">
+            {resumen.porMetodo.filter((m) => m.metodo !== 'Efectivo').map((m) => (
+              <span key={m.metodo}>{m.metodo}: <span className="font-mono font-semibold">{fmt(m.monto)}</span> ({m.cantidad})</span>
+            ))}
+          </div>
         </div>
       )}
       <p className="text-sm text-slate-600 mb-3">Efectivo que debería haber en caja: <span className="font-mono font-semibold">{fmt(esperado)}</span></p>

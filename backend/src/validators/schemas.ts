@@ -150,10 +150,7 @@ export const crearPresupuestoSchema = z.object({
 
 // ── Caja / Cobros / Liquidaciones ──
 export const crearCajaSchema = z.object({
-  nombre: z.string().min(1),
-  descripcion: z.string().optional(),
   saldoInicial: z.number().optional(),
-  usuarioIds: z.array(z.string()).optional(),
 })
 
 export const abrirCajaSchema = z.object({
