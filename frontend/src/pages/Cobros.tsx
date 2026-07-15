@@ -22,6 +22,7 @@ interface SesionCerrada {
 interface ResumenCaja {
   id: string; numero: number; nombre: string; descripcion: string | null; saldoInicial: number
   sesionAbierta: SesionAbierta | null; ultimaCerrada: SesionCerrada | null
+  usuarios?: { user: { id: string } }[]
 }
 const etiquetaCaja = (c: { numero?: number }) => `Caja N° ${c.numero ?? '—'}`
 interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { numero?: number; paciente?: { nombre: string; apellido: string } | null; medioPago?: { nombre: string | null } | null } | null }
@@ -50,7 +51,6 @@ type Modal =
   | { kind: 'mov'; cajaId: string; nombre: string }
   | { kind: 'pago'; cajaId: string; nombre: string }
   | { kind: 'movs'; cajaId: string; sesionId: string; nombre: string }
-  | { kind: 'sesion'; cajaId: string; sesionId: string; nombre: string }
   | null
 
 export function Cobros() {
@@ -61,7 +61,6 @@ export function Cobros() {
   const { user } = useAuth()
   const puedeCrearCaja = user?.role === 'admin' || Boolean(user?.permisos?.puedeRecibirPagos)
   const [nuevaCaja, setNuevaCaja] = useState(false)
-  const [histCajaId, setHistCajaId] = useState<string | null>(null)
   const [comprobante, setComprobante] = useState<Cobro | null>(null)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
   const notify = (t: string, ok = true) => { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
@@ -73,13 +72,16 @@ export function Cobros() {
   useEffect(() => { cargar(); mediosPagoService.listar().then((m) => setMedios(m.filter((x) => x.activo))).catch(() => {}) }, [cargar])
 
   const abiertas = resumenes.filter((r) => r.sesionAbierta)
-  const sinAbrir = resumenes.filter((r) => !r.sesionAbierta)
+  // La caja propia del usuario (para poder abrirla desde aquí). El historial y las
+  // demás cajas se gestionan en Administración › Gestión de cajas.
+  const miCaja = resumenes.find((r) => r.usuarios?.some((u) => u.user.id === user?.id))
+  const miCajaSinAbrir = miCaja && !miCaja.sesionAbierta ? miCaja : null
 
   return (
     <div>
       <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
         <h1 className="text-2xl font-bold text-slate-900">Cobros y cajas</h1>
-        {puedeCrearCaja && resumenes.length === 0 && <button onClick={() => setNuevaCaja(true)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Crear mi caja</button>}
+        {puedeCrearCaja && !miCaja && <button onClick={() => setNuevaCaja(true)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Crear mi caja</button>}
       </div>
       {aviso && <div className={`mb-4 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>}
 
@@ -107,47 +109,26 @@ export function Cobros() {
         </section>
       )}
 
-      {/* ── Cajas sin abrir ── */}
-      {sinAbrir.length > 0 && (
+      {/* ── Abrir mi caja (sólo la del usuario; el resto se gestiona en Gestión de cajas) ── */}
+      {miCajaSinAbrir && (
         <section className="mb-7">
-          <h2 className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-amber-400" /> Cajas sin abrir
-          </h2>
-          <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-            {sinAbrir.map((c) => (
-              <div key={c.id} className="flex items-center justify-between gap-3 px-5 py-3.5">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-slate-800">{etiquetaCaja(c)}</p>
-                  <p className="text-xs text-slate-500">
-                    {c.ultimaCerrada?.cerradaAt
-                      ? `Último cierre ${fechaHora(c.ultimaCerrada.cerradaAt)} · saldo ${fmt(c.ultimaCerrada.saldoReal)}`
-                      : 'Sin cierres previos'}
-                  </p>
-                </div>
-                <button onClick={() => setModal({ kind: 'abrir', cajaId: c.id, nombre: etiquetaCaja(c) })}
-                  className="shrink-0 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Abrir caja</button>
-              </div>
-            ))}
+          <div className="bg-white rounded-2xl border border-slate-200 flex items-center justify-between gap-3 px-5 py-4">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-800">Tu caja está cerrada — {etiquetaCaja(miCajaSinAbrir)}</p>
+              <p className="text-xs text-slate-500">
+                {miCajaSinAbrir.ultimaCerrada?.cerradaAt
+                  ? `Último cierre ${fechaHora(miCajaSinAbrir.ultimaCerrada.cerradaAt)} · efectivo que quedó ${fmt(miCajaSinAbrir.ultimaCerrada.saldoReal)}`
+                  : 'Aún no tiene cierres previos'}
+              </p>
+            </div>
+            <button onClick={() => setModal({ kind: 'abrir', cajaId: miCajaSinAbrir.id, nombre: etiquetaCaja(miCajaSinAbrir) })}
+              className="shrink-0 px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Abrir caja</button>
           </div>
         </section>
       )}
 
-      {/* ── Historial de cajas cerradas ── */}
-      {resumenes.length > 0 && (
-        <section className="mb-7">
-          <h2 className="text-sm font-semibold text-slate-700 mb-2 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-slate-400" /> Cajas cerradas — historial
-          </h2>
-          <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-            {resumenes.map((c) => (
-              <HistorialCaja key={c.id} caja={c}
-                abierto={histCajaId === c.id}
-                onToggle={() => setHistCajaId((x) => (x === c.id ? null : c.id))}
-                onVer={(sesionId) => setModal({ kind: 'sesion', cajaId: c.id, sesionId, nombre: etiquetaCaja(c) })} />
-            ))}
-          </div>
-        </section>
-      )}
+      {/* El historial de cajas (cerradas y sus pagos por período) vive en
+          Administración › Gestión de cajas, para no mezclarlo con la operación. */}
 
       {/* ── Cobros recientes ── */}
       <h2 className="text-sm font-semibold text-slate-700 mb-2">Cobros recientes</h2>
@@ -189,7 +170,6 @@ export function Cobros() {
           onClose={() => setComprobante(null)} />
       )}
       {modal?.kind === 'movs' && <MovimientosModal cajaId={modal.cajaId} sesionId={modal.sesionId} nombre={modal.nombre} onClose={() => setModal(null)} />}
-      {modal?.kind === 'sesion' && <SesionModal cajaId={modal.cajaId} sesionId={modal.sesionId} nombre={modal.nombre} onClose={() => setModal(null)} />}
     </div>
   )
 }
@@ -254,50 +234,6 @@ function CajaAbiertaCard({ caja, onPago, onGasto, onMovs, onCerrar }: {
           {r.porMetodo.map((m) => (
             <span key={m.metodo} className="px-2 py-1 rounded-lg bg-slate-100 text-slate-600">{m.metodo}: <span className="font-mono font-semibold">{fmt(m.monto)}</span> ({m.cantidad})</span>
           ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── Historial de cierres de una caja ──
-function HistorialCaja({ caja, abierto, onToggle, onVer }: {
-  caja: ResumenCaja; abierto: boolean; onToggle: () => void; onVer: (sesionId: string) => void
-}) {
-  const [sesiones, setSesiones] = useState<SesionCerrada[] | null>(null)
-  useEffect(() => {
-    if (abierto && sesiones === null) {
-      cajasService.sesiones(caja.id).then((s) => setSesiones((s as SesionCerrada[]).filter((x) => x.estado === 'CERRADA'))).catch(() => setSesiones([]))
-    }
-  }, [abierto, sesiones, caja.id])
-  return (
-    <div>
-      <button onClick={onToggle} className="w-full flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-slate-50 text-left">
-        <span className="text-sm font-semibold text-slate-800">{etiquetaCaja(caja)}</span>
-        <span className="text-xs text-slate-400">{abierto ? 'Ocultar' : 'Ver pagos por período'}</span>
-      </button>
-      {abierto && (
-        <div className="px-5 pb-4">
-          {sesiones === null ? <p className="text-xs text-slate-400 py-2">Cargando…</p>
-            : sesiones.length === 0 ? <p className="text-xs text-slate-400 py-2">Esta caja no tiene cierres registrados.</p> : (
-              <div className="divide-y divide-slate-100 border border-slate-100 rounded-xl overflow-hidden">
-                {sesiones.map((se) => (
-                  <div key={se.id} className="flex items-center justify-between gap-3 px-4 py-2.5 bg-slate-50/50">
-                    <div className="min-w-0">
-                      <p className="text-sm text-slate-700">{se.cerradaAt ? fechaHora(se.cerradaAt) : '—'}</p>
-                      <p className="text-xs text-slate-500">
-                        Real {fmt(se.saldoReal)} · esperado {fmt(se.saldoEsperado)}
-                        {se.diferencia != null && se.diferencia !== 0 && <span className="text-amber-600"> · dif {fmt(se.diferencia)}</span>}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <button onClick={() => onVer(se.id)} className="text-xs font-semibold text-cyan-700 hover:underline">Detalle</button>
-                      <a href={`/print/caja/${caja.id}/${se.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-slate-500 hover:text-slate-800">Imprimir</a>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
         </div>
       )}
     </div>
@@ -652,35 +588,6 @@ function MovimientosModal({ cajaId, sesionId, nombre, onClose }: { cajaId: strin
     <Modal title={`Pagos recibidos · ${nombre}`} onClose={onClose} size="lg">
       {data === null ? <p className="text-sm text-slate-400">Cargando…</p>
         : <FlujoCaja movimientos={data.movimientos} resumen={data.resumen} />}
-    </Modal>
-  )
-}
-
-// Detalle de una sesión cerrada (con imprimible).
-function SesionModal({ cajaId, sesionId, nombre, onClose }: { cajaId: string; sesionId: string; nombre: string; onClose: () => void }) {
-  const [data, setData] = useState<{ sesion: SesionCerrada; movimientos: Movimiento[]; resumen: Resumen | null } | null>(null)
-  useEffect(() => { cajasService.sesion(cajaId, sesionId).then((d) => setData(d as never)).catch(() => {}) }, [cajaId, sesionId])
-  return (
-    <Modal title={`Cierre · ${nombre}`} onClose={onClose} size="lg">
-      {!data ? <p className="text-sm text-slate-400">Cargando…</p> : (
-        <>
-          <div className="grid grid-cols-2 gap-2 mb-3">
-            <Stat label="Apertura" value={fmt(data.sesion.saldoApertura)} />
-            <Stat label="Esperado" value={fmt(data.sesion.saldoEsperado)} tone="cyan" />
-            <Stat label="Conteo real" value={fmt(data.sesion.saldoReal)} />
-            <Stat label="Diferencia" value={fmt(data.sesion.diferencia)} tone={data.sesion.diferencia ? 'rose' : 'emerald'} />
-          </div>
-          <p className="text-xs text-slate-500 mb-2">
-            Abrió {data.sesion.abiertaPorNombre ?? '—'} · {fechaHora(data.sesion.abiertaAt)}<br />
-            Cerró {data.sesion.cerradaPorNombre ?? '—'} · {data.sesion.cerradaAt ? fechaHora(data.sesion.cerradaAt) : '—'}
-          </p>
-          {data.sesion.observaciones && <p className="text-xs text-slate-600 mb-3 italic">“{data.sesion.observaciones}”</p>}
-          <div className="border-t border-slate-100 pt-3 mt-1">
-            <FlujoCaja movimientos={data.movimientos} resumen={data.resumen} />
-          </div>
-          <a href={`/print/caja/${cajaId}/${sesionId}`} target="_blank" rel="noopener noreferrer" className="block w-full text-center mt-4 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold">Imprimir reporte de cierre</a>
-        </>
-      )}
     </Modal>
   )
 }
