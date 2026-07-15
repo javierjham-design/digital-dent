@@ -6,6 +6,7 @@ import { pagosOnlineService } from '@/services/pagos-online.service'
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
 import { EnviarCorreoModal } from '@/components/EnviarCorreoModal'
+import { FlujoCaja } from '@/components/FlujoCaja'
 import { useAuth } from '@/hooks/useAuth'
 
 // ── Tipos ──
@@ -23,7 +24,7 @@ interface ResumenCaja {
   sesionAbierta: SesionAbierta | null; ultimaCerrada: SesionCerrada | null
 }
 const etiquetaCaja = (c: { numero?: number }) => `Caja N° ${c.numero ?? '—'}`
-interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { numero: number } | null }
+interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { numero?: number; paciente?: { nombre: string; apellido: string } | null; medioPago?: { nombre: string | null } | null } | null }
 interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; pacienteId: string; paciente: { nombre: string; apellido: string; email?: string | null }; medioPago?: { nombre: string } | null; caja?: { numero: number; nombre: string } | null }
 
 // Plan (para recibir pago obligado a un plan)
@@ -272,8 +273,8 @@ function HistorialCaja({ caja, abierto, onToggle, onVer }: {
   return (
     <div>
       <button onClick={onToggle} className="w-full flex items-center justify-between gap-3 px-5 py-3.5 hover:bg-slate-50 text-left">
-        <span className="text-sm font-semibold text-slate-800">{caja.nombre}</span>
-        <span className="text-xs text-slate-400">{abierto ? 'Ocultar' : 'Ver cierres'}</span>
+        <span className="text-sm font-semibold text-slate-800">{etiquetaCaja(caja)}</span>
+        <span className="text-xs text-slate-400">{abierto ? 'Ocultar' : 'Ver pagos por período'}</span>
       </button>
       {abierto && (
         <div className="px-5 pb-4">
@@ -643,26 +644,14 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
   )
 }
 
-// Movimientos de la sesión abierta (vista rápida).
+// Pagos recibidos y egresos de la sesión abierta (flujo en vivo de la caja).
 function MovimientosModal({ cajaId, sesionId, nombre, onClose }: { cajaId: string; sesionId: string; nombre: string; onClose: () => void }) {
-  const [movs, setMovs] = useState<Movimiento[] | null>(null)
-  useEffect(() => { cajasService.sesion(cajaId, sesionId).then((d) => setMovs((d as { movimientos: Movimiento[] }).movimientos)).catch(() => setMovs([])) }, [cajaId, sesionId])
+  const [data, setData] = useState<{ movimientos: Movimiento[]; resumen: Resumen | null } | null>(null)
+  useEffect(() => { cajasService.sesion(cajaId, sesionId).then((d) => setData(d as never)).catch(() => setData({ movimientos: [], resumen: null })) }, [cajaId, sesionId])
   return (
-    <Modal title={`Movimientos · ${nombre}`} onClose={onClose}>
-      {movs === null ? <p className="text-sm text-slate-400">Cargando…</p>
-        : movs.length === 0 ? <p className="text-sm text-slate-400">Sin movimientos en esta sesión.</p> : (
-          <div className="divide-y divide-slate-100 max-h-[60vh] overflow-y-auto">
-            {movs.map((m) => (
-              <div key={m.id} className={`flex items-center justify-between py-2.5 ${m.anulado ? 'opacity-40 line-through' : ''}`}>
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-slate-800 truncate">{m.descripcion}</p>
-                  <p className="text-xs text-slate-500">{fechaHora(m.fecha)}{m.categoria ? ` · ${m.categoria}` : ''}{m.user?.name ? ` · ${m.user.name}` : ''}</p>
-                </div>
-                <span className={`font-mono text-sm font-semibold shrink-0 ${m.tipo === 'INGRESO' ? 'text-emerald-600' : 'text-rose-600'}`}>{m.tipo === 'INGRESO' ? '+' : '−'}{fmt(m.monto)}</span>
-              </div>
-            ))}
-          </div>
-        )}
+    <Modal title={`Pagos recibidos · ${nombre}`} onClose={onClose} size="lg">
+      {data === null ? <p className="text-sm text-slate-400">Cargando…</p>
+        : <FlujoCaja movimientos={data.movimientos} resumen={data.resumen} />}
     </Modal>
   )
 }
@@ -672,7 +661,7 @@ function SesionModal({ cajaId, sesionId, nombre, onClose }: { cajaId: string; se
   const [data, setData] = useState<{ sesion: SesionCerrada; movimientos: Movimiento[]; resumen: Resumen | null } | null>(null)
   useEffect(() => { cajasService.sesion(cajaId, sesionId).then((d) => setData(d as never)).catch(() => {}) }, [cajaId, sesionId])
   return (
-    <Modal title={`Cierre · ${nombre}`} onClose={onClose}>
+    <Modal title={`Cierre · ${nombre}`} onClose={onClose} size="lg">
       {!data ? <p className="text-sm text-slate-400">Cargando…</p> : (
         <>
           <div className="grid grid-cols-2 gap-2 mb-3">
@@ -685,16 +674,11 @@ function SesionModal({ cajaId, sesionId, nombre, onClose }: { cajaId: string; se
             Abrió {data.sesion.abiertaPorNombre ?? '—'} · {fechaHora(data.sesion.abiertaAt)}<br />
             Cerró {data.sesion.cerradaPorNombre ?? '—'} · {data.sesion.cerradaAt ? fechaHora(data.sesion.cerradaAt) : '—'}
           </p>
-          {data.sesion.observaciones && <p className="text-xs text-slate-600 mb-2 italic">“{data.sesion.observaciones}”</p>}
-          <div className="divide-y divide-slate-100 max-h-[40vh] overflow-y-auto border-t border-slate-100 mt-2">
-            {data.movimientos.map((m) => (
-              <div key={m.id} className={`flex items-center justify-between py-2 ${m.anulado ? 'opacity-40 line-through' : ''}`}>
-                <div className="min-w-0"><p className="text-sm text-slate-700 truncate">{m.descripcion}</p><p className="text-xs text-slate-400">{fechaHora(m.fecha)}{m.categoria ? ` · ${m.categoria}` : ''}</p></div>
-                <span className={`font-mono text-sm shrink-0 ${m.tipo === 'INGRESO' ? 'text-emerald-600' : 'text-rose-600'}`}>{m.tipo === 'INGRESO' ? '+' : '−'}{fmt(m.monto)}</span>
-              </div>
-            ))}
+          {data.sesion.observaciones && <p className="text-xs text-slate-600 mb-3 italic">“{data.sesion.observaciones}”</p>}
+          <div className="border-t border-slate-100 pt-3 mt-1">
+            <FlujoCaja movimientos={data.movimientos} resumen={data.resumen} />
           </div>
-          <a href={`/print/caja/${cajaId}/${sesionId}`} target="_blank" rel="noopener noreferrer" className="block w-full text-center mt-4 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold">Imprimir cierre</a>
+          <a href={`/print/caja/${cajaId}/${sesionId}`} target="_blank" rel="noopener noreferrer" className="block w-full text-center mt-4 px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold">Imprimir reporte de cierre</a>
         </>
       )}
     </Modal>

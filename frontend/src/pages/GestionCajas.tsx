@@ -4,6 +4,7 @@ import { cajasService } from '@/services/caja.service'
 import { ApiError } from '@/services/api'
 import { fmtMonto } from '@/lib/money'
 import { useAuth } from '@/hooks/useAuth'
+import { FlujoCaja, type FlujoMovimiento, type FlujoResumen } from '@/components/FlujoCaja'
 
 const fmt = fmtMonto
 const fechaHora = (s: string | null | undefined) => (s ? new Date(s).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '—')
@@ -30,6 +31,7 @@ export function GestionCajas() {
   const [form, setForm] = useState<CajaGestion | 'nueva' | null>(null)
   const [cerrar, setCerrar] = useState<CajaGestion | null>(null)
   const [abrir, setAbrir] = useState<CajaGestion | null>(null)
+  const [tab, setTab] = useState<'abiertas' | 'cerradas'>('abiertas')
 
   const cargar = () => cajasService.gestion().then((r) => setCajas(r as CajaGestion[])).catch(() => {}).finally(() => setCargando(false))
   useEffect(() => { cargar() }, [])
@@ -41,7 +43,9 @@ export function GestionCajas() {
     </div>
   )
 
-  const abiertas = cajas.filter((c) => c.sesionAbierta).length
+  const cajasAbiertas = cajas.filter((c) => c.sesionAbierta)
+  const cajasCerradas = cajas.filter((c) => !c.sesionAbierta)
+  const lista = tab === 'abiertas' ? cajasAbiertas : cajasCerradas
   const nombreUsuarios = (c: CajaGestion) => c.usuarios.map((u) => u.user.name ?? u.user.email).filter(Boolean)
 
   return (
@@ -51,17 +55,18 @@ export function GestionCajas() {
       </div>
       <p className="text-sm text-slate-500 mb-5">Todas las cajas de la clínica y su estado. Cada caja es de un usuario (exclusiva): sólo su usuario recibe pagos con ella, por lo que los pagos de uno nunca se mezclan con los de otro. Como administrador puedes abrir y cerrar la caja de otro usuario; al cerrar, el efectivo que dejes se arrastra automáticamente a la próxima apertura sin perderse. El cuadre es sólo sobre el efectivo; tarjeta/transferencia se registran por su medio.</p>
 
-      <div className="grid grid-cols-3 gap-3 mb-5 max-w-md">
-        <Kpi l="Cajas" v={String(cajas.length)} />
-        <Kpi l="Abiertas ahora" v={String(abiertas)} tone="emerald" />
-        <Kpi l="Inactivas" v={String(cajas.filter((c) => !c.activo).length)} tone="slate" />
+      {/* Pestañas: no mezclar cajas abiertas con las cerradas / historial */}
+      <div className="flex gap-1 mb-5 border-b border-slate-200">
+        <TabBtn activo={tab === 'abiertas'} onClick={() => setTab('abiertas')} label="Cajas abiertas" count={cajasAbiertas.length} tone="emerald" />
+        <TabBtn activo={tab === 'cerradas'} onClick={() => setTab('cerradas')} label="Cajas cerradas" count={cajasCerradas.length} tone="slate" />
       </div>
 
       {cargando ? <p className="text-slate-500 text-sm">Cargando…</p>
         : cajas.length === 0 ? <p className="text-slate-500 text-sm">No hay cajas creadas. Créalas desde Cobros.</p>
+        : lista.length === 0 ? <p className="text-slate-500 text-sm">{tab === 'abiertas' ? 'No hay cajas abiertas en este momento.' : 'No hay cajas cerradas. Las cajas cerradas y su historial aparecen aquí.'}</p>
         : (
           <div className="space-y-3">
-            {cajas.map((c) => {
+            {lista.map((c) => {
               const abierta = c.sesionAbierta
               const r = abierta?.resumen
               return (
@@ -84,7 +89,7 @@ export function GestionCajas() {
                         ? <button onClick={() => setCerrar(c)} className="text-xs font-semibold text-rose-600 hover:text-rose-800">Cerrar caja</button>
                         : c.activo && <button onClick={() => setAbrir(c)} className="text-xs font-semibold text-emerald-700 hover:text-emerald-900">Abrir caja</button>}
                       <button onClick={() => setForm(c)} className="text-xs font-semibold text-slate-500 hover:text-slate-800">Editar</button>
-                      <button onClick={() => setVer(c)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900">Ver sesiones ({c.totalSesiones}) →</button>
+                      <button onClick={() => setVer(c)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900">Ver historial de pagos →</button>
                     </div>
                   </div>
 
@@ -242,54 +247,55 @@ function CajaFormModal({ caja, onClose, onSaved }: { caja: CajaGestion | null; o
   )
 }
 
-// Sesiones de una caja + detalle de movimientos de la sesión elegida.
+// Historial de pagos de una caja: cada período (apertura→cierre) con el flujo
+// completo de pagos recibidos y egresos. Ordenado del más reciente al más antiguo.
 function SesionesModal({ caja, onClose }: { caja: CajaGestion; onClose: () => void }) {
   const [sesiones, setSesiones] = useState<Sesion[] | null>(null)
   const [sel, setSel] = useState<string | null>(null)
-  const [detalle, setDetalle] = useState<{ movimientos: Movimiento[] } | null>(null)
+  const [detalle, setDetalle] = useState<{ movimientos: FlujoMovimiento[]; resumen: FlujoResumen | null } | null>(null)
   useEffect(() => { cajasService.sesiones(caja.id).then((s) => setSesiones(s as Sesion[])).catch(() => setSesiones([])) }, [caja.id])
   useEffect(() => {
     if (!sel) { setDetalle(null); return }
-    cajasService.sesion(caja.id, sel).then((d) => setDetalle(d as { movimientos: Movimiento[] })).catch(() => setDetalle(null))
+    cajasService.sesion(caja.id, sel).then((d) => setDetalle(d as { movimientos: FlujoMovimiento[]; resumen: FlujoResumen | null })).catch(() => setDetalle(null))
   }, [sel, caja.id])
+
+  const periodoLabel = (s: Sesion) => s.cerradaAt
+    ? `${fechaHora(s.abiertaAt)} → ${fechaHora(s.cerradaAt)}`
+    : `Abierta desde ${fechaHora(s.abiertaAt)}`
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-semibold text-slate-900">Caja Nº {caja.numero} · {caja.nombre}</h2>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-base font-semibold text-slate-900">Historial de pagos · Caja Nº {caja.numero}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
         </div>
+        <p className="text-xs text-slate-500 mb-3">Cada bloque es un período de la caja (desde que se abrió hasta que se cerró) con todos los pagos que recibió.</p>
         {sesiones === null ? <p className="text-sm text-slate-400">Cargando…</p>
-          : sesiones.length === 0 ? <p className="text-sm text-slate-400">Esta caja no tiene sesiones.</p>
+          : sesiones.length === 0 ? <p className="text-sm text-slate-400">Esta caja todavía no tiene movimientos.</p>
           : (
             <div className="space-y-2">
               {sesiones.map((s) => (
                 <div key={s.id} className="border border-slate-100 rounded-xl">
                   <button onClick={() => setSel(sel === s.id ? null : s.id)} className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-slate-50">
                     <div className="min-w-0">
-                      <p className="text-sm text-slate-800"><span className="font-semibold">Apertura Nº {s.numero || '—'}</span> · {fechaHora(s.abiertaAt)} <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${s.estado === 'ABIERTA' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{s.estado}</span></p>
-                      <p className="text-xs text-slate-500">Abrió {s.abiertaPorNombre ?? '—'}{s.cerradaAt ? ` · cerró ${s.cerradaPorNombre ?? '—'} ${fechaHora(s.cerradaAt)}` : ''}</p>
+                      <p className="text-sm text-slate-800 flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold">{periodoLabel(s)}</span>
+                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${s.estado === 'ABIERTA' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{s.estado === 'ABIERTA' ? 'Abierta' : 'Cerrada'}</span>
+                      </p>
+                      <p className="text-xs text-slate-500">Abrió {s.abiertaPorNombre ?? '—'}{s.cerradaAt ? ` · cerró ${s.cerradaPorNombre ?? '—'}` : ''}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      {s.estado === 'CERRADA' ? <p className="text-xs font-mono text-slate-700">{fmt(s.saldoReal ?? 0)}{s.diferencia ? <span className={s.diferencia < 0 ? 'text-rose-600' : 'text-emerald-600'}> ({s.diferencia > 0 ? '+' : ''}{fmt(s.diferencia)})</span> : ''}</p> : <span className="text-xs text-cyan-700">{sel === s.id ? 'Ocultar' : 'Ver'}</span>}
+                      {s.estado === 'CERRADA'
+                        ? <p className="text-xs font-mono text-slate-700">Contado {fmt(s.saldoReal ?? 0)}{s.diferencia ? <span className={s.diferencia < 0 ? 'text-rose-600' : 'text-emerald-600'}> ({s.diferencia > 0 ? '+' : ''}{fmt(s.diferencia)})</span> : ''}</p>
+                        : <span className="text-xs text-cyan-700">{sel === s.id ? 'Ocultar' : 'Ver pagos'}</span>}
                     </div>
                   </button>
                   {sel === s.id && (
-                    <div className="border-t border-slate-100 px-3 py-2">
-                      {!detalle ? <p className="text-xs text-slate-400">Cargando movimientos…</p>
-                        : detalle.movimientos.length === 0 ? <p className="text-xs text-slate-400">Sin movimientos.</p>
-                        : (
-                          <div className="divide-y divide-slate-50 max-h-56 overflow-y-auto">
-                            {detalle.movimientos.map((m) => (
-                              <div key={m.id} className={`flex items-center justify-between py-1.5 text-sm ${m.anulado ? 'opacity-40 line-through' : ''}`}>
-                                <div className="min-w-0"><p className="text-slate-700 truncate">{m.descripcion}</p><p className="text-[11px] text-slate-400">{fechaHora(m.fecha)}{m.user?.name ? ` · ${m.user.name}` : ''}{m.categoria ? ` · ${m.categoria}` : ''}</p></div>
-                                <span className={`font-mono text-sm shrink-0 ${m.tipo === 'INGRESO' ? 'text-emerald-600' : 'text-rose-600'}`}>{m.tipo === 'INGRESO' ? '+' : '−'}{fmt(m.monto)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      <Link to={`/print/caja/${caja.id}/${s.id}`} target="_blank" className="inline-block mt-2 text-xs font-semibold text-cyan-700">Imprimir / ver cierre →</Link>
+                    <div className="border-t border-slate-100 px-3 py-3">
+                      {!detalle ? <p className="text-xs text-slate-400">Cargando pagos…</p>
+                        : <FlujoCaja movimientos={detalle.movimientos} resumen={detalle.resumen} />}
+                      {s.estado === 'CERRADA' && <Link to={`/print/caja/${caja.id}/${s.id}`} target="_blank" className="inline-block mt-3 text-xs font-semibold text-cyan-700">Imprimir / ver reporte de cierre →</Link>}
                     </div>
                   )}
                 </div>
@@ -301,11 +307,14 @@ function SesionesModal({ caja, onClose }: { caja: CajaGestion; onClose: () => vo
   )
 }
 
-interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null }
-
-function Kpi({ l, v, tone }: { l: string; v: string; tone?: string }) {
-  const c = tone === 'emerald' ? 'text-emerald-700' : tone === 'slate' ? 'text-slate-500' : 'text-slate-900'
-  return <div className="bg-white rounded-xl border border-slate-200 px-3 py-2.5"><p className="text-[11px] uppercase tracking-wide text-slate-400">{l}</p><p className={`text-2xl font-bold ${c}`}>{v}</p></div>
+function TabBtn({ activo, onClick, label, count, tone }: { activo: boolean; onClick: () => void; label: string; count: number; tone: 'emerald' | 'slate' }) {
+  const chip = tone === 'emerald' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
+  return (
+    <button onClick={onClick}
+      className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${activo ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+      {label} <span className={`ml-1 text-[11px] px-1.5 py-0.5 rounded-full ${chip}`}>{count}</span>
+    </button>
+  )
 }
 function Dato({ l, v, sub, tone }: { l: string; v: string; sub?: string; tone?: string }) {
   const c = tone === 'emerald' ? 'text-emerald-700' : tone === 'rose' ? 'text-rose-600' : tone === 'cyan' ? 'text-cyan-700' : 'text-slate-800'
