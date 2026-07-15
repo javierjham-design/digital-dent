@@ -71,6 +71,11 @@ function renderEventoSemanal(arg: EventContentArg) {
 
 type Vista = 'semanal' | 'diaria' | 'global'
 
+// Estados que se muestran en la agenda. Las citas CANCELADA desaparecen de la
+// agenda (el cupo queda libre para agendar a otro paciente); se siguen pudiendo
+// cancelar desde el detalle de la cita y quedan en el historial de la ficha.
+const ESTADOS_AGENDA = Object.keys(CITA_ESTADOS).filter((k) => k !== 'CANCELADA')
+
 export function Agenda() {
   const calRef = useRef<FullCalendar>(null)
   const [doctores, setDoctores] = useState<DoctorDTO[]>([])
@@ -86,7 +91,7 @@ export function Agenda() {
   })
   const [currentDate, setCurrentDate] = useState(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d })
   const [doctorId, setDoctorId] = useState<string>('')
-  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(Object.keys(CITA_ESTADOS)))
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set(ESTADOS_AGENDA))
   // Vista "agenda de sobrecupos": misma grilla semanal pero mostrando SÓLO las
   // citas en sobrecupo (para revisarlas aparte, sin que se encimen con el resto).
   const [soloSobrecupos, setSoloSobrecupos] = useState(false)
@@ -380,18 +385,18 @@ export function Agenda() {
           </select>
           <div className="flex items-center justify-between mb-2">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Estados</p>
-            <button onClick={() => setStatusFilter((p) => p.size === Object.keys(CITA_ESTADOS).length ? new Set() : new Set(Object.keys(CITA_ESTADOS)))}
+            <button onClick={() => setStatusFilter((p) => p.size === ESTADOS_AGENDA.length ? new Set() : new Set(ESTADOS_AGENDA))}
               className="text-[11px] text-cyan-600 hover:underline">Todos</button>
           </div>
           <div className="space-y-1.5">
-            {Object.entries(CITA_ESTADOS).map(([k, cfg]) => (
+            {ESTADOS_AGENDA.map((k) => { const cfg = CITA_ESTADOS[k]; return (
               <label key={k} className="flex items-center gap-2 cursor-pointer text-sm">
                 <input type="checkbox" checked={statusFilter.has(k)}
                   onChange={() => setStatusFilter((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n })} />
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: cfg.color }} />
                 <span className="text-slate-600">{cfg.label}</span>
               </label>
-            ))}
+            )})}
           </div>
         </div>
       </aside>
@@ -445,7 +450,8 @@ export function Agenda() {
             {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
           </select>
           <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
-            {Object.entries(CITA_ESTADOS).map(([k, cfg]) => {
+            {ESTADOS_AGENDA.map((k) => {
+              const cfg = CITA_ESTADOS[k]
               const on = statusFilter.has(k)
               return (
                 <button key={k} onClick={() => setStatusFilter((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n })}
