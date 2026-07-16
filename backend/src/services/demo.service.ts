@@ -16,6 +16,21 @@ function slugDemo(): string {
 
 export interface CrearDemoInput {
   nombre: string; email: string; telefono?: string; nombreClinica: string; vertical?: string
+  pais?: string // país de la landing (CR/PA/CO/...) para atribución de campaña
+  tracking?: Record<string, string | undefined> // UTM + landing (desde la landing page)
+}
+
+// Resumen de atribución de campaña para guardar en el lead (notas).
+function notasCampana(pais: string | undefined, t: Record<string, string | undefined> | undefined): string | null {
+  const partes: string[] = []
+  if (pais) partes.push(`país=${pais}`)
+  if (t?.utmSource) partes.push(`utm_source=${t.utmSource}`)
+  if (t?.utmMedium) partes.push(`utm_medium=${t.utmMedium}`)
+  if (t?.utmCampaign) partes.push(`utm_campaign=${t.utmCampaign}`)
+  if (t?.utmContent) partes.push(`utm_content=${t.utmContent}`)
+  if (t?.utmTerm) partes.push(`utm_term=${t.utmTerm}`)
+  if (t?.landing) partes.push(`landing=${t.landing}`)
+  return partes.length ? partes.join(' · ') : null
 }
 
 export interface DemoResult extends LoginResponse {
@@ -68,7 +83,7 @@ export async function crearDemo(input: CrearDemoInput, ip: string): Promise<Demo
       },
     })
     await control.lead.create({
-      data: { nombre, email, telefono: telefono || null, nombreClinica, origen: 'DEMO', rubro: vertical, clinicaId: clinica.id, clinicaSlug: slug, ip },
+      data: { nombre, email, telefono: telefono || null, nombreClinica, origen: 'DEMO', rubro: vertical, clinicaId: clinica.id, clinicaSlug: slug, ip, notas: notasCampana(input.pais, input.tracking) },
     })
 
     const session = await issueTokenForTenantUser({ id: clinica.id, slug, dbName }, adminId)

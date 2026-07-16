@@ -10,8 +10,10 @@ export async function getPlanesPublicos(_req: Request, res: Response) {
       id: p.id,
       nombre: p.nombre,
       descripcion: p.descripcion,
-      precioMensual: p.precioMensual,
+      precioMensual: p.precioMensual,      // CLP
+      precioMensualUSD: p.precioMensualUSD, // USD (mercados fuera de Chile)
       precioAnual: p.precioAnual,
+      maxProfesionales: p.maxProfesionales,
       caracteristicas: p.caracteristicas,
       destacado: p.destacado,
       orden: p.orden,

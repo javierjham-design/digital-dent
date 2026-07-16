@@ -13,6 +13,7 @@ import { Configuracion } from '@/pages/Configuracion'
 import { Cobros } from '@/pages/Cobros'
 import { AgendaOnline } from '@/pages/AgendaOnline'
 import { AgendarPublico } from '@/pages/AgendarPublico'
+import { Landing } from '@/pages/Landing'
 import { Crm } from '@/pages/Crm'
 import { Consentimientos } from '@/pages/Consentimientos'
 import { Suscripcion } from '@/pages/Suscripcion'
@@ -43,6 +44,8 @@ export default function App() {
           {/* Páginas públicas (sin sesión): reserva de hora + formulario de captación. */}
           <Route path="/c/:slug/agendar/:token" element={<AgendarPublico />} />
           <Route path="/c/:slug/formulario/:token" element={<FormularioPublico />} />
+          {/* Landings de marketing por país (campañas en USD, con tracking UTM). */}
+          <Route path="/landing/:pais" element={<Landing />} />
           <Route
             element={
               <ProtectedRoute>
