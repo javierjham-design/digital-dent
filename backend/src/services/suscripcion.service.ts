@@ -5,7 +5,7 @@
 import { control } from '@/db/control'
 import { notFound } from '@/lib/errors'
 import { getPlan, precioPlanEnMoneda, precioProfesionalExtra } from '@/lib/plans'
-import { getEstadoPago } from '@/lib/billing'
+import { getEstadoPago, calcularProximoCobro } from '@/lib/billing'
 import { monedaCobroDe, type MonedaCobro } from '@shared/constants/cobro'
 import { crearEnlacePago, proveedorPara, pasarelaConfigurada, type ResultadoEnlace } from '@/lib/pagos'
 
@@ -66,9 +66,60 @@ export async function generarEnlacePago(clinicaId: string, recurrente: boolean):
     clinicaId,
     clinicaNombre: c.nombre,
     email: c.email || null,
+    planId: c.plan,
     monto: total,
     moneda,
     concepto: `Suscripción Cláriva ${plan?.nombre ?? c.plan}`,
     recurrente,
   })
+}
+
+// Procesa un evento de PAGO de Lemon Squeezy (webhook): avanza el próximo cobro
+// de la clínica y registra el pago. Idempotente por el id del pago (comprobante).
+// Sólo actúa sobre `subscription_payment_success` (cubre primer pago y renovaciones).
+interface LemonPayload {
+  meta?: { event_name?: string; custom_data?: { clinica_id?: string } }
+  data?: { id?: string | number }
+}
+export async function registrarPagoLemon(payload: LemonPayload): Promise<{ ok: boolean; motivo?: string }> {
+  const evento = payload?.meta?.event_name ?? ''
+  if (evento !== 'subscription_payment_success') return { ok: true, motivo: `evento ignorado: ${evento || 'sin evento'}` }
+  const clinicaId = payload?.meta?.custom_data?.clinica_id
+  if (!clinicaId) return { ok: false, motivo: 'sin clinica_id' }
+
+  const c = await control.clinica.findUnique({ where: { id: clinicaId } })
+  if (!c) return { ok: false, motivo: 'clínica no encontrada' }
+
+  // Idempotencia: si ya registramos este pago (mismo id de Lemon), no repetir.
+  const comprobante = payload?.data?.id ? `LEMON:${payload.data.id}` : null
+  if (comprobante) {
+    const ya = await control.pagoSuscripcion.findFirst({ where: { clinicaId, comprobante } })
+    if (ya) return { ok: true, motivo: 'pago ya registrado' }
+  }
+
+  const ciclo = c.cicloFacturacion === 'ANUAL' ? 'ANUAL' : 'MENSUAL'
+  const ahora = new Date()
+  const proximo = calcularProximoCobro({ proximoActual: c.proximoCobro, fechaPago: ahora, ciclo })
+  const plan = await getPlan(c.plan)
+  const monto = c.precioAcordado ?? precioPlanEnMoneda(plan, 'USD')
+
+  await control.$transaction([
+    control.clinica.update({
+      where: { id: clinicaId },
+      data: {
+        activo: true, cobroAutomatico: true,
+        suscripcionProvider: 'LEMONSQUEEZY',
+        suscripcionRef: payload?.data?.id ? String(payload.data.id) : c.suscripcionRef,
+        proximoCobro: proximo,
+      },
+    }),
+    control.pagoSuscripcion.create({
+      data: {
+        clinicaId, monto, moneda: 'USD', metodoPago: 'OTRO',
+        periodoDesde: ahora, periodoHasta: proximo,
+        comprobante, notas: 'Lemon Squeezy · subscription_payment_success', registradoPor: 'webhook',
+      },
+    }),
+  ])
+  return { ok: true }
 }

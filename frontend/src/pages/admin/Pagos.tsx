@@ -6,7 +6,7 @@ import { fmtCobro } from '@shared/constants/cobro'
 const fmtFecha = (s: string) => new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
 
 interface PagoRow { id: string; clinica: string; slug: string; fechaPago: string; monto: number; moneda: string; metodoPago: string; periodoDesde: string; periodoHasta: string }
-interface Data { pagos: PagoRow[]; totales: { CLP: number; USD: number }; pasarelas: { flow: { configurada: boolean }; stripe: { configurada: boolean } } }
+interface Data { pagos: PagoRow[]; totales: { CLP: number; USD: number }; pasarelas: { flow: { configurada: boolean }; lemonsqueezy: { configurada: boolean } } }
 
 export function AdminPagos() {
   const [data, setData] = useState<Data | null>(null)
@@ -29,7 +29,7 @@ export function AdminPagos() {
           <p className="text-xl font-bold mt-1 text-white">{fmtCobro(data?.totales.USD ?? 0, 'USD')}</p>
         </div>
         <Pasarela nombre="Flow" moneda="CLP" ok={data?.pasarelas.flow.configurada} />
-        <Pasarela nombre="Stripe" moneda="USD" ok={data?.pasarelas.stripe.configurada} />
+        <Pasarela nombre="Lemon Squeezy" moneda="USD" ok={data?.pasarelas.lemonsqueezy.configurada} />
       </div>
 
       {cargando ? <p className="px-6 py-10 text-center text-slate-500 text-sm">Cargando…</p>

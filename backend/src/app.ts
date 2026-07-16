@@ -55,7 +55,11 @@ export function createApp() {
   })
 
   // 15MB: los correos con PDF adjunto (presupuestos, consentimientos) viajan como base64.
-  app.use(express.json({ limit: '15mb' }))
+  // `verify` guarda el raw body (para verificar la firma HMAC de webhooks, ej. Lemon Squeezy).
+  app.use(express.json({
+    limit: '15mb',
+    verify: (req, _res, buf) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buf },
+  }))
   // Twilio postea el webhook como application/x-www-form-urlencoded.
   app.use(express.urlencoded({ extended: false }))
   app.use(cookieParser())

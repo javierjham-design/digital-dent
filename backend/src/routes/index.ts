@@ -89,6 +89,8 @@ apiRouter.post('/public/crm/:slug/:token/lead', asyncHandler(crm.postPublicLead)
 
 // Webhook de confirmación de Flow (cobros a pacientes). Público, por slug de clínica.
 apiRouter.post('/public/pagos/flow/:slug/webhook', asyncHandler(pagosOnline.postWebhookFlow))
+// Webhook de Lemon Squeezy (suscripción de la plataforma en USD). Público; valida firma HMAC.
+apiRouter.post('/public/pagos/lemonsqueezy/webhook', asyncHandler(suscripcion.postWebhookLemon))
 // Retorno del navegador del paciente al terminar el pago (Flow lo invoca por POST y GET).
 apiRouter.get('/public/pagos/flow/:slug/retorno', asyncHandler(pagosOnline.retornoFlow))
 apiRouter.post('/public/pagos/flow/:slug/retorno', asyncHandler(pagosOnline.retornoFlow))

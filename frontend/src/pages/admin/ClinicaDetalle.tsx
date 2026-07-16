@@ -331,7 +331,7 @@ function CobroCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void })
 
   return (
     <Card title="Cobro y suscripción">
-      <p className="text-sm text-slate-400 mb-3">Define la moneda y el cobro. Chile paga en CLP (Flow); el resto en USD (Stripe).</p>
+      <p className="text-sm text-slate-400 mb-3">Define la moneda y el cobro. Chile paga en CLP (Flow); el resto en USD (Lemon Squeezy).</p>
       <label className="block"><L>Moneda de cobro</L>
         <select value={moneda} onChange={(e) => setMoneda(e.target.value)} className={inpCls}>
           <option value="AUTO">Automática por país{cobro ? ` (${cobro.monedaEfectiva})` : ''}</option>
