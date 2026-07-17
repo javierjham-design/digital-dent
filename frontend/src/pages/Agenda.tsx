@@ -71,10 +71,15 @@ function renderEventoSemanal(arg: EventContentArg) {
 
 type Vista = 'semanal' | 'diaria' | 'global'
 
-// Estados que se muestran en la agenda. Las citas CANCELADA desaparecen de la
-// agenda (el cupo queda libre para agendar a otro paciente); se siguen pudiendo
-// cancelar desde el detalle de la cita y quedan en el historial de la ficha.
+// Estados activos de la agenda (sin CANCELADA). En la vista SEMANAL y GLOBAL las
+// citas canceladas nunca se muestran (el cupo queda libre). En la vista DIARIA sí
+// se pueden ver marcando "Cancelada" en el filtro, para llevar el control de las
+// canceladas y detectar cancelaciones por error.
 const ESTADOS_AGENDA = Object.keys(CITA_ESTADOS).filter((k) => k !== 'CANCELADA')
+// Todos los estados para el filtro (incluye Cancelada, apagada por defecto).
+const ESTADOS_FILTRO = Object.keys(CITA_ESTADOS)
+// Fecha local (Chile) en YYYY-MM-DD para el selector "Ver calendario".
+const ymdLocal = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
 
 export function Agenda() {
   const calRef = useRef<FullCalendar>(null)
@@ -200,8 +205,9 @@ export function Agenda() {
     return blocks
   }, [horarios])
 
+  // Semanal: nunca muestra canceladas (el cupo queda libre), aunque el filtro las marque.
   const citasVisibles = useMemo(
-    () => citas.filter((c) => (doctorId ? c.doctorId === doctorId : true) && statusFilter.has(c.estado)),
+    () => citas.filter((c) => (doctorId ? c.doctorId === doctorId : true) && statusFilter.has(c.estado) && c.estado !== 'CANCELADA'),
     [citas, doctorId, statusFilter],
   )
 
@@ -322,7 +328,10 @@ export function Agenda() {
   }
 
   async function cambiarEstado(id: string, estado: string) {
-    try { await citasService.cambiarEstado(id, estado); notify('Estado actualizado'); setSelected(null); recargar() }
+    // Cancelar pide confirmación: evita cancelar por un clic accidental (recuperar
+    // al paciente cuesta). El cupo queda libre y la cita se ve en la vista diaria.
+    if (estado === 'CANCELADA' && !confirm('¿Seguro que quieres CANCELAR esta cita?\n\nEl paciente saldrá de la agenda y el horario quedará disponible. Podrás verla marcando "Cancelada" en la vista diaria.')) return
+    try { await citasService.cambiarEstado(id, estado); notify(estado === 'CANCELADA' ? 'Cita cancelada' : 'Estado actualizado'); setSelected(null); recargar() }
     catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
 
@@ -347,19 +356,21 @@ export function Agenda() {
     catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
 
+  // Diaria: respeta el filtro de estados TAL CUAL (incluye canceladas si se marca
+  // "Cancelada"), para poder revisar las cancelaciones del día.
   const citasDelDia = useMemo(() => {
     const d0 = new Date(currentDate); d0.setHours(0, 0, 0, 0)
     const d1 = new Date(currentDate); d1.setHours(23, 59, 59, 999)
-    return citasVisibles.filter((c) => { const t = new Date(c.inicio); return t >= d0 && t <= d1 })
+    return citas.filter((c) => (doctorId ? c.doctorId === doctorId : true) && statusFilter.has(c.estado) && (() => { const t = new Date(c.inicio); return t >= d0 && t <= d1 })())
       .sort((a, b) => +new Date(a.inicio) - +new Date(b.inicio))
-  }, [citasVisibles, currentDate])
+  }, [citas, doctorId, statusFilter, currentDate])
 
   // Para la vista Global mostramos TODOS los profesionales (ignora el filtro de
   // profesional del sidebar), sólo respetando el filtro de estados y el día.
   const citasGlobal = useMemo(() => {
     const d0 = new Date(currentDate); d0.setHours(0, 0, 0, 0)
     const d1 = new Date(currentDate); d1.setHours(23, 59, 59, 999)
-    return citas.filter((c) => statusFilter.has(c.estado) && (() => { const t = new Date(c.inicio); return t >= d0 && t <= d1 })())
+    return citas.filter((c) => statusFilter.has(c.estado) && c.estado !== 'CANCELADA' && (() => { const t = new Date(c.inicio); return t >= d0 && t <= d1 })())
   }, [citas, statusFilter, currentDate])
 
   const bloqueosGlobal = useMemo(() => {
@@ -389,12 +400,12 @@ export function Agenda() {
               className="text-[11px] text-cyan-600 hover:underline">Todos</button>
           </div>
           <div className="space-y-1.5">
-            {ESTADOS_AGENDA.map((k) => { const cfg = CITA_ESTADOS[k]; return (
-              <label key={k} className="flex items-center gap-2 cursor-pointer text-sm">
+            {ESTADOS_FILTRO.map((k) => { const cfg = CITA_ESTADOS[k]; return (
+              <label key={k} className="flex items-center gap-2 cursor-pointer text-sm" title={k === 'CANCELADA' ? 'Sólo se ven en la vista Diaria' : undefined}>
                 <input type="checkbox" checked={statusFilter.has(k)}
                   onChange={() => setStatusFilter((p) => { const n = new Set(p); n.has(k) ? n.delete(k) : n.add(k); return n })} />
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: cfg.color }} />
-                <span className="text-slate-600">{cfg.label}</span>
+                <span className="text-slate-600">{cfg.label}{k === 'CANCELADA' ? ' (sólo diaria)' : ''}</span>
               </label>
             )})}
           </div>
@@ -419,6 +430,13 @@ export function Agenda() {
             <button onClick={() => shiftDate(-1)} className="w-8 h-8 rounded-lg border border-slate-200 hover:bg-slate-50">‹</button>
             <button onClick={() => { const d = new Date(); d.setHours(0,0,0,0); setCurrentDate(d) }} className="text-xs font-semibold border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">Hoy</button>
             <button onClick={() => shiftDate(1)} className="w-8 h-8 rounded-lg border border-slate-200 hover:bg-slate-50">›</button>
+            {/* Ver calendario: salta a la semana/día de la fecha elegida (p.ej. control en 6 meses). */}
+            <label className="relative inline-flex items-center gap-1.5 text-xs font-semibold border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 cursor-pointer" title="Ir a una fecha (ej. agendar un control en meses)">
+              📅 Ver calendario
+              <input type="date" value={ymdLocal(currentDate)}
+                onChange={(e) => { if (e.target.value) { const d = new Date(`${e.target.value}T00:00:00`); d.setHours(0, 0, 0, 0); setCurrentDate(d) } }}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+            </label>
             <span className="text-sm font-semibold text-slate-800 capitalize ml-1">{labelFecha}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -450,7 +468,7 @@ export function Agenda() {
             {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
           </select>
           <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
-            {ESTADOS_AGENDA.map((k) => {
+            {ESTADOS_FILTRO.map((k) => {
               const cfg = CITA_ESTADOS[k]
               const on = statusFilter.has(k)
               return (
@@ -1176,6 +1194,9 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
   const [error, setError] = useState<string | null>(null)
   const [ahora] = useState(() => Date.now()) // referencia estable para no ofrecer horas pasadas
   const [porConfirmar, setPorConfirmar] = useState<null | { fechaISO: string; sobrecupo: boolean }>(null)
+  // Modo sobreagendamiento: ofrece TODOS los horarios de atención (permite solaparse
+  // con citas ya agendadas), para reprogramar como sobrecupo.
+  const [modoSobrecupo, setModoSobrecupo] = useState(false)
 
   // Carga citas + bloqueos de la semana visible (para calcular los huecos libres).
   useEffect(() => {
@@ -1248,6 +1269,29 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
     return res
   }
 
+  // Horas de SOBREAGENDAMIENTO: todos los cupos dentro del horario de atención,
+  // aunque estén ocupados (se permite solapar). Sólo respeta bloqueos y horas pasadas.
+  function horasSobreagenda(dia: Date): string[] {
+    const h = horarios.find((x) => x.doctorId === doctorId && x.diaSemana === dia.getDay() && x.activo)
+    if (!h) return []
+    const blqs: [number, number][] = []
+    for (const b of bloqueosSemana) {
+      if (b.doctorId !== doctorId) continue
+      const bi = new Date(b.inicio); if (!mismoDia(bi, dia)) continue
+      blqs.push([minutosDelDia(bi), minutosDelDia(new Date(b.fin))])
+    }
+    const res: string[] = []
+    for (const [s, e] of bloquesAtencion(h)) {
+      for (let t = s; t + duracion <= e; t += 15) {
+        if (blqs.some(([bi, bf]) => t < bf && bi < t + duracion)) continue
+        const cuando = new Date(dia); cuando.setHours(Math.floor(t / 60), t % 60, 0, 0)
+        if (+cuando < ahora) continue
+        res.push(`${dosDig(Math.floor(t / 60))}:${dosDig(t % 60)}`)
+      }
+    }
+    return res
+  }
+
   // Al elegir un cupo NO se aplica de inmediato: se abre la confirmación (evita
   // reagendar por un clic accidental).
   function pedirConfirmacion(dia: Date, hhmm: string, sobrecupo: boolean) {
@@ -1290,6 +1334,10 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
             <select value={duracion} onChange={(e) => setDuracion(Number(e.target.value))} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
               {Array.from(new Set([...DURACIONES, durActual])).sort((a, b) => a - b).map((d) => <option key={d} value={d}>{d} minutos</option>)}
             </select></label>
+          <button onClick={() => setModoSobrecupo((v) => !v)} title="Mostrar la agenda de sobreagendamiento (permite reprogramar sobre horarios ya ocupados)"
+            className={`self-end px-3 py-2 rounded-lg text-sm font-semibold border ${modoSobrecupo ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+            {modoSobrecupo ? '← Agenda normal' : 'Sobreagendamiento'}
+          </button>
           <div className="ml-auto flex items-center gap-2">
             <button onClick={() => setSemana((s) => { const n = new Date(s); n.setDate(n.getDate() - 7); return n })} className="px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50">‹ Semana anterior</button>
             <span className="text-sm font-semibold text-slate-700 capitalize min-w-40 text-center">{labelSemana}</span>
@@ -1298,6 +1346,12 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
         </div>
 
         {error && <div className="mx-5 mt-3 text-sm px-3 py-2 rounded-lg bg-rose-50 text-rose-700 border border-rose-200">{error}</div>}
+        {modoSobrecupo && (
+          <div className="mx-5 mt-3 text-sm px-3 py-2 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 flex items-center justify-between gap-3">
+            <span>📋 Sobreagendamiento: puedes reprogramar sobre horarios ya ocupados (se solapan).</span>
+            <button onClick={() => setModoSobrecupo(false)} className="underline font-semibold shrink-0">Volver a la agenda normal</button>
+          </div>
+        )}
 
         {/* Rejilla de disponibilidad por día */}
         <div className="p-4 overflow-auto">
@@ -1306,8 +1360,8 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
           ) : (
             <div className="grid grid-cols-7 gap-2 min-w-[720px]">
               {dias.map((dia) => {
-                const libres = horasLibres(dia)
-                const sobre = horasSobrecupo(dia, libres)
+                const libres = modoSobrecupo ? [] : horasLibres(dia)
+                const sobre = modoSobrecupo ? horasSobreagenda(dia) : horasSobrecupo(dia, libres)
                 const atiende = horarios.some((x) => x.doctorId === doctorId && x.diaSemana === dia.getDay() && x.activo)
                 return (
                   <div key={dia.toISOString()} className="min-w-0">
@@ -1328,7 +1382,7 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
                           ))}
                           {sobre.length > 0 && (
                             <>
-                              <p className="text-[9px] font-semibold uppercase tracking-wide text-amber-500 text-center pt-2 pb-0.5">Sobrecupo</p>
+                              {!modoSobrecupo && <p className="text-[9px] font-semibold uppercase tracking-wide text-amber-500 text-center pt-2 pb-0.5">Sobrecupo</p>}
                               {sobre.map((hhmm) => (
                                 <button key={`s-${hhmm}`} disabled={guardando} onClick={() => pedirConfirmacion(dia, hhmm, true)} title="Sobreagendamiento (permite solaparse)"
                                   className="w-full py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-500 hover:text-white border border-amber-200 disabled:opacity-50 transition-colors">{hhmm}</button>
