@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams, useSearchParams } from 'react-router-dom'
-import type { CitaDTO, DoctorDTO, PacienteDTO, PrestacionDTO } from '@shared/types'
+import type { CitaDTO, DoctorDTO, PacienteDTO, PrestacionDTO, ClinicaConfigDTO } from '@shared/types'
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
 import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO } from '@/services/clinica.service'
 import { planesService, seccionesService, tratamientosService, evolucionesService, historialService, type HistorialEntry } from '@/services/clinico.service'
-import { prestacionesService, mediosPagoService, type MedioPagoDTO } from '@/services/catalogo.service'
+import { prestacionesService, mediosPagoService, clinicaService, type MedioPagoDTO } from '@/services/catalogo.service'
+import { PresupuestoPlanDoc, type PPlan } from '@/components/PresupuestoPlanDoc'
+import { elementoAPdfBase64 } from '@/lib/pdf'
 import { cobrosService, cajasService } from '@/services/caja.service'
 import { usuariosService } from '@/services/equipo.service'
 import { useAuth } from '@/hooks/useAuth'
@@ -431,6 +433,9 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   const [planes, setPlanes] = useState<PlanCard[]>([])
   const [detalle, setDetalle] = useState<PlanDetalle | null>(null)
   const [enviarPlan, setEnviarPlan] = useState<PlanCard | null>(null)
+  // Documento de presupuesto (fuera de pantalla) para adjuntar el PDF al correo.
+  const [pdfDoc, setPdfDoc] = useState<{ plan: PPlan; clinica: ClinicaConfigDTO; paciente: PacienteDTO | null } | null>(null)
+  const pdfRef = useRef<HTMLDivElement>(null)
   const [prestaciones, setPrestaciones] = useState<PrestacionDTO[]>([])
   const [doctores, setDoctores] = useState<DoctorDTO[]>([])
   const [selPiezas, setSelPiezas] = useState<number[]>([])
@@ -446,6 +451,21 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
     prestacionesService.listar().then((ps) => setPrestaciones(ps.filter((p) => p.activo))).catch(() => {})
     usuariosService.doctores().then(setDoctores).catch(() => {})
   }, [pacienteId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Al abrir el envío por correo, prepara el presupuesto completo (fuera de
+  // pantalla) para poder adjuntarlo en PDF de forma confiable.
+  useEffect(() => {
+    if (!enviarPlan) { setPdfDoc(null); return }
+    let vivo = true
+    Promise.all([
+      planesService.obtener(enviarPlan.id),
+      clinicaService.obtener(),
+      pacientesService.obtener(pacienteId).catch(() => null),
+    ]).then(([plan, clinica, paciente]) => {
+      if (vivo) setPdfDoc({ plan: plan as PPlan, clinica, paciente })
+    }).catch(() => {})
+    return () => { vivo = false }
+  }, [enviarPlan, pacienteId])
 
   const abrir = async (planId: string) => { try { clearSel(); setDetalle(await planesService.obtener(planId) as PlanDetalle) } catch (e) { setError((e as Error).message) } }
   const recargar = () => { if (detalle) abrir(detalle.id) }
@@ -498,18 +518,35 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
           onCerrar={() => setDetalle(null)} onEvolucionar={setEvoAccion} onRenombrar={renombrar}
           onBloquear={() => accion(() => planesService.actualizar(detalle.id, { bloqueado: !detalle.bloqueado }))}
           onProfesional={(id) => accion(() => planesService.actualizar(detalle.id, { doctorTitularId: id || null }))}
+          onEnviarCorreo={() => setEnviarPlan({
+            id: detalle.id, nombre: detalle.nombre, estado: detalle.estado, bloqueado: detalle.bloqueado,
+            doctorTitular: detalle.doctorTitular, createdAt: '', updatedAt: '', fechaInicio: null,
+            tratamientos: [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos], abonoLibre: detalle.abonoLibre,
+          })}
         />
       ) : (
         <PlanLista planes={planes} onAbrir={abrir} onNuevo={crearPlan} onEliminar={eliminarPlan} onEnviar={setEnviarPlan} />
       )}
       {enviarPlan && (() => { const fin = planFinanzas(enviarPlan.tratamientos); const saldo = Math.max(0, fin.total - (fin.abonado + (enviarPlan.abonoLibre ?? 0))); return (
         <EnviarCorreoModal
-          tipo="PLAN" titulo="plan de tratamiento"
-          asuntoDefault={`Plan de tratamiento · ${enviarPlan.nombre}`}
+          tipo="PLAN" titulo="presupuesto"
+          asuntoDefault={`Presupuesto · ${enviarPlan.nombre}`}
           pacienteId={pacienteId} pacienteNombre={pacienteNombre} defaultEmail={pacienteEmail}
-          mensajeDefault={`Te compartimos tu plan de tratamiento "${enviarPlan.nombre}". Presupuesto total: ${fmtMonto(fin.total)} · Abonado: ${fmtMonto(fin.abonado + (enviarPlan.abonoLibre ?? 0))} · Saldo por abonar: ${fmtMonto(saldo)}.`}
+          mensajeDefault={`Te compartimos el presupuesto de tu plan de tratamiento "${enviarPlan.nombre}". Total: ${fmtMonto(fin.total)} · Abonado: ${fmtMonto(fin.abonado + (enviarPlan.abonoLibre ?? 0))} · Saldo por abonar: ${fmtMonto(saldo)}. El detalle va adjunto en PDF.`}
+          generarPdf={async () => {
+            if (!pdfDoc || !pdfRef.current) throw new Error('El presupuesto se está preparando, espera un segundo e inténtalo de nuevo.')
+            return { base64: await elementoAPdfBase64(pdfRef.current), nombre: `Presupuesto ${enviarPlan.nombre}.pdf` }
+          }}
           onClose={() => setEnviarPlan(null)} />
       ) })()}
+      {/* Presupuesto renderizado fuera de pantalla (ancho carta) para generar el PDF adjunto. */}
+      {pdfDoc && (
+        <div style={{ position: 'absolute', left: -10000, top: 0, width: 816 }} aria-hidden>
+          <div ref={pdfRef} style={{ padding: 24, background: '#fff' }}>
+            <PresupuestoPlanDoc plan={pdfDoc.plan} clinica={pdfDoc.clinica} paciente={pdfDoc.paciente} />
+          </div>
+        </div>
+      )}
       {evoAccion && detalle && (
         <EvolucionModal accion={evoAccion} pacienteNombre={pacienteNombre} doctores={doctores} plan={detalle}
           onClose={() => setEvoAccion(null)}
@@ -607,14 +644,14 @@ function PlanLista({ planes, onAbrir, onNuevo, onEliminar, onEnviar }: {
   )
 }
 
-function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, selCaras, selZona, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onBloquear, onProfesional }: {
+function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, selCaras, selZona, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onBloquear, onProfesional, onEnviarCorreo }: {
   plan: PlanDetalle; prestaciones: PrestacionDTO[]; doctores: DoctorDTO[]; pacienteId: string
   selPiezas: number[]; selCaras: Record<number, string[]>; selZona: string | null; denticion: 'PERM' | 'TEMP'
   toggleFace: (n: number, f: string) => void; toggleWhole: (n: number) => void; toggleZona: (label: string) => void
   clearSel: () => void; cambiarDenticion: (d: 'PERM' | 'TEMP') => void
   accion: (fn: () => Promise<unknown>) => Promise<void>
   onCerrar: () => void; onEvolucionar: (t: TratNode) => void; onRenombrar: () => void
-  onBloquear: () => void; onProfesional: (id: string) => void
+  onBloquear: () => void; onProfesional: (id: string) => void; onEnviarCorreo: () => void
 }) {
   const [agregando, setAgregando] = useState(false)
   const todas = [...plan.secciones.flatMap((s) => s.tratamientos), ...plan.tratamientos]
@@ -673,6 +710,10 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
             <button onClick={() => window.open(`/print/plan/${plan.id}`, '_blank')}
               className="w-full text-xs font-semibold px-3 py-2 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100">
               🖨 Imprimir presupuesto (PDF)
+            </button>
+            <button onClick={onEnviarCorreo}
+              className="w-full text-xs font-semibold px-3 py-2 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100">
+              ✉ Enviar presupuesto por correo (PDF)
             </button>
           </div>
         </div>
