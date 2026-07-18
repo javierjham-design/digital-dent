@@ -1,5 +1,6 @@
 import { control } from '@/db/control'
 import type { MonedaCobro } from '@shared/constants/cobro'
+import { parseModulos } from '@shared/constants/modulos'
 
 // Precio mensual de cada profesional (usuario con agenda) ADICIONAL al tope del
 // plan, por moneda de cobro. CLP para Chile; USD para el resto.
@@ -75,7 +76,9 @@ export type Plan = {
   precioMensual: number
   precioMensualUSD: number
   precioAnual: number | null
+  precioAnualUSD: number | null
   maxProfesionales: number
+  modulos: string[]
   caracteristicas: string[]
   destacado: boolean
   orden: number
@@ -96,8 +99,8 @@ function parseCaracteristicas(raw: string | null | undefined): string[] {
 
 function mapPlan(r: {
   id: string; nombre: string; descripcion: string | null
-  precioMensual: number; precioMensualUSD: number; precioAnual: number | null; maxProfesionales: number
-  caracteristicas: string; destacado: boolean; orden: number
+  precioMensual: number; precioMensualUSD: number; precioAnual: number | null; precioAnualUSD: number | null; maxProfesionales: number
+  modulos: string; caracteristicas: string; destacado: boolean; orden: number
   activo: boolean; createdAt: Date; updatedAt: Date
 }): Plan {
   return {
@@ -107,7 +110,9 @@ function mapPlan(r: {
     precioMensual: r.precioMensual,
     precioMensualUSD: r.precioMensualUSD,
     precioAnual: r.precioAnual,
+    precioAnualUSD: r.precioAnualUSD,
     maxProfesionales: r.maxProfesionales,
+    modulos: parseModulos(r.modulos),
     caracteristicas: parseCaracteristicas(r.caracteristicas),
     destacado: r.destacado,
     orden: r.orden,

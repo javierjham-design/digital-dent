@@ -127,8 +127,10 @@ model PlanSuscripcion {
   descripcion     String?
   precioMensual   Float    @default(0)  // valor en CLP
   precioMensualUSD Float   @default(0)  // valor en USD (para clínicas que se cobran en USD)
-  precioAnual     Float?
+  precioAnual     Float?                // valor anual en CLP (opcional)
+  precioAnualUSD  Float?                // valor anual en USD (opcional)
   maxProfesionales Int     @default(2) // tope de usuarios CON agenda (doctor/médico) del plan
+  modulos         String   @default("crm,agendamiento_online,whatsapp") // módulos incluidos en el plan (CSV)
   caracteristicas String   @default("[]") // JSON string[]
   destacado       Boolean  @default(false)
   orden           Int      @default(0)

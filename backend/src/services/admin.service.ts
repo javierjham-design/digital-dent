@@ -9,7 +9,7 @@ import { getPlanes, getPlan, getLimiteProfesionales, precioProfesionalExtra, pre
 import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/clinicas-registry.service'
 import { invalidateClinicaCache } from '@/middlewares/tenant'
 import { esPaisValido } from '@shared/constants/paises'
-import { parseModulos, MODULOS_CODES } from '@shared/constants/modulos'
+import { parseModulos, MODULOS_CODES, MODULOS_DEFAULT } from '@shared/constants/modulos'
 import { conteoEnLinea, usuariosEnLinea, totalEnLinea } from '@/lib/presence'
 import { monedaCobroDe, MONEDAS_COBRO } from '@shared/constants/cobro'
 import { estadoPasarelas, proveedorPara, pasarelaConfigurada } from '@/lib/pagos'
@@ -453,12 +453,15 @@ export async function crearPlanSuscripcion(body: Record<string, unknown>) {
   if (!Number.isFinite(precioMensual) || precioMensual < 0) throw badRequest('precioMensual inválido')
   let precioAnual: number | null = null
   if (body.precioAnual != null && body.precioAnual !== '') { const n = Number(body.precioAnual); if (!Number.isFinite(n) || n < 0) throw badRequest('precioAnual inválido'); precioAnual = n }
+  let precioAnualUSD: number | null = null
+  if (body.precioAnualUSD != null && body.precioAnualUSD !== '') { const n = Number(body.precioAnualUSD); if (!Number.isFinite(n) || n < 0) throw badRequest('precioAnualUSD inválido'); precioAnualUSD = n }
   const caracteristicas = Array.isArray(body.caracteristicas) ? body.caracteristicas.filter((s: unknown): s is string => typeof s === 'string') : []
+  const modulos = parseModulos(Array.isArray(body.modulos) ? body.modulos.join(',') : (typeof body.modulos === 'string' ? body.modulos : MODULOS_DEFAULT)).join(',')
   const maxProfesionales = Number.isFinite(Number(body.maxProfesionales)) ? Math.max(1, Math.round(Number(body.maxProfesionales))) : 2
   const precioMensualUSD = Number.isFinite(Number(body.precioMensualUSD)) && Number(body.precioMensualUSD) >= 0 ? Number(body.precioMensualUSD) : 0
   if (await control.planSuscripcion.findUnique({ where: { id } })) throw conflict(`Ya existe un plan con id "${id}"`)
   return control.planSuscripcion.create({
-    data: { id, nombre, descripcion: typeof body.descripcion === 'string' ? body.descripcion : null, precioMensual, precioMensualUSD, precioAnual, maxProfesionales, caracteristicas: JSON.stringify(caracteristicas), destacado: Boolean(body.destacado), orden: Number.isFinite(Number(body.orden)) ? Number(body.orden) : 0, activo: body.activo !== undefined ? Boolean(body.activo) : true },
+    data: { id, nombre, descripcion: typeof body.descripcion === 'string' ? body.descripcion : null, precioMensual, precioMensualUSD, precioAnual, precioAnualUSD, maxProfesionales, modulos, caracteristicas: JSON.stringify(caracteristicas), destacado: Boolean(body.destacado), orden: Number.isFinite(Number(body.orden)) ? Number(body.orden) : 0, activo: body.activo !== undefined ? Boolean(body.activo) : true },
   })
 }
 
@@ -474,7 +477,12 @@ export async function actualizarPlanSuscripcion(id: string, body: Record<string,
     if (body.precioAnual === null || body.precioAnual === '') data.precioAnual = null
     else { const n = Number(body.precioAnual); if (!Number.isFinite(n) || n < 0) throw badRequest('precioAnual inválido'); data.precioAnual = n }
   }
+  if (body.precioAnualUSD !== undefined) {
+    if (body.precioAnualUSD === null || body.precioAnualUSD === '') data.precioAnualUSD = null
+    else { const n = Number(body.precioAnualUSD); if (!Number.isFinite(n) || n < 0) throw badRequest('precioAnualUSD inválido'); data.precioAnualUSD = n }
+  }
   if (body.maxProfesionales !== undefined) { const n = Number(body.maxProfesionales); if (!Number.isFinite(n) || n < 1) throw badRequest('maxProfesionales inválido (mínimo 1)'); data.maxProfesionales = Math.round(n) }
+  if (body.modulos !== undefined) data.modulos = parseModulos(Array.isArray(body.modulos) ? body.modulos.join(',') : String(body.modulos ?? '')).join(',')
   if (Array.isArray(body.caracteristicas)) data.caracteristicas = JSON.stringify(body.caracteristicas.filter((s: unknown): s is string => typeof s === 'string'))
   if (body.destacado !== undefined) data.destacado = Boolean(body.destacado)
   if (body.orden !== undefined && Number.isFinite(Number(body.orden))) data.orden = Number(body.orden)
