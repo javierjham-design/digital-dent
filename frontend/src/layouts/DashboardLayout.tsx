@@ -141,7 +141,7 @@ export function DashboardLayout() {
         <div className="flex items-center gap-2 shrink-0 order-1">
           {logo
             ? <img src={logo} alt="" className="w-8 h-8 rounded-lg object-contain bg-white" />
-            : <img src="/icon.svg" alt="Cláriva" className="w-8 h-8 rounded-lg" />}
+            : <img src="/icon.png" alt="Cláriva" className="w-8 h-8 rounded-lg" />}
           <span className="font-bold tracking-tight hidden sm:inline">Cláriva</span>
         </div>
         <BuscadorPacientesHeader />

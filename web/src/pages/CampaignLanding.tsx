@@ -22,9 +22,8 @@ export function CampaignLanding({ campaign }: { campaign: Campaign }) {
     <div className="min-h-screen bg-white text-slate-900 antialiased">
       <header className="border-b border-slate-100">
         <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2.5">
-            <img src="/icon.svg" alt="Cláriva" className="w-8 h-8 rounded-lg" />
-            <span className="text-lg font-bold tracking-tight">Cláriva</span>
+          <a href="/" className="flex items-center">
+            <img src="/logo.png" alt="Cláriva" className="h-8 w-auto" />
           </a>
           <a href={appLoginUrl()} className="text-sm font-semibold text-slate-700 hover:text-slate-900">Iniciar sesión</a>
         </div>
