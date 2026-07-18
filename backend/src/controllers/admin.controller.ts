@@ -54,3 +54,4 @@ export const deletePlan = async (req: Request, res: Response) => { await svc.eli
 export const getStats = async (_req: Request, res: Response) => res.json(await svc.dashboardStats())
 export const getResumen = async (_req: Request, res: Response) => res.json(await svc.resumenSuscripciones())
 export const getLeads = async (_req: Request, res: Response) => res.json({ leads: await svc.listarLeads() })
+export const patchLead = async (req: Request, res: Response) => res.json({ ok: true, lead: await svc.actualizarLead(req.params.id, req.body ?? {}) })

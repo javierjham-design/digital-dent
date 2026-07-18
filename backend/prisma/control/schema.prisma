@@ -97,11 +97,19 @@ model Lead {
   clinicaId     String?
   clinicaSlug   String?
   ip            String?
-  notas         String?
+  notas         String?  // notas de gestión (equipo de ventas)
+  // ── CRM de ventas de la plataforma ──
+  estado        String   @default("NUEVO") // NUEVO | CONTACTADO | DEMO_ACTIVA | NEGOCIACION | GANADO | PERDIDO
+  pais          String?  // país de la campaña/landing (CR/PA/CO/CL…)
+  utmSource     String?
+  utmMedium     String?
+  utmCampaign   String?
+  gestionadoAt  DateTime? // última gestión del equipo de ventas
   createdAt     DateTime @default(now())
 
   @@index([email])
   @@index([createdAt])
+  @@index([estado])
 }
 
 // Cargo adicional recurrente sobre el plan de una clínica.

@@ -345,6 +345,7 @@ const sa = [requireAuth, requireSuperAdmin]
 apiRouter.get('/admin/stats', sa, asyncHandler(admin.getStats))
 apiRouter.get('/admin/suscripciones/resumen', sa, asyncHandler(admin.getResumen))
 apiRouter.get('/admin/leads', sa, asyncHandler(admin.getLeads))
+apiRouter.patch('/admin/leads/:id', sa, asyncHandler(admin.patchLead))
 // Clínicas
 apiRouter.get('/admin/clinicas', sa, asyncHandler(admin.getClinicas))
 apiRouter.post('/admin/clinicas', sa, asyncHandler(admin.postClinica))

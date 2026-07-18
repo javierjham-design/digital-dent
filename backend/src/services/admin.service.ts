@@ -591,5 +591,21 @@ export async function resumenSuscripciones() {
 }
 
 export async function listarLeads() {
-  return control.lead.findMany({ orderBy: { createdAt: 'desc' }, take: 200 })
+  return control.lead.findMany({ orderBy: { createdAt: 'desc' }, take: 500 })
+}
+
+export const LEAD_ESTADOS = ['NUEVO', 'CONTACTADO', 'DEMO_ACTIVA', 'NEGOCIACION', 'GANADO', 'PERDIDO'] as const
+
+// Actualiza el estado del ciclo de venta y/o las notas de un lead de plataforma.
+export async function actualizarLead(id: string, body: Record<string, unknown>) {
+  const existe = await control.lead.findUnique({ where: { id } })
+  if (!existe) throw notFound('Lead no encontrado')
+  const data: Record<string, unknown> = { gestionadoAt: new Date() }
+  if (body.estado !== undefined) {
+    const e = String(body.estado)
+    if (!(LEAD_ESTADOS as readonly string[]).includes(e)) throw badRequest('estado inválido')
+    data.estado = e
+  }
+  if (body.notas !== undefined) data.notas = body.notas ? String(body.notas) : null
+  return control.lead.update({ where: { id }, data })
 }

@@ -20,18 +20,6 @@ export interface CrearDemoInput {
   tracking?: Record<string, string | undefined> // UTM + landing (desde la landing page)
 }
 
-// Resumen de atribución de campaña para guardar en el lead (notas).
-function notasCampana(pais: string | undefined, t: Record<string, string | undefined> | undefined): string | null {
-  const partes: string[] = []
-  if (pais) partes.push(`país=${pais}`)
-  if (t?.utmSource) partes.push(`utm_source=${t.utmSource}`)
-  if (t?.utmMedium) partes.push(`utm_medium=${t.utmMedium}`)
-  if (t?.utmCampaign) partes.push(`utm_campaign=${t.utmCampaign}`)
-  if (t?.utmContent) partes.push(`utm_content=${t.utmContent}`)
-  if (t?.utmTerm) partes.push(`utm_term=${t.utmTerm}`)
-  if (t?.landing) partes.push(`landing=${t.landing}`)
-  return partes.length ? partes.join(' · ') : null
-}
 
 export interface DemoResult extends LoginResponse {
   slug: string
@@ -82,8 +70,15 @@ export async function crearDemo(input: CrearDemoInput, ip: string): Promise<Demo
         plan: 'TRIAL', trialHasta: expira, activo: true, esDemo: true, demoExpiraEn: expira,
       },
     })
+    const t = input.tracking ?? {}
     await control.lead.create({
-      data: { nombre, email, telefono: telefono || null, nombreClinica, origen: 'DEMO', rubro: vertical, clinicaId: clinica.id, clinicaSlug: slug, ip, notas: notasCampana(input.pais, input.tracking) },
+      data: {
+        nombre, email, telefono: telefono || null, nombreClinica, origen: 'DEMO', rubro: vertical,
+        clinicaId: clinica.id, clinicaSlug: slug, ip,
+        estado: 'DEMO_ACTIVA', // el lead ya creó su demo → arranca en "demo activa"
+        pais: input.pais || null,
+        utmSource: t.utmSource || null, utmMedium: t.utmMedium || null, utmCampaign: t.utmCampaign || null,
+      },
     })
 
     const session = await issueTokenForTenantUser({ id: clinica.id, slug, dbName }, adminId)
