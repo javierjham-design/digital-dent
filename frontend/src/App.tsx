@@ -45,6 +45,7 @@ export default function App() {
           <Route path="/c/:slug/agendar/:token" element={<AgendarPublico />} />
           <Route path="/c/:slug/formulario/:token" element={<FormularioPublico />} />
           {/* Landings de marketing por país (campañas en USD, con tracking UTM). */}
+          <Route path="/landing" element={<Navigate to="/landing/cr" replace />} />
           <Route path="/landing/:pais" element={<Landing />} />
           <Route
             element={
