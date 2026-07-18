@@ -22,6 +22,41 @@ const piezaLabel = (t: PTrat) => t.diente
   ? `${t.diente}${t.cara ? ` (${t.cara.split('').join(',')})` : ''}`
   : (t.cara ? t.cara : (t.notas ? t.notas.replace(/^Piezas:\s*/, '') : '—'))
 
+// CSS con colores HEX (no Tailwind/oklch) embebido en el nodo: así html2canvas
+// puede capturarlo para el PDF del correo (oklch rompe html2canvas).
+const CSS = `
+.pp { font-family: Inter, Arial, sans-serif; color:#1e293b; background:#fff; font-size:13px; }
+.pp .pp-head { display:flex; align-items:center; justify-content:space-between; gap:16px; border-bottom:2px solid #0891b2; padding-bottom:16px; margin-bottom:20px; }
+.pp .pp-logo { height:56px; width:56px; object-fit:contain; }
+.pp .pp-logo-ph { height:56px; width:56px; border-radius:12px; background:#0891b2; color:#fff; font-size:26px; font-weight:bold; display:flex; align-items:center; justify-content:center; }
+.pp .pp-cl-nombre { font-size:20px; font-weight:bold; color:#0f172a; }
+.pp .pp-cl-sub { font-size:11px; color:#64748b; }
+.pp .pp-doc-tit { font-size:13px; font-weight:600; color:#334155; text-align:right; }
+.pp .pp-doc-fecha { font-size:11px; color:#64748b; text-align:right; }
+.pp .pp-meta { display:flex; justify-content:space-between; margin-bottom:20px; }
+.pp .pp-cap { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; }
+.pp .pp-strong { font-weight:600; color:#1e293b; }
+.pp .pp-mut { font-size:11px; color:#64748b; }
+.pp .pp-sec { margin-bottom:16px; page-break-inside:avoid; }
+.pp .pp-sec-h { display:flex; justify-content:space-between; align-items:center; gap:12px; background:#f1f5f9; padding:6px 12px; border-radius:8px 8px 0 0; }
+.pp .pp-sec-t { font-size:13px; font-weight:600; color:#334155; }
+.pp .pp-sec-time { margin-left:8px; font-size:11px; font-weight:400; color:#0e7490; }
+.pp .pp-sec-monto { font-size:13px; font-family:monospace; color:#475569; }
+.pp table { width:100%; border-collapse:collapse; border:1px solid #e2e8f0; border-top:0; }
+.pp thead th { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; text-align:left; padding:4px 12px; font-weight:500; }
+.pp tbody td { padding:6px 12px; border-top:1px solid #f1f5f9; color:#334155; }
+.pp .pp-r { text-align:right; font-family:monospace; }
+.pp .pp-c { text-align:center; color:#64748b; }
+.pp .pp-tot { display:flex; justify-content:flex-end; margin-top:24px; }
+.pp .pp-tot-box { width:270px; font-size:13px; }
+.pp .pp-tot-row { display:flex; justify-content:space-between; padding:2px 0; }
+.pp .pp-tot-row.b { border-top:1px solid #e2e8f0; padding-top:4px; }
+.pp .pp-tot-row.tot { border-top:2px solid #0891b2; padding-top:6px; margin-top:4px; }
+.pp .pp-saldo { font-family:monospace; font-weight:600; color:#d97706; }
+.pp .pp-total-v { font-family:monospace; font-weight:bold; color:#0e7490; font-size:16px; }
+.pp .pp-foot { font-size:11px; color:#94a3b8; margin-top:40px; border-top:1px solid #f1f5f9; padding-top:12px; }
+`
+
 // Documento de presupuesto de un plan de tratamiento (tamaño carta). Reutilizado
 // por la vista imprimible (/print/plan) y por el envío por correo en PDF.
 export function PresupuestoPlanDoc({ plan, clinica, paciente }: { plan: PPlan; clinica: ClinicaConfigDTO; paciente: PacienteDTO | null }) {
@@ -36,86 +71,76 @@ export function PresupuestoPlanDoc({ plan, clinica, paciente }: { plan: PPlan; c
   ]
 
   return (
-    <div className="bg-white text-slate-800">
-      {/* Encabezado de la clínica */}
-      <div className="flex items-center justify-between gap-4 border-b-2 border-cyan-600 pb-4 mb-5">
-        <div className="flex items-center gap-3">
+    <div className="pp">
+      <style>{CSS}</style>
+
+      <div className="pp-head">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           {clinica.logoUrl
-            ? <img src={clinica.logoUrl} alt="" className="h-14 w-14 object-contain" />
-            : <div className="h-14 w-14 rounded-xl bg-gradient-to-br from-cyan-500 to-cyan-700 text-white text-2xl font-bold flex items-center justify-center">{clinica.nombre.charAt(0)}</div>}
+            ? <img className="pp-logo" src={clinica.logoUrl} alt="" />
+            : <div className="pp-logo-ph">{clinica.nombre.charAt(0)}</div>}
           <div>
-            <h1 className="text-xl font-bold text-slate-900">{clinica.nombre}</h1>
-            <p className="text-xs text-slate-500">{[clinica.direccion, clinica.ciudad].filter(Boolean).join(', ')}</p>
-            <p className="text-xs text-slate-500">{[clinica.telefono, clinica.email].filter(Boolean).join(' · ')}</p>
+            <div className="pp-cl-nombre">{clinica.nombre}</div>
+            <div className="pp-cl-sub">{[clinica.direccion, clinica.ciudad].filter(Boolean).join(', ')}</div>
+            <div className="pp-cl-sub">{[clinica.telefono, clinica.email].filter(Boolean).join(' · ')}</div>
           </div>
         </div>
-        <div className="text-right">
-          <p className="text-sm font-semibold text-slate-700">Presupuesto</p>
-          <p className="text-xs text-slate-500">{new Date().toLocaleDateString('es-CL', { dateStyle: 'long' })}</p>
-        </div>
-      </div>
-
-      {/* Paciente + plan */}
-      <div className="flex justify-between text-sm mb-5">
         <div>
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Paciente</p>
-          <p className="font-semibold text-slate-800">{paciente ? `${paciente.nombre} ${paciente.apellido}` : '—'}</p>
-          {paciente?.rut && <p className="text-xs text-slate-500">{paciente.rut}</p>}
-        </div>
-        <div className="text-right">
-          <p className="text-[11px] uppercase tracking-wide text-slate-400">Plan de tratamiento</p>
-          <p className="font-semibold text-slate-800">{plan.nombre}</p>
-          {plan.doctorTitular?.name && <p className="text-xs text-slate-500">Profesional: {plan.doctorTitular.name}</p>}
+          <div className="pp-doc-tit">Presupuesto</div>
+          <div className="pp-doc-fecha">{new Date().toLocaleDateString('es-CL', { dateStyle: 'long' })}</div>
         </div>
       </div>
 
-      {/* Secciones */}
+      <div className="pp-meta">
+        <div>
+          <div className="pp-cap">Paciente</div>
+          <div className="pp-strong">{paciente ? `${paciente.nombre} ${paciente.apellido}` : '—'}</div>
+          {paciente?.rut && <div className="pp-mut">{paciente.rut}</div>}
+        </div>
+        <div style={{ textAlign: 'right' }}>
+          <div className="pp-cap">Plan de tratamiento</div>
+          <div className="pp-strong">{plan.nombre}</div>
+          {plan.doctorTitular?.name && <div className="pp-mut">Profesional: {plan.doctorTitular.name}</div>}
+        </div>
+      </div>
+
       {secciones.map((s) => (
-        <div key={s.id || 'sin'} className="mb-4 break-inside-avoid">
-          <div className="flex justify-between items-center gap-3 bg-slate-100 px-3 py-1.5 rounded-t-lg">
-            <span className="text-sm font-semibold text-slate-700">
-              {s.titulo}
-              {tiempoSeccion(s) && <span className="ml-2 text-[11px] font-normal text-cyan-700">⏱ {tiempoSeccion(s)}</span>}
-            </span>
-            <span className="text-sm font-mono text-slate-600">{fmtCLP(s.tratamientos.reduce((a, t) => a + neto(t), 0))}</span>
+        <div key={s.id || 'sin'} className="pp-sec">
+          <div className="pp-sec-h">
+            <span className="pp-sec-t">{s.titulo}{tiempoSeccion(s) && <span className="pp-sec-time">⏱ {tiempoSeccion(s)}</span>}</span>
+            <span className="pp-sec-monto">{fmtCLP(s.tratamientos.reduce((a, t) => a + neto(t), 0))}</span>
           </div>
-          <table className="w-full text-sm border border-slate-200 border-t-0">
+          <table>
             <thead>
-              <tr className="text-[11px] uppercase tracking-wide text-slate-400 text-left">
-                <th className="px-3 py-1 font-medium">Prestación</th>
-                <th className="px-3 py-1 font-medium w-28">Pieza / zona</th>
-                <th className="px-3 py-1 font-medium w-16 text-center">Dscto</th>
-                <th className="px-3 py-1 font-medium w-28 text-right">Precio</th>
+              <tr>
+                <th>Prestación</th><th style={{ width: 112 }}>Pieza / zona</th><th style={{ width: 64 }} className="pp-c">Dscto</th><th style={{ width: 112 }} className="pp-r">Precio</th>
               </tr>
             </thead>
             <tbody>
               {s.tratamientos.map((t) => (
-                <tr key={t.id} className="border-t border-slate-100">
-                  <td className="px-3 py-1.5 text-slate-700">{t.prestacion.nombre}</td>
-                  <td className="px-3 py-1.5 text-slate-600">{piezaLabel(t)}</td>
-                  <td className="px-3 py-1.5 text-center text-slate-500">{t.descuento ? `${t.descuento}%` : '—'}</td>
-                  <td className="px-3 py-1.5 text-right font-mono text-slate-700">{fmtCLP(neto(t))}</td>
+                <tr key={t.id}>
+                  <td>{t.prestacion.nombre}</td>
+                  <td>{piezaLabel(t)}</td>
+                  <td className="pp-c">{t.descuento ? `${t.descuento}%` : '—'}</td>
+                  <td className="pp-r">{fmtCLP(neto(t))}</td>
                 </tr>
               ))}
-              {s.tratamientos.length === 0 && <tr><td colSpan={4} className="px-3 py-2 text-xs text-slate-400">Sin prestaciones.</td></tr>}
+              {s.tratamientos.length === 0 && <tr><td colSpan={4} className="pp-mut">Sin prestaciones.</td></tr>}
             </tbody>
           </table>
         </div>
       ))}
 
-      {/* Totales */}
-      <div className="flex justify-end mt-6">
-        <div className="w-64 space-y-1 text-sm">
-          <div className="flex justify-between"><span className="text-slate-500">Realizado</span><span className="font-mono">{fmtCLP(realizado)}</span></div>
-          <div className="flex justify-between"><span className="text-slate-500">Abonado</span><span className="font-mono">{fmtCLP(abonado)}</span></div>
-          <div className="flex justify-between border-t border-slate-200 pt-1"><span className="text-slate-500">Saldo por abonar</span><span className="font-mono font-semibold text-amber-600">{fmtCLP(saldo)}</span></div>
-          <div className="flex justify-between border-t-2 border-cyan-600 pt-1.5 mt-1"><span className="font-bold text-slate-800">TOTAL</span><span className="font-mono font-bold text-cyan-700 text-base">{fmtCLP(total)}</span></div>
+      <div className="pp-tot">
+        <div className="pp-tot-box">
+          <div className="pp-tot-row"><span className="pp-mut">Realizado</span><span style={{ fontFamily: 'monospace' }}>{fmtCLP(realizado)}</span></div>
+          <div className="pp-tot-row"><span className="pp-mut">Abonado</span><span style={{ fontFamily: 'monospace' }}>{fmtCLP(abonado)}</span></div>
+          <div className="pp-tot-row b"><span className="pp-mut">Saldo por abonar</span><span className="pp-saldo">{fmtCLP(saldo)}</span></div>
+          <div className="pp-tot-row tot"><span style={{ fontWeight: 'bold' }}>TOTAL</span><span className="pp-total-v">{fmtCLP(total)}</span></div>
         </div>
       </div>
 
-      <p className="text-[11px] text-slate-400 mt-10 border-t border-slate-100 pt-3">
-        Presupuesto referencial. Valores en {getPais(paisMoneda()).moneda.code}. Documento generado por {clinica.nombre}.
-      </p>
+      <div className="pp-foot">Presupuesto referencial. Valores en {getPais(paisMoneda()).moneda.code}. Documento generado por {clinica.nombre}.</div>
     </div>
   )
 }

@@ -83,6 +83,7 @@ const ymdLocal = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 600
 
 export function Agenda() {
   const calRef = useRef<FullCalendar>(null)
+  const verCalRef = useRef<HTMLInputElement>(null)
   const [doctores, setDoctores] = useState<DoctorDTO[]>([])
   const [citas, setCitas] = useState<CitaDTO[]>([])
   const [bloqueos, setBloqueos] = useState<BloqueoDTO[]>([])
@@ -431,12 +432,14 @@ export function Agenda() {
             <button onClick={() => { const d = new Date(); d.setHours(0,0,0,0); setCurrentDate(d) }} className="text-xs font-semibold border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">Hoy</button>
             <button onClick={() => shiftDate(1)} className="w-8 h-8 rounded-lg border border-slate-200 hover:bg-slate-50">›</button>
             {/* Ver calendario: salta a la semana/día de la fecha elegida (p.ej. control en 6 meses). */}
-            <label className="relative inline-flex items-center gap-1.5 text-xs font-semibold border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50 cursor-pointer" title="Ir a una fecha (ej. agendar un control en meses)">
+            <button type="button" title="Ir a una fecha (ej. agendar un control en meses)"
+              onClick={() => { const el = verCalRef.current; if (!el) return; if (typeof el.showPicker === 'function') { try { el.showPicker() } catch { el.focus() } } else { el.focus() } }}
+              className="relative inline-flex items-center gap-1.5 text-xs font-semibold border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">
               📅 Ver calendario
-              <input type="date" value={ymdLocal(currentDate)}
+              <input ref={verCalRef} type="date" value={ymdLocal(currentDate)}
                 onChange={(e) => { if (e.target.value) { const d = new Date(`${e.target.value}T00:00:00`); d.setHours(0, 0, 0, 0); setCurrentDate(d) } }}
-                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
-            </label>
+                className="absolute bottom-0 left-3 w-0 h-0 opacity-0 pointer-events-none" tabIndex={-1} aria-hidden />
+            </button>
             <span className="text-sm font-semibold text-slate-800 capitalize ml-1">{labelFecha}</span>
           </div>
           <div className="flex items-center gap-2">

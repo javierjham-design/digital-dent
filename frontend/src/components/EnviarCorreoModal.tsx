@@ -38,7 +38,9 @@ export function EnviarCorreoModal({
         montoPago: montoPago && montoPago > 0 ? montoPago : undefined,
       })
       setOk(true); onSent?.()
-    } catch (e) { setError(e instanceof ApiError ? e.message : 'No se pudo enviar el correo') } finally { setEnviando(false) }
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : e instanceof Error && e.message ? e.message : 'No se pudo enviar el correo')
+    } finally { setEnviando(false) }
   }
 
   return (
