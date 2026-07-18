@@ -4,6 +4,7 @@ import { api } from './api'
 export const adminService = {
   stats: () => api.get<{ activas: number; enTrial: number; suspendidas: number; total: number; demosActivas: number; mrrCLP: number; mrrUSD: number }>('/admin/stats'),
   resumen: () => api.get<unknown>('/admin/suscripciones/resumen'),
+  configuracion: () => api.get<unknown>('/admin/configuracion'),
   leads: () => api.get<{ leads: unknown[] }>('/admin/leads'),
   actualizarLead: (id: string, patch: { estado?: string; notas?: string | null }) => api.patch<unknown>(`/admin/leads/${id}`, patch),
   clinicas: () => api.get<unknown[]>('/admin/clinicas'),

@@ -343,6 +343,7 @@ apiRouter.delete('/liquidaciones/:id/adjuntos/:adjId', tenant, asyncHandler(liq.
 // ── SUPER-ADMIN (gestión de la plataforma) ───────────────────────────────────
 const sa = [requireAuth, requireSuperAdmin]
 apiRouter.get('/admin/stats', sa, asyncHandler(admin.getStats))
+apiRouter.get('/admin/configuracion', sa, asyncHandler(admin.getConfiguracion))
 apiRouter.get('/admin/suscripciones/resumen', sa, asyncHandler(admin.getResumen))
 apiRouter.get('/admin/leads', sa, asyncHandler(admin.getLeads))
 apiRouter.patch('/admin/leads/:id', sa, asyncHandler(admin.patchLead))

@@ -8,6 +8,7 @@ const NAV = [
   { to: '/plataforma/leads', label: 'Leads / Demos' },
   { to: '/plataforma/pagos', label: 'Pagos' },
   { to: '/plataforma/planes', label: 'Planes' },
+  { to: '/plataforma/configuracion', label: 'Configuración' },
 ]
 
 export function SuperAdminLayout() {

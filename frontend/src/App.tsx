@@ -33,6 +33,7 @@ import { AdminClinicaDetalle } from '@/pages/admin/ClinicaDetalle'
 import { AdminLeads } from '@/pages/admin/Leads'
 import { AdminPlanes } from '@/pages/admin/PlanesSuscripcion'
 import { AdminPagos } from '@/pages/admin/Pagos'
+import { AdminConfiguracion } from '@/pages/admin/Configuracion'
 
 export default function App() {
   return (
@@ -76,6 +77,7 @@ export default function App() {
             <Route path="leads" element={<AdminLeads />} />
             <Route path="pagos" element={<AdminPagos />} />
             <Route path="planes" element={<AdminPlanes />} />
+            <Route path="configuracion" element={<AdminConfiguracion />} />
           </Route>
           <Route path="/print/liquidacion/:id" element={<ProtectedRoute><LiquidacionPrint /></ProtectedRoute>} />
           <Route path="/print/plan/:id" element={<ProtectedRoute><PlanPrint /></ProtectedRoute>} />

@@ -8,8 +8,9 @@ import { encryptNullable, decryptNullable } from '@/lib/crypto'
 import { getPlanes, getPlan, getLimiteProfesionales, precioProfesionalExtra, precioPlanEnMoneda } from '@/lib/plans'
 import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/clinicas-registry.service'
 import { invalidateClinicaCache } from '@/middlewares/tenant'
-import { esPaisValido } from '@shared/constants/paises'
-import { parseModulos, MODULOS_CODES, MODULOS_DEFAULT } from '@shared/constants/modulos'
+import { esPaisValido, PAISES_LISTA } from '@shared/constants/paises'
+import { parseModulos, MODULOS, MODULOS_CODES, MODULOS_DEFAULT } from '@shared/constants/modulos'
+import { VERTICAL_IDS } from '@/lib/verticales'
 import { conteoEnLinea, usuariosEnLinea, totalEnLinea } from '@/lib/presence'
 import { monedaCobroDe, MONEDAS_COBRO } from '@shared/constants/cobro'
 import { estadoPasarelas, proveedorPara, pasarelaConfigurada, configPasarelas } from '@/lib/pagos'
@@ -463,6 +464,46 @@ export async function probarWhatsapp(id: string): Promise<{ ok: boolean; mensaje
     return { ok: false, mensaje: data.message ?? `Twilio respondió ${res.status}. Revisa el SID y el Auth Token.` }
   } catch (e) {
     return { ok: false, mensaje: `No se pudo conectar con Twilio: ${e instanceof Error ? e.message : 'error'}` }
+  }
+}
+
+// ── Configuración del sistema (integraciones + catálogos) ─────────────────────
+// Estado de las integraciones (correo, pasarelas, WhatsApp) con su checklist de
+// variables de entorno (sin exponer valores), y los catálogos de la plataforma.
+export function configuracionSistema() {
+  const hay = (k: string) => Boolean(process.env[k])
+  const correo = {
+    clave: 'correo', nombre: 'Correo (Resend)', configurada: hay('RESEND_API_KEY'),
+    nota: 'Correos transaccionales: confirmaciones de cita, presupuestos, avisos de deuda. Carga las variables en Railway (servicio BACKEND).',
+    variables: [
+      { nombre: 'RESEND_API_KEY', presente: hay('RESEND_API_KEY'), requerida: true },
+      { nombre: 'EMAIL_FROM_ADDRESS', presente: hay('EMAIL_FROM_ADDRESS'), requerida: false },
+      { nombre: 'EMAIL_FROM_SUFFIX', presente: hay('EMAIL_FROM_SUFFIX'), requerida: false },
+    ],
+  }
+  const pasarelas = configPasarelas().map((c) => ({
+    clave: c.proveedor.toLowerCase(),
+    nombre: `${c.proveedor === 'LEMONSQUEEZY' ? 'Lemon Squeezy' : c.proveedor} · ${c.moneda}`,
+    configurada: c.configurada, nota: c.nota, variables: c.variables,
+  }))
+  const whatsapp = {
+    clave: 'whatsapp', nombre: 'WhatsApp (Twilio)', configurada: null as boolean | null,
+    nota: 'Se configura POR CLÍNICA en Clínicas → [clínica] → WhatsApp (Account SID, número emisor, Template SID y Auth Token). Usa el botón "Probar conexión".',
+    variables: [] as { nombre: string; presente: boolean; requerida: boolean }[],
+  }
+  return {
+    integraciones: [correo, ...pasarelas, whatsapp],
+    plataforma: [
+      { nombre: 'API_PUBLIC_URL', presente: hay('API_PUBLIC_URL'), requerida: false },
+      { nombre: 'APP_PUBLIC_URL', presente: hay('APP_PUBLIC_URL'), requerida: false },
+      { nombre: 'CRON_SECRET', presente: hay('CRON_SECRET'), requerida: false },
+      { nombre: 'DATABASE_URL', presente: hay('DATABASE_URL'), requerida: true },
+    ],
+    catalogos: {
+      modulos: MODULOS.map((m) => ({ code: m.code, nombre: m.nombre, descripcion: m.descripcion })),
+      verticales: VERTICAL_IDS as readonly string[],
+      paises: PAISES_LISTA.map((p) => ({ code: p.code, nombre: p.nombre, bandera: p.bandera, moneda: p.moneda.code })),
+    },
   }
 }
 
