@@ -374,6 +374,7 @@ apiRouter.delete('/admin/clinicas/:id/extras/:extraId', sa, asyncHandler(admin.d
 // WhatsApp config
 apiRouter.get('/admin/clinicas/:id/whatsapp', sa, asyncHandler(admin.getWhatsapp))
 apiRouter.put('/admin/clinicas/:id/whatsapp', sa, asyncHandler(admin.putWhatsapp))
+apiRouter.post('/admin/clinicas/:id/whatsapp/probar', sa, asyncHandler(admin.postProbarWhatsapp))
 // Planes de suscripción
 apiRouter.get('/admin/planes-suscripcion', sa, asyncHandler(admin.getPlanes))
 apiRouter.post('/admin/planes-suscripcion', sa, asyncHandler(admin.postPlan))

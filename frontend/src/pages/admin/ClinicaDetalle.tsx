@@ -631,7 +631,15 @@ function WhatsappCard({ id, onSaved }: { id: string; onSaved: () => void }) {
   const [wa, setWa] = useState<Wa | null>(null)
   const [token, setToken] = useState('')
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  const [probando, setProbando] = useState(false)
+  const [test, setTest] = useState<{ ok: boolean; mensaje: string } | null>(null)
   useEffect(() => { adminService.whatsapp(id).then((r) => setWa(r as Wa)).catch(() => {}) }, [id])
+  async function probar() {
+    setProbando(true); setTest(null)
+    try { setTest(await adminService.probarWhatsapp(id)) }
+    catch (e) { setTest({ ok: false, mensaje: e instanceof ApiError ? e.message : 'No se pudo probar' }) }
+    finally { setProbando(false) }
+  }
   if (!wa) return <Card title="WhatsApp (Twilio)"><p className="text-slate-500 text-sm">Cargando…</p></Card>
   const set = (patch: Partial<Wa>) => setWa({ ...wa, ...patch })
   async function guardar() {
@@ -659,7 +667,11 @@ function WhatsappCard({ id, onSaved }: { id: string; onSaved: () => void }) {
         <label className="md:col-span-2"><L>Auth Token {wa.tokenConfigurado ? '(configurado — dejar vacío para mantener)' : '(no configurado)'}</L><input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={wa.tokenConfigurado ? '••••••••' : 'Pegar token de Twilio'} className={`${inpCls} font-mono`} /></label>
       </div>
       {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
-      <button onClick={guardar} disabled={busy} className={`${btnCls} mt-4`}>Guardar configuración</button>
+      {test && <p className={`text-sm mt-3 px-3 py-2 rounded-lg ${test.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-rose-500/10 text-rose-300'}`}>{test.ok ? '✓ ' : '✗ '}{test.mensaje}</p>}
+      <div className="flex flex-wrap gap-2 mt-4">
+        <button onClick={guardar} disabled={busy} className={btnCls}>Guardar configuración</button>
+        <button onClick={probar} disabled={probando} className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-50">{probando ? 'Probando…' : 'Probar conexión'}</button>
+      </div>
     </Card>
   )
 }

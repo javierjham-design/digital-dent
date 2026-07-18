@@ -30,6 +30,7 @@ export const adminService = {
   eliminarExtra: (id: string, extraId: string) => api.del<{ ok: true }>(`/admin/clinicas/${id}/extras/${extraId}`),
   whatsapp: (id: string) => api.get<unknown>(`/admin/clinicas/${id}/whatsapp`),
   guardarWhatsapp: (id: string, input: Record<string, unknown>) => api.put<unknown>(`/admin/clinicas/${id}/whatsapp`, input),
+  probarWhatsapp: (id: string) => api.post<{ ok: boolean; mensaje: string }>(`/admin/clinicas/${id}/whatsapp/probar`),
   planes: () => api.get<{ planes: unknown[] }>('/admin/planes-suscripcion'),
   crearPlan: (input: Record<string, unknown>) => api.post<unknown>('/admin/planes-suscripcion', input),
   actualizarPlan: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/admin/planes-suscripcion/${id}`, patch),

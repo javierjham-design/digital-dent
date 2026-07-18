@@ -4,7 +4,7 @@ import { control } from '@/db/control'
 import { tenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { auditAdmin } from '@/lib/audit-admin'
-import { encryptNullable } from '@/lib/crypto'
+import { encryptNullable, decryptNullable } from '@/lib/crypto'
 import { getPlanes, getPlan, getLimiteProfesionales, precioProfesionalExtra, precioPlanEnMoneda } from '@/lib/plans'
 import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/clinicas-registry.service'
 import { invalidateClinicaCache } from '@/middlewares/tenant'
@@ -20,7 +20,6 @@ import {
 export interface AuditCtx { actorId: string; actorEmail: string; ip?: string | null; userAgent?: string | null }
 
 const DEFAULT_ADMIN_USERNAME = 'Administrador'
-const PLANES_VALIDOS = ['TRIAL', 'BASICO', 'PRO']
 const CICLOS_VALIDOS = ['MENSUAL', 'ANUAL']
 const METODOS_PAGO = ['TRANSFERENCIA', 'WEBPAY', 'EFECTIVO', 'OTRO']
 
@@ -193,8 +192,18 @@ export async function actualizarClinica(id: string, body: Record<string, unknown
 }
 
 export async function cambiarPlan(ctx: AuditCtx, id: string, body: Record<string, unknown>) {
-  if (!PLANES_VALIDOS.includes(String(body.plan))) throw badRequest(`Plan inválido. Use: ${PLANES_VALIDOS.join(', ')}`)
-  const data: Record<string, unknown> = { plan: body.plan }
+  // Valida contra el catálogo REAL de planes (incluye los personalizados creados
+  // en el editor). TRIAL siempre es válido (plan de sistema para pruebas).
+  const nuevoPlan = String(body.plan ?? '')
+  const planDef = nuevoPlan === 'TRIAL' ? null : await getPlan(nuevoPlan)
+  if (nuevoPlan !== 'TRIAL' && !planDef) throw badRequest('Plan inválido: no existe en el catálogo de planes.')
+
+  const actual = await control.clinica.findUnique({ where: { id }, select: { plan: true, proximoCobro: true } })
+  const data: Record<string, unknown> = { plan: nuevoPlan }
+  // Al CAMBIAR de plan, aplica los módulos incluidos en el nuevo plan como punto de
+  // partida. La clínica se puede ajustar después (tarjeta "Funcionalidades/Módulos").
+  if (planDef && actual && actual.plan !== nuevoPlan) data.modulos = planDef.modulos.join(',')
+
   if (body.cicloFacturacion !== undefined) {
     if (!CICLOS_VALIDOS.includes(String(body.cicloFacturacion))) throw badRequest('cicloFacturacion debe ser MENSUAL o ANUAL')
     data.cicloFacturacion = body.cicloFacturacion
@@ -206,17 +215,15 @@ export async function cambiarPlan(ctx: AuditCtx, id: string, body: Record<string
   if (body.proximoCobro !== undefined) data.proximoCobro = body.proximoCobro ? new Date(String(body.proximoCobro)) : null
   if (body.trialHasta !== undefined) data.trialHasta = body.trialHasta ? new Date(String(body.trialHasta)) : null
 
-  if (body.plan !== 'TRIAL' && data.proximoCobro === undefined) {
-    const actual = await control.clinica.findUnique({ where: { id }, select: { proximoCobro: true } })
-    if (!actual?.proximoCobro) {
-      const fecha = new Date()
-      if ((data.cicloFacturacion ?? 'MENSUAL') === 'ANUAL') fecha.setFullYear(fecha.getFullYear() + 1)
-      else fecha.setMonth(fecha.getMonth() + 1)
-      data.proximoCobro = fecha
-    }
+  if (nuevoPlan !== 'TRIAL' && data.proximoCobro === undefined && !actual?.proximoCobro) {
+    const fecha = new Date()
+    if ((data.cicloFacturacion ?? 'MENSUAL') === 'ANUAL') fecha.setFullYear(fecha.getFullYear() + 1)
+    else fecha.setMonth(fecha.getMonth() + 1)
+    data.proximoCobro = fecha
   }
   const clinica = await control.clinica.update({ where: { id }, data })
-  await auditAdmin({ ...ctx, action: 'CAMBIAR_PLAN', targetType: 'CLINICA', targetId: clinica.id, details: { clinicaSlug: clinica.slug, planNuevo: body.plan } })
+  if (data.modulos !== undefined) invalidateClinicaCache(id)
+  await auditAdmin({ ...ctx, action: 'CAMBIAR_PLAN', targetType: 'CLINICA', targetId: clinica.id, details: { clinicaSlug: clinica.slug, planNuevo: nuevoPlan } })
   return clinica
 }
 
@@ -437,6 +444,26 @@ export async function putWhatsapp(ctx: AuditCtx, id: string, body: Record<string
   // clínica por su número y el cron filtra por waEnabled sin abrir cada base.
   await control.clinica.update({ where: { id }, data: { waEnabled, waNumero } })
   await auditAdmin({ ...ctx, action: 'CONFIGURAR_WHATSAPP', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: slug, waEnabled, waNumero } })
+}
+
+// Prueba de conexión con Twilio: valida el Account SID + Auth Token guardados
+// contra la API de Twilio (sin enviar mensajes). Confirma que las credenciales
+// funcionan antes de habilitar el servicio.
+export async function probarWhatsapp(id: string): Promise<{ ok: boolean; mensaje: string }> {
+  const { dbName } = await dbNameDe(id)
+  const c = await tenantClient(dbName).configuracion.findUnique({ where: { id: 'singleton' }, select: { waTwilioSid: true, waTwilioToken: true } })
+  const sid = c?.waTwilioSid
+  const token = decryptNullable(c?.waTwilioToken ?? null)
+  if (!sid || !token) return { ok: false, mensaje: 'Faltan el Account SID y/o el Auth Token de Twilio. Guárdalos y vuelve a probar.' }
+  try {
+    const auth = Buffer.from(`${sid}:${token}`).toString('base64')
+    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}.json`, { headers: { Authorization: `Basic ${auth}` } })
+    const data = (await res.json().catch(() => ({}))) as { friendly_name?: string; status?: string; message?: string }
+    if (res.ok) return { ok: true, mensaje: `Conexión OK · cuenta "${data.friendly_name ?? sid}" (${data.status ?? 'activa'}).` }
+    return { ok: false, mensaje: data.message ?? `Twilio respondió ${res.status}. Revisa el SID y el Auth Token.` }
+  } catch (e) {
+    return { ok: false, mensaje: `No se pudo conectar con Twilio: ${e instanceof Error ? e.message : 'error'}` }
+  }
 }
 
 // ── Planes de suscripción (control-plane) ─────────────────────────────────────

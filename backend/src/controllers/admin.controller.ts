@@ -43,6 +43,7 @@ export const deleteExtra = async (req: Request, res: Response) => { await svc.el
 // ── WhatsApp config ──
 export const getWhatsapp = async (req: Request, res: Response) => res.json(await svc.getWhatsapp(req.params.id))
 export const putWhatsapp = async (req: Request, res: Response) => { await svc.putWhatsapp(audit(req), req.params.id, req.body ?? {}); res.json({ ok: true }) }
+export const postProbarWhatsapp = async (req: Request, res: Response) => res.json(await svc.probarWhatsapp(req.params.id))
 
 // ── Planes de suscripción ──
 export const getPlanes = async (_req: Request, res: Response) => res.json({ planes: await svc.listarPlanesSuscripcion() })
