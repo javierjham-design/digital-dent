@@ -12,7 +12,7 @@ import { esPaisValido } from '@shared/constants/paises'
 import { parseModulos, MODULOS_CODES, MODULOS_DEFAULT } from '@shared/constants/modulos'
 import { conteoEnLinea, usuariosEnLinea, totalEnLinea } from '@/lib/presence'
 import { monedaCobroDe, MONEDAS_COBRO } from '@shared/constants/cobro'
-import { estadoPasarelas, proveedorPara, pasarelaConfigurada } from '@/lib/pagos'
+import { estadoPasarelas, proveedorPara, pasarelaConfigurada, configPasarelas } from '@/lib/pagos'
 import {
   calcularProximoCobro, getEstadoPago, precioMensualEfectivo, type CicloFacturacion, type PlanPriceMap,
 } from '@/lib/billing'
@@ -138,6 +138,7 @@ export async function pagosPlataforma() {
     })),
     totales,
     pasarelas: estadoPasarelas(),
+    configPasarelas: configPasarelas(),
   }
 }
 

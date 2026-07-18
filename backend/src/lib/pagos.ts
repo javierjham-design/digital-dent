@@ -32,6 +32,35 @@ export function estadoPasarelas(): EstadoPasarelas {
   }
 }
 
+// Detalle de configuración de cada pasarela: qué variables de entorno requiere y
+// cuáles están presentes (NUNCA expone los valores). Para el panel del super-admin.
+export interface VarConfig { nombre: string; presente: boolean; requerida: boolean }
+export interface ConfigPasarela {
+  proveedor: ProveedorPago; moneda: MonedaCobro; configurada: boolean; variables: VarConfig[]; nota: string
+}
+const hay = (k: string) => Boolean(process.env[k])
+export function configPasarelas(): ConfigPasarela[] {
+  return [
+    {
+      proveedor: 'LEMONSQUEEZY', moneda: 'USD', configurada: pasarelaConfigurada('LEMONSQUEEZY'),
+      nota: 'Merchant of Record para clínicas fuera de Chile (USD). Crea los productos en el panel de Lemon Squeezy y carga estas variables en Railway (servicio BACKEND). Además, un variant por plan: LEMONSQUEEZY_VARIANT_<CODIGO_PLAN>.',
+      variables: [
+        { nombre: 'LEMONSQUEEZY_API_KEY', presente: hay('LEMONSQUEEZY_API_KEY'), requerida: true },
+        { nombre: 'LEMONSQUEEZY_STORE_ID', presente: hay('LEMONSQUEEZY_STORE_ID'), requerida: true },
+        { nombre: 'LEMONSQUEEZY_WEBHOOK_SECRET', presente: hay('LEMONSQUEEZY_WEBHOOK_SECRET'), requerida: true },
+      ],
+    },
+    {
+      proveedor: 'FLOW', moneda: 'CLP', configurada: pasarelaConfigurada('FLOW'),
+      nota: 'Pasarela para clínicas de Chile (CLP). Carga las credenciales de Flow en Railway (servicio BACKEND).',
+      variables: [
+        { nombre: 'FLOW_API_KEY', presente: hay('FLOW_API_KEY'), requerida: true },
+        { nombre: 'FLOW_SECRET_KEY', presente: hay('FLOW_SECRET_KEY'), requerida: true },
+      ],
+    },
+  ]
+}
+
 // Variant (producto de suscripción) de Lemon Squeezy para un plan. Se crea en el
 // dashboard de Lemon Squeezy y su id se carga por env: LEMONSQUEEZY_VARIANT_<PLAN>.
 function lemonVariantFor(planId: string): string | undefined {

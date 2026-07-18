@@ -6,7 +6,9 @@ import { fmtCobro } from '@shared/constants/cobro'
 const fmtFecha = (s: string) => new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' })
 
 interface PagoRow { id: string; clinica: string; slug: string; fechaPago: string; monto: number; moneda: string; metodoPago: string; periodoDesde: string; periodoHasta: string }
-interface Data { pagos: PagoRow[]; totales: { CLP: number; USD: number }; pasarelas: { flow: { configurada: boolean }; lemonsqueezy: { configurada: boolean } } }
+interface VarConfig { nombre: string; presente: boolean; requerida: boolean }
+interface ConfigPasarela { proveedor: string; moneda: string; configurada: boolean; variables: VarConfig[]; nota: string }
+interface Data { pagos: PagoRow[]; totales: { CLP: number; USD: number }; pasarelas: { flow: { configurada: boolean }; lemonsqueezy: { configurada: boolean } }; configPasarelas: ConfigPasarela[] }
 
 export function AdminPagos() {
   const [data, setData] = useState<Data | null>(null)
@@ -31,6 +33,33 @@ export function AdminPagos() {
         <Pasarela nombre="Flow" moneda="CLP" ok={data?.pasarelas.flow.configurada} />
         <Pasarela nombre="Lemon Squeezy" moneda="USD" ok={data?.pasarelas.lemonsqueezy.configurada} />
       </div>
+
+      {/* Configuración de pasarelas (variables de entorno, sin exponer valores) */}
+      {data?.configPasarelas && (
+        <div className="mb-8">
+          <h2 className="text-sm font-semibold text-white mb-1">Configuración de pasarelas</h2>
+          <p className="text-xs text-slate-500 mb-3">Las credenciales se cargan como variables de entorno en Railway (servicio BACKEND), por seguridad nunca se guardan en la base ni se muestran aquí. Este panel te dice qué falta.</p>
+          <div className="grid gap-3 md:grid-cols-2">
+            {data.configPasarelas.map((c) => (
+              <div key={c.proveedor} className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold text-white">{c.proveedor === 'LEMONSQUEEZY' ? 'Lemon Squeezy' : c.proveedor} <span className="text-xs text-slate-500">· {c.moneda}</span></p>
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${c.configurada ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>{c.configurada ? '✓ Conectada' : 'Sin conexión'}</span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-2">{c.nota}</p>
+                <ul className="mt-3 space-y-1.5">
+                  {c.variables.map((v) => (
+                    <li key={v.nombre} className="flex items-center justify-between gap-2 text-xs">
+                      <code className="text-slate-300 break-all">{v.nombre}</code>
+                      <span className={`shrink-0 font-semibold ${v.presente ? 'text-emerald-400' : 'text-rose-400'}`}>{v.presente ? '✓ cargada' : '✗ falta'}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {cargando ? <p className="px-6 py-10 text-center text-slate-500 text-sm">Cargando…</p>
         : !data || data.pagos.length === 0 ? <p className="px-6 py-10 text-center text-slate-500 text-sm">Sin pagos registrados aún.</p>
