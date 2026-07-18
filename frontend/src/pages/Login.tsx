@@ -43,7 +43,7 @@ export function Login() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-cyan-50 px-4">
       <form onSubmit={submit} className="w-full max-w-sm bg-white rounded-2xl shadow-sm border border-slate-100 p-8">
         <div className="flex items-center gap-2.5 mb-6">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-cyan-500 to-cyan-800 text-white font-bold flex items-center justify-center">C</div>
+          <img src="/icon.svg" alt="Cláriva" className="w-9 h-9 rounded-xl" />
           <span className="text-lg font-bold tracking-tight">Cláriva</span>
         </div>
         <h1 className="text-xl font-bold text-slate-900 mb-1">Iniciar sesión</h1>

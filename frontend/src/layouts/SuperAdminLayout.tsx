@@ -31,7 +31,7 @@ export function SuperAdminLayout() {
       <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-20">
         <div className="h-14 flex items-center px-4 gap-3">
           <div className="flex items-center gap-2 shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 to-fuchsia-600 text-white font-bold flex items-center justify-center">C</div>
+            <img src="/icon.svg" alt="Cláriva" className="w-8 h-8 rounded-lg" />
             <div>
               <p className="text-sm font-bold leading-tight">Cláriva</p>
               <p className="text-[11px] text-slate-400 leading-tight">Plataforma</p>

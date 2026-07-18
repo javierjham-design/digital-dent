@@ -61,7 +61,7 @@ export function Landing() {
       <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-100">
         <div className="max-w-6xl mx-auto px-5 h-16 flex items-center justify-between">
           <a href="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-800 text-white font-bold flex items-center justify-center">C</div>
+            <img src="/icon.svg" alt="Cláriva" className="w-8 h-8 rounded-lg" />
             <span className="text-lg font-bold tracking-tight">Cláriva</span>
           </a>
           <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-slate-600">
@@ -269,7 +269,7 @@ export function Landing() {
       <footer className="border-t border-slate-100 bg-white">
         <div className="max-w-6xl mx-auto px-5 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-cyan-500 to-cyan-800 text-white font-bold text-sm flex items-center justify-center">C</div>
+            <img src="/icon.svg" alt="Cláriva" className="w-7 h-7 rounded-lg" />
             <span className="font-bold">Cláriva</span>
           </div>
           <p className="text-sm text-slate-500">Gestión para clínicas y centros · {new Date().getFullYear()}</p>
