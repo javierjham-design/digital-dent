@@ -10,12 +10,15 @@ export interface PlanLanding {
   id: string
   nombre: string
   descripcion: string | null
-  precioMensual: number
+  precioMensual: number      // CLP
+  precioMensualUSD: number   // USD (mercados fuera de Chile)
   precioAnual: number | null
   caracteristicas: string[]
   destacado: boolean
 }
 
+// Planes públicos (conectados al catálogo del super-admin vía backend /planes).
+// Devuelve ambos precios (CLP y USD); la landing usa el que corresponda.
 export async function fetchPlanes(): Promise<PlanLanding[]> {
   const res = await fetch(`${API_BASE}/planes`)
   if (!res.ok) throw new Error(`Error ${res.status}`)
@@ -23,7 +26,23 @@ export async function fetchPlanes(): Promise<PlanLanding[]> {
   return (data.planes ?? []).filter((p) => p.precioMensual > 0).sort((a, b) => a.precioMensual - b.precioMensual)
 }
 
-export interface DemoInput { nombre: string; email: string; telefono?: string; nombreClinica: string; vertical: string }
+// Captura UTM/atribución de la URL para saber de qué campaña vino el lead.
+export function capturarTracking(): Record<string, string> {
+  const p = new URLSearchParams(window.location.search)
+  const map: Record<string, string> = {}
+  const campos: Record<string, string> = {
+    utm_source: 'utmSource', utm_medium: 'utmMedium', utm_campaign: 'utmCampaign',
+    utm_content: 'utmContent', utm_term: 'utmTerm',
+  }
+  for (const [k, v] of Object.entries(campos)) { const val = p.get(k); if (val) map[v] = val }
+  map.landing = window.location.href
+  return map
+}
+
+export interface DemoInput {
+  nombre: string; email: string; telefono?: string; nombreClinica: string; vertical: string
+  pais?: string; tracking?: Record<string, string>
+}
 export interface DemoResult { token: string; slug: string; usuario: string; password: string; loginUrl: string; expiraEn: string }
 
 export async function crearDemo(input: DemoInput): Promise<DemoResult> {

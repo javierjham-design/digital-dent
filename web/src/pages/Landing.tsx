@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { VERTICALES, VERTICAL_IDS, getVertical, type VerticalId } from '@/lib/verticales'
-import { fetchPlanes, crearDemo, appLoginUrl, clinicaUrl, type PlanLanding } from '@/lib/api'
+import { fetchPlanes, crearDemo, capturarTracking, appLoginUrl, clinicaUrl, type PlanLanding } from '@/lib/api'
 
 const fmtCLP = (n: number) => '$' + new Intl.NumberFormat('es-CL', { maximumFractionDigits: 0 }).format(n)
 
@@ -313,7 +313,7 @@ function AgendaMockup() {
   )
 }
 
-export function DemoModal({ vertical, onClose }: { vertical: VerticalId; onClose: () => void }) {
+export function DemoModal({ vertical, pais, onClose }: { vertical: VerticalId; pais?: string; onClose: () => void }) {
   const vc = getVertical(vertical)
   const [form, setForm] = useState({ nombre: '', email: '', telefono: '', nombreClinica: '' })
   const [estado, setEstado] = useState<'form' | 'creando' | 'listo' | 'error'>('form')
@@ -324,7 +324,7 @@ export function DemoModal({ vertical, onClose }: { vertical: VerticalId; onClose
     e.preventDefault()
     setEstado('creando'); setError('')
     try {
-      const data = await crearDemo({ ...form, vertical })
+      const data = await crearDemo({ ...form, vertical, pais, tracking: capturarTracking() })
       const url = clinicaUrl(data.slug, data.token)
       setCred({ slug: data.slug, usuario: data.usuario, password: data.password, url })
       setEstado('listo')
