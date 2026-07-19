@@ -426,15 +426,15 @@ export function Agenda() {
             <span className="text-xs font-semibold">Ver y aceptar →</span>
           </button>
         )}
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div className="flex items-center gap-2">
-            <button onClick={() => shiftDate(-1)} className="w-8 h-8 rounded-lg border border-slate-200 hover:bg-slate-50">‹</button>
-            <button onClick={() => { const d = new Date(); d.setHours(0,0,0,0); setCurrentDate(d) }} className="text-xs font-semibold border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">Hoy</button>
-            <button onClick={() => shiftDate(1)} className="w-8 h-8 rounded-lg border border-slate-200 hover:bg-slate-50">›</button>
+        <div className="flex flex-wrap items-center gap-2 sm:justify-between mb-4">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <button onClick={() => shiftDate(-1)} className="w-8 h-8 shrink-0 rounded-lg border border-slate-200 hover:bg-slate-50">‹</button>
+            <button onClick={() => { const d = new Date(); d.setHours(0,0,0,0); setCurrentDate(d) }} className="text-xs font-semibold shrink-0 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">Hoy</button>
+            <button onClick={() => shiftDate(1)} className="w-8 h-8 shrink-0 rounded-lg border border-slate-200 hover:bg-slate-50">›</button>
             {/* Ver calendario: salta a la semana/día de la fecha elegida (p.ej. control en 6 meses). */}
             <button type="button" title="Ir a una fecha (ej. agendar un control en meses)"
               onClick={() => { const el = verCalRef.current; if (!el) return; if (typeof el.showPicker === 'function') { try { el.showPicker() } catch { el.focus() } } else { el.focus() } }}
-              className="relative inline-flex items-center gap-1.5 text-xs font-semibold border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">
+              className="relative inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap text-xs font-semibold border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">
               📅 Ver calendario
               <input ref={verCalRef} type="date" value={ymdLocal(currentDate)}
                 onChange={(e) => { if (e.target.value) { const d = new Date(`${e.target.value}T00:00:00`); d.setHours(0, 0, 0, 0); setCurrentDate(d) } }}
@@ -442,8 +442,8 @@ export function Agenda() {
             </button>
             <span className="text-sm font-semibold text-slate-800 capitalize ml-1">{labelFecha}</span>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex bg-slate-100 rounded-lg p-0.5">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex bg-slate-100 rounded-lg p-0.5 shrink-0">
               {(['diaria', 'global', 'semanal'] as Vista[]).map((v) => (
                 <button key={v} onClick={() => { setVista(v); setSoloSobrecupos(false); if (v === 'semanal' && !doctorId) setDoctorId(doctores[0]?.id ?? '') }}
                   className={`text-xs font-semibold px-3 py-1.5 rounded-md ${vista === v ? 'bg-white text-cyan-700 shadow-sm' : 'text-slate-500'}`}>
@@ -453,13 +453,13 @@ export function Agenda() {
             </div>
             {vista === 'semanal' && (
               <button onClick={() => setSoloSobrecupos((v) => !v)} title="Abrir la agenda de sobrecupos (solo las citas en sobrecupo, misma grilla semanal)"
-                className={`text-sm font-semibold rounded-lg px-3 py-1.5 border ${soloSobrecupos ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
+                className={`text-sm font-semibold shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 border ${soloSobrecupos ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
                 {soloSobrecupos ? '← Agenda normal' : 'Sobrecupos'}
               </button>
             )}
-            <button onClick={() => setBloqueoForm(true)} className="text-sm font-semibold text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">Bloquear</button>
+            <button onClick={() => setBloqueoForm(true)} className="text-sm font-semibold shrink-0 whitespace-nowrap text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">Bloquear</button>
             <button onClick={() => setCrear({ slotISO: new Date(currentDate.getTime() + 9 * 3600000).toISOString() })}
-              className="text-sm font-semibold bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg px-3.5 py-1.5">+ Nueva cita</button>
+              className="text-sm font-semibold shrink-0 whitespace-nowrap bg-cyan-600 hover:bg-cyan-700 text-white rounded-lg px-3.5 py-1.5">+ Nueva cita</button>
           </div>
         </div>
 
