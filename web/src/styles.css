@@ -8,3 +8,14 @@ body {
   margin: 0;
   -webkit-font-smoothing: antialiased;
 }
+
+/* Móvil: evita que la página sea más ancha que la pantalla (sin scroll/zoom
+   horizontal). `clip` no rompe headers sticky. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+#root {
+  max-width: 100%;
+}
