@@ -500,9 +500,11 @@ export function Agenda() {
         {vista === 'semanal' ? (
           <div className="bg-white rounded-2xl border border-slate-200 p-2 overflow-x-auto">
             {/* Estilo tipo Dentalink: espacios disponibles en verde, fuera de horario en gris,
-                bloques anchos con el nombre del paciente. En móvil el grid scrollea horizontal. */}
+                bloques anchos con el nombre del paciente. En móvil el calendario CABE en la
+                pantalla (columnas angostas); desde 640px toma min-width 720 y scrollea. */}
             <style>{`
-              .fc { min-width: 720px; --fc-border-color: #e5e9ef; }
+              .fc { --fc-border-color: #e5e9ef; }
+              @media (min-width: 640px) { .fc { min-width: 720px; } }
               /* Alto de bloque = 2em (32px) = eventMinHeight={32}: las citas calzan
                  EXACTO con la grilla, sin sobresalir ni dejar huecos entre ellas. */
               .fc .fc-timegrid-slot { height: 2em; }

@@ -22,17 +22,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Móvil: ningún elemento hace la página más ancha que la pantalla (evita el
-   scroll/zoom horizontal donde había que "alejar el zoom" para ver todo). Los
-   scrolls horizontales intencionales (calendario, tablas anchas) viven en sus
-   propios contenedores con overflow-x-auto y siguen funcionando. `clip` no crea
-   un contenedor de scroll, así que NO rompe los headers sticky (a diferencia de
-   `hidden`). */
+/* Evita que la página sea más ancha que la pantalla del celular. NO se usa
+   overflow:clip/hidden (en iOS no impide que el viewport se agrande para caber
+   un hijo con min-width y ademas rompe el sticky). Los contenidos anchos de
+   verdad (calendario, tablas) usan min-width sólo desde 640px y scrollean. */
 html,
-body {
-  max-width: 100%;
-  overflow-x: clip;
-}
+body,
 #root {
   max-width: 100%;
 }

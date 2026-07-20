@@ -9,13 +9,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Móvil: evita que la página sea más ancha que la pantalla (sin scroll/zoom
-   horizontal). `clip` no rompe headers sticky. */
+/* Evita que la página sea más ancha que la pantalla del celular (sin overflow
+   clip/hidden, que en iOS no ayuda). */
 html,
-body {
-  max-width: 100%;
-  overflow-x: clip;
-}
+body,
 #root {
   max-width: 100%;
 }
