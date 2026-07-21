@@ -148,6 +148,7 @@ export function Cobros() {
               <span className="font-mono text-sm text-slate-700">{fmt(c.monto)}</span>
               {!c.anulado && c.estado !== 'ANULADO' && c.estado !== 'PAGADO' && <LinkPagoBtn cobroId={c.id} notify={notify} />}
               {!c.anulado && c.estado === 'PAGADO' && <button onClick={() => setComprobante(c)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900" title="Enviar comprobante por correo">✉ Comprobante</button>}
+              {c.estado === 'PAGADO' && <a href={`/print/cobro/${c.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-slate-500 hover:text-slate-800" title="Imprimir / guardar comprobante en PDF">🖨 Imprimir</a>}
               {!c.anulado && c.estado !== 'ANULADO' && (
                 <button onClick={async () => { const m = prompt('Motivo de la anulación (mín. 4):'); if (m && m.length >= 4) { try { await cobrosService.anular(c.id, m); notify('Cobro anulado'); cargar() } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) } } }}
                   className="text-xs text-rose-400 hover:text-rose-600">Anular</button>
@@ -161,7 +162,7 @@ export function Cobros() {
       {modal?.kind === 'abrir' && <AbrirModal cajaId={modal.cajaId} nombre={modal.nombre} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Caja abierta'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal?.kind === 'cerrar' && <CerrarModal cajaId={modal.cajaId} nombre={modal.nombre} resumen={modal.resumen} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Caja cerrada'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal?.kind === 'mov' && <MovModal cajaId={modal.cajaId} nombre={modal.nombre} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Movimiento registrado'); cargar() }} onError={(m) => notify(m, false)} />}
-      {modal?.kind === 'pago' && <PagoModal cajaId={modal.cajaId} nombre={modal.nombre} medios={medios} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Pago registrado'); cargar() }} onError={(m) => notify(m, false)} />}
+      {modal?.kind === 'pago' && <PagoModal cajaId={modal.cajaId} nombre={modal.nombre} medios={medios} onClose={() => { setModal(null); cargar() }} onDone={() => { setModal(null); notify('Pago registrado'); cargar() }} onError={(m) => notify(m, false)} onComprobante={(c) => { setModal(null); cargar(); setComprobante(c) }} />}
       {comprobante && (
         <EnviarCorreoModal
           tipo="COMPROBANTE" titulo="comprobante"
@@ -390,8 +391,9 @@ function MovModal({ cajaId, nombre, onClose, onDone, onError }: { cajaId: string
 
 // Recibir pago: SIEMPRE asociado a un plan de tratamiento del paciente. Dos pasos:
 // (1) ingresar datos, (2) pantalla de CONFIRMACIÓN antes de registrar el cobro.
-function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
+function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError, onComprobante }: {
   cajaId: string; nombre: string; medios: MedioPagoDTO[]; onClose: () => void; onDone: () => void; onError: (m: string) => void
+  onComprobante: (cobro: Cobro) => void
 }) {
   const [pacienteId, setPacienteId] = useState('')
   const [pacienteNombre, setPacienteNombre] = useState('')
@@ -406,7 +408,8 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
   const [g, setG] = useState(false)
   const [linkGen, setLinkGen] = useState(false)
   const [linkUrl, setLinkUrl] = useState<string | null>(null)
-  const [paso, setPaso] = useState<'form' | 'confirmar'>('form')
+  const [paso, setPaso] = useState<'form' | 'confirmar' | 'listo'>('form')
+  const [creado, setCreado] = useState<Cobro | null>(null)
   const [err, setErr] = useState('')
 
   const medioSel = medios.find((m) => m.id === medioPagoId)
@@ -461,11 +464,12 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
   async function guardar() {
     setG(true); setErr('')
     try {
-      await cobrosService.crear({
+      const nuevo = await cobrosService.crear({
         pacienteId, cajaId, medioPagoId: medioPagoId || undefined, items: buildItems(),
         numeroReferencia: numeroReferencia.trim() || undefined, numeroBoleta: numeroBoleta.trim() || undefined,
-      })
-      onDone()
+      }) as Cobro
+      // Pantalla final: ofrecer imprimir o enviar el comprobante (además de cerrar).
+      setCreado(nuevo); setPaso('listo')
     } catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo registrar el cobro'); onError(e instanceof ApiError ? e.message : 'Error') } finally { setG(false) }
   }
 
@@ -483,7 +487,21 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError }: {
 
   return (
     <Modal title={`Recibir pago · ${nombre}`} onClose={onClose} size="lg">
-      {paso === 'confirmar' ? (
+      {paso === 'listo' && creado ? (
+        // ── Paso 3: pago registrado → imprimir o enviar comprobante ──
+        <div className="text-center py-2">
+          <div className="w-12 h-12 mx-auto mb-2 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-2xl">✓</div>
+          <p className="text-base font-semibold text-slate-800">Pago registrado</p>
+          <p className="text-sm text-slate-500 mb-4">Comprobante N° {creado.numero} · {fmt(creado.monto)}</p>
+          <div className="grid sm:grid-cols-2 gap-2 mb-2">
+            <a href={`/print/cobro/${creado.id}`} target="_blank" rel="noopener noreferrer"
+              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold">🖨 Imprimir comprobante</a>
+            <button onClick={() => onComprobante(creado)}
+              className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">✉ Enviar por correo</button>
+          </div>
+          <button onClick={onDone} className="mt-1 text-sm text-slate-500 hover:text-slate-700">Listo, cerrar</button>
+        </div>
+      ) : paso === 'confirmar' ? (
         // ── Paso 2: confirmación ──
         <div>
           <p className="text-sm text-slate-500 mb-3">Revisa que el cobro sea correcto antes de registrarlo:</p>

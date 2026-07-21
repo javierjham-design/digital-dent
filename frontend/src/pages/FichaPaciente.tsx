@@ -1669,6 +1669,10 @@ function HistorialTab({ pacienteId }: { pacienteId: string }) {
                     {p.reciboUsuario?.name ? ` · recibió ${p.reciboUsuario.name}` : ''}
                   </p>
                 </div>
+                {!p.anulado && p.estado === 'PAGADO' && (
+                  <a href={`/print/cobro/${p.id}`} target="_blank" rel="noopener noreferrer" title="Imprimir comprobante"
+                    className="shrink-0 text-xs font-semibold text-slate-500 hover:text-slate-800">🖨 Imprimir</a>
+                )}
               </div>
             ))}
           </div>

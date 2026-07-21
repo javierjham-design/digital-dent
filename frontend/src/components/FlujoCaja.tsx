@@ -8,7 +8,7 @@ export interface FlujoMovimiento {
   id: string; tipo: string; monto: number; descripcion: string; categoria: string | null
   fecha: string; anulado: boolean
   user?: { name: string | null } | null
-  cobro?: { numero?: number; monto?: number; paciente?: { nombre: string; apellido: string } | null; medioPago?: { nombre: string | null } | null } | null
+  cobro?: { id?: string; numero?: number; monto?: number; paciente?: { nombre: string; apellido: string } | null; medioPago?: { nombre: string | null } | null } | null
 }
 // La caja muestra lo EXACTAMENTE cobrado (bruto). Si el movimiento viene de un
 // cobro, se usa el monto bruto del cobro (sin la retención del medio de pago).
@@ -57,7 +57,10 @@ export function FlujoCaja({ movimientos, resumen }: { movimientos: FlujoMovimien
                   <p className="text-sm text-slate-700 truncate">{m.descripcion}</p>
                   <p className="text-[11px] text-slate-400">{hora(m.fecha)} · {metodoDe(m)}{m.user?.name ? ` · ${m.user.name}` : ''}</p>
                 </div>
-                <span className="font-mono text-sm font-semibold text-emerald-600 shrink-0">+{fmt(brutoDe(m))}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  {!m.anulado && m.cobro?.id && <a href={`/print/cobro/${m.cobro.id}`} target="_blank" rel="noopener noreferrer" title="Imprimir comprobante" className="text-slate-400 hover:text-slate-700 text-sm">🖨</a>}
+                  <span className="font-mono text-sm font-semibold text-emerald-600">+{fmt(brutoDe(m))}</span>
+                </div>
               </div>
             ))}
           </div>
