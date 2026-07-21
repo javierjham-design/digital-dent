@@ -173,6 +173,51 @@ export async function abrirSesion(db: TenantClient, actor: JwtPayload, cajaId: s
   return abrirSesionCore(db, { cajaId, userId: actor.sub, userNombre: actorName(actor), saldoApertura })
 }
 
+// Usuarios que pueden ser responsables de una caja (reciben pagos u operan cajas),
+// con el estado de su caja propia. Sirve para que el admin/gestor abra la caja de
+// cualquiera (incluida la primera vez, aún sin caja creada).
+export async function operadoresCaja(db: TenantClient) {
+  const users = await db.user.findMany({
+    where: { activo: true, OR: [{ role: 'admin' }, { puedeRecibirPagos: true }, { puedeGestionarCajas: true }] },
+    select: { id: true, name: true, email: true },
+    orderBy: [{ name: 'asc' }],
+  })
+  return Promise.all(users.map(async (u) => {
+    const caja = await db.caja.findFirst({ where: { activo: true, usuarios: { some: { userId: u.id } } }, select: { id: true } })
+    const sesionAbierta = caja ? await getSesionAbierta(db, caja.id) : null
+    return { userId: u.id, nombre: u.name ?? u.email, cajaId: caja?.id ?? null, tieneAbierta: Boolean(sesionAbierta) }
+  }))
+}
+
+// Abre la caja de OTRO usuario (admin/gestor). El responsable es SIEMPRE el usuario
+// destino (su caja es exclusiva e intransferible); sólo queda registrado que quien
+// la abrió fue el admin. Si el usuario aún no tiene caja, se le crea. El saldo de
+// apertura se arrastra del último cierre de ESE usuario.
+export async function abrirCajaParaUsuario(db: TenantClient, actor: JwtPayload, targetUserId: string, saldoRaw: unknown) {
+  const me = await db.user.findUnique({ where: { id: actor.sub }, select: { role: true, puedeGestionarCajas: true } })
+  if (!(me?.role === 'admin' || me?.puedeGestionarCajas)) throw forbidden('Sólo un administrador o gestor de cajas puede abrir la caja de otro usuario.')
+
+  const target = await db.user.findUnique({ where: { id: targetUserId }, select: { id: true, role: true, activo: true, puedeRecibirPagos: true, puedeGestionarCajas: true } })
+  if (!target || !target.activo) throw notFound('Usuario no encontrado')
+  if (!(target.role === 'admin' || target.puedeRecibirPagos || target.puedeGestionarCajas)) {
+    throw badRequest('Ese usuario no tiene habilitado el permiso para recibir pagos u operar cajas.')
+  }
+
+  let caja = await db.caja.findFirst({ where: { activo: true, usuarios: { some: { userId: target.id } } }, select: { id: true } })
+  if (!caja) {
+    const numero = await siguienteNumeroCaja(db)
+    caja = await db.caja.create({ data: { numero, nombre: `Caja ${numero}`, usuarios: { create: [{ userId: target.id }] } }, select: { id: true } })
+  }
+  if (await getSesionAbierta(db, caja.id)) throw conflict('Ese usuario ya tiene una caja abierta.')
+
+  let saldoApertura: number
+  if (saldoRaw === undefined || saldoRaw === null || saldoRaw === '') saldoApertura = await calcularSaldoSugerido(db, caja.id)
+  else saldoApertura = Number(saldoRaw)
+  if (!Number.isFinite(saldoApertura) || saldoApertura < 0) throw badRequest('El saldo de apertura es inválido.')
+
+  return abrirSesionCore(db, { cajaId: caja.id, userId: actor.sub, userNombre: actorName(actor), saldoApertura })
+}
+
 export async function cerrarSesion(db: TenantClient, actor: JwtPayload, cajaId: string, body: { saldoReal: unknown; efectivoRetirado?: unknown; efectivoDejado?: unknown; observaciones?: string }) {
   await cajaConAcceso(db, cajaId, actor)
   const saldoReal = Number(body.saldoReal) // efectivo contado
@@ -315,7 +360,8 @@ async function cobrosDelPeriodo(db: TenantClient, f: ReporteFiltro) {
       paciente: { select: { nombre: true, apellido: true } },
       medioPago: { select: { nombre: true } },
       reciboUsuario: { select: { id: true, name: true, email: true } },
-      caja: { select: { numero: true } },
+      // Nº de la CAJA = correlativo del ciclo (sesión) en que se recibió el pago.
+      movimientos: { where: { tipo: 'INGRESO' }, select: { sesion: { select: { numero: true } } }, orderBy: { fecha: 'asc' }, take: 1 },
     },
     orderBy: { fechaPago: 'desc' },
   })
@@ -348,7 +394,7 @@ export async function reportePagosPeriodo(db: TenantClient, f: ReporteFiltro) {
       paciente: `${c.paciente.nombre} ${c.paciente.apellido}`.trim(),
       metodo: metodoDeCobro(c),
       recibidoPor: c.reciboUsuario?.name ?? c.reciboUsuario?.email ?? '—',
-      cajaNumero: c.caja?.numero ?? null,
+      cajaNumero: c.movimientos[0]?.sesion?.numero ?? null,
     })),
   }
 }

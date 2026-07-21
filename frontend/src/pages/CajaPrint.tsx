@@ -28,7 +28,6 @@ export function CajaPrint() {
   const [sesion, setSesion] = useState<Sesion | null>(null)
   const [movs, setMovs] = useState<Movimiento[]>([])
   const [resumen, setResumen] = useState<Resumen | null>(null)
-  const [cajaNumero, setCajaNumero] = useState<number | null>(null)
   const [clinica, setClinica] = useState<ClinicaConfigDTO | null>(null)
 
   useEffect(() => {
@@ -36,7 +35,6 @@ export function CajaPrint() {
       const dd = d as { sesion: Sesion; movimientos: Movimiento[]; resumen?: Resumen }
       setSesion(dd.sesion); setMovs(dd.movimientos); setResumen(dd.resumen ?? null)
     }).catch(() => {})
-    cajasService.obtener(cajaId).then((c) => setCajaNumero((c as { numero: number }).numero ?? null)).catch(() => {})
     clinicaService.obtener().then(setClinica).catch(() => {})
   }, [cajaId, sesionId])
 
@@ -74,7 +72,7 @@ export function CajaPrint() {
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold text-slate-700">Cierre de caja</p>
-          <p className="text-xs text-slate-500">{cajaNumero != null ? `Caja N° ${cajaNumero}` : 'Caja'}{sesion.numero ? ` · Apertura Nº ${sesion.numero}` : ''}</p>
+          <p className="text-xs text-slate-500">{sesion.numero ? `Caja N° ${sesion.numero}` : 'Caja'}</p>
           <p className="text-xs text-slate-500">Responsable: {sesion.abiertaPorNombre ?? '—'}</p>
         </div>
       </div>

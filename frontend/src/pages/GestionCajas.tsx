@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { cajasService, type ReportePagos, type ReporteProfesionales, type ReporteMetodo } from '@/services/caja.service'
+import { cajasService, type ReportePagos, type ReporteProfesionales, type ReporteMetodo, type OperadorCaja } from '@/services/caja.service'
 import { ApiError } from '@/services/api'
 import { fmtMonto } from '@/lib/money'
 import { useAuth } from '@/hooks/useAuth'
@@ -31,6 +31,7 @@ export function GestionCajas() {
   const [form, setForm] = useState<CajaGestion | 'nueva' | null>(null)
   const [cerrar, setCerrar] = useState<CajaGestion | null>(null)
   const [abrir, setAbrir] = useState<CajaGestion | null>(null)
+  const [abrirUsuario, setAbrirUsuario] = useState(false)
   const [tab, setTab] = useState<'abiertas' | 'cerradas' | 'reportes'>('abiertas')
 
   const cargar = () => cajasService.gestion().then((r) => setCajas(r as CajaGestion[])).catch(() => {}).finally(() => setCargando(false))
@@ -52,8 +53,9 @@ export function GestionCajas() {
     <div>
       <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
         <h1 className="text-2xl font-bold text-slate-900">Gestión de cajas</h1>
+        <button onClick={() => setAbrirUsuario(true)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl">Abrir caja de un usuario</button>
       </div>
-      <p className="text-sm text-slate-500 mb-5">Todas las cajas de la clínica y su estado. Cada caja es de un usuario (exclusiva): sólo su usuario recibe pagos con ella, por lo que los pagos de uno nunca se mezclan con los de otro. Como administrador puedes abrir y cerrar la caja de otro usuario; al cerrar, el efectivo que dejes se arrastra automáticamente a la próxima apertura sin perderse. El cuadre es sólo sobre el efectivo; tarjeta/transferencia se registran por su medio.</p>
+      <p className="text-sm text-slate-500 mb-5">Una <span className="font-medium">caja</span> es un ciclo de apertura→cierre: al abrir se le asigna el <span className="font-medium">número correlativo</span> que sigue en la clínica (no se repite). Cada caja es de un usuario responsable (intransferible): sólo él recibe pagos con ella, por lo que los pagos de uno nunca se mezclan con los de otro. Al cerrar, la caja queda cerrada de forma definitiva con su reporte, y el efectivo que se deje se arrastra a la siguiente apertura de ese usuario. Como administrador o gestor puedes abrir y cerrar la caja de cualquier usuario habilitado. El cuadre es sólo sobre el efectivo; tarjeta/transferencia se registran por su medio.</p>
 
       {/* Pestañas: no mezclar cajas abiertas con las cerradas / historial */}
       <div className="flex gap-1 mb-5 border-b border-slate-200">
@@ -79,15 +81,15 @@ export function GestionCajas() {
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-bold px-2 py-0.5 rounded-lg bg-slate-800 text-white">Caja Nº {c.numero || '—'}</span>
+                        <span className="text-sm font-bold text-slate-900 truncate">{nombreUsuarios(c).length ? nombreUsuarios(c).join(', ') : <span className="text-slate-400">Sin responsable</span>}</span>
                         {!c.activo && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-200 text-slate-500">Inactiva</span>}
                         {abierta
-                          ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">● Abierta · Apertura Nº {abierta.numero || '—'}</span>
-                          : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Cerrada</span>}
+                          ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">● Caja Nº {abierta.numero || '—'} abierta</span>
+                          : c.ultimaCerrada
+                            ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Última: Caja Nº {c.ultimaCerrada.numero || '—'} (cerrada)</span>
+                            : <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Sin cajas aún</span>}
                       </div>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Responsable(s): {nombreUsuarios(c).length ? nombreUsuarios(c).join(', ') : <span className="text-slate-400">sin asignar</span>}
-                      </p>
+                      <p className="text-xs text-slate-400 mt-1">La caja es intransferible: sólo este usuario recibe pagos con ella.</p>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
                       {abierta
@@ -123,6 +125,49 @@ export function GestionCajas() {
       {form && <CajaFormModal caja={form === 'nueva' ? null : form} onClose={() => setForm(null)} onSaved={() => { setForm(null); cargar() }} />}
       {cerrar && <CerrarCajaModal caja={cerrar} onClose={() => setCerrar(null)} onDone={() => { setCerrar(null); cargar() }} />}
       {abrir && <AbrirCajaModal caja={abrir} onClose={() => setAbrir(null)} onDone={() => { setAbrir(null); cargar() }} />}
+      {abrirUsuario && <AbrirUsuarioModal onClose={() => setAbrirUsuario(false)} onDone={() => { setAbrirUsuario(false); cargar() }} />}
+    </div>
+  )
+}
+
+// Abrir la caja de OTRO usuario (admin/gestor). Lista los usuarios habilitados
+// (reciben pagos u operan cajas) que no tienen una caja abierta; al abrir se les
+// asigna el correlativo siguiente y el responsable es SIEMPRE ese usuario.
+function AbrirUsuarioModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const [ops, setOps] = useState<OperadorCaja[] | null>(null)
+  const [userId, setUserId] = useState('')
+  const [saldo, setSaldo] = useState('')
+  const [g, setG] = useState(false); const [err, setErr] = useState('')
+  useEffect(() => { cajasService.operadores().then((r) => setOps(r)).catch(() => setOps([])) }, [])
+  const disponibles = (ops ?? []).filter((o) => !o.tieneAbierta)
+
+  async function abrir() {
+    if (!userId) { setErr('Elige un usuario.'); return }
+    setG(true); setErr('')
+    try { await cajasService.abrirParaUsuario(userId, saldo === '' ? undefined : Number(saldo)); onDone() }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo abrir') } finally { setG(false) }
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3"><h2 className="text-base font-semibold text-slate-900">Abrir caja de un usuario</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
+        <p className="text-xs text-slate-500 mb-3">Se abrirá una caja nueva a nombre del usuario elegido con el correlativo que siga. El responsable será ese usuario (no tú); sólo queda registrado que la abriste tú.</p>
+        <label className="block mb-3"><span className="block text-sm font-medium text-slate-700 mb-1">Usuario responsable</span>
+          <select value={userId} onChange={(e) => setUserId(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white">
+            <option value="">{ops === null ? 'Cargando…' : 'Elige un usuario'}</option>
+            {disponibles.map((o) => <option key={o.userId} value={o.userId}>{o.nombre}{o.cajaId ? '' : ' · sin caja aún'}</option>)}
+          </select>
+          {ops !== null && disponibles.length === 0 && <p className="text-xs text-slate-400 mt-1">Todos los usuarios habilitados ya tienen una caja abierta.</p>}
+        </label>
+        <label className="block mb-2"><span className="block text-sm font-medium text-slate-700 mb-1">Efectivo de apertura</span>
+          <input value={saldo} onChange={(e) => setSaldo(e.target.value)} inputMode="numeric" placeholder="Se arrastra el del último cierre de ese usuario" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono" /></label>
+        <p className="text-xs text-slate-500 mb-3">Si lo dejas vacío, se usa automáticamente el efectivo que ese usuario dejó en su último cierre.</p>
+        {err && <p className="text-sm text-rose-600 mb-1">{err}</p>}
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+          <button onClick={abrir} disabled={g || !userId} className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{g ? 'Abriendo…' : 'Abrir caja'}</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -280,8 +325,8 @@ function AbrirCajaModal({ caja, onClose, onDone }: { caja: CajaGestion; onClose:
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3"><h2 className="text-base font-semibold text-slate-900">Abrir Caja Nº {caja.numero}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
-        <p className="text-xs text-slate-500 mb-3">Responsable: <span className="font-medium text-slate-700">{responsable}</span></p>
+        <div className="flex items-center justify-between mb-3"><h2 className="text-base font-semibold text-slate-900">Abrir caja</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
+        <p className="text-xs text-slate-500 mb-3">Responsable: <span className="font-medium text-slate-700">{responsable}</span>. Se le asignará el número correlativo que siga en la clínica.</p>
         <label className="block mb-2"><span className="block text-sm font-medium text-slate-700 mb-1">Efectivo de apertura</span>
           <input value={saldo} onChange={(e) => setSaldo(e.target.value)} inputMode="numeric" className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono" /></label>
         {sugerido != null && (
@@ -322,7 +367,7 @@ function CerrarCajaModal({ caja, onClose, onDone }: { caja: CajaGestion; onClose
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-3"><h2 className="text-base font-semibold text-slate-900">Cerrar Caja Nº {caja.numero} · {caja.nombre}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
+        <div className="flex items-center justify-between mb-3"><h2 className="text-base font-semibold text-slate-900">Cerrar Caja Nº {caja.sesionAbierta?.numero ?? '—'} · {caja.usuarios.map((u) => u.user.name ?? u.user.email).filter(Boolean).join(', ') || 'sin responsable'}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
         {r && (
           <div className="grid grid-cols-3 gap-2 mb-3 text-center">
             <div><p className="text-[10px] uppercase text-slate-400">Apertura</p><p className="text-sm font-semibold">{fmt(r.saldoApertura)}</p></div>
@@ -368,7 +413,7 @@ function CajaFormModal({ caja, onClose, onSaved }: { caja: CajaGestion | null; o
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-4"><h2 className="text-base font-semibold text-slate-900">Caja Nº {caja?.numero ?? ''} · {caja?.usuarios.map((u) => u.user.name ?? u.user.email).filter(Boolean).join(', ') || 'sin usuario'}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
+        <div className="flex items-center justify-between mb-4"><h2 className="text-base font-semibold text-slate-900">Caja de {caja?.usuarios.map((u) => u.user.name ?? u.user.email).filter(Boolean).join(', ') || 'sin usuario'}</h2><button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button></div>
         <label className="block mb-3"><span className="text-xs font-medium text-slate-500">Saldo inicial</span>
           <input value={saldoInicial} onChange={(e) => setSaldoInicial(e.target.value)} inputMode="numeric" placeholder="0" className="mt-1 w-40 px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono" /></label>
         {caja && <label className="flex items-center gap-2 text-sm text-slate-700 mb-3"><input type="checkbox" checked={activo} onChange={(e) => setActivo(e.target.checked)} /> Caja activa</label>}
@@ -402,7 +447,7 @@ function SesionesModal({ caja, onClose }: { caja: CajaGestion; onClose: () => vo
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-1">
-          <h2 className="text-base font-semibold text-slate-900">Historial de pagos · Caja Nº {caja.numero}</h2>
+          <h2 className="text-base font-semibold text-slate-900">Historial de cajas · {caja.usuarios.map((u) => u.user.name ?? u.user.email).filter(Boolean).join(', ') || 'sin responsable'}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
         </div>
         <p className="text-xs text-slate-500 mb-3">Cada bloque es un período de la caja (desde que se abrió hasta que se cerró) con todos los pagos que recibió.</p>
@@ -415,7 +460,8 @@ function SesionesModal({ caja, onClose }: { caja: CajaGestion; onClose: () => vo
                   <button onClick={() => setSel(sel === s.id ? null : s.id)} className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-slate-50">
                     <div className="min-w-0">
                       <p className="text-sm text-slate-800 flex items-center gap-2 flex-wrap">
-                        <span className="font-semibold">{periodoLabel(s)}</span>
+                        <span className="font-bold">Caja Nº {s.numero || '—'}</span>
+                        <span className="text-slate-500 font-normal">{periodoLabel(s)}</span>
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${s.estado === 'ABIERTA' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{s.estado === 'ABIERTA' ? 'Abierta' : 'Cerrada'}</span>
                       </p>
                       <p className="text-xs text-slate-500">Abrió {s.abiertaPorNombre ?? '—'}{s.cerradaAt ? ` · cerró ${s.cerradaPorNombre ?? '—'}` : ''}</p>

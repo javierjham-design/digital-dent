@@ -12,9 +12,9 @@ import { useAuth } from '@/hooks/useAuth'
 // ── Tipos ──
 interface MetodoResumen { metodo: string; monto: number; cantidad: number }
 interface Resumen { ingresos: number; egresos: number; saldoEsperado: number; saldoApertura: number; ingresosEfectivo?: number; ingresosOtros?: number; porMetodo?: MetodoResumen[] }
-interface SesionAbierta { id: string; abiertaAt: string; saldoApertura: number; abiertaPorNombre?: string | null; resumen: Resumen | null }
+interface SesionAbierta { id: string; numero: number; abiertaAt: string; saldoApertura: number; abiertaPorNombre?: string | null; resumen: Resumen | null }
 interface SesionCerrada {
-  id: string; estado: string; abiertaAt: string; cerradaAt: string | null
+  id: string; numero: number; estado: string; abiertaAt: string; cerradaAt: string | null
   saldoApertura: number; saldoEsperado?: number | null; saldoReal?: number | null; diferencia?: number | null
   totalIngresos?: number | null; totalEgresos?: number | null; observaciones?: string | null
   abiertaPorNombre?: string | null; cerradaPorNombre?: string | null
@@ -24,9 +24,11 @@ interface ResumenCaja {
   sesionAbierta: SesionAbierta | null; ultimaCerrada: SesionCerrada | null
   usuarios?: { user: { id: string } }[]
 }
-const etiquetaCaja = (c: { numero?: number }) => `Caja N° ${c.numero ?? '—'}`
+// La "caja" que se muestra es el ciclo (sesión): su Nº es el correlativo global.
+// Abierta → el ciclo en curso; si no hay abierta, "tu caja" (el Nº se asigna al abrir).
+const etiquetaCaja = (c: ResumenCaja) => c.sesionAbierta ? `Caja N° ${c.sesionAbierta.numero}` : 'tu caja'
 interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { numero?: number; paciente?: { nombre: string; apellido: string } | null; medioPago?: { nombre: string | null } | null } | null }
-interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; pacienteId: string; paciente: { nombre: string; apellido: string; email?: string | null }; medioPago?: { nombre: string } | null; caja?: { numero: number; nombre: string } | null }
+interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; pacienteId: string; paciente: { nombre: string; apellido: string; email?: string | null }; medioPago?: { nombre: string } | null; movimientos?: { sesion?: { numero: number } | null }[] }
 
 // Plan (para recibir pago obligado a un plan)
 interface CobroItemLite { monto: number; cobro?: { estado: string } | null }
@@ -114,11 +116,11 @@ export function Cobros() {
         <section className="mb-7">
           <div className="bg-white rounded-2xl border border-slate-200 flex items-center justify-between gap-3 px-5 py-4">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-800">Tu caja está cerrada — {etiquetaCaja(miCajaSinAbrir)}</p>
+              <p className="text-sm font-semibold text-slate-800">Tu caja está cerrada</p>
               <p className="text-xs text-slate-500">
                 {miCajaSinAbrir.ultimaCerrada?.cerradaAt
-                  ? `Último cierre ${fechaHora(miCajaSinAbrir.ultimaCerrada.cerradaAt)} · efectivo que quedó ${fmt(miCajaSinAbrir.ultimaCerrada.saldoReal)}`
-                  : 'Aún no tiene cierres previos'}
+                  ? `Última: Caja N° ${miCajaSinAbrir.ultimaCerrada.numero} · cerrada ${fechaHora(miCajaSinAbrir.ultimaCerrada.cerradaAt)} · efectivo que quedó ${fmt(miCajaSinAbrir.ultimaCerrada.saldoReal)}. Al abrir se te asigna el N° que siga.`
+                  : 'Aún no tienes cajas. Al abrir se te asigna el N° correlativo que siga en la clínica.'}
               </p>
             </div>
             <button onClick={() => setModal({ kind: 'abrir', cajaId: miCajaSinAbrir.id, nombre: etiquetaCaja(miCajaSinAbrir) })}
@@ -138,7 +140,7 @@ export function Cobros() {
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-medium text-slate-800 truncate">#{c.numero} · {c.paciente.nombre} {c.paciente.apellido}</p>
-                {c.caja && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">Caja Nº {c.caja.numero || '—'} · {c.caja.nombre}</span>}
+                {c.movimientos?.[0]?.sesion?.numero != null && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">Caja Nº {c.movimientos[0].sesion!.numero}</span>}
               </div>
               <p className="text-xs text-slate-500 truncate">{c.concepto}{c.medioPago ? ` · ${c.medioPago.nombre}` : ' · Efectivo'}{c.numeroReferencia ? ` · Ref ${c.numeroReferencia}` : ''}{c.numeroBoleta ? ` · Boleta ${c.numeroBoleta}` : ''}{c.fechaPago ? ` · ${fechaHora(c.fechaPago)}` : ''}</p>
             </div>
@@ -209,7 +211,7 @@ function CajaAbiertaCard({ caja, esPropia, onPago, onGasto, onMovs, onCerrar }: 
       <div className="flex items-start justify-between flex-wrap gap-3 mb-4">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-base font-bold text-slate-900">{caja.nombre}</span>
+            <span className="text-base font-bold text-slate-900">Caja N° {s.numero}</span>
             <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">Abierta</span>
             {!esPropia && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">Caja de otro usuario</span>}
           </div>
@@ -260,7 +262,7 @@ function NuevaCajaModal({ onClose, onDone, onError }: { onClose: () => void; onD
   }
   return (
     <Modal title="Mi caja" onClose={onClose}>
-      <p className="text-xs text-slate-500 mb-3">Cada usuario tiene UNA caja propia (sin nombre), identificada por su número. Es exclusiva tuya: sólo tú recibes pagos y la cierras. Si ya la tenías, se usa esa misma.</p>
+      <p className="text-xs text-slate-500 mb-3">Tu caja es un ciclo de apertura→cierre, exclusiva tuya: sólo tú recibes pagos y la cierras. Cada vez que la abres se le asigna el número correlativo que siga en la clínica, y el efectivo que dejes al cerrar se arrastra a tu próxima apertura.</p>
       <label className="block"><span className="text-xs font-medium text-slate-500">Saldo inicial (opcional)</span>
         <input value={saldoInicial} onChange={(e) => setSaldoInicial(e.target.value)} inputMode="numeric" placeholder="0" className="mt-1 w-40 px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500" /></label>
       {err && <p className="text-sm text-rose-600 mt-3">{err}</p>}

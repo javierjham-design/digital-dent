@@ -12,6 +12,14 @@ export async function getResumenCajas(req: Request, res: Response) {
 export async function getGestionCajas(req: Request, res: Response) {
   res.json(await svc.gestionCajas(tenantDb(req)))
 }
+export async function getOperadores(req: Request, res: Response) {
+  res.json(await svc.operadoresCaja(tenantDb(req)))
+}
+export async function postAbrirParaUsuario(req: Request, res: Response) {
+  const { userId, saldoApertura } = (req.body ?? {}) as { userId?: string; saldoApertura?: unknown }
+  if (!userId) return res.status(400).json({ message: 'Falta el usuario.' })
+  res.status(201).json(await svc.abrirCajaParaUsuario(tenantDb(req), req.auth!, userId, saldoApertura))
+}
 function rangoReq(req: Request) {
   return {
     desde: typeof req.query.desde === 'string' ? req.query.desde : undefined,

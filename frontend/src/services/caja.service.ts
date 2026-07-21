@@ -24,10 +24,14 @@ export interface ReporteProfesional { profesionalId: string; nombre: string; tot
 export interface ReporteProfesionales { desde: string | null; hasta: string | null; total: number; cantidad: number; porMetodo: ReporteMetodo[]; profesionales: ReporteProfesional[] }
 const rangoQS = (desde?: string, hasta?: string) => { const p = new URLSearchParams(); if (desde) p.set('desde', desde); if (hasta) p.set('hasta', hasta); const s = p.toString(); return s ? `?${s}` : '' }
 
+export interface OperadorCaja { userId: string; nombre: string | null; cajaId: string | null; tieneAbierta: boolean }
+
 export const cajasService = {
   listar: () => api.get<unknown[]>('/cajas'),
   resumen: () => api.get<unknown[]>('/cajas/resumen'),
   gestion: () => api.get<unknown[]>('/cajas/gestion'),
+  operadores: () => api.get<OperadorCaja[]>('/cajas/operadores'),
+  abrirParaUsuario: (userId: string, saldoApertura?: number) => api.post<unknown>('/cajas/abrir-para-usuario', { userId, saldoApertura }),
   reportePagos: (desde?: string, hasta?: string) => api.get<ReportePagos>(`/cajas/reporte-pagos${rangoQS(desde, hasta)}`),
   reporteProfesionales: (desde?: string, hasta?: string) => api.get<ReporteProfesionales>(`/cajas/reporte-profesionales${rangoQS(desde, hasta)}`),
   obtener: (id: string) => api.get<unknown>(`/cajas/${id}`),

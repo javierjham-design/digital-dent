@@ -12,6 +12,10 @@ const COBRO_INCLUDE = {
   paciente: true,
   medioPago: true,
   caja: { select: { id: true, numero: true, nombre: true } },
+  // Nº de la CAJA (ciclo apertura→cierre) en que se recibió el pago: es el
+  // correlativo global de la sesión, no un "registro físico". Viene del
+  // movimiento de ingreso que generó el cobro.
+  movimientos: { where: { tipo: 'INGRESO' }, select: { sesion: { select: { numero: true } } }, orderBy: { fecha: 'asc' }, take: 1 },
   reciboUsuario: { select: { id: true, name: true, email: true } },
   items: { include: { tratamiento: { include: { prestacion: true } } } },
 } as const

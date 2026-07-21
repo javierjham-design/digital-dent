@@ -1336,9 +1336,10 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
     planesService.listar(pacienteId).then((p) => { const ps = p as PlanCard[]; setPlanes(ps); setPlanId((x) => x || ps[0]?.id || '') }).catch(() => {})
     // Sólo la caja PROPIA del usuario que esté abierta (no las de otros usuarios).
     cajasService.resumen().then((c) => {
-      const list = c as { id: string; numero: number; sesionAbierta: unknown | null; usuarios?: { user: { id: string } }[] }[]
+      const list = c as { id: string; numero: number; sesionAbierta: { numero: number } | null; usuarios?: { user: { id: string } }[] }[]
       const propia = list.find((x) => x.sesionAbierta && x.usuarios?.some((u) => u.user.id === user?.id))
-      setMiCaja(propia ? { id: propia.id, numero: propia.numero } : null)
+      // El Nº que se muestra es el del ciclo abierto (correlativo global), no el registro.
+      setMiCaja(propia ? { id: propia.id, numero: propia.sesionAbierta!.numero } : null)
     }).catch(() => {})
     mediosPagoService.listar().then((m) => setMedios(m.filter((x) => x.activo))).catch(() => {})
   }, [pacienteId, user?.id])
