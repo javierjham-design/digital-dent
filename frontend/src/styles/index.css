@@ -22,10 +22,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Evita que la página sea más ancha que la pantalla del celular. NO se usa
-   overflow:clip/hidden (en iOS no impide que el viewport se agrande para caber
-   un hijo con min-width y ademas rompe el sticky). Los contenidos anchos de
-   verdad (calendario, tablas) usan min-width sólo desde 640px y scrollean. */
+/* Evita que la página sea más ancha que la pantalla del celular. El desborde
+   horizontal real (calendario, tablas anchas) se contiene con overflow-x-clip en
+   el <main> de cada layout (un div con ancho definido, donde clip SÍ funciona en
+   iOS y no rompe el header sticky, que es hermano de <main>). Aquí sólo el tope
+   de ancho general. NO usar overflow en html/body (en iOS no evita el zoom). */
 html,
 body,
 #root {

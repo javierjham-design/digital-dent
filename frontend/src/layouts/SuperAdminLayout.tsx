@@ -72,7 +72,7 @@ export function SuperAdminLayout() {
         )}
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 py-6 md:py-8">
+      <main className="max-w-7xl mx-auto px-4 py-6 md:py-8 overflow-x-clip">
         <Outlet />
       </main>
     </div>

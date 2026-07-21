@@ -158,7 +158,11 @@ export function DashboardLayout() {
           <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
         </nav>
       </header>
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      {/* overflow-x-clip: contiene cualquier desborde horizontal a nivel de página
+          (evita el zoom-out en iOS) sin romper el header sticky, que es hermano de
+          <main>. Los contenidos anchos (calendario, tablas) scrollean en su propio
+          contenedor overflow-x-auto. `clip` (no `hidden`) no crea scroll vertical. */}
+      <main className="max-w-7xl mx-auto px-4 py-8 overflow-x-clip">
         <Outlet />
       </main>
       <HelpWidget />
