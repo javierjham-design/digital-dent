@@ -3,17 +3,20 @@ import type { BloqueoDTO, CitaDTO, HorarioDTO, PacienteDTO, PacientesPagina, Pac
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
 
+export interface CitaLogDTO { id: string; tipo: string; detalle: string; userName: string; createdAt: string }
+
 export const citasService = {
   listar: (from?: string, to?: string) => {
     const qs = from && to ? `?from=${from}&to=${to}` : ''
     return api.get<CitaDTO[]>(`/citas${qs}`)
   },
-  crear: (input: { pacienteId: string; doctorId: string; fecha: string; duracion?: number; tipo?: string; notas?: string; sobrecupo?: boolean }) =>
+  crear: (input: { pacienteId: string; doctorId: string; fecha: string; duracion?: number; tipo?: string; notas?: string; sobrecupo?: boolean; enviarCorreo?: boolean }) =>
     api.post<CitaDTO>('/citas', input),
   editar: (id: string, input: { fecha?: string; duracion?: number; doctorId?: string; tipo?: string; notas?: string | null; sobrecupo?: boolean }) =>
     api.patch<CitaDTO>(`/citas/${id}`, input),
   cambiarEstado: (id: string, estado: string) =>
     api.patch<CitaDTO>(`/citas/${id}/estado`, { estado }),
+  logs: (id: string) => api.get<CitaLogDTO[]>(`/citas/${id}/logs`),
   eliminar: (id: string) => api.del<{ ok: true }>(`/citas/${id}`),
 }
 

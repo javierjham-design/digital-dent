@@ -3,6 +3,7 @@ import { badRequest } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import { enviarEmail, emailConfigurado, type EmailAdjunto } from '@/lib/email'
 import { plantillaBase, confirmacionHoraHtml, mensajeConAdjuntoHtml, mensajeConPagoHtml, type ClinicaEmail } from '@/lib/email-templates'
+import { construirICS, googleCalendarUrl } from '@/lib/ics'
 import { crearCobroLibreConLink } from '@/services/cobros.service'
 import { formatMoneda } from '@shared/constants/paises'
 
@@ -97,7 +98,7 @@ export async function enviarManual(
 // el correo está configurado y la clínica no desactivó las notificaciones.
 export async function enviarConfirmacionHora(
   db: TenantClient,
-  d: { email?: string | null; pacienteId?: string | null; pacienteNombre: string; fecha: Date; profesional?: string | null; tipo?: string | null; nota?: string | null },
+  d: { email?: string | null; pacienteId?: string | null; pacienteNombre: string; fecha: Date; duracion?: number | null; citaId?: string | null; profesional?: string | null; tipo?: string | null; nota?: string | null },
 ): Promise<void> {
   try {
     const email = (d.email ?? '').trim().toLowerCase()
@@ -105,8 +106,19 @@ export async function enviarConfirmacionHora(
     const clinica = await datosClinica(db)
     if (!clinica.emailNotificaciones) return
     const fechaTexto = d.fecha.toLocaleString('es-CL', { timeZone: 'America/Santiago', weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })
-    const html = confirmacionHoraHtml(clinica, { paciente: d.pacienteNombre, fechaTexto, profesional: d.profesional, tipo: d.tipo, nota: d.nota })
-    await enviarCorreoClinica(db, { to: email, tipo: 'CONFIRMACION_HORA', asunto: `Tu hora en ${clinica.nombre}`, html, pacienteId: d.pacienteId ?? null })
+
+    // Evento de calendario: se adjunta como .ics (Apple/Google/Outlook) y se ofrece
+    // el enlace directo a Google Calendar, para que el paciente lo agregue de un toque.
+    const inicio = d.fecha
+    const fin = new Date(inicio.getTime() + (Number(d.duracion) || 30) * 60000)
+    const titulo = `${d.tipo ? `${d.tipo} · ` : ''}${clinica.nombre}`
+    const descripcion = [d.profesional ? `Profesional: ${d.profesional}` : null, clinica.telefono ? `Tel: ${clinica.telefono}` : null].filter(Boolean).join('\n') || null
+    const evento = { uid: `cita-${d.citaId ?? Date.now()}@clariva.cl`, inicio, fin, titulo, descripcion, ubicacion: clinica.direccion }
+    const ics = construirICS(evento)
+    const attachments: EmailAdjunto[] = [{ filename: 'cita.ics', contentBase64: Buffer.from(ics, 'utf8').toString('base64') }]
+
+    const html = confirmacionHoraHtml(clinica, { paciente: d.pacienteNombre, fechaTexto, profesional: d.profesional, tipo: d.tipo, nota: d.nota, googleCalUrl: googleCalendarUrl(evento) })
+    await enviarCorreoClinica(db, { to: email, tipo: 'CONFIRMACION_HORA', asunto: `Tu hora en ${clinica.nombre}`, html, attachments, pacienteId: d.pacienteId ?? null })
   } catch { /* best-effort: nunca hace fallar la reserva/cita */ }
 }
 

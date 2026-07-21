@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
 import { actorName } from '@/services/auth.service'
-import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas } from '@/services/citas.service'
+import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas, listarLogsCita } from '@/services/citas.service'
 import { cambiarEstadoSchema, crearCitaSchema, editarCitaSchema } from '@/validators/schemas'
 
 function userName(req: Request): string {
@@ -33,4 +33,8 @@ export async function deleteCita(req: Request, res: Response) {
 export async function patchEstado(req: Request, res: Response) {
   const { estado } = cambiarEstadoSchema.parse(req.body)
   res.json(await cambiarEstadoCita(tenantDb(req), req.params.id, estado, userName(req)))
+}
+
+export async function getLogsCita(req: Request, res: Response) {
+  res.json(await listarLogsCita(tenantDb(req), req.params.id))
 }

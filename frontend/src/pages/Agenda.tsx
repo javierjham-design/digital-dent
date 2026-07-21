@@ -10,7 +10,7 @@ import type { EventClickArg, EventContentArg } from '@fullcalendar/core'
 type MoveArg = { event: { start: Date | null; end: Date | null; extendedProps: Record<string, unknown> }; revert: () => void }
 import type { BloqueoDTO, CitaDTO, DoctorDTO, HorarioDTO, ClinicaConfigDTO } from '@shared/types'
 import { CITA_ESTADOS, ESTADOS_NO_OCUPAN, siguienteEstado } from '@shared/constants/cita-estados'
-import { bloqueosService, citasService, horariosLectura } from '@/services/clinica.service'
+import { bloqueosService, citasService, horariosLectura, type CitaLogDTO } from '@/services/clinica.service'
 import { pacientesService } from '@/services/clinica.service'
 import { clinicaService } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
@@ -790,7 +790,10 @@ function DiariaLista({ citas, clinica, onClick, onAvanzar }: { citas: CitaDTO[];
               <span className="font-mono text-[11px] opacity-70">{hora(c.fin)}</span>
             </div>
             <button onClick={() => onClick(c)} className="flex-1 min-w-0 text-left">
-              <p className="font-semibold text-cyan-800 hover:text-cyan-600 truncate">{c.pacienteNombre}</p>
+              <p className="font-semibold text-cyan-800 hover:text-cyan-600 truncate">
+                {c.pacienteNombre}
+                {c.sobrecupo && <span className="ml-2 align-middle text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-500 text-white whitespace-nowrap">Sobrecupo</span>}
+              </p>
               <p className="text-xs text-slate-500 truncate">{c.doctor} · {c.tipo}</p>
               {c.notas?.trim() && <p className="text-xs text-amber-700 truncate">📝 {c.notas.trim()}</p>}
             </button>
@@ -1005,7 +1008,9 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
   const [comentario, setComentario] = useState('')
   const [modo, setModo] = useState<'existente' | 'nuevo'>('existente')
   const [pacienteId, setPacienteId] = useState('')
-  const [nuevo, setNuevo] = useState({ nombre: '', apellido: '', rut: '', otroDoc: '', telefono: '' })
+  const [pacienteEmail, setPacienteEmail] = useState<string | null>(null)
+  const [nuevo, setNuevo] = useState({ nombre: '', apellido: '', rut: '', otroDoc: '', telefono: '', email: '' })
+  const [enviarCorreo, setEnviarCorreo] = useState(true)
   const [guardando, setGuardando] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -1045,10 +1050,10 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
     try {
       let pid = pacienteId
       if (modo === 'nuevo') {
-        const p = await pacientesService.crear({ nombre: nuevo.nombre, apellido: nuevo.apellido, rut: nuevo.rut || undefined, otroDocId: nuevo.otroDoc || undefined, telefono: nuevo.telefono || undefined })
+        const p = await pacientesService.crear({ nombre: nuevo.nombre, apellido: nuevo.apellido, rut: nuevo.rut || undefined, otroDocId: nuevo.otroDoc || undefined, telefono: nuevo.telefono || undefined, email: nuevo.email || undefined })
         pid = p.id
       }
-      await citasService.crear({ pacienteId: pid, doctorId: doc, fecha: slotISO, duracion: durSel, tipo: tipo || 'CONSULTA', sobrecupo, notas: comentario.trim() || undefined })
+      await citasService.crear({ pacienteId: pid, doctorId: doc, fecha: slotISO, duracion: durSel, tipo: tipo || 'CONSULTA', sobrecupo, notas: comentario.trim() || undefined, enviarCorreo })
       onCreated()
     } catch (e) {
       const m = e instanceof ApiError ? e.message : 'No se pudo agendar'
@@ -1107,15 +1112,30 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
         </div>
 
         {modo === 'existente' ? (
-          <PacienteBuscador onSelect={(p) => setPacienteId(p?.id ?? '')} />
+          <PacienteBuscador onSelect={(p) => { setPacienteId(p?.id ?? ''); setPacienteEmail((p as { email?: string | null } | null)?.email ?? null) }} />
         ) : (
           <div className="grid grid-cols-2 gap-2">
             <input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Nombre *" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
             <input value={nuevo.apellido} onChange={(e) => setNuevo({ ...nuevo, apellido: e.target.value })} placeholder="Apellido *" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
             <div className="col-span-2"><RutField rut={nuevo.rut} otroDoc={nuevo.otroDoc} onChange={(v) => setNuevo({ ...nuevo, ...v })} /></div>
             <input value={nuevo.telefono} onChange={(e) => setNuevo({ ...nuevo, telefono: e.target.value })} placeholder="Teléfono" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+            <input value={nuevo.email} onChange={(e) => setNuevo({ ...nuevo, email: e.target.value })} type="email" placeholder="Correo (para enviarle la cita)" className="col-span-2 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
           </div>
         )}
+
+        {/* Enviar la cita al correo del paciente con archivo para su calendario. */}
+        {(() => {
+          const emailActual = modo === 'existente' ? pacienteEmail : (nuevo.email.trim() || null)
+          return (
+            <label className="flex items-start gap-2 text-sm text-slate-600">
+              <input type="checkbox" checked={enviarCorreo} onChange={(e) => setEnviarCorreo(e.target.checked)} className="mt-0.5" />
+              <span>
+                Enviar la cita al correo del paciente <span className="text-slate-400">(incluye archivo para agregarla a Google/Apple Calendar)</span>
+                {enviarCorreo && !emailActual && <span className="block text-[11px] text-amber-600">Este paciente no tiene correo registrado: no se enviará.</span>}
+              </span>
+            </label>
+          )
+        })()}
       </div>
       {err && <p className="mt-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{err}</p>}
       <div className="flex gap-2 pt-5">
@@ -1138,9 +1158,52 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
   const [guardandoNota, setGuardandoNota] = useState(false)
   const notaCambiada = (nota.trim()) !== (cita.notas ?? '').trim()
   async function guardarNota() { setGuardandoNota(true); try { await onComentario(cita, nota.trim()) } finally { setGuardandoNota(false) } }
+
+  // Historial de la cita (agendamiento, notificaciones, confirmaciones y cambios de estado).
+  const [verHistorial, setVerHistorial] = useState(false)
+  const [logs, setLogs] = useState<CitaLogDTO[] | null>(null)
+  useEffect(() => {
+    if (!verHistorial || logs) return
+    citasService.logs(cita.id).then(setLogs).catch(() => setLogs([]))
+  }, [verHistorial, logs, cita.id])
+
+  // "Notificar WhatsApp": abre WhatsApp con el mensaje Y deja la cita en verde
+  // (Notificado por WhatsApp). Cualquier otra transición sólo cambia el estado.
+  const avanzar = () => {
+    if (!next) return
+    if (next.estado === 'CONFIRMADA' && waUrl) window.open(waUrl, '_blank', 'noopener,noreferrer')
+    onEstado(cita.id, next.estado)
+  }
+  const fechaLog = (s: string) => new Date(s).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false })
+
   return (
     <Modal title={cita.pacienteNombre} onClose={onClose}>
-      <p className="text-sm text-slate-500 mb-4">{new Date(cita.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora(cita.inicio)}–{hora(cita.fin)}</p>
+      <p className="text-sm text-slate-500 mb-3">{new Date(cita.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora(cita.inicio)}–{hora(cita.fin)}</p>
+
+      {/* Historial de confirmaciones (arriba, plegable): agendamiento → notificaciones
+          → confirmaciones → cambios de estado, con fecha/hora y usuario. */}
+      <button onClick={() => setVerHistorial((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 mb-3 px-3 py-2 rounded-xl border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50">
+        <span>🕑 Ver historial de confirmaciones</span>
+        <span className="text-slate-400">{verHistorial ? '▲' : '▼'}</span>
+      </button>
+      {verHistorial && (
+        <div className="mb-4 border border-slate-100 rounded-xl bg-slate-50 p-3 max-h-56 overflow-y-auto">
+          {logs === null ? <p className="text-xs text-slate-400">Cargando…</p>
+            : logs.length === 0 ? <p className="text-xs text-slate-400">Sin registros todavía.</p>
+            : (
+              <ol className="space-y-2">
+                {logs.map((l) => (
+                  <li key={l.id} className="flex gap-2 text-xs">
+                    <span className="text-slate-400 shrink-0 font-mono">{fechaLog(l.createdAt)}</span>
+                    <span className="text-slate-700">{l.detalle} <span className="text-slate-400">· {l.userName}</span></span>
+                  </li>
+                ))}
+              </ol>
+            )}
+        </div>
+      )}
+
       <dl className="space-y-2 text-sm mb-4">
         <Row k="RUT" v={cita.pacienteRut ?? '—'} />
         <Row k="Teléfono" v={cita.pacienteTelefono ?? '—'} />
@@ -1163,9 +1226,8 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
         className="w-full mb-3 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold">Reagendar / cambiar duración</button>
 
       <Link to={`/pacientes/${cita.pacienteId}?tab=planes`} className="block w-full text-center mb-3 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Ir a planes de tratamiento</Link>
-      {waUrl && <a href={waUrl} target="_blank" rel="noopener noreferrer" className="block w-full text-center mb-3 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium">Escribir por WhatsApp</a>}
       {next && (
-        <button onClick={() => onEstado(cita.id, next.estado)} className="w-full mb-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ backgroundColor: CITA_ESTADOS[next.estado]?.color }}>
+        <button onClick={avanzar} className="w-full mb-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ backgroundColor: CITA_ESTADOS[next.estado]?.color }}>
           {next.accion} → {CITA_ESTADOS[next.estado]?.label}
         </button>
       )}

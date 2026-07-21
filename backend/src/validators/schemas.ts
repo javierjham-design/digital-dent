@@ -25,6 +25,7 @@ export const crearCitaSchema = z.object({
   tipo: z.string().optional(),
   notas: z.string().nullish(),
   sobrecupo: z.boolean().optional(),
+  enviarCorreo: z.boolean().optional(),
 })
 
 export const cambiarEstadoSchema = z.object({

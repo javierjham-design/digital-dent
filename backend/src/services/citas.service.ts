@@ -76,7 +76,7 @@ export async function listarCitas(db: TenantClient, rango?: { from?: string; to?
 
 export interface CrearCitaInput {
   pacienteId: string; doctorId: string; fecha: string; duracion?: number
-  tipo?: string; notas?: string | null; sobrecupo?: boolean
+  tipo?: string; notas?: string | null; sobrecupo?: boolean; enviarCorreo?: boolean
 }
 
 export async function crearCita(db: TenantClient, userName: string, input: CrearCitaInput): Promise<CitaDTO> {
@@ -121,14 +121,17 @@ export async function crearCita(db: TenantClient, userName: string, input: Crear
     include: INCLUDE,
   })
   void pushCita(db, cita.id).catch(() => {})
-  // Confirmación de hora por correo (best-effort; sólo si el paciente tiene email).
-  void (async () => {
-    const p = await db.paciente.findUnique({ where: { id: input.pacienteId }, select: { email: true, nombre: true, apellido: true } })
-    await enviarConfirmacionHora(db, {
-      email: p?.email, pacienteId: input.pacienteId, pacienteNombre: `${p?.nombre ?? ''} ${p?.apellido ?? ''}`.trim(),
-      fecha: inicio, profesional: cita.doctor?.name ?? null, tipo: cita.tipo,
-    })
-  })().catch(() => {})
+  // Confirmación de hora por correo con archivo de calendario (best-effort; sólo si
+  // el paciente tiene email y quien agenda no destildó "enviar cita al correo").
+  if (input.enviarCorreo !== false) {
+    void (async () => {
+      const p = await db.paciente.findUnique({ where: { id: input.pacienteId }, select: { email: true, nombre: true, apellido: true } })
+      await enviarConfirmacionHora(db, {
+        email: p?.email, pacienteId: input.pacienteId, pacienteNombre: `${p?.nombre ?? ''} ${p?.apellido ?? ''}`.trim(),
+        fecha: inicio, duracion: dur, citaId: cita.id, profesional: cita.doctor?.name ?? null, tipo: cita.tipo,
+      })
+    })().catch(() => {})
+  }
   return toDTO(cita)
 }
 
@@ -198,6 +201,19 @@ export async function editarCita(db: TenantClient, id: string, userName: string,
   })
   void pushCita(db, cita.id).catch(() => {})
   return toDTO(cita)
+}
+
+// Historial de la cita (agendamiento, notificaciones, confirmaciones y cambios de
+// estado) con fecha/hora y el usuario que realizó cada acción. Del más antiguo al
+// más reciente, para leerlo como una línea de tiempo.
+export async function listarLogsCita(db: TenantClient, citaId: string) {
+  const cita = await db.cita.findUnique({ where: { id: citaId }, select: { id: true } })
+  if (!cita) throw notFound('Cita no encontrada')
+  return db.citaLog.findMany({
+    where: { citaId },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, tipo: true, detalle: true, userName: true, createdAt: true },
+  })
 }
 
 export async function eliminarCita(db: TenantClient, id: string): Promise<void> {

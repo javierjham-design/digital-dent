@@ -28,7 +28,7 @@ export function plantillaBase(clinica: ClinicaEmail, contenidoHtml: string): str
 </body></html>`
 }
 
-export function confirmacionHoraHtml(clinica: ClinicaEmail, d: { paciente: string; fechaTexto: string; profesional?: string | null; tipo?: string | null; nota?: string | null }): string {
+export function confirmacionHoraHtml(clinica: ClinicaEmail, d: { paciente: string; fechaTexto: string; profesional?: string | null; tipo?: string | null; nota?: string | null; googleCalUrl?: string | null }): string {
   const contenido = `
     <p>Hola ${escapeHtml(d.paciente)},</p>
     <p>Tu hora en <strong>${escapeHtml(clinica.nombre)}</strong> quedó agendada:</p>
@@ -38,6 +38,10 @@ export function confirmacionHoraHtml(clinica: ClinicaEmail, d: { paciente: strin
       ${d.tipo ? `<div style="color:#64748b;font-size:13px">${escapeHtml(d.tipo)}</div>` : ''}
     </div>
     ${d.nota ? `<p style="color:#334155">${escapeHtml(d.nota)}</p>` : ''}
+    ${d.googleCalUrl ? `<div style="margin:14px 0">
+      <a href="${escapeHtml(d.googleCalUrl)}" style="display:inline-block;background:#0891b2;color:#fff;text-decoration:none;font-weight:600;font-size:14px;padding:10px 18px;border-radius:10px">📅 Agregar a Google Calendar</a>
+    </div>
+    <p style="color:#64748b;font-size:12px">Adjuntamos también el archivo <strong>cita.ics</strong>: ábrelo desde tu teléfono para agregar la cita a Apple Calendar, Google Calendar u Outlook.</p>` : ''}
     <p style="color:#64748b;font-size:13px">Si necesitas reprogramar o cancelar, responde este correo o llámanos.</p>`
   return plantillaBase(clinica, contenido)
 }

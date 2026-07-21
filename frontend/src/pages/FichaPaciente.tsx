@@ -440,7 +440,9 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   const [doctores, setDoctores] = useState<DoctorDTO[]>([])
   const [selPiezas, setSelPiezas] = useState<number[]>([])
   const [selCaras, setSelCaras] = useState<Record<number, string[]>>({})
-  const [selZona, setSelZona] = useState<string | null>(null)
+  // Zonas (arcadas/sextantes): selección MÚLTIPLE, igual que las piezas — se puede
+  // marcar arcada superior E inferior a la vez.
+  const [selZonas, setSelZonas] = useState<string[]>([])
   const [denticion, setDenticion] = useState<'PERM' | 'TEMP'>('PERM')
   const [evoAccion, setEvoAccion] = useState<TratNode | null>(null)
   const [error, setError] = useState('')
@@ -472,9 +474,9 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   // Selección múltiple en el odontograma: se pueden marcar varias piezas y, en
   // cada una, sus caras. Clic en una cara agrega esa pieza+cara; clic en la
   // silueta/número selecciona/deselecciona la pieza completa (implante).
-  const clearSel = () => { setSelPiezas([]); setSelCaras({}); setSelZona(null) }
+  const clearSel = () => { setSelPiezas([]); setSelCaras({}); setSelZonas([]) }
   const toggleFace = (n: number, f: string) => {
-    setSelZona(null)
+    setSelZonas([])
     setSelPiezas((ps) => (ps.includes(n) ? ps : [...ps, n]))
     setSelCaras((cs) => {
       const cur = cs[n] ?? []
@@ -482,12 +484,16 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
     })
   }
   const toggleWhole = (n: number) => {
-    setSelZona(null)
+    setSelZonas([])
     setSelPiezas((ps) => (ps.includes(n) ? ps.filter((x) => x !== n) : [...ps, n]))
     setSelCaras((cs) => { const { [n]: _omit, ...rest } = cs; return rest })
   }
-  // Zona = selección independiente (no marca dientes). Excluye la selección de piezas.
-  const toggleZona = (label: string) => { setSelPiezas([]); setSelCaras({}); setSelZona((z) => (z === label ? null : label)) }
+  // Zona = selección independiente (no marca dientes). Excluye la selección de
+  // piezas, pero permite VARIAS zonas a la vez (arcada superior + inferior, etc.).
+  const toggleZona = (label: string) => {
+    setSelPiezas([]); setSelCaras({})
+    setSelZonas((zs) => (zs.includes(label) ? zs.filter((x) => x !== label) : [...zs, label]))
+  }
   const cambiarDenticion = (d: 'PERM' | 'TEMP') => { setDenticion(d); clearSel() }
   async function crearPlan() { const p = await planesService.crear({ pacienteId, doctorTitularId: doctores[0]?.id }) as { id: string }; cargarPlanes(); abrir(p.id) }
 
@@ -512,7 +518,7 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
       {detalle ? (
         <PlanDetalleView
           plan={detalle} prestaciones={prestaciones} doctores={doctores} pacienteId={pacienteId}
-          selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} denticion={denticion}
+          selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} denticion={denticion}
           toggleFace={toggleFace} toggleWhole={toggleWhole} toggleZona={toggleZona} clearSel={clearSel} cambiarDenticion={cambiarDenticion}
           accion={accion}
           onCerrar={() => setDetalle(null)} onEvolucionar={setEvoAccion} onRenombrar={renombrar}
@@ -644,9 +650,9 @@ function PlanLista({ planes, onAbrir, onNuevo, onEliminar, onEnviar }: {
   )
 }
 
-function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, selCaras, selZona, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onBloquear, onProfesional, onEnviarCorreo }: {
+function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, selCaras, selZonas, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onBloquear, onProfesional, onEnviarCorreo }: {
   plan: PlanDetalle; prestaciones: PrestacionDTO[]; doctores: DoctorDTO[]; pacienteId: string
-  selPiezas: number[]; selCaras: Record<number, string[]>; selZona: string | null; denticion: 'PERM' | 'TEMP'
+  selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; denticion: 'PERM' | 'TEMP'
   toggleFace: (n: number, f: string) => void; toggleWhole: (n: number) => void; toggleZona: (label: string) => void
   clearSel: () => void; cambiarDenticion: (d: 'PERM' | 'TEMP') => void
   accion: (fn: () => Promise<unknown>) => Promise<void>
@@ -721,7 +727,7 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
         {/* Panel derecho: odontograma + secciones */}
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-slate-200 p-4">
-            <OdontogramaPlan caraMap={caraMap} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} denticion={denticion}
+            <OdontogramaPlan caraMap={caraMap} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} denticion={denticion}
               onFace={toggleFace} onWhole={toggleWhole} onZona={toggleZona} onClear={clearSel} onDenticion={cambiarDenticion} />
           </div>
 
@@ -739,7 +745,7 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
                 <AgregarSeccion planId={plan.id} accion={accion} sinSeccionIds={plan.tratamientos.map((t) => t.id)} />
                 {!agregando && <span className="text-xs text-slate-400">Selecciona piezas o una zona arriba.</span>}
               </div>
-              {agregando && <AgregarAccion planId={plan.id} seccionId="" pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />}
+              {agregando && <AgregarAccion planId={plan.id} seccionId="" pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />}
             </div>
           )}
 
@@ -752,10 +758,10 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
           )}
 
           {plan.secciones.map((s, i) => (
-            <SeccionBloque key={s.id} seccion={s} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} onMoverAccion={moverAccion} idx={i} total={plan.secciones.length} onMover={moverSeccion} />
+            <SeccionBloque key={s.id} seccion={s} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} onMoverAccion={moverAccion} idx={i} total={plan.secciones.length} onMover={moverSeccion} />
           ))}
           {plan.tratamientos.length > 0 && (
-            <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', orden: 0, fechaTentativa: null, diasDesdeAnterior: null, tratamientos: plan.tratamientos }} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} onMoverAccion={moverAccion} sinSeccion />
+            <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', orden: 0, fechaTentativa: null, diasDesdeAnterior: null, tratamientos: plan.tratamientos }} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} onMoverAccion={moverAccion} sinSeccion />
           )}
         </div>
       </div>
@@ -849,8 +855,8 @@ function GroupBtn({ label, onClick, active }: { label: string; onClick: () => vo
   )
 }
 
-function OdontogramaPlan({ caraMap, selPiezas, selCaras, selZona, denticion, onFace, onWhole, onZona, onClear, onDenticion }: {
-  caraMap: Map<number, Set<string>>; selPiezas: number[]; selCaras: Record<number, string[]>; selZona: string | null; denticion: 'PERM' | 'TEMP'
+function OdontogramaPlan({ caraMap, selPiezas, selCaras, selZonas, denticion, onFace, onWhole, onZona, onClear, onDenticion }: {
+  caraMap: Map<number, Set<string>>; selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; denticion: 'PERM' | 'TEMP'
   onFace: (n: number, f: string) => void; onWhole: (n: number) => void; onZona: (label: string) => void
   onClear: () => void; onDenticion: (d: 'PERM' | 'TEMP') => void
 }) {
@@ -870,7 +876,7 @@ function OdontogramaPlan({ caraMap, selPiezas, selCaras, selZona, denticion, onF
   )
   const permCount = [...caraMap.keys()].filter((n) => n < 50).length
   const tempCount = [...caraMap.keys()].filter((n) => n >= 50).length
-  const haySel = selPiezas.length > 0 || selZona != null
+  const haySel = selPiezas.length > 0 || selZonas.length > 0
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
@@ -897,14 +903,14 @@ function OdontogramaPlan({ caraMap, selPiezas, selCaras, selZona, denticion, onF
 
       <div className="flex flex-wrap items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
         <span className="text-[11px] uppercase tracking-wide text-slate-400 mr-1">Zona (sin dientes):</span>
-        <GroupBtn label="Arcada superior" onClick={() => onZona('Arcada superior')} active={selZona === 'Arcada superior'} />
-        <GroupBtn label="Arcada inferior" onClick={() => onZona('Arcada inferior')} active={selZona === 'Arcada inferior'} />
+        <GroupBtn label="Arcada superior" onClick={() => onZona('Arcada superior')} active={selZonas.includes('Arcada superior')} />
+        <GroupBtn label="Arcada inferior" onClick={() => onZona('Arcada inferior')} active={selZonas.includes('Arcada inferior')} />
         {denticion === 'PERM' && SEXTANTES.map(([disp, val]) => (
-          <GroupBtn key={val} label={disp} onClick={() => onZona(val)} active={selZona === val} />
+          <GroupBtn key={val} label={disp} onClick={() => onZona(val)} active={selZonas.includes(val)} />
         ))}
       </div>
 
-      {selZona && <p className="text-xs text-cyan-700 mt-2">Zona seleccionada: <b>{selZona}</b> — la acción quedará asociada a la zona, sin marcar dientes.</p>}
+      {selZonas.length > 0 && <p className="text-xs text-cyan-700 mt-2">Zona{selZonas.length > 1 ? 's' : ''} seleccionada{selZonas.length > 1 ? 's' : ''}: <b>{selZonas.join(' + ')}</b> — se agregará una acción por cada zona, sin marcar dientes.</p>}
 
       <div className="flex flex-wrap gap-3 mt-3 text-[11px] text-slate-500">
         <Leyenda color="#0891b2" l="Cara seleccionada" />
@@ -978,9 +984,9 @@ function EvolucionModal({ accion, pacienteNombre, doctores, plan, onClose, onDon
   )
 }
 
-function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, selCaras, selZona, clearSel, accion, onEvolucionar, onMoverAccion, sinSeccion, idx, total, onMover }: {
+function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, selCaras, selZonas, clearSel, accion, onEvolucionar, onMoverAccion, sinSeccion, idx, total, onMover }: {
   seccion: SeccionNode; plan: PlanDetalle; prestaciones: PrestacionDTO[]; pacienteId: string
-  selPiezas: number[]; selCaras: Record<number, string[]>; selZona: string | null; clearSel: () => void
+  selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; clearSel: () => void
   accion: (fn: () => Promise<unknown>) => Promise<void>; onEvolucionar: (t: TratNode) => void
   onMoverAccion?: (tratId: string, seccionId: string) => void; sinSeccion?: boolean
   idx?: number; total?: number; onMover?: (idx: number, dir: -1 | 1) => void
@@ -1013,7 +1019,7 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
   const tiempo = seccion.diasDesdeAnterior != null
     ? labelTiempoEstimado(seccion.diasDesdeAnterior, seccion.tiempoUnidad)
     : (seccion.fechaTentativa ? `Tentativa: ${new Date(seccion.fechaTentativa).toLocaleDateString('es-CL')}` : null)
-  const seleccion = selZona ?? (selPiezas.length ? `${selPiezas.length} pieza${selPiezas.length > 1 ? 's' : ''}` : '')
+  const seleccion = selZonas.length ? selZonas.join(' + ') : (selPiezas.length ? `${selPiezas.length} pieza${selPiezas.length > 1 ? 's' : ''}` : '')
 
   return (
     <div className={`bg-white rounded-2xl border overflow-hidden transition-colors ${over ? 'border-cyan-400 ring-2 ring-cyan-100' : 'border-slate-200'}`}
@@ -1066,7 +1072,7 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
       {!plan.bloqueado && !sinSeccion && (
         <div className="px-4 py-2 border-t border-slate-100">
           {agregando
-            ? <AgregarAccion planId={plan.id} seccionId={seccion.id} pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZona={selZona} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />
+            ? <AgregarAccion planId={plan.id} seccionId={seccion.id} pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />
             : <button onClick={() => setAgregando(true)} className="text-xs font-semibold text-cyan-700">+ Agregar prestación{seleccion ? ` (${seleccion})` : ''}</button>}
         </div>
       )}
@@ -1202,9 +1208,9 @@ function PrestacionBuscador({ prestaciones, onSelect }: { prestaciones: Prestaci
   )
 }
 
-function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas, selCaras, selZona, clearSel, accion, onDone }: {
+function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas, selCaras, selZonas, clearSel, accion, onDone }: {
   planId: string; seccionId: string; pacienteId: string; prestaciones: PrestacionDTO[]
-  selPiezas: number[]; selCaras: Record<number, string[]>; selZona: string | null; clearSel: () => void
+  selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; clearSel: () => void
   accion: (fn: () => Promise<unknown>) => Promise<void>; onDone: () => void
 }) {
   const [prestId, setPrestId] = useState('')
@@ -1216,9 +1222,9 @@ function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas,
   async function añadir() {
     if (!prestId) return
     await accion(async () => {
-      if (selZona) {
-        // Acción asociada a una zona (arcada/sextante), sin dientes.
-        await tratamientosService.crear({ pacienteId, prestacionId: prestId, planId, seccionId, precio: prest?.precio, zona: selZona })
+      if (selZonas.length > 0) {
+        // Una acción por cada zona seleccionada (arcada superior, inferior, sextante…), sin dientes.
+        await Promise.all(selZonas.map((zona) => tratamientosService.crear({ pacienteId, prestacionId: prestId, planId, seccionId, precio: prest?.precio, zona })))
       } else if (piezas.length === 0 || modo === 'unaSola') {
         await tratamientosService.crear({
           pacienteId, prestacionId: prestId, planId, seccionId, precio: prest?.precio,
@@ -1239,8 +1245,8 @@ function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas,
   return (
     <div className="space-y-2 py-1">
       <PrestacionBuscador prestaciones={prestaciones} onSelect={(p) => setPrestId(p.id)} />
-      {selZona ? (
-        <p className="text-xs text-cyan-700">Asociada a la zona <b>{selZona}</b> (sin dientes){prest ? ` · ${fmtCLP(prest.precio)}` : ''}.</p>
+      {selZonas.length > 0 ? (
+        <p className="text-xs text-cyan-700">Asociada a <b>{selZonas.join(' + ')}</b> (sin dientes){selZonas.length > 1 ? ` · ${selZonas.length} acciones` : ''}{prest ? ` · ${fmtCLP(prest.precio * selZonas.length)}` : ''}.</p>
       ) : piezas.length > 0 ? (
         <div className="space-y-1.5">
           <p className="text-xs text-slate-500">Piezas seleccionadas: <span className="font-mono text-slate-700">{resumen}</span></p>
