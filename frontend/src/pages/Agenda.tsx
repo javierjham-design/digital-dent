@@ -316,6 +316,9 @@ export function Agenda() {
     ? `Semana del ${new Date(rango.from).toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })}`
     : currentDate.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
 
+  // Sobrecupos agendados en la vista actual (para el contador del botón ⚡).
+  const nSobrecupos = (vista === 'semanal' ? citasVisibles : citasGlobal).filter((c) => c.sobrecupo).length
+
   return (
     <div className="flex gap-5">
       {/* Panel lateral fijo: mini-calendario + filtros + estados */}
@@ -384,10 +387,10 @@ export function Agenda() {
                 </button>
               ))}
             </div>
-            {vista === 'semanal' && (
-              <button onClick={() => setSoloSobrecupos((v) => !v)} title="Abrir la agenda de sobrecupos (solo las citas en sobrecupo, misma grilla semanal)"
-                className={`text-sm font-semibold shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 border ${soloSobrecupos ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
-                {soloSobrecupos ? '← Agenda normal' : 'Sobrecupos'}
+            {vista !== 'diaria' && (
+              <button onClick={() => setSoloSobrecupos((v) => !v)} title="Abrir la agenda de sobrecupos (sólo las citas en sobrecupo)"
+                className={`text-sm font-semibold shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 inline-flex items-center gap-1 ${soloSobrecupos ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'}`}>
+                ⚡ {soloSobrecupos ? 'Ver agenda normal' : `Sobrecupo${nSobrecupos > 0 ? ` · ${nSobrecupos}` : ''}`}
               </button>
             )}
             <button onClick={() => setBloqueoForm(true)} className="text-sm font-semibold shrink-0 whitespace-nowrap text-slate-700 border border-slate-200 rounded-lg px-3 py-1.5 hover:bg-slate-50">Bloquear</button>
@@ -423,9 +426,9 @@ export function Agenda() {
           <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>
         )}
 
-        {vista === 'semanal' && soloSobrecupos && (
-          <div className="mb-3 flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
-            <span className="text-sm font-semibold">📋 Agenda de sobrecupos — mostrando sólo las citas en sobrecupo.</span>
+        {vista !== 'diaria' && soloSobrecupos && (
+          <div className="mb-3 flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl bg-orange-50 border border-orange-200 text-orange-800">
+            <span className="text-sm font-semibold">⚡ Agenda de sobrecupos — mostrando sólo las citas en sobrecupo.</span>
             <button onClick={() => setSoloSobrecupos(false)} className="text-xs font-semibold underline">Volver a la agenda normal</button>
           </div>
         )}
@@ -895,7 +898,7 @@ function GridAgenda({ columnas, soloSobrecupo, conflicto, onCita, onBloqueo, onS
                       onDragEnd={() => { dragRef.current = null; setDropHint(null) }}
                       onClick={(e) => { e.stopPropagation(); onCita(ev.cita) }}
                       title={`${hora(ev.cita.inicio)} ${ev.cita.pacienteNombre}${ev.cita.sobrecupo ? ' (sobrecupo)' : ''}${nota ? ` — ${nota}` : ''}`}
-                      className="absolute rounded-md overflow-hidden flex text-left shadow-sm ring-1 ring-slate-200 hover:ring-slate-300 hover:shadow cursor-move active:opacity-80 z-10"
+                      className="absolute rounded-md overflow-hidden flex text-left shadow-sm ring-1 ring-slate-200 hover:ring-slate-300 hover:shadow cursor-grab active:cursor-grabbing active:opacity-80 z-10"
                       style={{ ...style, backgroundColor: cfg?.bg ?? '#fff', outline: ev.cita.sobrecupo ? '2px dashed #f97316' : undefined, outlineOffset: '-2px' }}>
                       <div className="w-2 shrink-0" style={{ backgroundColor: cfg?.color ?? '#0891b2' }} />
                       <div className="px-1.5 py-0.5 min-w-0 leading-tight w-full">
