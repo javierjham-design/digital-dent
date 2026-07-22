@@ -3,8 +3,9 @@ import { tenantDb } from '@/middlewares/tenant'
 import * as svc from '@/services/consentimientos.service'
 
 // ── Plantillas ─────────────────────────────────────────────────────────────
+const grupoDe = (req: Request): 'CONSENTIMIENTO' | 'DOCUMENTO' => (req.query.grupo === 'DOCUMENTO' ? 'DOCUMENTO' : 'CONSENTIMIENTO')
 export async function getPlantillas(req: Request, res: Response) {
-  res.json(await svc.listarPlantillas(tenantDb(req), req.query.activas === '1'))
+  res.json(await svc.listarPlantillas(tenantDb(req), req.query.activas === '1', grupoDe(req)))
 }
 export async function getPlantilla(req: Request, res: Response) {
   res.json(await svc.obtenerPlantilla(tenantDb(req), req.params.id))
@@ -22,7 +23,8 @@ export async function deletePlantilla(req: Request, res: Response) {
 
 // ── Consentimientos del paciente ──────────────────────────────────────────
 export async function getPorPaciente(req: Request, res: Response) {
-  res.json(await svc.listarPorPaciente(tenantDb(req), req.params.pacienteId))
+  const grupo = req.query.grupo === 'DOCUMENTO' ? 'DOCUMENTO' : req.query.grupo === 'CONSENTIMIENTO' ? 'CONSENTIMIENTO' : undefined
+  res.json(await svc.listarPorPaciente(tenantDb(req), req.params.pacienteId, grupo))
 }
 export async function getConsentimiento(req: Request, res: Response) {
   res.json(await svc.obtenerConsentimiento(tenantDb(req), req.params.id))

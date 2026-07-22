@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { documentosService, type DocumentoMeta } from '@/services/documentos.service'
 import { EnviarCorreoModal } from '@/components/EnviarCorreoModal'
+import { RecetasCertificados } from '@/components/RecetasCertificados'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
@@ -22,6 +23,7 @@ const fecha = (iso: string) => new Date(iso).toLocaleDateString('es-CL', { day: 
 export function DocumentosPaciente({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: string; pacienteNombre?: string; pacienteEmail?: string | null }) {
   const { user } = useAuth()
   const puedeEliminar = Boolean(user?.permisos?.puedeEliminar)
+  const [subtab, setSubtab] = useState<'radiografias' | 'documentos'>('radiografias')
   const [enviar, setEnviar] = useState<DocumentoMeta | null>(null)
   const [items, setItems] = useState<DocumentoMeta[]>([])
   const [cargando, setCargando] = useState(true)
@@ -48,6 +50,17 @@ export function DocumentosPaciente({ pacienteId, pacienteNombre, pacienteEmail }
 
   return (
     <div>
+      {/* Sub-pestañas: radiografías/documentos subidos vs. generar recetas y certificados */}
+      <div className="flex gap-1 mb-4 border-b border-slate-200">
+        {([['radiografias', 'Radiografías y archivos'], ['documentos', 'Recetas y Certificados']] as const).map(([k, l]) => (
+          <button key={k} onClick={() => setSubtab(k)}
+            className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${subtab === k ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>{l}</button>
+        ))}
+      </div>
+
+      {subtab === 'documentos'
+        ? <RecetasCertificados pacienteId={pacienteId} pacienteNombre={pacienteNombre ?? ''} pacienteEmail={pacienteEmail} />
+        : <div>
       <div className="bg-white border border-slate-200 rounded-2xl p-4 mb-4">
         <p className="text-sm font-semibold text-slate-700 mb-2">Subir radiografía o documento</p>
         <div className="grid sm:grid-cols-2 gap-2">
@@ -88,6 +101,7 @@ export function DocumentosPaciente({ pacienteId, pacienteNombre, pacienteEmail }
           generarPdf={async () => ({ base64: await documentosService.base64(enviar.id), nombre: enviar.nombre || `${label(enviar.tipo)}` })}
           onClose={() => setEnviar(null)} />
       )}
+        </div>}
     </div>
   )
 }

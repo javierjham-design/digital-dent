@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { consentimientosService, type PlantillaConsentimiento } from '@/services/consentimientos.service'
+import { consentimientosService, type PlantillaConsentimiento, type GrupoDoc } from '@/services/consentimientos.service'
 import { ApiError } from '@/services/api'
 import { useAuth } from '@/hooks/useAuth'
+
+// Categorías de documentos (grupo DOCUMENTO). El grupo CONSENTIMIENTO usa categoría fija.
+const CATEGORIAS: [string, string][] = [['RECETA', 'Receta'], ['CERTIFICADO', 'Certificado'], ['INDICACION', 'Indicaciones'], ['OTRO', 'Otro documento']]
 
 const CAMPOS: [string, string][] = [
   ['nombre', 'Nombre y apellido'], ['rut', 'Documento (RUT/cédula)'], ['fechaNacimiento', 'Fecha de nacimiento'],
@@ -9,32 +12,39 @@ const CAMPOS: [string, string][] = [
 ]
 const VARIABLES = ['PACIENTE_NOMBRE_COMPLETO', 'PACIENTE_RUT', 'PACIENTE_FECHA_NACIMIENTO', 'PACIENTE_EDAD', 'PACIENTE_TELEFONO_CORREO', 'FICHA_CLINICA_N', 'REPRESENTANTE_NOMBRE', 'REPRESENTANTE_RUT_VINCULO', 'PROFESIONAL_NOMBRE', 'PROFESIONAL_RUT_REGISTRO', 'FECHA_HORA']
 
-export function Consentimientos() {
+export function Consentimientos({ grupoInicial = 'CONSENTIMIENTO' }: { grupoInicial?: GrupoDoc }) {
   const { user } = useAuth()
   const puedeConfig = user?.role === 'admin' || Boolean(user?.permisos?.puedeConfigurarClinica)
+  const grupo = grupoInicial
+  const esDoc = grupo === 'DOCUMENTO'
   const [lista, setLista] = useState<PlantillaConsentimiento[]>([])
   const [sel, setSel] = useState<PlantillaConsentimiento | null>(null)
   const [cargando, setCargando] = useState(true)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
   const notify = (t: string, ok = true) => { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
 
-  const cargar = () => consentimientosService.plantillas().then(setLista).catch(() => {}).finally(() => setCargando(false))
-  useEffect(() => { cargar() }, [])
+  const cargar = () => { setCargando(true); consentimientosService.plantillas(false, grupo).then(setLista).catch(() => {}).finally(() => setCargando(false)) }
+  useEffect(() => { cargar() }, [grupo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function nueva() {
-    try { const p = await consentimientosService.crearPlantilla({ titulo: 'Nuevo consentimiento', codigo: 'CI', contenidoHtml: '<h1>Nuevo consentimiento</h1><p>Contenido…</p>' }); cargar(); setSel(p); notify('Plantilla creada') }
+    const base = esDoc
+      ? { categoria: 'OTRO', titulo: 'Nuevo documento', codigo: 'DOC', contenidoHtml: '<h1>Nuevo documento</h1><p>Contenido…</p>', camposRequeridos: ['nombre'] }
+      : { titulo: 'Nuevo consentimiento', codigo: 'CI', contenidoHtml: '<h1>Nuevo consentimiento</h1><p>Contenido…</p>' }
+    try { const p = await consentimientosService.crearPlantilla(base); cargar(); setSel(p); notify('Plantilla creada') }
     catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
 
-  if (!puedeConfig) return <p className="text-slate-500 text-sm max-w-md">No tienes acceso a las plantillas de consentimientos. Pídele a un administrador el permiso <span className="font-medium">“Configurar la clínica”</span>.</p>
+  if (!puedeConfig) return <p className="text-slate-500 text-sm max-w-md">No tienes acceso a las plantillas. Pídele a un administrador el permiso <span className="font-medium">“Configurar la clínica”</span>.</p>
 
   return (
     <div>
       <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
-        <h1 className="text-2xl font-bold text-slate-900">Consentimientos informados</h1>
+        <h1 className="text-2xl font-bold text-slate-900">{esDoc ? 'Recetas, certificados y documentos' : 'Consentimientos informados'}</h1>
         <button onClick={nueva} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">+ Nueva plantilla</button>
       </div>
-      <p className="text-sm text-slate-500 mb-5">Formatos base precargados (editables). Se generan desde la ficha del paciente. La eliminación de un consentimiento generado requiere administrador.</p>
+      <p className="text-sm text-slate-500 mb-5">{esDoc
+        ? 'Formatos base de recetas, certificados e indicaciones (editables). Puedes agregar tus propios documentos (post-exodoncia, recomendaciones, etc.). Se generan desde la ficha del paciente en Radiografías y Documentos › Recetas y Certificados.'
+        : 'Formatos base precargados (editables). Se generan desde la ficha del paciente. La eliminación de un consentimiento generado requiere administrador.'}</p>
       {aviso && <div className={`mb-4 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>}
 
       <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
@@ -43,21 +53,22 @@ export function Consentimientos() {
             <button key={p.id} onClick={() => setSel(p)} className="w-full flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50 text-left">
               <div className="min-w-0">
                 <p className="font-medium text-slate-800 truncate">{p.titulo}</p>
-                <p className="text-xs text-slate-500">{p.codigo} · v{p.version}</p>
+                <p className="text-xs text-slate-500">{esDoc && p.categoria ? `${CATEGORIAS.find(([k]) => k === p.categoria)?.[1] ?? p.categoria} · ` : ''}{p.codigo} · v{p.version}</p>
               </div>
               <span className={`shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full ${p.activo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{p.activo ? 'Activa' : 'Inactiva'}</span>
             </button>
           ))}
       </div>
 
-      {sel && <EditorModal key={sel.id} plantilla={sel} onClose={() => setSel(null)} onSaved={() => { setSel(null); cargar() }} notify={notify} />}
+      {sel && <EditorModal key={sel.id} plantilla={sel} esDoc={esDoc} onClose={() => setSel(null)} onSaved={() => { setSel(null); cargar() }} notify={notify} />}
     </div>
   )
 }
 
-function EditorModal({ plantilla, onClose, onSaved, notify }: { plantilla: PlantillaConsentimiento; onClose: () => void; onSaved: () => void; notify: (t: string, ok?: boolean) => void }) {
+function EditorModal({ plantilla, esDoc, onClose, onSaved, notify }: { plantilla: PlantillaConsentimiento; esDoc?: boolean; onClose: () => void; onSaved: () => void; notify: (t: string, ok?: boolean) => void }) {
   const [titulo, setTitulo] = useState(plantilla.titulo)
   const [codigo, setCodigo] = useState(plantilla.codigo)
+  const [categoria, setCategoria] = useState(plantilla.categoria ?? 'OTRO')
   const [activo, setActivo] = useState(plantilla.activo)
   const [req, setReq] = useState<string[]>(plantilla.camposRequeridos.split(',').map((s) => s.trim()).filter(Boolean))
   const [html, setHtml] = useState(plantilla.contenidoHtml)
@@ -66,7 +77,7 @@ function EditorModal({ plantilla, onClose, onSaved, notify }: { plantilla: Plant
   const toggleReq = (k: string) => setReq((r) => (r.includes(k) ? r.filter((x) => x !== k) : [...r, k]))
   async function guardar() {
     setBusy(true)
-    try { await consentimientosService.actualizarPlantilla(plantilla.id, { titulo, codigo, activo, camposRequeridos: req, contenidoHtml: html }); notify('Plantilla guardada'); onSaved() }
+    try { await consentimientosService.actualizarPlantilla(plantilla.id, { titulo, codigo, activo, camposRequeridos: req, contenidoHtml: html, ...(esDoc ? { categoria } : {}) }); notify('Plantilla guardada'); onSaved() }
     catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) } finally { setBusy(false) }
   }
   async function eliminar() {
@@ -85,6 +96,12 @@ function EditorModal({ plantilla, onClose, onSaved, notify }: { plantilla: Plant
             <input value={titulo} onChange={(e) => setTitulo(e.target.value)} className={inp} /></label>
           <label className="block"><span className="text-xs font-medium text-slate-500">Código</span>
             <input value={codigo} onChange={(e) => setCodigo(e.target.value)} className={`${inp} font-mono`} /></label>
+          {esDoc && (
+            <label className="block sm:col-span-3"><span className="text-xs font-medium text-slate-500">Tipo de documento</span>
+              <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className={inp}>
+                {CATEGORIAS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+              </select></label>
+          )}
         </div>
 
         <div className="mb-3">

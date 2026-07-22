@@ -62,6 +62,7 @@ export default function App() {
             <Route path="/agendamiento-online" element={<AgendaOnline />} />
             <Route path="/crm" element={<Crm />} />
             <Route path="/consentimientos" element={<Consentimientos />} />
+            <Route path="/recetas-documentos" element={<Consentimientos grupoInicial="DOCUMENTO" />} />
             <Route path="/suscripcion" element={<Suscripcion />} />
             <Route path="/reportes" element={<Reportes />} />
             <Route path="/liquidaciones" element={<Liquidaciones />} />

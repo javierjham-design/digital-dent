@@ -4,6 +4,7 @@ import { audit } from '@/lib/audit'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import { getPais } from '@shared/constants/paises'
 import { CONSENTIMIENTOS_DEFAULT } from '@/data/consentimientos-default'
+import { DOCUMENTOS_DEFAULT } from '@/data/documentos-clinicos-default'
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const TZ = 'America/Santiago'
@@ -139,20 +140,38 @@ async function paisDe(db: TenantClient): Promise<string> {
 // Precarga las plantillas base de Digital Dent la primera vez (si la clínica no
 // tiene ninguna). Quedan editables.
 export async function seedPlantillasSiFaltan(db: TenantClient) {
-  const n = await db.plantillaConsentimiento.count()
+  const n = await db.plantillaConsentimiento.count({ where: { categoria: 'CONSENTIMIENTO' } })
   if (n > 0) return
   await db.plantillaConsentimiento.createMany({
     data: CONSENTIMIENTOS_DEFAULT.map((t) => ({
-      codigo: t.codigo, titulo: t.titulo, contenidoHtml: t.html,
+      categoria: 'CONSENTIMIENTO', codigo: t.codigo, titulo: t.titulo, contenidoHtml: t.html,
       camposRequeridos: t.camposRequeridos.join(','), orden: t.orden, activo: true,
     })),
   })
 }
 
-export async function listarPlantillas(db: TenantClient, soloActivas = false) {
-  await seedPlantillasSiFaltan(db)
+// Precarga las plantillas base de recetas/certificados/indicaciones la primera vez.
+export async function seedDocumentosSiFaltan(db: TenantClient) {
+  const n = await db.plantillaConsentimiento.count({ where: { categoria: { not: 'CONSENTIMIENTO' } } })
+  if (n > 0) return
+  await db.plantillaConsentimiento.createMany({
+    data: DOCUMENTOS_DEFAULT.map((t) => ({
+      categoria: t.categoria, codigo: t.codigo, titulo: t.titulo, contenidoHtml: t.html,
+      camposRequeridos: t.camposRequeridos.join(','), orden: 100 + t.orden, activo: true,
+    })),
+  })
+}
+
+// categoria: 'CONSENTIMIENTO' (por defecto) o 'DOCUMENTO' (recetas/certificados/
+// indicaciones/otros = todo lo que NO es consentimiento).
+export async function listarPlantillas(db: TenantClient, soloActivas = false, grupo: 'CONSENTIMIENTO' | 'DOCUMENTO' = 'CONSENTIMIENTO') {
+  if (grupo === 'CONSENTIMIENTO') await seedPlantillasSiFaltan(db)
+  else await seedDocumentosSiFaltan(db)
   return db.plantillaConsentimiento.findMany({
-    where: soloActivas ? { activo: true } : undefined,
+    where: {
+      ...(soloActivas ? { activo: true } : {}),
+      ...(grupo === 'CONSENTIMIENTO' ? { categoria: 'CONSENTIMIENTO' } : { categoria: { not: 'CONSENTIMIENTO' } }),
+    },
     orderBy: { orden: 'asc' },
   })
 }
@@ -165,8 +184,10 @@ export async function crearPlantilla(db: TenantClient, body: Record<string, unkn
   const titulo = String(body.titulo ?? '').trim()
   if (!titulo) throw badRequest('Falta el título')
   const ultimo = await db.plantillaConsentimiento.findFirst({ orderBy: { orden: 'desc' }, select: { orden: true } })
+  const categoria = CATEGORIAS.includes(String(body.categoria)) ? String(body.categoria) : 'CONSENTIMIENTO'
   return db.plantillaConsentimiento.create({
     data: {
+      categoria,
       codigo: String(body.codigo ?? '').trim() || 'CI',
       titulo, contenidoHtml: String(body.contenidoHtml ?? ''),
       camposRequeridos: Array.isArray(body.camposRequeridos) ? body.camposRequeridos.join(',') : String(body.camposRequeridos ?? 'nombre,rut,fechaNacimiento'),
@@ -175,8 +196,10 @@ export async function crearPlantilla(db: TenantClient, body: Record<string, unkn
     },
   })
 }
+const CATEGORIAS = ['CONSENTIMIENTO', 'RECETA', 'CERTIFICADO', 'INDICACION', 'OTRO']
 export async function actualizarPlantilla(db: TenantClient, id: string, body: Record<string, unknown>) {
   const data: Record<string, unknown> = {}
+  if (body.categoria !== undefined && CATEGORIAS.includes(String(body.categoria))) data.categoria = String(body.categoria)
   if (body.titulo !== undefined) data.titulo = String(body.titulo).trim()
   if (body.codigo !== undefined) data.codigo = String(body.codigo).trim()
   if (body.contenidoHtml !== undefined) data.contenidoHtml = String(body.contenidoHtml)
@@ -237,27 +260,32 @@ export async function previsualizar(db: TenantClient, _actor: JwtPayload, pacien
 }
 
 export async function generar(db: TenantClient, actor: JwtPayload, pacienteId: string, plantillaId: string, responsableId: string, planId: string, extra: Record<string, string> = {}) {
-  const [paciente, plantilla, pais, prof, plan] = await Promise.all([
+  const plantilla = await db.plantillaConsentimiento.findUnique({ where: { id: plantillaId } })
+  if (!plantilla) throw notFound('Plantilla no encontrada')
+  // Sólo los CONSENTIMIENTOS exigen asociarse a un plan de tratamiento; recetas,
+  // certificados e indicaciones NO lo requieren (pero pueden asociarse si se envía).
+  const esConsentimiento = plantilla.categoria === 'CONSENTIMIENTO'
+  const [paciente, pais, prof, plan] = await Promise.all([
     db.paciente.findUnique({ where: { id: pacienteId }, select: PAC_SELECT }),
-    db.plantillaConsentimiento.findUnique({ where: { id: plantillaId } }),
-    paisDe(db), profResponsable(db, responsableId), planDe(db, pacienteId, planId),
+    paisDe(db),
+    profResponsable(db, responsableId),
+    (esConsentimiento || planId) ? planDe(db, pacienteId, planId) : Promise.resolve(null),
   ])
   if (!paciente) throw notFound('Paciente no encontrado')
-  if (!plantilla) throw notFound('Plantilla no encontrada')
   const faltantes = camposFaltantes(paciente, parseReq(plantilla.camposRequeridos), pais)
-  if (faltantes.length > 0) throw badRequest(`Faltan datos del paciente para generar el consentimiento: ${faltantes.join(', ')}. Complétalos en la ficha.`)
+  if (faltantes.length > 0) throw badRequest(`Faltan datos del paciente para generar el documento: ${faltantes.join(', ')}. Complétalos en la ficha.`)
 
   const html = render(plantilla.contenidoHtml, paciente, prof, extra)
   const c = await db.consentimiento.create({
     data: {
-      pacienteId, plantillaId, codigo: plantilla.codigo, titulo: plantilla.titulo, contenidoHtml: html,
+      pacienteId, plantillaId, categoria: plantilla.categoria, codigo: plantilla.codigo, titulo: plantilla.titulo, contenidoHtml: html,
       estado: 'BORRADOR',
       generadoPorId: actor.sub, generadoPorNombre: actorName(actor),
       responsableId: prof.id, responsableNombre: prof.nombre,
-      planId: plan.id,
+      planId: plan?.id ?? null,
     },
   })
-  await audit(db, actor.sub, { accion: 'CREAR', entidad: 'Consentimiento', entidadId: c.id, pacienteId, resumen: `Generó consentimiento "${plantilla.titulo}" (responsable: ${prof.nombre})` })
+  await audit(db, actor.sub, { accion: 'CREAR', entidad: 'Consentimiento', entidadId: c.id, pacienteId, resumen: `Generó documento "${plantilla.titulo}" (${plantilla.categoria}, responsable: ${prof.nombre})` })
   return c
 }
 
@@ -294,11 +322,14 @@ export async function firmar(db: TenantClient, actor: JwtPayload, id: string, bo
   return actualizado
 }
 
-export async function listarPorPaciente(db: TenantClient, pacienteId: string) {
+export async function listarPorPaciente(db: TenantClient, pacienteId: string, grupo?: 'CONSENTIMIENTO' | 'DOCUMENTO') {
   return db.consentimiento.findMany({
-    where: { pacienteId },
+    where: {
+      pacienteId,
+      ...(grupo === 'CONSENTIMIENTO' ? { categoria: 'CONSENTIMIENTO' } : grupo === 'DOCUMENTO' ? { categoria: { not: 'CONSENTIMIENTO' } } : {}),
+    },
     orderBy: { createdAt: 'desc' },
-    select: { id: true, codigo: true, titulo: true, estado: true, firmaTipo: true, firmadoAt: true, generadoPorNombre: true, responsableNombre: true, planId: true, createdAt: true },
+    select: { id: true, categoria: true, codigo: true, titulo: true, estado: true, firmaTipo: true, firmadoAt: true, generadoPorNombre: true, responsableNombre: true, planId: true, createdAt: true },
   })
 }
 export async function obtenerConsentimiento(db: TenantClient, id: string) {

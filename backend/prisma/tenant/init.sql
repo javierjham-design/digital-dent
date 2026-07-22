@@ -923,6 +923,7 @@ ALTER TABLE "LeadNota" ADD CONSTRAINT "LeadNota_leadId_fkey" FOREIGN KEY ("leadI
 -- Consentimientos informados
 CREATE TABLE "PlantillaConsentimiento" (
     "id" TEXT NOT NULL,
+    "categoria" TEXT NOT NULL DEFAULT 'CONSENTIMIENTO',
     "codigo" TEXT NOT NULL,
     "titulo" TEXT NOT NULL,
     "contenidoHtml" TEXT NOT NULL,
@@ -935,11 +936,13 @@ CREATE TABLE "PlantillaConsentimiento" (
     CONSTRAINT "PlantillaConsentimiento_pkey" PRIMARY KEY ("id")
 );
 CREATE INDEX "PlantillaConsentimiento_activo_orden_idx" ON "PlantillaConsentimiento"("activo", "orden");
+CREATE INDEX "PlantillaConsentimiento_categoria_activo_idx" ON "PlantillaConsentimiento"("categoria", "activo");
 
 CREATE TABLE "Consentimiento" (
     "id" TEXT NOT NULL,
     "pacienteId" TEXT NOT NULL,
     "plantillaId" TEXT,
+    "categoria" TEXT NOT NULL DEFAULT 'CONSENTIMIENTO',
     "codigo" TEXT NOT NULL,
     "titulo" TEXT NOT NULL,
     "contenidoHtml" TEXT NOT NULL,

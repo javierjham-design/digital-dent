@@ -50,6 +50,7 @@ function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, puedeCajas, pue
             {(esAdmin || puedeConfig) && modAgenda && item('/agendamiento-online', 'Agendamiento online')}
             {modCrm && (esAdmin || puedeCrm) && item('/crm', 'CRM · Leads')}
             {(esAdmin || puedeConfig) && item('/consentimientos', 'Consentimientos')}
+            {(esAdmin || puedeConfig) && item('/recetas-documentos', 'Recetas y documentos')}
             {esAdmin && item('/suscripcion', 'Suscripción y pagos')}
             {(esAdmin || puedePrestaciones) && item('/prestaciones', 'Prestaciones')}
             {item('/reportes', 'Reportes')}

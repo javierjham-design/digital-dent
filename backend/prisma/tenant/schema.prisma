@@ -838,6 +838,7 @@ model LeadNota {
 // Plantilla editable por clínica (se precargan las base de Digital Dent).
 model PlantillaConsentimiento {
   id               String   @id @default(cuid())
+  categoria        String   @default("CONSENTIMIENTO") // CONSENTIMIENTO | RECETA | CERTIFICADO | INDICACION | OTRO
   codigo           String   // DD-CI-01, etc.
   titulo           String
   contenidoHtml    String   // HTML con variables {{...}}
@@ -849,6 +850,7 @@ model PlantillaConsentimiento {
   updatedAt        DateTime @updatedAt
 
   @@index([activo, orden])
+  @@index([categoria, activo])
 }
 
 // Consentimiento GENERADO para un paciente. Guarda el snapshot exacto firmado
@@ -857,6 +859,7 @@ model Consentimiento {
   id               String   @id @default(cuid())
   pacienteId       String
   plantillaId      String?
+  categoria        String   @default("CONSENTIMIENTO") // CONSENTIMIENTO | RECETA | CERTIFICADO | INDICACION | OTRO
   codigo           String
   titulo           String
   contenidoHtml    String   // snapshot renderizado (con datos del paciente)
