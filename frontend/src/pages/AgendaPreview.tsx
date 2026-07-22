@@ -72,8 +72,8 @@ function CitaCard({ c }: { c: Cita }) {
   const alto = altoDe(c.dur)
   const finM = c.h * 60 + c.m + c.dur
   return (
-    <div className="absolute left-0.5 right-0.5 rounded-md overflow-hidden flex bg-white shadow-sm ring-1 ring-slate-200 hover:ring-slate-300 hover:shadow cursor-pointer transition"
-      style={{ top: yDe(c.h, c.m), height: alto, outline: c.sobrecupo ? '2px dashed #f97316' : undefined, outlineOffset: '-2px' }}>
+    <div className="absolute left-0.5 right-0.5 rounded-md overflow-hidden flex shadow-sm ring-1 ring-slate-200 hover:ring-slate-300 hover:shadow cursor-pointer transition"
+      style={{ top: yDe(c.h, c.m), height: alto, backgroundColor: cfg?.bg ?? '#fff' }}>
       <div className="w-2 shrink-0" style={{ backgroundColor: cfg?.color }} />
       <div className="px-1.5 py-0.5 min-w-0 leading-tight">
         <p className="text-[11px] font-semibold text-slate-800 truncate flex items-center gap-1">
@@ -87,19 +87,23 @@ function CitaCard({ c }: { c: Cita }) {
   )
 }
 
-function Columna({ citas }: { citas: Cita[] }) {
+function Columna({ citas, marcas = [] }: { citas: Cita[]; marcas?: Cita[] }) {
   return (
     <div className="relative bg-slate-100/70" style={{ height: TOTAL_H }}>
       {/* Tramos disponibles (verde); el resto queda gris = no disponible (almuerzo/fuera de horario) */}
       {DISPONIBLE.map(([a, b], i) => (
         <div key={i} className="absolute left-0 right-0 bg-[#e7f8ee]" style={{ top: yDe(a), height: (b - a) * PX_HORA }} />
       ))}
-      {/* Líneas cada BLOQUE_MIN: hora sólida marcada, media hora media, resto tenue */}
-      {Array.from({ length: Math.floor((HORA_FIN - HORA_INI) * 60 / BLOQUE_MIN) + 1 }, (_, i) => i * BLOQUE_MIN).map((t) => {
-        const min = t % 60
-        const cls = min === 0 ? 'border-slate-300' : min === 30 ? 'border-slate-200' : 'border-dashed border-slate-200/70'
-        return <div key={t} className={`absolute left-0 right-0 border-t ${cls}`} style={{ top: yDe(HORA_INI, t) }} />
-      })}
+      {/* Líneas cada BLOQUE_MIN uniformes; sólo la de cada hora va más marcada (referencia) */}
+      {Array.from({ length: Math.floor((HORA_FIN - HORA_INI) * 60 / BLOQUE_MIN) + 1 }, (_, i) => i * BLOQUE_MIN).map((t) => (
+        <div key={t} className={`absolute left-0 right-0 border-t ${t % 60 === 0 ? 'border-slate-300' : 'border-slate-200'}`} style={{ top: yDe(HORA_INI, t) }} />
+      ))}
+      {/* Signo de sobrecupo en el horario donde hay uno (la cita completa está en la agenda de sobrecupos) */}
+      {marcas.map((c, i) => (
+        <div key={`sc${i}`} className="absolute right-0.5 z-10 -translate-y-1/2" style={{ top: yDe(c.h, c.m) + 8 }} title={`Sobrecupo ${hhmm(c.h, c.m)} · ${c.nombre}`}>
+          <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-orange-500 text-white shadow">⚡</span>
+        </div>
+      ))}
       {citas.map((c, i) => <CitaCard key={i} c={c} />)}
     </div>
   )
@@ -185,14 +189,20 @@ export function AgendaPreview() {
   const [soloSobrecupo, setSoloSobrecupo] = useState(false)
   const [estados, setEstados] = useState<Record<string, boolean>>(() => Object.fromEntries(Object.keys(CITA_ESTADOS).map((k) => [k, true])))
 
-  // ocultarCancelada: en la rejilla (semanal/global) las canceladas NO se muestran
-  // (el cupo queda libre); sólo aparecen en la vista Diaria.
-  const filtrar = (cs: Cita[], ocultarCancelada = false) => cs.filter((c) => estados[c.estado] && (!soloSobrecupo || c.sobrecupo) && (!ocultarCancelada || c.estado !== 'CANCELADA'))
+  const vis = (c: Cita) => estados[c.estado]
+  // Tarjetas de la rejilla: en vista normal, SIN sobrecupos ni canceladas (el cupo
+  // queda libre); en la agenda de sobrecupos, SÓLO los sobrecupos.
+  const cardsGrid = (cs: Cita[]) => cs.filter((c) => vis(c) && (soloSobrecupo ? c.sobrecupo : (!c.sobrecupo && c.estado !== 'CANCELADA')))
+  // Signos de sobrecupo (sólo en vista normal): marcan el horario donde hay uno.
+  const marcasSC = (cs: Cita[]) => (soloSobrecupo ? [] : cs.filter((c) => vis(c) && c.sobrecupo))
+  const contarSC = (cs: Cita[]) => cs.filter((c) => vis(c) && c.sobrecupo).length
+  const listaDiaria = (cs: Cita[]) => cs.filter(vis) // la diaria muestra TODO (incluye sobrecupos y canceladas)
 
-  type Col = { titulo: string; sub: string; citas: Cita[]; dow?: string; num?: number; hoy?: boolean }
+  type Col = { titulo: string; citas: Cita[]; dow?: string; num?: number; hoy?: boolean }
   const columnas: Col[] = vista === 'global'
-    ? PROFESIONALES.map((p) => ({ titulo: p.nombre, sub: `${filtrar(p.citas, true).length} citas`, citas: p.citas }))
-    : DIAS.map((d, i) => ({ titulo: `${d.dow} ${d.num}`, sub: `${filtrar(CITAS_SEMANA[i], true).length} citas`, citas: CITAS_SEMANA[i], hoy: d.hoy, num: d.num, dow: d.dow }))
+    ? PROFESIONALES.map((p) => ({ titulo: p.nombre, citas: p.citas }))
+    : DIAS.map((d, i) => ({ titulo: `${d.dow} ${d.num}`, citas: CITAS_SEMANA[i], hoy: d.hoy, num: d.num, dow: d.dow }))
+  const totalSC = columnas.reduce((s, c) => s + contarSC(c.citas), 0)
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -255,35 +265,41 @@ export function AgendaPreview() {
             <div className="flex items-center gap-2 mt-2.5 flex-wrap">
               <span className="text-xs font-medium text-slate-500 px-2.5 py-1 rounded-full border border-slate-200 inline-flex items-center gap-1"><SillonDental className="w-3.5 h-3.5 text-slate-500" /> {BOXES.length} boxes</span>
               {BOXES.map((b) => <span key={b} className="text-xs font-semibold text-white px-2.5 py-1 rounded-full bg-cyan-600 inline-flex items-center gap-1"><SillonDental className="w-3.5 h-3.5" /> {b}</span>)}
-              <button onClick={() => setSoloSobrecupo((v) => !v)} className={`text-xs font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1 ${soloSobrecupo ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'}`}>⚡ {soloSobrecupo ? 'Ver agenda normal' : 'Sobrecupo'}</button>
+              <button onClick={() => setSoloSobrecupo((v) => !v)} className={`text-xs font-semibold px-2.5 py-1 rounded-full inline-flex items-center gap-1 ${soloSobrecupo ? 'bg-orange-500 text-white' : 'bg-orange-100 text-orange-700 hover:bg-orange-200'}`}>⚡ {soloSobrecupo ? 'Ver agenda normal' : `Sobrecupo${totalSC > 0 ? ` · ${totalSC}` : ''}`}</button>
             </div>
           </div>
 
           {vista === 'diaria' ? (
             <div className="p-4 max-w-3xl">
-              <DiariaLista citas={filtrar(CITAS_SEMANA[4])} />
+              <DiariaLista citas={listaDiaria(CITAS_SEMANA[4])} />
             </div>
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[820px]">
                 <div className="flex sticky top-0 z-10 bg-white border-b-2 border-slate-300">
                   <div className="w-14 shrink-0" />
-                  {columnas.map((c, i) => (
-                    <div key={i} className="flex-1 min-w-0 text-center py-2 border-l border-slate-300 first:border-l-0">
-                      {c.dow
-                        ? <><p className="text-[11px] font-medium text-slate-400 uppercase">{c.dow}</p>
-                            <p className={`text-xl font-bold mx-auto w-9 h-9 leading-9 rounded-full ${c.hoy ? 'bg-cyan-600 text-white' : 'text-slate-800'}`}>{c.num}</p></>
-                        : <p className="text-sm font-semibold text-slate-800 truncate px-1 pt-1">{c.titulo}</p>}
-                      <p className="text-[11px] text-slate-400 mt-0.5">{c.sub}</p>
-                      <div className="text-[11px] text-slate-400 inline-flex items-center gap-1 justify-center"><SillonDental className="w-3 h-3" /> 1</div>
-                    </div>
-                  ))}
+                  {columnas.map((c, i) => {
+                    const nSC = contarSC(c.citas)
+                    return (
+                      <div key={i} className="flex-1 min-w-0 text-center py-2 border-l border-slate-300 first:border-l-0">
+                        {c.dow
+                          ? <><p className="text-[11px] font-medium text-slate-400 uppercase">{c.dow}</p>
+                              <p className={`text-xl font-bold mx-auto w-9 h-9 leading-9 rounded-full ${c.hoy ? 'bg-cyan-600 text-white' : 'text-slate-800'}`}>{c.num}</p></>
+                          : <p className="text-sm font-semibold text-slate-800 truncate px-1 pt-1">{c.titulo}</p>}
+                        <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                          <span className="text-[11px] text-slate-400">{cardsGrid(c.citas).length} citas</span>
+                          {!soloSobrecupo && nSC > 0 && <span className="text-[10px] font-bold text-orange-700 bg-orange-100 rounded-full px-1.5" title={`${nSC} sobrecupo(s) esta semana`}>⚡ {nSC}</span>}
+                        </div>
+                        <div className="text-[11px] text-slate-400 inline-flex items-center gap-1 justify-center"><SillonDental className="w-3 h-3" /> 1</div>
+                      </div>
+                    )
+                  })}
                 </div>
                 <div className="flex bg-white">
                   <EjeHoras />
                   {columnas.map((c, i) => (
                     <div key={i} className="flex-1 min-w-0 border-l border-slate-300 first:border-l-0">
-                      <Columna citas={filtrar(c.citas, true)} />
+                      <Columna citas={cardsGrid(c.citas)} marcas={marcasSC(c.citas)} />
                     </div>
                   ))}
                 </div>
