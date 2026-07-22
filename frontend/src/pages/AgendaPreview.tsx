@@ -11,7 +11,7 @@ import { CITA_ESTADOS } from '@shared/constants/cita-estados'
 
 const HORA_INI = 7
 const HORA_FIN = 19
-const PX_HORA = 60
+const PX_HORA = 120 // alto por hora → un bloque de 15 min = 30px (se lee el nombre)
 const yDe = (h: number, m = 0) => ((h - HORA_INI) * 60 + m) * (PX_HORA / 60)
 const altoDe = (min: number) => Math.max(20, min * (PX_HORA / 60) - 2)
 const TOTAL_H = (HORA_FIN - HORA_INI) * PX_HORA
