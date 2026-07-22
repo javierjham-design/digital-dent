@@ -136,7 +136,7 @@ export function Cobros() {
       <h2 className="text-sm font-semibold text-slate-700 mb-2">Cobros recientes</h2>
       <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
         {cobros.length === 0 ? <p className="px-5 py-6 text-center text-slate-500 text-sm">Sin cobros.</p> : cobros.map((c) => (
-          <div key={c.id} className={`flex items-center justify-between px-5 py-3 ${c.anulado ? 'opacity-50' : ''}`}>
+          <div key={c.id} className={`flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between px-4 sm:px-5 py-3 ${c.anulado ? 'opacity-50' : ''}`}>
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-medium text-slate-800 truncate">#{c.numero} · {c.paciente.nombre} {c.paciente.apellido}</p>
@@ -144,14 +144,15 @@ export function Cobros() {
               </div>
               <p className="text-xs text-slate-500 truncate">{c.concepto}{c.medioPago ? ` · ${c.medioPago.nombre}` : ' · Efectivo'}{c.numeroReferencia ? ` · Ref ${c.numeroReferencia}` : ''}{c.numeroBoleta ? ` · Boleta ${c.numeroBoleta}` : ''}{c.fechaPago ? ` · ${fechaHora(c.fechaPago)}` : ''}</p>
             </div>
-            <div className="flex items-center gap-3 flex-shrink-0">
-              <span className="font-mono text-sm text-slate-700">{fmt(c.monto)}</span>
+            {/* En móvil: monto + acciones bajan a su propia fila (con wrap) para que no se encimen. */}
+            <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap sm:flex-nowrap sm:flex-shrink-0 sm:justify-end border-t border-slate-100 pt-2 sm:border-0 sm:pt-0">
+              <span className="font-mono text-sm font-semibold text-slate-800 mr-auto sm:mr-0">{fmt(c.monto)}</span>
               {!c.anulado && c.estado !== 'ANULADO' && c.estado !== 'PAGADO' && <LinkPagoBtn cobroId={c.id} notify={notify} />}
-              {!c.anulado && c.estado === 'PAGADO' && <button onClick={() => setComprobante(c)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900" title="Enviar comprobante por correo">✉ Comprobante</button>}
-              {c.estado === 'PAGADO' && <a href={`/print/cobro/${c.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-slate-500 hover:text-slate-800" title="Imprimir / guardar comprobante en PDF">🖨 Imprimir</a>}
+              {!c.anulado && c.estado === 'PAGADO' && <button onClick={() => setComprobante(c)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900 whitespace-nowrap" title="Enviar comprobante por correo">✉ Comprobante</button>}
+              {c.estado === 'PAGADO' && <a href={`/print/cobro/${c.id}`} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-slate-500 hover:text-slate-800 whitespace-nowrap" title="Imprimir / guardar comprobante en PDF">🖨 Imprimir</a>}
               {!c.anulado && c.estado !== 'ANULADO' && (
                 <button onClick={async () => { const m = prompt('Motivo de la anulación (mín. 4):'); if (m && m.length >= 4) { try { await cobrosService.anular(c.id, m); notify('Cobro anulado'); cargar() } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) } } }}
-                  className="text-xs text-rose-400 hover:text-rose-600">Anular</button>
+                  className="text-xs text-rose-400 hover:text-rose-600 whitespace-nowrap">Anular</button>
               )}
             </div>
           </div>
