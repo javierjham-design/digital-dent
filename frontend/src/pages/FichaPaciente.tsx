@@ -708,6 +708,8 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
   const fin = planFinanzas(todas)
   const abonado = fin.abonado + (plan.abonoLibre ?? 0)
   const saldo = Math.max(0, fin.total - abonado)
+  // Deuda = lo REALIZADO que aún no está cubierto por pagos ni abono libre.
+  const deuda = Math.max(0, fin.realizado - abonado)
   // Caras que ya tienen una acción, por pieza (para resaltarlas en el odontograma).
   const caraMap = new Map<number, Set<string>>()
   for (const t of todas) {
@@ -742,6 +744,13 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
           <div className="bg-white rounded-2xl border border-slate-200 p-4">
             <p className="text-center text-[11px] uppercase tracking-wide text-slate-400">Presupuesto total</p>
             <p className="text-center text-2xl font-bold text-cyan-700 mb-3">{fmtCLP(fin.total)}</p>
+            {/* Deuda destacada: lo realizado impago. Bien visible arriba del resumen. */}
+            {deuda > 0 && (
+              <div className="mb-3 rounded-xl bg-rose-50 border border-rose-200 px-3 py-2 text-center">
+                <p className="text-[11px] uppercase tracking-wide text-rose-500 font-semibold">Deuda (realizado impago)</p>
+                <p className="text-xl font-bold text-rose-600 font-mono">{fmtCLP(deuda)}</p>
+              </div>
+            )}
             <Linea l="Realizado" v={fmtCLP(fin.realizado)} />
             <Linea l="Abonado" v={fmtCLP(abonado)} />
             <Linea l="Saldo por abonar" v={fmtCLP(saldo)} destacado={saldo > 0} />
@@ -1213,7 +1222,12 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
           className="w-20 sm:w-24 text-right text-sm font-mono text-slate-700 enabled:hover:text-cyan-600 disabled:cursor-default shrink-0">{fmtCLP(netoTrat(t))}</button>
       )}
 
-      <span className="w-7 sm:w-10 flex justify-center shrink-0"><span className={`w-2.5 h-2.5 rounded-full ${pagada ? 'bg-emerald-500' : 'bg-rose-400'}`} title={pagada ? 'Pagada' : 'Pendiente de pago'} /></span>
+      {/* Estado de PAGO (independiente del ✓ realizada de la izquierda):
+          verde = pagada · rojo = realizada pero impaga (DEUDA) · azul = agregada (aún sin realizar). */}
+      <span className="w-7 sm:w-10 flex justify-center shrink-0">
+        <span className={`w-2.5 h-2.5 rounded-full ${pagada ? 'bg-emerald-500' : completado ? 'bg-rose-500' : 'bg-sky-500'}`}
+          title={pagada ? 'Pagada' : completado ? 'En deuda (realizada e impaga)' : 'Agregada (aún sin realizar)'} />
+      </span>
       {!bloqueado
         ? <button onClick={() => accion(() => tratamientosService.eliminar(t.id))} className="w-4 text-slate-300 hover:text-rose-600 text-sm shrink-0" title="Quitar">×</button>
         : <span className="w-4" />}
@@ -1286,7 +1300,8 @@ function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas,
         })))
       }
     })
-    clearSel()
+    // NO se limpia la selección: así se pueden agregar varias acciones a la(s)
+    // misma(s) pieza(s) sin volver a marcarlas. Se limpia con "Limpiar selección".
     onDone()
   }
 
