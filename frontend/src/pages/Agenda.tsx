@@ -1,13 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import FullCalendar from '@fullcalendar/react'
-import timeGridPlugin from '@fullcalendar/timegrid'
-import interactionPlugin from '@fullcalendar/interaction'
-import esLocale from '@fullcalendar/core/locales/es'
-import type { EventClickArg, EventContentArg } from '@fullcalendar/core'
-
-// Tipo estructural común a eventDrop y eventResize (ambos traen event + revert).
-type MoveArg = { event: { start: Date | null; end: Date | null; extendedProps: Record<string, unknown> }; revert: () => void }
 import type { BloqueoDTO, CitaDTO, DoctorDTO, HorarioDTO, ClinicaConfigDTO } from '@shared/types'
 import { CITA_ESTADOS, ESTADOS_NO_OCUPAN, siguienteEstado } from '@shared/constants/cita-estados'
 import { bloqueosService, citasService, horariosLectura, type CitaLogDTO } from '@/services/clinica.service'
@@ -51,26 +43,10 @@ function waLink(c: CitaDTO, clinica: ClinicaConfigDTO | null): string | null {
 
 const MOTIVOS = ['Consulta diagnóstico', 'Control', 'Detartraje / Profilaxis', 'Obturación', 'Endodoncia', 'Exodoncia', 'Ortodoncia', 'Blanqueamiento', 'Urgencia', 'Otro']
 const DURACIONES = [15, 30, 45, 60, 90, 120]
+// Etiquetas de día por getDay() (0=domingo). La grilla semanal muestra Lun→Dom.
+const DOW_LABELS = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB']
 
 const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
-
-// Render de cada evento en la vista semanal: nombre del paciente + comentario
-// (📝) para verlo de un vistazo; tooltip con el detalle completo.
-function renderEventoSemanal(arg: EventContentArg) {
-  const props = arg.event.extendedProps as { kind?: string; cita?: CitaDTO }
-  if (props.kind === 'bloqueo') {
-    return <div className="px-1 text-[0.72rem] font-semibold leading-tight truncate">🔒 {arg.event.title}</div>
-  }
-  const nota = props.cita?.notas?.trim()
-  const sc = props.cita?.sobrecupo
-  return (
-    <div className="px-0.5 leading-tight overflow-hidden w-full relative" title={`${arg.event.title}${sc ? ' (sobrecupo)' : ''}${nota ? ` — ${nota}` : ''}`}>
-      {sc && <span className="absolute top-0 right-0 z-10 bg-orange-500 text-white text-[8px] font-bold px-1 rounded leading-[1.4]">SC</span>}
-      <div className={`font-semibold text-[0.78rem] truncate ${sc ? 'pr-4' : ''}`}>{nota ? '📝 ' : ''}{arg.event.title}</div>
-      {nota && <div className="text-[0.68rem] opacity-95 truncate">{nota}</div>}
-    </div>
-  )
-}
 
 type Vista = 'semanal' | 'diaria' | 'global'
 
@@ -85,7 +61,6 @@ const ESTADOS_FILTRO = Object.keys(CITA_ESTADOS)
 const ymdLocal = (d: Date) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
 
 export function Agenda() {
-  const calRef = useRef<FullCalendar>(null)
   const verCalRef = useRef<HTMLInputElement>(null)
   const [doctores, setDoctores] = useState<DoctorDTO[]>([])
   const [citas, setCitas] = useState<CitaDTO[]>([])
@@ -185,57 +160,11 @@ export function Agenda() {
     catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
 
-  // Sincronizar FullCalendar (vista semanal en bloques) con la fecha actual.
-  useEffect(() => {
-    const api = calRef.current?.getApi()
-    if (api && vista === 'semanal') api.gotoDate(currentDate)
-  }, [currentDate, vista])
-
-  const businessHours = useMemo(() => {
-    const activos = horarios.filter((h) => h.activo)
-    if (activos.length === 0) return false
-    // Si el día tiene receso activo, partimos las horas hábiles en dos bloques
-    // (antes y después del receso) para que el tramo de receso quede como "fuera
-    // de horario" (gris) y no aparezca disponible para atender.
-    const blocks: { daysOfWeek: number[]; startTime: string; endTime: string }[] = []
-    for (const h of activos) {
-      if (h.recesoActivo && h.recesoInicio && h.recesoFin && h.recesoInicio < h.recesoFin) {
-        blocks.push({ daysOfWeek: [h.diaSemana], startTime: h.horaInicio, endTime: h.recesoInicio })
-        blocks.push({ daysOfWeek: [h.diaSemana], startTime: h.recesoFin, endTime: h.horaFin })
-      } else {
-        blocks.push({ daysOfWeek: [h.diaSemana], startTime: h.horaInicio, endTime: h.horaFin })
-      }
-    }
-    return blocks
-  }, [horarios])
-
   // Semanal: nunca muestra canceladas (el cupo queda libre), aunque el filtro las marque.
   const citasVisibles = useMemo(
     () => citas.filter((c) => (doctorId ? c.doctorId === doctorId : true) && statusFilter.has(c.estado) && c.estado !== 'CANCELADA'),
     [citas, doctorId, statusFilter],
   )
-
-  const events = useMemo(() => {
-    // En la "agenda de sobrecupos" mostramos SÓLO las citas en sobrecupo (sin
-    // bloqueos), en la misma grilla semanal.
-    const base = soloSobrecupos ? citasVisibles.filter((c) => c.sobrecupo) : citasVisibles
-    const ev = base.map((c) => {
-      const cfg = CITA_ESTADOS[c.estado]
-      return {
-        id: `cita-${c.id}`, title: c.pacienteNombre, start: c.inicio, end: c.fin,
-        backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', textColor: '#fff',
-        classNames: c.sobrecupo ? ['cita-sobrecupo'] : [],
-        extendedProps: { kind: 'cita' as const, cita: c },
-      }
-    })
-    if (soloSobrecupos) return ev
-    const blq = bloqueos.filter((b) => !doctorId || b.doctorId === doctorId).map((b) => ({
-      id: `blq-${b.id}`, title: `Bloqueo: ${b.motivo ?? ''}`, start: b.inicio, end: b.fin,
-      backgroundColor: '#475569', borderColor: '#334155', textColor: '#f1f5f9', editable: false,
-      extendedProps: { kind: 'bloqueo' as const, bloqueo: b },
-    }))
-    return [...ev, ...blq]
-  }, [citasVisibles, bloqueos, doctorId, soloSobrecupos])
 
   // ¿La franja [inicio, inicio+dur) cae dentro del horario de atención del
   // profesional? Se usa para no dejar agendar/bloquear fuera de sus bloques.
@@ -253,12 +182,6 @@ export function Agenda() {
   function shiftDate(dir: -1 | 1) {
     setCurrentDate((prev) => { const d = new Date(prev); d.setDate(d.getDate() + dir * (vista === 'semanal' ? 7 : 1)); return d })
   }
-
-  const onEventClick = useCallback((arg: EventClickArg) => {
-    const props = arg.event.extendedProps as { kind: 'cita' | 'bloqueo'; cita?: CitaDTO; bloqueo?: BloqueoDTO }
-    if (props.kind === 'bloqueo' && props.bloqueo) setSelectedBloqueo(props.bloqueo)
-    else if (props.cita) setSelected(props.cita)
-  }, [])
 
   // Devuelve un mensaje si el horario destino choca con otra cita (que ocupa) o un
   // bloqueo del profesional; null si está libre. Sirve para impedir reagendar
@@ -278,37 +201,6 @@ export function Agenda() {
     }
     return null
   }, [citas, bloqueos])
-
-  // Arrastrar una cita (semanal) → NO se guarda directo: pide confirmación con la
-  // nueva fecha/hora. Si el destino está ocupado, se rechaza y se revierte.
-  const onDrop = useCallback((arg: MoveArg) => {
-    const props = arg.event.extendedProps as { kind: string; cita?: CitaDTO }
-    if (props.kind !== 'cita' || !props.cita || !arg.event.start) { arg.revert(); return }
-    const start = arg.event.start
-    const end = arg.event.end
-    const cita = props.cita
-    const duracion = end
-      ? Math.max(15, Math.round((end.getTime() - start.getTime()) / 60000))
-      : Math.max(15, Math.round((+new Date(cita.fin) - +new Date(cita.inicio)) / 60000))
-    if (!cita.sobrecupo) {
-      const conf = conflictoEn(cita.doctorId, start.toISOString(), duracion, cita.id)
-      if (conf) { notify(conf, false); arg.revert(); return }
-    }
-    setPendienteMove({ cita, nuevoDoctorId: cita.doctorId, nuevoISO: start.toISOString(), duracion, revert: arg.revert })
-  }, [conflictoEn])
-
-  // Redimensionar (cambiar duración) sí se aplica directo: es menos propenso a error.
-  const onResize = useCallback(async (arg: MoveArg) => {
-    const props = arg.event.extendedProps as { kind: string; cita?: CitaDTO }
-    if (props.kind !== 'cita' || !props.cita || !arg.event.start || !arg.event.end) { arg.revert(); return }
-    const duracion = Math.max(15, Math.round((arg.event.end.getTime() - arg.event.start.getTime()) / 60000))
-    try {
-      await citasService.editar(props.cita.id, { fecha: arg.event.start.toISOString(), duracion })
-      notify('Duración actualizada'); recargar()
-    } catch (e) {
-      notify(e instanceof ApiError ? e.message : 'No se pudo ajustar', false); arg.revert()
-    }
-  }, [recargar])
 
   async function confirmarMove() {
     if (!pendienteMove) return
@@ -390,14 +282,45 @@ export function Agenda() {
     return bloqueos.filter((b) => { const t = new Date(b.inicio); return t >= d0 && t <= d1 })
   }, [bloqueos, currentDate])
 
+  // Columnas para la grilla. Semanal = 7 días del profesional elegido; Global =
+  // profesionales que atienden hoy (o tienen agenda). Reutilizan citasVisibles/citasGlobal.
+  const columnasSemanal = useMemo<GColumna[]>(() => {
+    const lunes = lunesDe(currentDate); const hoy = new Date()
+    return Array.from({ length: 7 }, (_, i) => {
+      const dia = new Date(lunes); dia.setDate(lunes.getDate() + i)
+      return {
+        key: `d${i}`, doctorId, fecha: dia,
+        citas: citasVisibles.filter((c) => mismoDia(new Date(c.inicio), dia)),
+        bloqueos: doctorId ? bloqueos.filter((b) => b.doctorId === doctorId && mismoDia(new Date(b.inicio), dia)) : [],
+        horario: horarios.find((h) => h.diaSemana === dia.getDay() && h.activo),
+        dow: DOW_LABELS[dia.getDay()], num: dia.getDate(), hoy: mismoDia(dia, hoy),
+      }
+    })
+  }, [currentDate, citasVisibles, bloqueos, horarios, doctorId])
+
+  const columnasGlobal = useMemo<GColumna[]>(() => {
+    const dow = currentDate.getDay()
+    const horariosDia = horariosTodos.filter((h) => h.diaSemana === dow && h.activo)
+    const conAgenda = new Set(horariosDia.map((h) => h.doctorId))
+    const conEventos = new Set<string>([...citasGlobal.map((c) => c.doctorId), ...bloqueosGlobal.map((b) => b.doctorId)])
+    return doctores.filter((d) => conAgenda.has(d.id) || conEventos.has(d.id)).map((doc) => ({
+      key: doc.id, doctorId: doc.id, fecha: currentDate,
+      citas: citasGlobal.filter((c) => c.doctorId === doc.id),
+      bloqueos: bloqueosGlobal.filter((b) => b.doctorId === doc.id),
+      horario: horariosDia.find((h) => h.doctorId === doc.id),
+      titulo: doc.name ?? doc.email ?? '',
+    }))
+  }, [currentDate, horariosTodos, citasGlobal, bloqueosGlobal, doctores])
+
   const labelFecha = vista === 'semanal'
     ? `Semana del ${new Date(rango.from).toLocaleDateString('es-CL', { day: 'numeric', month: 'long' })}`
     : currentDate.toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })
 
   return (
     <div className="flex gap-5">
-      {/* Sidebar filtros */}
-      <aside className="w-52 flex-shrink-0 hidden lg:block">
+      {/* Panel lateral fijo: mini-calendario + filtros + estados */}
+      <aside className="w-60 flex-shrink-0 hidden lg:block">
+        <MiniCalendario value={currentDate} onPick={(d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); setCurrentDate(x) }} />
         <div className="bg-white rounded-2xl border border-slate-200 p-4">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Profesional</p>
           <select value={doctorId} onChange={(e) => setDoctorId(e.target.value)}
@@ -507,80 +430,21 @@ export function Agenda() {
           </div>
         )}
 
-        {vista === 'semanal' ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-2 overflow-x-auto">
-            {/* Estilo tipo Dentalink: espacios disponibles en verde, fuera de horario en gris,
-                bloques anchos con el nombre del paciente. En móvil el grid scrollea horizontal
-                (columnas legibles); el desborde lo contiene el <main> (overflow-x: clip). */}
-            <style>{`
-              .fc { min-width: 720px; --fc-border-color: #e5e9ef; }
-              /* Alto de bloque = 2em (32px) = eventMinHeight={32}: las citas calzan
-                 EXACTO con la grilla, sin sobresalir ni dejar huecos entre ellas. */
-              .fc .fc-timegrid-slot { height: 2em; }
-              /* Disponible = verde muy tenue; fuera de horario = gris suave. */
-              .fc .fc-timegrid-slot-lane { background: #eefaf3; }
-              .fc .fc-non-business { background: #f1f5f9 !important; }
-              .fc .fc-day-today { background: transparent !important; }
-              /* Separador entre días: línea gris tenue (sobre el fondo, no bloquea el clic). */
-              .fc .fc-timegrid-col { position: relative; }
-              .fc td.fc-timegrid-col::after { content: ''; position: absolute; top: 0; right: 0; bottom: 0; width: 1px; background: #dfe4ea; pointer-events: none; z-index: 4; }
-              .fc td.fc-timegrid-axis::after { display: none; }
-              /* Divisiones de bloque BIEN visibles (para ver los espacios libres),
-                 en gris limpio; la hora en punto va más marcada. */
-              .fc .fc-timegrid-slot { border-bottom: 1px solid #cbd5e1 !important; }
-              .fc .fc-timegrid-slot[data-time$=":00:00"] { border-bottom: 1px solid #94a3b8 !important; }
-              .fc .fc-timegrid-slot-minor { border-top: 0 !important; }
-              .fc .fc-col-header-cell { padding: 6px 0; background: #f8fafc; }
-              .fc .fc-col-header-cell-cushion { font-weight: 600; color: #334155; text-transform: capitalize; }
-              .fc .fc-day-today .fc-col-header-cell-cushion { color: #0891b2; }
-              .fc .fc-timegrid-now-indicator-line { border-color: #ef4444; }
-              .fc .fc-timegrid-event { border-radius: 6px; box-shadow: none; border: none; }
-              .fc .fc-timegrid-event .fc-event-main { padding: 2px 5px; height: 100%; }
-              .fc .fc-event-title { white-space: normal; font-weight: 600; font-size: 0.78rem; line-height: 1.12; }
-              /* El bloque ocupa TODO el ancho y alto de su celda (sin el margen que
-                 FullCalendar deja por defecto), para que se vean parejos. */
-              .fc .fc-timegrid-col-events { margin: 0 !important; }
-              .fc .fc-timegrid-event-harness { margin-right: 0 !important; right: 1px !important; }
-              .fc .fc-timegrid-event-harness-inset .fc-timegrid-event { box-shadow: none; }
-              /* Citas en sobrecupo: borde punteado naranjo (+ insignia SC) para distinguirlas de un vistazo. */
-              .fc .fc-timegrid-event.cita-sobrecupo { outline: 2px dashed #f97316; outline-offset: -2px; }
-            `}</style>
-            <FullCalendar
-              ref={calRef}
-              plugins={[timeGridPlugin, interactionPlugin]}
-              initialView="timeGridWeek"
-              initialDate={currentDate}
-              locale={esLocale}
-              headerToolbar={false}
-              events={events}
-              eventContent={renderEventoSemanal}
-              eventClick={onEventClick}
-              editable
-              eventDrop={onDrop}
-              eventResize={onResize}
-              dateClick={(a) => {
-                if (!dentroAtencion(doctorId, a.date, 15)) { notify('Ese horario está fuera del horario de atención del profesional.', false); return }
-                // En la agenda de sobrecupos se agenda directo en sobrecupo (agenda
-                // independiente): no pasa por "crear/bloquear" ni choca con la agenda normal.
-                if (soloSobrecupos) { setCrear({ slotISO: a.date.toISOString(), sobrecupo: true }); return }
-                setSlotAccion({ slotISO: a.date.toISOString() })
-              }}
-              businessHours={businessHours}
-              slotMinTime="07:00:00" slotMaxTime="21:00:00" slotDuration="00:15:00" slotLabelInterval="00:15:00"
-              allDaySlot={false} height="auto" nowIndicator expandRows
-              displayEventTime={false} eventMinHeight={32}
-              slotEventOverlap={!soloSobrecupos}
-              slotLabelFormat={{ hour: '2-digit', minute: '2-digit', hour12: false }}
-              dayHeaderFormat={{ weekday: 'short', day: 'numeric' }}
-            />
-          </div>
-        ) : vista === 'global' ? (
-          <DiariaGlobal doctores={doctores} horarios={horariosTodos} citas={citasGlobal} bloqueos={bloqueosGlobal} fecha={currentDate}
+        {vista === 'diaria' ? (
+          <DiariaLista citas={citasDelDia} clinica={clinica} onClick={setSelected} onAvanzar={(c) => { const n = siguienteEstado(c.estado); if (n) cambiarEstado(c.id, n.estado) }} />
+        ) : (
+          <GridAgenda
+            columnas={vista === 'semanal' ? columnasSemanal : columnasGlobal}
+            soloSobrecupo={soloSobrecupos}
             conflicto={conflictoEn}
             onCita={setSelected} onBloqueo={setSelectedBloqueo}
             onSlot={(docId, slotISO) => {
               if (!dentroAtencion(docId, new Date(slotISO), 15)) { notify('Ese horario está fuera del horario de atención del profesional.', false); return }
-              setCrear({ slotISO, doctorId: docId, sobrecupo: soloSobrecupos })
+              // En sobrecupos se agenda directo en sobrecupo (agenda independiente).
+              if (soloSobrecupos) { setCrear({ slotISO, doctorId: docId, sobrecupo: true }); return }
+              // Semanal: ofrece agendar o bloquear. Global: agenda directo para ese profesional.
+              if (vista === 'semanal') setSlotAccion({ slotISO })
+              else setCrear({ slotISO, doctorId: docId })
             }}
             onMover={(cita, nuevoDoctorId, nuevoISO, duracion) => {
               if (!cita.sobrecupo) {
@@ -588,9 +452,8 @@ export function Agenda() {
                 if (conf) { notify(conf, false); return }
               }
               setPendienteMove({ cita, nuevoDoctorId, nuevoISO, duracion })
-            }} />
-        ) : (
-          <DiariaLista citas={citasDelDia} clinica={clinica} onClick={setSelected} onAvanzar={(c) => { const n = siguienteEstado(c.estado); if (n) cambiarEstado(c.id, n.estado) }} />
+            }}
+            vacio={vista === 'semanal' ? 'Este profesional no tiene horario configurado para esta semana.' : 'Ningún profesional atiende este día.'} />
         )}
       </div>
 
@@ -818,9 +681,8 @@ function DiariaLista({ citas, clinica, onClick, onAvanzar }: { citas: CitaDTO[];
   )
 }
 
-// ── Vista Diaria Global (estilo Dentalink): un profesional por columna ─────────
-const G_SLOT_H = 20          // px por bloque de 15 min → 80px por hora
-const G_PXMIN = G_SLOT_H / 15
+// ── Grilla de la agenda (semanal = días / global = profesionales) ──────────────
+const GRID_PXMIN = 2         // 120px por hora → bloque de 15 min = 30px (se lee el nombre)
 
 type GEvento =
   | { kind: 'cita'; id: string; ini: Date; fin: Date; cita: CitaDTO }
@@ -861,126 +723,171 @@ function bloquesAtencion(h: HorarioDTO | undefined): [number, number][] {
   return [[ini, fin]]
 }
 
-function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, conflicto, onCita, onBloqueo, onSlot, onMover }: {
-  doctores: DoctorDTO[]; horarios: HorarioDTO[]; citas: CitaDTO[]; bloqueos: BloqueoDTO[]; fecha: Date
+// Mini-calendario mensual (panel lateral): navega meses y al pinchar un día lleva
+// la agenda a esa fecha. Hoy y el día seleccionado quedan resaltados.
+function MiniCalendario({ value, onPick }: { value: Date; onPick: (d: Date) => void }) {
+  const [mes, setMes] = useState(() => new Date(value.getFullYear(), value.getMonth(), 1))
+  useEffect(() => { setMes(new Date(value.getFullYear(), value.getMonth(), 1)) }, [value])
+  const offset = (new Date(mes.getFullYear(), mes.getMonth(), 1).getDay() + 6) % 7 // lunes = 0
+  const diasMes = new Date(mes.getFullYear(), mes.getMonth() + 1, 0).getDate()
+  const hoy = new Date()
+  const celdas: (number | null)[] = [...Array(offset).fill(null), ...Array.from({ length: diasMes }, (_, i) => i + 1)]
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-3 mb-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-semibold text-slate-700 capitalize">{mes.toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}</span>
+        <div className="flex gap-1 text-slate-400">
+          <button onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() - 1, 1))} className="hover:text-slate-600 px-1.5">‹</button>
+          <button onClick={() => setMes(new Date(mes.getFullYear(), mes.getMonth() + 1, 1))} className="hover:text-slate-600 px-1.5">›</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-7 text-center text-[10px] text-slate-400 mb-1">{['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((d, i) => <span key={i}>{d}</span>)}</div>
+      <div className="grid grid-cols-7 gap-0.5 text-center text-xs">
+        {celdas.map((d, i) => {
+          if (d === null) return <span key={i} />
+          const fecha = new Date(mes.getFullYear(), mes.getMonth(), d)
+          const sel = mismoDia(fecha, value)
+          return <button key={i} onClick={() => onPick(fecha)} className={`py-1 rounded-full ${sel ? 'bg-cyan-600 text-white font-semibold' : mismoDia(fecha, hoy) ? 'ring-1 ring-cyan-400 text-cyan-700' : 'text-slate-600 hover:bg-slate-100'}`}>{d}</button>
+        })}
+      </div>
+    </div>
+  )
+}
+
+type GColumna = {
+  key: string; doctorId: string; fecha: Date
+  citas: CitaDTO[]; bloqueos: BloqueoDTO[]; horario?: HorarioDTO
+  dow?: string; num?: number; hoy?: boolean; titulo?: string
+}
+
+// Grilla estilo preview usada por Semanal (columnas = días de un profesional) y
+// Global (columnas = profesionales de un día). Mantiene TODAS las interacciones:
+// clic en espacio libre → onSlot, clic en cita → onCita, arrastrar → onMover.
+function GridAgenda({ columnas, soloSobrecupo, conflicto, onCita, onBloqueo, onSlot, onMover, vacio }: {
+  columnas: GColumna[]; soloSobrecupo: boolean
   conflicto: (doctorId: string, iniISO: string, durMin: number, excluirCitaId: string) => string | null
-  onCita: (c: CitaDTO) => void; onBloqueo: (b: BloqueoDTO) => void; onSlot: (doctorId: string, slotISO: string) => void
+  onCita: (c: CitaDTO) => void; onBloqueo: (b: BloqueoDTO) => void
+  onSlot: (doctorId: string, slotISO: string) => void
   onMover: (cita: CitaDTO, nuevoDoctorId: string, nuevoISO: string, duracion: number) => void
+  vacio?: string
 }) {
-  const dow = fecha.getDay() // 0=domingo … 6=sábado (misma convención que horario.diaSemana)
   const dragRef = useRef<{ cita: CitaDTO; duracion: number } | null>(null)
-  const [dropHint, setDropHint] = useState<{ docId: string; min: number; ocupado: boolean } | null>(null)
+  const [dropHint, setDropHint] = useState<{ key: string; min: number; ocupado: boolean } | null>(null)
 
-  // Horarios de atención del día (por profesional).
-  const horariosDia = useMemo(() => horarios.filter((h) => h.diaSemana === dow && h.activo), [horarios, dow])
-  const horarioDe = (docId: string) => horariosDia.find((h) => h.doctorId === docId)
-
-  // Profesionales a mostrar: SOLO los que atienden ese día (tienen horario activo)
-  // o los que ya tienen citas/bloqueos ese día (para no ocultar agenda existente).
-  const doctoresMostrar = useMemo(() => {
-    const conAgenda = new Set(horariosDia.map((h) => h.doctorId))
-    const conEventos = new Set<string>([...citas.map((c) => c.doctorId), ...bloqueos.map((b) => b.doctorId)])
-    return doctores.filter((d) => conAgenda.has(d.id) || conEventos.has(d.id))
-  }, [doctores, horariosDia, citas, bloqueos])
-
-  // Ventana horaria visible: se ajusta al horario de atención + citas del día.
+  // Ventana horaria: del horario de atención + citas/bloqueos de TODAS las columnas.
   const { startM, endM } = useMemo(() => {
     let a = Infinity, b = -Infinity
-    for (const h of horariosDia) if (doctoresMostrar.some((d) => d.id === h.doctorId)) { a = Math.min(a, hhmmAMin(h.horaInicio)); b = Math.max(b, hhmmAMin(h.horaFin)) }
-    for (const c of citas) { a = Math.min(a, minutosDelDia(new Date(c.inicio))); b = Math.max(b, minutosDelDia(new Date(c.fin))) }
-    for (const bl of bloqueos) { a = Math.min(a, minutosDelDia(new Date(bl.inicio))); b = Math.max(b, minutosDelDia(new Date(bl.fin))) }
+    for (const col of columnas) {
+      for (const [s, e] of bloquesAtencion(col.horario)) { a = Math.min(a, s); b = Math.max(b, e) }
+      for (const c of col.citas) { a = Math.min(a, minutosDelDia(new Date(c.inicio))); b = Math.max(b, minutosDelDia(new Date(c.fin))) }
+      for (const bl of col.bloqueos) { a = Math.min(a, minutosDelDia(new Date(bl.inicio))); b = Math.max(b, minutosDelDia(new Date(bl.fin))) }
+    }
     if (!Number.isFinite(a)) { a = 8 * 60; b = 20 * 60 }
     let s = Math.floor(a / 60) * 60, e = Math.ceil(b / 60) * 60
-    s = Math.max(6 * 60, s); e = Math.min(22 * 60, e); if (e <= s + 60) e = Math.min(22 * 60, s + 120)
+    s = Math.max(7 * 60, s); e = Math.min(22 * 60, e); if (e <= s + 60) e = Math.min(22 * 60, s + 120)
     return { startM: s, endM: e }
-  }, [horariosDia, doctoresMostrar, citas, bloqueos])
+  }, [columnas])
 
-  const totalH = (endM - startM) * G_PXMIN
-  const horas = useMemo(() => { const r: number[] = []; for (let m = Math.ceil(startM / 60) * 60; m <= endM; m += 60) r.push(m); return r }, [startM, endM])
-  const yDeMin = (m: number) => (Math.max(startM, Math.min(endM, m)) - startM) * G_PXMIN
+  const totalH = (endM - startM) * GRID_PXMIN
+  const yDeMin = (m: number) => (Math.max(startM, Math.min(endM, m)) - startM) * GRID_PXMIN
+  const lineas = useMemo(() => { const r: number[] = []; for (let m = startM; m <= endM; m += 15) r.push(m); return r }, [startM, endM])
+  const labels = useMemo(() => { const r: number[] = []; for (let m = startM; m <= endM; m += 30) r.push(m); return r }, [startM, endM])
 
-  // Minuto (redondeado a 15) según la posición Y del cursor dentro de la columna.
   const minEnY = (e: { clientY: number; currentTarget: HTMLElement }) => {
     const rect = e.currentTarget.getBoundingClientRect()
-    const y = e.clientY - rect.top
-    const min = startM + Math.round((y / G_PXMIN) / 15) * 15
+    const min = startM + Math.round(((e.clientY - rect.top) / GRID_PXMIN) / 15) * 15
     return Math.max(startM, Math.min(endM - 15, min))
   }
-  const isoDeMin = (min: number) => { const d = new Date(fecha); d.setHours(Math.floor(min / 60), min % 60, 0, 0); return d.toISOString() }
+  const isoDeMin = (fecha: Date, min: number) => { const d = new Date(fecha); d.setHours(Math.floor(min / 60), min % 60, 0, 0); return d.toISOString() }
 
-  if (doctoresMostrar.length === 0) {
-    return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 text-sm">Ningún profesional atiende este día.</div>
-  }
+  if (columnas.length === 0) return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 text-sm">{vacio ?? 'Sin agenda para mostrar.'}</div>
+
+  const minColW = columnas.length <= 3 ? 220 : 116
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 overflow-x-auto">
-      <p className="text-[11px] text-slate-400 px-3 pt-2">Arrastra una cita para reagendarla (te pedimos confirmar el nuevo horario).</p>
-      <div className="flex min-w-max p-2 pt-1">
-        {/* Eje de horas (sticky a la izquierda) */}
-        <div className="sticky left-0 z-20 bg-white w-12 shrink-0">
-          <div className="h-10 border-b border-slate-200" /> {/* hueco del header */}
+      <div className="flex" style={{ minWidth: 56 + columnas.length * minColW }}>
+        {/* Eje de horas (sticky a la izquierda), formato 24h cada 30 min */}
+        <div className="sticky left-0 z-20 bg-white w-14 shrink-0">
+          <div className="h-[54px] border-b-2 border-slate-200" />
           <div className="relative" style={{ height: totalH }}>
-            {horas.map((m) => (
-              <div key={m} className="absolute right-1.5 -translate-y-1/2 text-[10px] font-mono text-slate-400" style={{ top: yDeMin(m) }}>
-                {String(Math.floor(m / 60)).padStart(2, '0')}:00
+            {labels.map((m) => (
+              <div key={m} className={`absolute right-2 -translate-y-1/2 font-mono ${m % 60 === 0 ? 'text-[11px] font-semibold text-slate-500' : 'text-[10px] text-slate-400'}`} style={{ top: yDeMin(m) }}>
+                {dosDig(Math.floor(m / 60))}:{dosDig(m % 60)}
               </div>
             ))}
           </div>
         </div>
 
-        {/* Una columna por profesional */}
-        {doctoresMostrar.map((doc) => {
-          const verdes = bloquesAtencion(horarioDe(doc.id))
-          const citasDoc: GEvento[] = citas.filter((c) => c.doctorId === doc.id).map((c) => ({ kind: 'cita', id: c.id, ini: new Date(c.inicio), fin: new Date(c.fin), cita: c }))
-          const blqDoc: GEvento[] = bloqueos.filter((b) => b.doctorId === doc.id).map((b) => ({ kind: 'bloqueo', id: b.id, ini: new Date(b.inicio), fin: new Date(b.fin), bloqueo: b }))
-          const layout = conCarriles<GEvento>([...citasDoc, ...blqDoc])
+        {columnas.map((col) => {
+          const cards = col.citas.filter((c) => (soloSobrecupo ? c.sobrecupo : !c.sobrecupo))
+          const marcas = soloSobrecupo ? [] : col.citas.filter((c) => c.sobrecupo)
+          const verdes = bloquesAtencion(col.horario)
+          const eventos: GEvento[] = [
+            ...cards.map((c) => ({ kind: 'cita' as const, id: c.id, ini: new Date(c.inicio), fin: new Date(c.fin), cita: c })),
+            ...(soloSobrecupo ? [] : col.bloqueos.map((b) => ({ kind: 'bloqueo' as const, id: b.id, ini: new Date(b.inicio), fin: new Date(b.fin), bloqueo: b }))),
+          ]
+          const layout = conCarriles<GEvento>(eventos)
           return (
-            <div key={doc.id} className="w-44 shrink-0 border-l border-slate-200 first:border-l-0">
-              <div className="h-10 flex items-center justify-center px-2 border-b border-slate-200 bg-slate-50 sticky top-0 z-10">
-                <span className="text-xs font-semibold text-slate-700 truncate">{doc.name ?? doc.email}</span>
+            <div key={col.key} className="flex-1 border-l border-slate-300 first:border-l-0" style={{ minWidth: minColW }}>
+              {/* Cabecera de columna: día (semanal) o profesional (global) + conteo */}
+              <div className="h-[54px] flex flex-col items-center justify-center gap-0.5 px-1 border-b-2 border-slate-200 bg-slate-50 sticky top-0 z-10">
+                {col.dow
+                  ? <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-medium text-slate-400 uppercase">{col.dow}</span>
+                      <span className={`text-sm font-bold w-6 h-6 leading-6 text-center rounded-full ${col.hoy ? 'bg-cyan-600 text-white' : 'text-slate-800'}`}>{col.num}</span>
+                    </div>
+                  : <span className="text-xs font-semibold text-slate-700 truncate max-w-full px-1">{col.titulo}</span>}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-slate-400">{cards.length} citas</span>
+                  {marcas.length > 0 && <span className="text-[9px] font-bold text-orange-700 bg-orange-100 rounded-full px-1" title={`${marcas.length} sobrecupo(s)`}>⚡{marcas.length}</span>}
+                </div>
               </div>
-              <div className="relative bg-[#eceef1]" style={{ height: totalH }}
-                onClick={(e) => onSlot(doc.id, isoDeMin(minEnY(e)))}
+              <div className="relative bg-slate-100/70" style={{ height: totalH }}
+                onClick={(e) => onSlot(col.doctorId, isoDeMin(col.fecha, minEnY(e)))}
                 onDragOver={(e) => {
                   const drag = dragRef.current; if (!drag) return; e.preventDefault()
                   const min = minEnY(e)
-                  const ocupado = !drag.cita.sobrecupo && conflicto(doc.id, isoDeMin(min), drag.duracion, drag.cita.id) !== null
-                  setDropHint((h) => (h?.docId === doc.id && h.min === min && h.ocupado === ocupado ? h : { docId: doc.id, min, ocupado }))
+                  const ocupado = !drag.cita.sobrecupo && conflicto(col.doctorId, isoDeMin(col.fecha, min), drag.duracion, drag.cita.id) !== null
+                  setDropHint((h) => (h?.key === col.key && h.min === min && h.ocupado === ocupado ? h : { key: col.key, min, ocupado }))
                 }}
-                onDragLeave={() => setDropHint((h) => (h?.docId === doc.id ? null : h))}
-                onDrop={(e) => { e.preventDefault(); const drag = dragRef.current; setDropHint(null); if (!drag) return; onMover(drag.cita, doc.id, isoDeMin(minEnY(e)), drag.duracion); dragRef.current = null }}>
-                {/* Franjas de atención (verde) sobre el fondo gris de "fuera de horario" */}
+                onDragLeave={() => setDropHint((h) => (h?.key === col.key ? null : h))}
+                onDrop={(e) => { e.preventDefault(); const drag = dragRef.current; setDropHint(null); if (!drag) return; onMover(drag.cita, col.doctorId, isoDeMin(col.fecha, minEnY(e)), drag.duracion); dragRef.current = null }}>
+                {/* Verde = disponible; el resto queda gris (almuerzo/fuera de horario) */}
                 {verdes.map(([s, ee], i) => (
-                  <div key={`v${i}`} className="absolute left-0 right-0 bg-[#dcfce7]" style={{ top: yDeMin(s), height: (Math.min(endM, ee) - Math.max(startM, s)) * G_PXMIN }} />
+                  <div key={`v${i}`} className="absolute left-0 right-0 bg-[#e7f8ee]" style={{ top: yDeMin(s), height: (Math.min(endM, ee) - Math.max(startM, s)) * GRID_PXMIN }} />
                 ))}
-                {/* Líneas de bloque cada 15 min (hora sólida, resto tenue) */}
-                {Array.from({ length: Math.round((endM - startM) / 15) + 1 }, (_, i) => startM + i * 15).map((m) => (
-                  <div key={m} className={`absolute left-0 right-0 border-t ${m % 60 === 0 ? 'border-slate-300' : 'border-slate-200/60'}`} style={{ top: yDeMin(m) }} />
+                {/* Líneas cada 15 min uniformes; sólo la hora en punto más marcada */}
+                {lineas.map((m) => (
+                  <div key={m} className={`absolute left-0 right-0 border-t ${m % 60 === 0 ? 'border-slate-300' : 'border-slate-200'}`} style={{ top: yDeMin(m) }} />
                 ))}
-                {/* Indicador de destino al arrastrar (rojo si el horario está ocupado) */}
-                {dropHint?.docId === doc.id && (
+                {/* Signo de sobrecupo (la cita completa vive en la agenda de sobrecupos) */}
+                {marcas.map((c, i) => (
+                  <div key={`sc${i}`} className="absolute right-0.5 z-10 -translate-y-1/2" style={{ top: yDeMin(minutosDelDia(new Date(c.inicio))) + 8 }} title={`Sobrecupo ${hora(c.inicio)} · ${c.pacienteNombre}`}>
+                    <span className="text-[9px] font-bold px-1 py-0.5 rounded bg-orange-500 text-white shadow">⚡</span>
+                  </div>
+                ))}
+                {/* Indicador de destino al arrastrar */}
+                {dropHint?.key === col.key && (
                   <div className={`absolute left-0 right-0 border-t-2 z-20 pointer-events-none ${dropHint.ocupado ? 'border-rose-500' : 'border-cyan-500'}`} style={{ top: yDeMin(dropHint.min) }}>
-                    <span className={`absolute -top-2 left-1 text-[9px] font-mono font-bold bg-white/90 px-1 rounded ${dropHint.ocupado ? 'text-rose-600' : 'text-cyan-600'}`}>
-                      {dropHint.ocupado ? 'ocupado' : `${String(Math.floor(dropHint.min / 60)).padStart(2, '0')}:${String(dropHint.min % 60).padStart(2, '0')}`}
-                    </span>
+                    <span className={`absolute -top-2 left-1 text-[9px] font-mono font-bold bg-white/90 px-1 rounded ${dropHint.ocupado ? 'text-rose-600' : 'text-cyan-600'}`}>{dropHint.ocupado ? 'ocupado' : `${dosDig(Math.floor(dropHint.min / 60))}:${dosDig(dropHint.min % 60)}`}</span>
                   </div>
                 )}
-                {/* Eventos */}
+                {/* Eventos (citas como cinta de color; bloqueos en gris) */}
                 {layout.map((ev) => {
                   const top = yDeMin(minutosDelDia(ev.ini))
-                  const alto = Math.max(15, (minutosDelDia(ev.fin) - minutosDelDia(ev.ini)) * G_PXMIN - 1)
+                  const alto = Math.max(26, (minutosDelDia(ev.fin) - minutosDelDia(ev.ini)) * GRID_PXMIN - 2)
                   const wPct = 100 / ev.lanes
-                  const style = { top, height: alto, left: `${ev.lane * wPct}%`, width: `calc(${wPct}% - 2px)` } as React.CSSProperties
+                  const style = { top, height: alto, left: `calc(${ev.lane * wPct}% + 1px)`, width: `calc(${wPct}% - 2px)` } as React.CSSProperties
                   if (ev.kind === 'bloqueo') {
                     return (
                       <button key={ev.id} onClick={(e) => { e.stopPropagation(); onBloqueo(ev.bloqueo) }}
-                        className="absolute rounded-md px-1.5 py-0.5 text-left overflow-hidden bg-slate-500 text-slate-100 border border-slate-600" style={style}>
+                        className="absolute rounded-md px-1.5 py-0.5 text-left overflow-hidden bg-slate-500 text-slate-100 border border-slate-600 z-10" style={style}>
                         <span className="text-[10px] font-semibold block leading-tight truncate">🔒 {ev.bloqueo.motivo ?? 'Bloqueo'}</span>
                       </button>
                     )
                   }
                   const cfg = CITA_ESTADOS[ev.cita.estado]
-                  const corto = alto < 30 // bloque de ~15 min: prioriza mostrar el nombre
                   const nota = ev.cita.notas?.trim()
                   return (
                     <button key={ev.id} draggable
@@ -988,13 +895,18 @@ function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, conflicto, o
                       onDragEnd={() => { dragRef.current = null; setDropHint(null) }}
                       onClick={(e) => { e.stopPropagation(); onCita(ev.cita) }}
                       title={`${hora(ev.cita.inicio)} ${ev.cita.pacienteNombre}${ev.cita.sobrecupo ? ' (sobrecupo)' : ''}${nota ? ` — ${nota}` : ''}`}
-                      className={`absolute rounded-md px-1 ${corto ? 'py-0' : 'py-0.5'} text-left overflow-hidden border cursor-move active:opacity-80`} style={{ ...style, backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', color: '#fff', ...(ev.cita.sobrecupo ? { outline: '2px dashed #f97316', outlineOffset: '-2px' } : {}) }}>
-                      {/* Sobrecupo: insignia naranja SIEMPRE visible (esquina), para identificarlos de un vistazo en la diaria global. */}
-                      {ev.cita.sobrecupo && <span className="absolute top-0 right-0 z-10 bg-orange-500 text-white text-[8px] font-bold px-1 rounded-bl-md leading-[1.4]">SC</span>}
-                      {!corto && <span className="text-[10px] font-mono opacity-90 block leading-tight">{hora(ev.cita.inicio)}</span>}
-                      <span className={`text-[11px] font-semibold block leading-tight truncate ${ev.cita.sobrecupo ? 'pr-4' : ''}`}>{nota ? '📝 ' : ''}{ev.cita.pacienteNombre}</span>
-                      {alto > 40 && nota && <span className="text-[10px] opacity-95 block leading-tight truncate">{nota}</span>}
-                      {alto > 56 && <span className="text-[10px] opacity-90 block leading-tight truncate">{ev.cita.tipo}</span>}
+                      className="absolute rounded-md overflow-hidden flex text-left shadow-sm ring-1 ring-slate-200 hover:ring-slate-300 hover:shadow cursor-move active:opacity-80 z-10"
+                      style={{ ...style, backgroundColor: cfg?.bg ?? '#fff', outline: ev.cita.sobrecupo ? '2px dashed #f97316' : undefined, outlineOffset: '-2px' }}>
+                      <div className="w-2 shrink-0" style={{ backgroundColor: cfg?.color ?? '#0891b2' }} />
+                      <div className="px-1.5 py-0.5 min-w-0 leading-tight w-full">
+                        <p className="text-[11px] font-semibold text-slate-800 truncate flex items-center gap-1">
+                          {ev.cita.sobrecupo && <span className="text-[8px] font-bold px-1 rounded bg-orange-500 text-white shrink-0">SC</span>}
+                          {nota ? '📝 ' : ''}{ev.cita.pacienteNombre}
+                        </p>
+                        {alto > 30 && <p className="text-[10px] text-slate-400 font-mono">{hora(ev.cita.inicio)}</p>}
+                        {alto > 46 && nota && <p className="text-[10px] text-amber-700 truncate">{nota}</p>}
+                        {alto > 62 && ev.cita.box && <p className="text-[10px] text-slate-500 truncate">🪑 {ev.cita.box.nombre}</p>}
+                      </div>
                     </button>
                   )
                 })}
