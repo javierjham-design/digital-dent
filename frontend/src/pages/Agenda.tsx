@@ -1236,7 +1236,12 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
       )}
       <div className="grid grid-cols-2 gap-2">
         {Object.entries(CITA_ESTADOS).map(([k, cfg]) => (
-          <button key={k} onClick={() => onEstado(cita.id, k)} disabled={k === cita.estado}
+          <button key={k} disabled={k === cita.estado}
+            onClick={() => {
+              // "Notificado por WhatsApp" (verde) también abre WhatsApp con el mensaje.
+              if (k === 'CONFIRMADA' && waUrl) window.open(waUrl, '_blank', 'noopener,noreferrer')
+              onEstado(cita.id, k)
+            }}
             className="px-2 py-1.5 rounded-lg text-xs font-medium border-2 disabled:opacity-50"
             style={{ borderColor: cfg.color, color: cfg.text, backgroundColor: k === cita.estado ? cfg.bg : 'white' }}>{cfg.label}</button>
         ))}
