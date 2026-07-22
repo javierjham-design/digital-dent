@@ -15,6 +15,7 @@ import { AgendaOnline } from '@/pages/AgendaOnline'
 import { AgendarPublico } from '@/pages/AgendarPublico'
 import { Crm } from '@/pages/Crm'
 import { Consentimientos } from '@/pages/Consentimientos'
+import { AgendaPreview } from '@/pages/AgendaPreview'
 import { Suscripcion } from '@/pages/Suscripcion'
 import { GestionCajas } from '@/pages/GestionCajas'
 import { FormularioPublico } from '@/pages/FormularioPublico'
@@ -54,6 +55,7 @@ export default function App() {
             }
           >
             <Route path="/agenda" element={<Agenda />} />
+            <Route path="/agenda-preview" element={<AgendaPreview />} />
             <Route path="/pacientes" element={<Pacientes />} />
             <Route path="/pacientes/:id" element={<FichaPaciente />} />
             <Route path="/presupuestos" element={<Presupuestos />} />
