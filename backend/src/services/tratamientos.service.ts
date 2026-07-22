@@ -91,6 +91,9 @@ export async function crearPlan(db: TenantClient, input: { pacienteId: string; n
 }
 
 export async function obtenerPlan(db: TenantClient, id: string) {
+  // Reconciliación: aplica el abono libre a las acciones ya realizadas e impagas
+  // (retroactivo, idempotente, sin mover el total), para que queden pagadas (verde).
+  await aplicarAbonoLibreAlPlan(db, id).catch(() => {})
   const plan = await db.planTratamiento.findUnique({
     where: { id },
     include: {
@@ -373,6 +376,18 @@ export async function aplicarAbonoLibreAAccion(db: TenantClient, tratamientoId: 
       }
     }
   })
+}
+
+// Aplica el abono libre del plan a TODAS sus acciones realizadas e impagas (en
+// orden). Idempotente y money-neutral: sólo reasigna abono ya recibido para que
+// las acciones realizadas queden pagadas (verde). Cubre datos ya existentes.
+export async function aplicarAbonoLibreAlPlan(db: TenantClient, planId: string) {
+  const realizadas = await db.tratamiento.findMany({
+    where: { planId, estado: 'COMPLETADO' },
+    select: { id: true },
+    orderBy: { fecha: 'asc' },
+  })
+  for (const t of realizadas) await aplicarAbonoLibreAAccion(db, t.id).catch(() => {})
 }
 
 // Evolucionar una acción: la marca COMPLETADA, (opcional) asigna el profesional
