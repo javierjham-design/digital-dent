@@ -258,8 +258,8 @@ export function Agenda() {
     let limite = 22 * 60
     if (h) { const seg = bloquesAtencion(h).find(([s, e]) => startMin >= s && startMin < e); limite = seg ? seg[1] : startMin }
     if (!cita.sobrecupo) {
-      for (const c of citas) { if (c.id === cita.id || c.doctorId !== cita.doctorId) continue; if (c.sobrecupo || ESTADOS_NO_OCUPAN.includes(c.estado)) continue; const m = minutosDelDia(new Date(c.inicio)); if (m > startMin && m < limite) limite = m }
-      for (const b of bloqueos) { if (b.doctorId !== cita.doctorId) continue; const m = minutosDelDia(new Date(b.inicio)); if (m > startMin && m < limite) limite = m }
+      for (const c of citas) { if (c.id === cita.id || c.doctorId !== cita.doctorId) continue; if (c.sobrecupo || ESTADOS_NO_OCUPAN.includes(c.estado)) continue; const ci = new Date(c.inicio); if (!mismoDia(ci, inicio)) continue; const m = minutosDelDia(ci); if (m > startMin && m < limite) limite = m }
+      for (const b of bloqueos) { if (b.doctorId !== cita.doctorId) continue; const bi = new Date(b.inicio); if (!mismoDia(bi, inicio)) continue; const m = minutosDelDia(bi); if (m > startMin && m < limite) limite = m }
     }
     return Math.max(15, Math.floor((limite - startMin) / 15) * 15)
   }
@@ -1234,7 +1234,17 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
         className="w-full mb-3 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold">Reagendar / cambiar día u hora</button>
 
       <Link to={`/pacientes/${cita.pacienteId}?tab=planes`} className="block w-full text-center mb-3 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Ir a planes de tratamiento</Link>
-      {next && (
+
+      {/* Notificar por WhatsApp: SIEMPRE fijo (si hay teléfono). Abre WhatsApp y, si la
+          cita estaba Agendada, la marca como Notificada (verde). */}
+      {waUrl && (
+        <button onClick={() => { window.open(waUrl, '_blank', 'noopener,noreferrer'); if (cita.estado === 'PENDIENTE') onEstado(cita.id, 'CONFIRMADA') }}
+          className="w-full mb-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2">
+          <span className="text-base leading-none">✆</span> Notificar por WhatsApp
+        </button>
+      )}
+      {/* Avanzar de estado (Confirmar, Llegó…). Para PENDIENTE lo hace el botón de WhatsApp de arriba. */}
+      {next && next.estado !== 'CONFIRMADA' && (
         <button onClick={avanzar} className="w-full mb-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white" style={{ backgroundColor: CITA_ESTADOS[next.estado]?.color }}>
           {next.accion} → {CITA_ESTADOS[next.estado]?.label}
         </button>
