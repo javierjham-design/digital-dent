@@ -311,6 +311,8 @@ export async function actualizarTratamiento(db: TenantClient, actorId: string, i
       datosPrevios: { precio: existing.precio, descuento: existing.descuento, estado: existing.estado },
     })
   }
+  // Si se acaba de marcar como realizada y el plan tiene abono libre, lo aplica.
+  if (data.estado === 'COMPLETADO' && existing.estado !== 'COMPLETADO') await aplicarAbonoLibreAAccion(db, id).catch(() => {})
   return updated
 }
 
@@ -330,6 +332,46 @@ export async function eliminarTratamiento(db: TenantClient, actorId: string, id:
     accion: 'ELIMINAR', entidad: 'Tratamiento', entidadId: id, pacienteId: t.ficha.pacienteId,
     resumen: `Eliminó la acción "${t.prestacion.nombre}"${t.diente ? ` · pieza ${t.diente}` : ''}`,
     datosPrevios: { estado: t.estado, precio: t.precio, descuento: t.descuento, diente: t.diente },
+  })
+}
+
+// Aplica el abono libre disponible del plan para cubrir (total o parcialmente) una
+// acción recién realizada, SIN recibir dinero nuevo: reasigna CobroItem de abono
+// (del plan, sin acción) a esta acción. Best-effort; nunca hace fallar la operación.
+export async function aplicarAbonoLibreAAccion(db: TenantClient, tratamientoId: string) {
+  const t = await db.tratamiento.findUnique({
+    where: { id: tratamientoId },
+    select: {
+      id: true, planId: true, precio: true, descuento: true,
+      cobroItems: { where: { cobro: { estado: 'PAGADO', anulado: false } }, select: { monto: true } },
+    },
+  })
+  if (!t || !t.planId) return
+  const neto = Math.round(t.precio * (1 - (t.descuento || 0) / 100))
+  const restante = Math.round(neto - t.cobroItems.reduce((s, i) => s + i.monto, 0))
+  if (restante <= 0) return
+
+  const itemsLibres = await db.cobroItem.findMany({
+    where: { planId: t.planId, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } },
+    select: { id: true, monto: true, cobroId: true, descripcion: true },
+    orderBy: { id: 'asc' },
+  })
+  const aplicar = Math.min(restante, Math.round(itemsLibres.reduce((s, i) => s + i.monto, 0)))
+  if (aplicar <= 0) return
+
+  await db.$transaction(async (tx) => {
+    let rem = aplicar
+    for (const it of itemsLibres) {
+      if (rem <= 0) break
+      if (it.monto <= rem) {
+        await tx.cobroItem.update({ where: { id: it.id }, data: { tratamientoId } })
+        rem -= it.monto
+      } else {
+        await tx.cobroItem.update({ where: { id: it.id }, data: { monto: it.monto - rem } })
+        await tx.cobroItem.create({ data: { cobroId: it.cobroId, planId: t.planId, tratamientoId, descripcion: it.descripcion || 'Abono aplicado', monto: rem } })
+        rem = 0
+      }
+    }
   })
 }
 
@@ -366,6 +408,8 @@ export async function evolucionarTratamiento(
     accion: 'EVOLUCIONAR', entidad: 'Tratamiento', entidadId: id, pacienteId: t.ficha.pacienteId,
     resumen: `Evolucionó "${t.prestacion.nombre}" a realizada`,
   })
+  // Si el plan tiene abono libre, cubre automáticamente esta acción recién realizada.
+  await aplicarAbonoLibreAAccion(db, id).catch(() => {})
   return evo
 }
 
