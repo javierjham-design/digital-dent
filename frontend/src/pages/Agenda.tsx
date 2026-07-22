@@ -61,9 +61,11 @@ function renderEventoSemanal(arg: EventContentArg) {
     return <div className="px-1 text-[0.72rem] font-semibold leading-tight truncate">🔒 {arg.event.title}</div>
   }
   const nota = props.cita?.notas?.trim()
+  const sc = props.cita?.sobrecupo
   return (
-    <div className="px-0.5 leading-tight overflow-hidden w-full" title={`${arg.event.title}${nota ? ` — ${nota}` : ''}`}>
-      <div className="font-semibold text-[0.78rem] truncate">{nota ? '📝 ' : ''}{arg.event.title}</div>
+    <div className="px-0.5 leading-tight overflow-hidden w-full relative" title={`${arg.event.title}${sc ? ' (sobrecupo)' : ''}${nota ? ` — ${nota}` : ''}`}>
+      {sc && <span className="absolute top-0 right-0 z-10 bg-orange-500 text-white text-[8px] font-bold px-1 rounded leading-[1.4]">SC</span>}
+      <div className={`font-semibold text-[0.78rem] truncate ${sc ? 'pr-4' : ''}`}>{nota ? '📝 ' : ''}{arg.event.title}</div>
       {nota && <div className="text-[0.68rem] opacity-95 truncate">{nota}</div>}
     </div>
   )
@@ -532,8 +534,8 @@ export function Agenda() {
               .fc .fc-timegrid-col-events { margin: 0 !important; }
               .fc .fc-timegrid-event-harness { margin-right: 0 !important; right: 1px !important; }
               .fc .fc-timegrid-event-harness-inset .fc-timegrid-event { box-shadow: none; }
-              /* Citas en sobrecupo: borde punteado blanco para distinguirlas de un vistazo. */
-              .fc .fc-timegrid-event.cita-sobrecupo { outline: 2px dashed rgba(255,255,255,0.9); outline-offset: -3px; }
+              /* Citas en sobrecupo: borde punteado naranjo (+ insignia SC) para distinguirlas de un vistazo. */
+              .fc .fc-timegrid-event.cita-sobrecupo { outline: 2px dashed #f97316; outline-offset: -2px; }
             `}</style>
             <FullCalendar
               ref={calRef}
@@ -978,9 +980,11 @@ function DiariaGlobal({ doctores, horarios, citas, bloqueos, fecha, conflicto, o
                       onDragEnd={() => { dragRef.current = null; setDropHint(null) }}
                       onClick={(e) => { e.stopPropagation(); onCita(ev.cita) }}
                       title={`${hora(ev.cita.inicio)} ${ev.cita.pacienteNombre}${ev.cita.sobrecupo ? ' (sobrecupo)' : ''}${nota ? ` — ${nota}` : ''}`}
-                      className={`absolute rounded-md px-1 ${corto ? 'py-0' : 'py-0.5'} text-left overflow-hidden border cursor-move active:opacity-80`} style={{ ...style, backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', color: '#fff', ...(ev.cita.sobrecupo ? { outline: '2px dashed rgba(255,255,255,0.9)', outlineOffset: '-3px' } : {}) }}>
-                      {!corto && <span className="text-[10px] font-mono opacity-90 block leading-tight">{hora(ev.cita.inicio)}{ev.cita.sobrecupo ? ' · SC' : ''}</span>}
-                      <span className="text-[11px] font-semibold block leading-tight truncate">{nota ? '📝 ' : ''}{ev.cita.pacienteNombre}</span>
+                      className={`absolute rounded-md px-1 ${corto ? 'py-0' : 'py-0.5'} text-left overflow-hidden border cursor-move active:opacity-80`} style={{ ...style, backgroundColor: cfg?.color ?? '#0891b2', borderColor: cfg?.color ?? '#0891b2', color: '#fff', ...(ev.cita.sobrecupo ? { outline: '2px dashed #f97316', outlineOffset: '-2px' } : {}) }}>
+                      {/* Sobrecupo: insignia naranja SIEMPRE visible (esquina), para identificarlos de un vistazo en la diaria global. */}
+                      {ev.cita.sobrecupo && <span className="absolute top-0 right-0 z-10 bg-orange-500 text-white text-[8px] font-bold px-1 rounded-bl-md leading-[1.4]">SC</span>}
+                      {!corto && <span className="text-[10px] font-mono opacity-90 block leading-tight">{hora(ev.cita.inicio)}</span>}
+                      <span className={`text-[11px] font-semibold block leading-tight truncate ${ev.cita.sobrecupo ? 'pr-4' : ''}`}>{nota ? '📝 ' : ''}{ev.cita.pacienteNombre}</span>
                       {alto > 40 && nota && <span className="text-[10px] opacity-95 block leading-tight truncate">{nota}</span>}
                       {alto > 56 && <span className="text-[10px] opacity-90 block leading-tight truncate">{ev.cita.tipo}</span>}
                     </button>
