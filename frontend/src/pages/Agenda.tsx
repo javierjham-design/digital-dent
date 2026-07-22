@@ -47,6 +47,8 @@ const DURACIONES = [15, 30, 45, 60, 90, 120]
 const DOW_LABELS = ['DOM', 'LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB']
 
 const hora = (iso: string) => new Date(iso).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+// Duración legible: "45 min" o "1h 30m".
+const fmtDur = (m: number) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ''}`)
 
 type Vista = 'semanal' | 'diaria' | 'global'
 
@@ -247,6 +249,28 @@ export function Agenda() {
     } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo cambiar el box', false) }
   }
 
+  // Duración máxima disponible para una cita (bloques de 15 min): hasta la próxima
+  // cita/bloqueo del profesional o el fin de su horario de atención ese día.
+  function maxDuracionDe(cita: CitaDTO): number {
+    const inicio = new Date(cita.inicio)
+    const startMin = inicio.getHours() * 60 + inicio.getMinutes()
+    const h = horariosTodos.find((x) => x.doctorId === cita.doctorId && x.diaSemana === inicio.getDay() && x.activo)
+    let limite = 22 * 60
+    if (h) { const seg = bloquesAtencion(h).find(([s, e]) => startMin >= s && startMin < e); limite = seg ? seg[1] : startMin }
+    if (!cita.sobrecupo) {
+      for (const c of citas) { if (c.id === cita.id || c.doctorId !== cita.doctorId) continue; if (c.sobrecupo || ESTADOS_NO_OCUPAN.includes(c.estado)) continue; const m = minutosDelDia(new Date(c.inicio)); if (m > startMin && m < limite) limite = m }
+      for (const b of bloqueos) { if (b.doctorId !== cita.doctorId) continue; const m = minutosDelDia(new Date(b.inicio)); if (m > startMin && m < limite) limite = m }
+    }
+    return Math.max(15, Math.floor((limite - startMin) / 15) * 15)
+  }
+  async function cambiarDuracion(cita: CitaDTO, duracion: number) {
+    try {
+      await citasService.editar(cita.id, { duracion })
+      setSelected((s) => (s && s.id === cita.id ? { ...s, fin: new Date(new Date(s.inicio).getTime() + duracion * 60000).toISOString() } : s))
+      notify('Duración actualizada'); recargar()
+    } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo cambiar la duración', false) }
+  }
+
   async function eliminarCita(id: string) {
     if (!confirm('¿Eliminar esta cita?')) return
     try { await citasService.eliminar(id); notify('Cita eliminada'); setSelected(null); recargar() }
@@ -434,7 +458,8 @@ export function Agenda() {
         )}
 
         {vista === 'diaria' ? (
-          <DiariaLista citas={citasDelDia} clinica={clinica} onClick={setSelected} onAvanzar={(c) => { const n = siguienteEstado(c.estado); if (n) cambiarEstado(c.id, n.estado) }} />
+          <DiariaLista citas={citasDelDia} clinica={clinica} onClick={setSelected} onAvanzar={(c) => { const n = siguienteEstado(c.estado); if (n) cambiarEstado(c.id, n.estado) }}
+            onNotificarWA={(c) => { if (c.estado === 'PENDIENTE') cambiarEstado(c.id, 'CONFIRMADA') }} />
         ) : (
           <GridAgenda
             columnas={vista === 'semanal' ? columnasSemanal : columnasGlobal}
@@ -468,7 +493,7 @@ export function Agenda() {
           onError={(m) => notify(m, false)} />
       )}
       {selected && (
-        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={(c) => { setSelected(null); setReagendar(c) }} onComentario={guardarComentario} onBox={cambiarBox} />
+        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={(c) => { setSelected(null); setReagendar(c) }} onComentario={guardarComentario} onBox={cambiarBox} onDuracion={cambiarDuracion} maxDur={maxDuracionDe(selected)} />
       )}
       {reagendar && (
         <ReagendarModal cita={reagendar} doctores={doctores} horarios={horariosTodos} onReagendar={reagendarCita} onClose={() => setReagendar(null)} />
@@ -651,7 +676,7 @@ function SlotAccionModal({ slotISO, doctorId, doctores, citas, bloqueos, horario
 }
 
 // ── Vista diaria (lista) — pensada para gestionar confirmaciones rápido ──
-function DiariaLista({ citas, clinica, onClick, onAvanzar }: { citas: CitaDTO[]; clinica: ClinicaConfigDTO | null; onClick: (c: CitaDTO) => void; onAvanzar: (c: CitaDTO) => void }) {
+function DiariaLista({ citas, clinica, onClick, onAvanzar, onNotificarWA }: { citas: CitaDTO[]; clinica: ClinicaConfigDTO | null; onClick: (c: CitaDTO) => void; onAvanzar: (c: CitaDTO) => void; onNotificarWA: (c: CitaDTO) => void }) {
   if (citas.length === 0) return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 text-sm">Sin citas para este día.</div>
   return (
     <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
@@ -674,9 +699,11 @@ function DiariaLista({ citas, clinica, onClick, onAvanzar }: { citas: CitaDTO[];
               {c.notas?.trim() && <p className="text-xs text-amber-700 truncate">📝 {c.notas.trim()}</p>}
             </button>
             <span className="hidden sm:inline text-xs font-semibold px-2.5 py-1 rounded-full shrink-0" style={{ backgroundColor: cfg?.bg, color: cfg?.text }}>{cfg?.label ?? c.estado}</span>
-            {wa && <a href={wa} target="_blank" rel="noopener noreferrer" title="Confirmar por WhatsApp"
-              className="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 hover:bg-emerald-100 text-base">✆</a>}
-            {next && <button onClick={() => onAvanzar(c)} className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100">{next.accion}</button>}
+            {/* Notificar por WhatsApp: SIEMPRE visible (si hay teléfono). Abre WhatsApp y
+                marca al paciente como Notificado (verde) si aún estaba Agendado. */}
+            {wa && <button onClick={() => { window.open(wa, '_blank', 'noopener,noreferrer'); onNotificarWA(c) }} title="Notificar por WhatsApp (marca como notificado)"
+              className="shrink-0 inline-flex items-center gap-1 px-2.5 h-8 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-sm font-semibold"><span className="text-base leading-none">✆</span><span className="hidden sm:inline">WhatsApp</span></button>}
+            {next && next.estado !== 'CONFIRMADA' && <button onClick={() => onAvanzar(c)} className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100">{next.accion}</button>}
           </div>
         )
       })}
@@ -967,8 +994,10 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
     return Math.max(0, limite - startMin)
   }, [doc, sobrecupo, citas, bloqueos, horarios, start])
 
-  const opciones = DURACIONES.filter((d) => d <= maxMin)
-  const durSel = opciones.includes(duracion) ? duracion : (opciones[opciones.length - 1] ?? 0)
+  const opciones = DURACIONES.filter((d) => d <= maxMin) // chips rápidos (15/30/45/60…)
+  // Todas las duraciones posibles en bloques de 15 min hasta el máximo disponible.
+  const todasDur = Array.from({ length: Math.max(0, Math.floor(maxMin / 15)) }, (_, i) => (i + 1) * 15)
+  const durSel = (duracion >= 15 && duracion <= maxMin) ? duracion : Math.min(30, Math.floor(maxMin / 15) * 15)
   const sinEspacio = maxMin < 15
 
   const rutInvalido = Boolean(nuevo.rut) && !validarDoc(paisMoneda(), nuevo.rut)
@@ -1008,17 +1037,22 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
             </p>
           ) : (
             <>
-              <div className="flex gap-2 flex-wrap">
+              <div className="flex gap-2 flex-wrap items-center">
                 {opciones.map((d) => (
                   <button key={d} type="button" onClick={() => setDuracion(d)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium border-2 ${durSel === d ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-200 text-slate-600'}`}>{d}m</button>
                 ))}
+                {/* Desplegable con todas las duraciones (cada 15 min) hasta el máximo disponible. */}
+                {todasDur.length > 0 && (
+                  <select value={durSel} onChange={(e) => setDuracion(Number(e.target.value))} title="Elegir otra duración (más tiempo)"
+                    className="px-2 py-1.5 rounded-lg text-xs font-medium border-2 border-slate-200 text-slate-700 bg-white">
+                    {todasDur.map((d) => <option key={d} value={d}>{fmtDur(d)}</option>)}
+                  </select>
+                )}
               </div>
-              {maxMin < 120 && (
-                <p className="text-[11px] text-amber-700 mt-1">
-                  Máximo {maxMin} min disponibles aquí (hasta la próxima cita o el fin de atención).{!sobrecupo ? ' Marca “Sobrecupo” para agendar sobre otra cita.' : ''}
-                </p>
-              )}
+              <p className="text-[11px] text-amber-700 mt-1">
+                Máximo {fmtDur(maxMin - (maxMin % 15))} disponibles aquí (hasta la próxima cita o el fin de atención).{!sobrecupo ? ' Marca “Sobrecupo” para agendar sobre otra cita.' : ''}
+              </p>
             </>
           )}
         </div>
@@ -1088,14 +1122,16 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
 }
 
 // ── Modal: detalle de cita ──
-function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar, onComentario, onBox }: {
+function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar, onComentario, onBox, onDuracion, maxDur }: {
   cita: CitaDTO; clinica: ClinicaConfigDTO | null
   onClose: () => void; onEstado: (id: string, estado: string) => void; onEliminar: (id: string) => void
   onReagendar: (cita: CitaDTO) => void; onComentario: (cita: CitaDTO, notas: string) => Promise<void>
   onBox: (cita: CitaDTO, boxId: string, boxNombre: string | null) => Promise<void>
+  onDuracion: (cita: CitaDTO, duracion: number) => Promise<void>; maxDur: number
 }) {
   const [boxes, setBoxes] = useState<BoxDTO[]>([])
   useEffect(() => { boxesService.listar(true).then(setBoxes).catch(() => {}) }, [])
+  const durActual = Math.max(15, Math.round((+new Date(cita.fin) - +new Date(cita.inicio)) / 60000))
   const next = siguienteEstado(cita.estado)
   const waUrl = waLink(cita, clinica)
   const [nota, setNota] = useState(cita.notas ?? '')
@@ -1122,7 +1158,18 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
 
   return (
     <Modal title={cita.pacienteNombre} onClose={onClose}>
-      <p className="text-sm text-slate-500 mb-3">{new Date(cita.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora(cita.inicio)}–{hora(cita.fin)}</p>
+      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+        <p className="text-sm text-slate-500">{new Date(cita.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora(cita.inicio)}–{hora(cita.fin)}</p>
+        {/* Modificar la duración en bloques de 15 min, según lo disponible en el bloque. */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <span className="text-xs text-slate-500">Duración</span>
+          <button onClick={() => onDuracion(cita, durActual - 15)} disabled={durActual <= 15} title="−15 min"
+            className="w-7 h-7 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40">−</button>
+          <span className="text-sm font-semibold text-slate-800 w-16 text-center font-mono">{fmtDur(durActual)}</span>
+          <button onClick={() => onDuracion(cita, durActual + 15)} disabled={durActual + 15 > maxDur} title={durActual + 15 > maxDur ? 'No hay más espacio disponible en este bloque' : '+15 min'}
+            className="w-7 h-7 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40">+</button>
+        </div>
+      </div>
 
       {/* Historial de confirmaciones (arriba, plegable): agendamiento → notificaciones
           → confirmaciones → cambios de estado, con fecha/hora y usuario. */}
