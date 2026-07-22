@@ -446,6 +446,10 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   const [denticion, setDenticion] = useState<'PERM' | 'TEMP'>('PERM')
   const [evoAccion, setEvoAccion] = useState<TratNode | null>(null)
   const [error, setError] = useState('')
+  const { user } = useAuth()
+  // Al imprimir/enviar un presupuesto queda bloqueado; sólo puede reabrirlo un
+  // admin o quien tenga el permiso "desbloquear presupuestos".
+  const puedeDesbloquear = user?.role === 'admin' || Boolean(user?.permisos?.puedeDesbloquearPlanes)
 
   const cargarPlanes = () => planesService.listar(pacienteId).then((p) => setPlanes(p as PlanCard[])).catch(() => {})
   useEffect(() => {
@@ -522,7 +526,11 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
           toggleFace={toggleFace} toggleWhole={toggleWhole} toggleZona={toggleZona} clearSel={clearSel} cambiarDenticion={cambiarDenticion}
           accion={accion}
           onCerrar={() => setDetalle(null)} onEvolucionar={setEvoAccion} onRenombrar={renombrar}
-          onBloquear={() => accion(() => planesService.actualizar(detalle.id, { bloqueado: !detalle.bloqueado }))}
+          puedeDesbloquear={puedeDesbloquear}
+          onBloquear={() => {
+            if (detalle.bloqueado && !puedeDesbloquear) { setError('No tienes permiso para desbloquear presupuestos. Pídeselo a un administrador.'); return }
+            accion(() => planesService.actualizar(detalle.id, { bloqueado: !detalle.bloqueado }))
+          }}
           onProfesional={(id) => accion(() => planesService.actualizar(detalle.id, { doctorTitularId: id || null }))}
           onEnviarCorreo={() => setEnviarPlan({
             id: detalle.id, nombre: detalle.nombre, estado: detalle.estado, bloqueado: detalle.bloqueado,
@@ -542,6 +550,10 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
           generarPdf={async () => {
             if (!pdfDoc || !pdfRef.current) throw new Error('El presupuesto se está preparando, espera un segundo e inténtalo de nuevo.')
             return { base64: await elementoAPdfBase64(pdfRef.current), nombre: `Presupuesto ${enviarPlan.nombre}.pdf` }
+          }}
+          onSent={() => {
+            // Enviado por correo → el presupuesto queda bloqueado automáticamente.
+            planesService.actualizar(enviarPlan.id, { bloqueado: true }).then(() => { cargarPlanes(); if (detalle?.id === enviarPlan.id) abrir(enviarPlan.id) }).catch(() => {})
           }}
           onClose={() => setEnviarPlan(null)} />
       ) })()}
@@ -650,14 +662,14 @@ function PlanLista({ planes, onAbrir, onNuevo, onEliminar, onEnviar }: {
   )
 }
 
-function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, selCaras, selZonas, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onBloquear, onProfesional, onEnviarCorreo }: {
+function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, selCaras, selZonas, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onBloquear, onProfesional, onEnviarCorreo, puedeDesbloquear }: {
   plan: PlanDetalle; prestaciones: PrestacionDTO[]; doctores: DoctorDTO[]; pacienteId: string
   selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; denticion: 'PERM' | 'TEMP'
   toggleFace: (n: number, f: string) => void; toggleWhole: (n: number) => void; toggleZona: (label: string) => void
   clearSel: () => void; cambiarDenticion: (d: 'PERM' | 'TEMP') => void
   accion: (fn: () => Promise<unknown>) => Promise<void>
   onCerrar: () => void; onEvolucionar: (t: TratNode) => void; onRenombrar: () => void
-  onBloquear: () => void; onProfesional: (id: string) => void; onEnviarCorreo: () => void
+  onBloquear: () => void; onProfesional: (id: string) => void; onEnviarCorreo: () => void; puedeDesbloquear: boolean
 }) {
   const [agregando, setAgregando] = useState(false)
   const todas = [...plan.secciones.flatMap((s) => s.tratamientos), ...plan.tratamientos]
@@ -710,10 +722,13 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
                 {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
               </select>
             </label>
-            <button onClick={onBloquear} className={`w-full text-xs font-semibold px-3 py-2 rounded-lg border ${plan.bloqueado ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
-              {plan.bloqueado ? '🔒 Presupuesto bloqueado · Desbloquear' : '🔓 Bloquear presupuesto'}
+            <button onClick={onBloquear} disabled={plan.bloqueado && !puedeDesbloquear}
+              title={plan.bloqueado && !puedeDesbloquear ? 'Presupuesto bloqueado. Sólo un administrador o alguien con permiso puede desbloquearlo.' : ''}
+              className={`w-full text-xs font-semibold px-3 py-2 rounded-lg border disabled:cursor-not-allowed ${plan.bloqueado ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+              {plan.bloqueado ? (puedeDesbloquear ? '🔒 Presupuesto bloqueado · Desbloquear' : '🔒 Presupuesto bloqueado') : '🔓 Bloquear presupuesto'}
             </button>
-            <button onClick={() => window.open(`/print/plan/${plan.id}`, '_blank')}
+            {/* Imprimir/enviar bloquea el presupuesto automáticamente (evita editarlo tras entregarlo). */}
+            <button onClick={() => { window.open(`/print/plan/${plan.id}`, '_blank'); if (!plan.bloqueado) accion(() => planesService.actualizar(plan.id, { bloqueado: true })) }}
               className="w-full text-xs font-semibold px-3 py-2 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100">
               🖨 Imprimir presupuesto (PDF)
             </button>
@@ -721,6 +736,7 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
               className="w-full text-xs font-semibold px-3 py-2 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100">
               ✉ Enviar presupuesto por correo (PDF)
             </button>
+            {!plan.bloqueado && <p className="text-[11px] text-slate-400 leading-tight">Al imprimir o enviar, el presupuesto queda bloqueado para no modificarlo.</p>}
           </div>
         </div>
 

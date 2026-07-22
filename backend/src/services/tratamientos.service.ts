@@ -108,12 +108,22 @@ export async function obtenerPlan(db: TenantClient, id: string) {
   return conTitularNombre({ ...plan, abonoLibre: abono._sum.monto ?? 0 })
 }
 
-export async function actualizarPlan(db: TenantClient, id: string, body: Record<string, unknown>) {
+export async function actualizarPlan(db: TenantClient, actorId: string, id: string, body: Record<string, unknown>) {
   const data: Record<string, unknown> = {}
   if (typeof body.nombre === 'string') data.nombre = body.nombre
   if (typeof body.notas === 'string' || body.notas === null) data.notas = body.notas
   if (typeof body.estado === 'string') data.estado = body.estado
-  if (typeof body.bloqueado === 'boolean') data.bloqueado = body.bloqueado
+  if (typeof body.bloqueado === 'boolean') {
+    // DESBLOQUEAR un presupuesto (bloqueado=false) exige permiso: al imprimir/enviar
+    // el plan queda bloqueado y sólo puede reabrirlo un admin o quien tenga el permiso.
+    if (body.bloqueado === false) {
+      const u = await db.user.findUnique({ where: { id: actorId }, select: { role: true, puedeDesbloquearPlanes: true } })
+      if (!(u?.role === 'admin' || u?.puedeDesbloquearPlanes)) {
+        throw forbidden('No tienes permiso para desbloquear presupuestos. Pídeselo a un administrador.')
+      }
+    }
+    data.bloqueado = body.bloqueado
+  }
   if (typeof body.doctorTitularId === 'string' || body.doctorTitularId === null) data.doctorTitularId = body.doctorTitularId || null
   if (body.fechaInicio === null) data.fechaInicio = null
   else if (typeof body.fechaInicio === 'string') data.fechaInicio = new Date(body.fechaInicio)

@@ -17,7 +17,7 @@ export async function getPlan(req: Request, res: Response) {
   res.json(await svc.obtenerPlan(tenantDb(req), req.params.id))
 }
 export async function patchPlan(req: Request, res: Response) {
-  res.json(await svc.actualizarPlan(tenantDb(req), req.params.id, req.body ?? {}))
+  res.json(await svc.actualizarPlan(tenantDb(req), req.auth!.sub, req.params.id, req.body ?? {}))
 }
 export async function deletePlan(req: Request, res: Response) {
   await svc.eliminarPlan(tenantDb(req), req.auth!.sub, req.params.id)
