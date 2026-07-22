@@ -94,11 +94,11 @@ function Columna({ citas }: { citas: Cita[] }) {
       ))}
       {/* Líneas de hora (marcadas) */}
       {Array.from({ length: HORA_FIN - HORA_INI + 1 }, (_, i) => HORA_INI + i).map((h) => (
-        <div key={h} className="absolute left-0 right-0 border-t border-slate-200" style={{ top: yDe(h) }} />
+        <div key={h} className="absolute left-0 right-0 border-t border-slate-300" style={{ top: yDe(h) }} />
       ))}
       {/* Media hora (tenue) */}
       {Array.from({ length: HORA_FIN - HORA_INI }, (_, i) => HORA_INI + i).map((h) => (
-        <div key={`m${h}`} className="absolute left-0 right-0 border-t border-dashed border-slate-200/80" style={{ top: yDe(h, 30) }} />
+        <div key={`m${h}`} className="absolute left-0 right-0 border-t border-dashed border-slate-300/70" style={{ top: yDe(h, 30) }} />
       ))}
       {citas.map((c, i) => <CitaCard key={i} c={c} />)}
     </div>
@@ -259,10 +259,10 @@ export function AgendaPreview() {
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[820px]">
-                <div className="flex sticky top-0 z-10 bg-white border-b-2 border-slate-200">
+                <div className="flex sticky top-0 z-10 bg-white border-b-2 border-slate-300">
                   <div className="w-14 shrink-0" />
                   {columnas.map((c, i) => (
-                    <div key={i} className="flex-1 min-w-0 text-center py-2 border-l border-slate-200 first:border-l-0">
+                    <div key={i} className="flex-1 min-w-0 text-center py-2 border-l border-slate-300 first:border-l-0">
                       {c.dow
                         ? <><p className="text-[11px] font-medium text-slate-400 uppercase">{c.dow}</p>
                             <p className={`text-xl font-bold mx-auto w-9 h-9 leading-9 rounded-full ${c.hoy ? 'bg-cyan-600 text-white' : 'text-slate-800'}`}>{c.num}</p></>
@@ -275,7 +275,7 @@ export function AgendaPreview() {
                 <div className="flex bg-white">
                   <EjeHoras />
                   {columnas.map((c, i) => (
-                    <div key={i} className="flex-1 min-w-0 border-l border-slate-200 first:border-l-0">
+                    <div key={i} className="flex-1 min-w-0 border-l border-slate-300 first:border-l-0">
                       <Columna citas={filtrar(c.citas)} />
                     </div>
                   ))}
