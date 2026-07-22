@@ -78,28 +78,29 @@ export function FichaPaciente() {
     <div>
       <Link to="/pacientes" className="text-sm text-cyan-600 hover:underline">← Volver a pacientes</Link>
       <div className="mt-3 rounded-2xl bg-gradient-to-r from-cyan-600 to-cyan-700 text-white p-4 sm:p-6 mb-4">
-        <h1 className="text-xl sm:text-2xl font-bold leading-tight">{paciente.nombre} {paciente.apellido}</h1>
-        <p className="text-cyan-100 text-sm mt-1">
-          {paciente.rut ?? 'Sin RUT'} · {edadTexto(paciente.fechaNacimiento)}{paciente.prevision ? ` · ${paciente.prevision}` : ''}
-        </p>
-        {ficha?.anticoagulantes && (
-          <div className="mt-3 flex items-center gap-2 rounded-xl bg-red-600 ring-1 ring-red-300/60 px-3 py-2 shadow-sm">
-            <span className="text-lg leading-none">⚠️</span>
-            <span className="text-sm font-bold tracking-wide">PACIENTE ANTICOAGULADO — precaución ante sangrado y procedimientos invasivos.</span>
-          </div>
-        )}
-        {resumen && (
-          <div className="grid grid-cols-3 gap-x-4 gap-y-2 mt-4 text-sm sm:flex sm:flex-wrap sm:gap-x-6">
-            <KpiInline l="Tratamientos activos" v={String(resumen.activos)} />
-            <KpiInline l="Finalizados" v={String(resumen.finalizados)} />
-            <KpiInline l="Realizado" v={fmtCLP(resumen.realizado)} />
-            <KpiInline l="Abonado" v={fmtCLP(resumen.abonado)} />
-            <KpiInline l="Saldo" v={fmtCLP(resumen.saldo)} destacado={resumen.saldo > 0} />
-            {resumen.saldo > 0 && (
-              <button onClick={() => setAvisoDeuda(true)} className="self-center text-xs font-semibold bg-white/15 hover:bg-white/25 rounded-lg px-2.5 py-1" title="Enviar aviso de deuda por correo">✉ Aviso de deuda</button>
+        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+          {/* Izquierda: identidad + KPIs */}
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold leading-tight">{paciente.nombre} {paciente.apellido}</h1>
+            <p className="text-cyan-100 text-sm mt-1">
+              {paciente.rut ?? 'Sin RUT'} · {edadTexto(paciente.fechaNacimiento)}{paciente.prevision ? ` · ${paciente.prevision}` : ''}
+            </p>
+            {resumen && (
+              <div className="grid grid-cols-3 gap-x-4 gap-y-2 mt-4 text-sm sm:flex sm:flex-wrap sm:gap-x-6">
+                <KpiInline l="Tratamientos activos" v={String(resumen.activos)} />
+                <KpiInline l="Finalizados" v={String(resumen.finalizados)} />
+                <KpiInline l="Realizado" v={fmtCLP(resumen.realizado)} />
+                <KpiInline l="Abonado" v={fmtCLP(resumen.abonado)} />
+                <KpiInline l="Saldo" v={fmtCLP(resumen.saldo)} destacado={resumen.saldo > 0} />
+                {resumen.saldo > 0 && (
+                  <button onClick={() => setAvisoDeuda(true)} className="self-center text-xs font-semibold bg-white/15 hover:bg-white/25 rounded-lg px-2.5 py-1" title="Enviar aviso de deuda por correo">✉ Aviso de deuda</button>
+                )}
+              </div>
             )}
           </div>
-        )}
+          {/* Derecha: tarjeta de alertas médicas (estilo Dentalink), en rojo. */}
+          <AlertasMedicasCard ficha={ficha} />
+        </div>
       </div>
 
       {avisoDeuda && resumen && (
@@ -142,6 +143,37 @@ function KpiInline({ l, v, destacado }: { l: string; v: string; destacado?: bool
       <span className="text-[11px] uppercase tracking-wider text-cyan-200/80">{l}</span>
       <span className={`font-semibold ${destacado ? 'text-amber-200' : 'text-white'}`}>{v}</span>
     </span>
+  )
+}
+
+// Tarjeta de alertas médicas (estilo Dentalink): un cuadro ROJO a la derecha del
+// header con lo crítico para procedimientos (anticoagulado, embarazo, condiciones,
+// medicamentos y alertas escritas). Si no hay nada relevante, no se muestra.
+function AlertasMedicasCard({ ficha }: { ficha: FichaClinica | null }) {
+  if (!ficha) return null
+  const condiciones = ([
+    ['diabetico', 'Diabético'], ['hipertenso', 'Hipertenso'], ['cardiopatia', 'Cardiopatía'], ['fumador', 'Fumador'],
+  ] as const).filter(([k]) => ficha[k]).map(([, l]) => l)
+  const alertas = (ficha.alertasMedicas ?? '').trim()
+  const meds = (ficha.medicamentos ?? '').trim()
+  const enfermedades = (ficha.enfermedadesNotas ?? '').trim()
+  const hayAlgo = ficha.anticoagulantes || ficha.embarazada || condiciones.length > 0 || alertas || meds || enfermedades
+  if (!hayAlgo) return null
+  return (
+    <div className="shrink-0 lg:w-80 rounded-xl bg-red-600 ring-1 ring-red-300/50 p-3 shadow-sm text-white">
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <span className="text-base leading-none">⚠️</span>
+        <span className="text-xs font-bold uppercase tracking-wide">Alertas médicas</span>
+      </div>
+      <ul className="space-y-1 text-[13px] leading-snug">
+        {ficha.anticoagulantes && <li className="font-bold">• Paciente anticoagulado — precaución ante sangrado y procedimientos invasivos.</li>}
+        {ficha.embarazada && <li className="font-semibold">• Embarazada</li>}
+        {condiciones.length > 0 && <li>• {condiciones.join(' · ')}</li>}
+        {alertas && <li className="font-semibold">• {alertas}</li>}
+        {enfermedades && <li className="text-red-50/95">• {enfermedades}</li>}
+        {meds && <li className="text-red-50/95"><span className="font-semibold">Medicamentos:</span> {meds}</li>}
+      </ul>
+    </div>
   )
 }
 
