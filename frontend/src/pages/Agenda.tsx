@@ -1158,18 +1158,7 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
 
   return (
     <Modal title={cita.pacienteNombre} onClose={onClose}>
-      <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-        <p className="text-sm text-slate-500">{new Date(cita.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora(cita.inicio)}–{hora(cita.fin)}</p>
-        {/* Modificar la duración en bloques de 15 min, según lo disponible en el bloque. */}
-        <div className="flex items-center gap-1.5 shrink-0">
-          <span className="text-xs text-slate-500">Duración</span>
-          <button onClick={() => onDuracion(cita, durActual - 15)} disabled={durActual <= 15} title="−15 min"
-            className="w-7 h-7 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40">−</button>
-          <span className="text-sm font-semibold text-slate-800 w-16 text-center font-mono">{fmtDur(durActual)}</span>
-          <button onClick={() => onDuracion(cita, durActual + 15)} disabled={durActual + 15 > maxDur} title={durActual + 15 > maxDur ? 'No hay más espacio disponible en este bloque' : '+15 min'}
-            className="w-7 h-7 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-40">+</button>
-        </div>
-      </div>
+      <p className="text-sm text-slate-500 mb-3">{new Date(cita.inicio).toLocaleString('es-CL', { weekday: 'long', day: 'numeric', month: 'long' })} · {hora(cita.inicio)}–{hora(cita.fin)}</p>
 
       {/* Historial de confirmaciones (arriba, plegable): agendamiento → notificaciones
           → confirmaciones → cambios de estado, con fecha/hora y usuario. */}
@@ -1225,8 +1214,24 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
         )}
       </div>
 
+      {/* Modificar la duración en bloques de 15 min según el espacio libre de ESTE
+          bloque (misma hora/profesional). Si no hay espacio para extender, muestra 0. */}
+      <div className="mb-3 rounded-xl border border-slate-200 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-slate-700">Modificar duración</span>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => onDuracion(cita, durActual - 15)} disabled={durActual <= 15} title="Quitar 15 min"
+              className="w-8 h-8 rounded-lg border border-slate-200 text-slate-600 text-lg leading-none hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">−</button>
+            <span className="text-sm font-bold text-slate-800 w-16 text-center font-mono">{fmtDur(durActual)}</span>
+            <button onClick={() => onDuracion(cita, durActual + 15)} disabled={durActual + 15 > maxDur} title={durActual + 15 > maxDur ? 'No hay más espacio disponible en este bloque' : 'Agregar 15 min'}
+              className="w-8 h-8 rounded-lg border border-slate-200 text-slate-600 text-lg leading-none hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed">+</button>
+          </div>
+        </div>
+        <p className="text-[11px] text-slate-400 mt-1.5">Disponible para extender en este bloque: <span className="font-semibold text-slate-600">{Math.max(0, maxDur - durActual)} min</span>.</p>
+      </div>
+
       <button onClick={() => onReagendar(cita)}
-        className="w-full mb-3 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold">Reagendar / cambiar duración</button>
+        className="w-full mb-3 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold">Reagendar / cambiar día u hora</button>
 
       <Link to={`/pacientes/${cita.pacienteId}?tab=planes`} className="block w-full text-center mb-3 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Ir a planes de tratamiento</Link>
       {next && (
@@ -1406,7 +1411,8 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
             </select></label>
           <label className="block"><span className="block text-xs font-medium text-slate-500 mb-1">Duración</span>
             <select value={duracion} onChange={(e) => setDuracion(Number(e.target.value))} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
-              {Array.from(new Set([...DURACIONES, durActual])).sort((a, b) => a - b).map((d) => <option key={d} value={d}>{d} minutos</option>)}
+              {/* Intervalos de 15 min hasta 4 horas (+ la duración actual si es distinta). */}
+              {Array.from(new Set([...Array.from({ length: 16 }, (_, i) => (i + 1) * 15), durActual])).sort((a, b) => a - b).map((d) => <option key={d} value={d}>{fmtDur(d)}</option>)}
             </select></label>
           <button onClick={() => setModoSobrecupo((v) => !v)} title="Mostrar la agenda de sobreagendamiento (permite reprogramar sobre horarios ya ocupados)"
             className={`self-end px-3 py-2 rounded-lg text-sm font-semibold border ${modoSobrecupo ? 'bg-amber-500 border-amber-500 text-white' : 'border-slate-200 text-slate-700 hover:bg-slate-50'}`}>
