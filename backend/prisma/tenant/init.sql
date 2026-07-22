@@ -309,6 +309,7 @@ CREATE TABLE "Tratamiento" (
     "precio" DOUBLE PRECISION NOT NULL,
     "descuento" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "notas" TEXT,
+    "paraCobro" BOOLEAN NOT NULL DEFAULT false,
     "fecha" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "fechaCompletado" TIMESTAMP(3),
 

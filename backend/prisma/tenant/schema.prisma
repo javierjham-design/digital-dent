@@ -340,6 +340,7 @@ model Tratamiento {
   precio          Float
   descuento       Float            @default(0)
   notas           String?
+  paraCobro       Boolean          @default(false) // marcada con el "carrito" para incluirla en la próxima recaudación
   fecha           DateTime         @default(now())
   fechaCompletado DateTime?
   ficha           FichaClinica     @relation(fields: [fichaId], references: [id])

@@ -412,6 +412,7 @@ function CitasTab({ pacienteId }: { pacienteId: string }) {
 interface CobroItemLite { monto: number; cobro: { estado: string } | null }
 interface TratNode {
   id: string; estado: string; precio: number; descuento: number; diente: number | null; cara: string | null; notas: string | null
+  paraCobro?: boolean
   prestacion: { nombre: string; categoria: string | null }; cobroItems: CobroItemLite[]
   doctor: { id: string; name: string | null } | null
   _count?: { liquidacionItems: number }
@@ -1222,6 +1223,14 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
           className="w-20 sm:w-24 text-right text-sm font-mono text-slate-700 enabled:hover:text-cyan-600 disabled:cursor-default shrink-0">{fmtCLP(netoTrat(t))}</button>
       )}
 
+      {/* Carrito: marcar una acción NO realizada ni pagada para incluirla en la
+          próxima recaudación. Gris = sin marcar, verde = marcada para cobro. */}
+      {!completado && !pagada ? (
+        <button onClick={() => accion(() => tratamientosService.actualizar(t.id, { paraCobro: !t.paraCobro }))}
+          title={t.paraCobro ? 'Marcada para cobro (clic para quitar)' : 'Marcar para cobro'}
+          className={`shrink-0 text-base leading-none ${t.paraCobro ? 'text-emerald-600' : 'text-slate-300 hover:text-slate-500'}`}>🛒</button>
+      ) : <span className="shrink-0 w-[18px]" />}
+
       {/* Estado de PAGO (independiente del ✓ realizada de la izquierda):
           verde = pagada · rojo = realizada pero impaga (DEUDA) · azul = agregada (aún sin realizar). */}
       <span className="w-7 sm:w-10 flex justify-center shrink-0">
@@ -1416,11 +1425,31 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
 
   const acciones = detalle ? [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos] : []
   const restante = (t: TratNode) => Math.max(0, netoTrat(t) - pagadoTrat(t))
-  const pendientes = acciones.filter((t) => restante(t) > 0)
   const totalSel = Object.values(sel).reduce((s, n) => s + n, 0) + (Number(abono) || 0)
+  // Deuda = acciones REALIZADAS (completadas) aún impagas.
+  const deuda = acciones.filter((t) => t.estado === 'COMPLETADO').reduce((s, t) => s + restante(t), 0)
+  // Grupos de cobro: por sección del plan (+ "Sin sección"), sólo con acciones que restan por pagar.
+  const gruposPago = detalle
+    ? [
+        ...detalle.secciones.map((s) => ({ id: s.id, titulo: s.titulo || 'Sección', trats: s.tratamientos.filter((t) => restante(t) > 0) })),
+        { id: '', titulo: 'Sin sección', trats: detalle.tratamientos.filter((t) => restante(t) > 0) },
+      ].filter((g) => g.trats.length > 0)
+    : []
+
+  // Al cargar el plan, pre-selecciona las acciones marcadas con el carrito (paraCobro).
+  useEffect(() => {
+    if (!detalle) return
+    const acc = [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos]
+    const pre: Record<string, number> = {}
+    for (const t of acc) if (t.paraCobro && restante(t) > 0) pre[t.id] = restante(t)
+    if (Object.keys(pre).length > 0) setSel(pre)
+  }, [detalle]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggle(t: TratNode) {
     setSel((s) => { const n = { ...s }; if (n[t.id] != null) delete n[t.id]; else n[t.id] = restante(t); return n })
+  }
+  function toggleSeccion(trats: TratNode[], marcar: boolean) {
+    setSel((s) => { const n = { ...s }; for (const t of trats) { if (marcar) n[t.id] = restante(t); else delete n[t.id] } return n })
   }
 
   async function recaudar() {
@@ -1469,24 +1498,61 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
         </div>
       )}
 
+      {/* Deuda del plan (realizado impago), bien visible al abrir la recaudación. */}
+      {deuda > 0 && (
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold text-rose-700">Deuda del plan (realizado impago): {fmtCLP(deuda)}</p>
+            <p className="text-xs text-rose-600">Selecciona las acciones en rojo abajo para cobrarlas.</p>
+          </div>
+          <button onClick={() => { const pend = acciones.filter((t) => t.estado === 'COMPLETADO' && restante(t) > 0); toggleSeccion(pend, true) }}
+            className="shrink-0 px-3 py-2 bg-white border border-rose-300 text-rose-700 hover:bg-rose-100 text-sm font-semibold rounded-xl">Cobrar toda la deuda</button>
+        </div>
+      )}
+
       {acciones.length === 0 ? (
         <p className="text-sm text-slate-500">El plan no tiene acciones clínicas. Agrega prestaciones antes de recaudar.</p>
       ) : (
         <>
-          <div className="bg-white rounded-2xl border border-slate-200 p-4">
-            <p className="text-sm font-semibold text-slate-800 mb-2">Pagar acciones pendientes</p>
-            {pendientes.length === 0 ? <p className="text-xs text-slate-400">No hay acciones pendientes de pago.</p> : (
-              <div className="space-y-1.5">
-                {pendientes.map((t) => (
-                  <div key={t.id} className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={sel[t.id] != null} onChange={() => toggle(t)} />
-                    <span className="flex-1 truncate text-slate-700">{t.prestacion.nombre}{t.diente ? ` · ${t.diente}` : ''}</span>
-                    <span className="text-xs text-slate-400 shrink-0">resta {fmtCLP(restante(t))}</span>
-                    {sel[t.id] != null && (
-                      <input type="number" value={sel[t.id]} onChange={(e) => setSel((s) => ({ ...s, [t.id]: Number(e.target.value) || 0 }))} className="w-24 px-2 py-1 border border-slate-200 rounded-lg text-sm text-right shrink-0" />
-                    )}
-                  </div>
-                ))}
+          {/* Acciones a cobrar, ordenadas por sección del plan. Las marcadas con el
+              carrito vienen pre-seleccionadas. Se pueden elegir y sumar. */}
+          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-800">Acciones a cobrar</p>
+              <span className="text-xs text-slate-400">Marca las que se pagan; el total se suma abajo.</span>
+            </div>
+            {gruposPago.length === 0 ? <p className="px-4 py-4 text-xs text-slate-400">No hay acciones pendientes de pago en este plan.</p> : (
+              <div className="divide-y divide-slate-100">
+                {gruposPago.map((g) => {
+                  const todasSel = g.trats.every((t) => sel[t.id] != null)
+                  const subtotal = g.trats.reduce((s, t) => s + (sel[t.id] ?? 0), 0)
+                  return (
+                    <div key={g.id || 'sin'} className="px-4 py-2">
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 uppercase tracking-wide cursor-pointer">
+                          <input type="checkbox" checked={todasSel} onChange={() => toggleSeccion(g.trats, !todasSel)} /> {g.titulo}
+                        </label>
+                        {subtotal > 0 && <span className="text-xs font-semibold text-cyan-700 font-mono">{fmtCLP(subtotal)}</span>}
+                      </div>
+                      <div className="space-y-1">
+                        {g.trats.map((t) => {
+                          const enDeuda = t.estado === 'COMPLETADO'
+                          return (
+                            <div key={t.id} className="flex items-center gap-2 text-sm">
+                              <input type="checkbox" checked={sel[t.id] != null} onChange={() => toggle(t)} />
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${enDeuda ? 'bg-rose-500' : 'bg-sky-500'}`} title={enDeuda ? 'En deuda (realizada e impaga)' : 'Agregada (aún sin realizar)'} />
+                              <span className="flex-1 truncate text-slate-700">{t.prestacion.nombre}{t.diente ? ` · ${t.diente}` : ''}{t.paraCobro ? ' 🛒' : ''}</span>
+                              <span className="text-xs text-slate-400 shrink-0">resta {fmtCLP(restante(t))}</span>
+                              {sel[t.id] != null && (
+                                <input type="number" value={sel[t.id]} onChange={(e) => setSel((s) => ({ ...s, [t.id]: Math.max(0, Math.min(restante(t), Number(e.target.value) || 0)) }))} className="w-24 px-2 py-1 border border-slate-200 rounded-lg text-sm text-right shrink-0 font-mono" />
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </div>

@@ -285,6 +285,7 @@ export async function actualizarTratamiento(db: TenantClient, actorId: string, i
     data.estado = body.estado
   }
   if (typeof body.notas === 'string' || body.notas === null) data.notas = body.notas
+  if (typeof body.paraCobro === 'boolean') data.paraCobro = body.paraCobro // marcar/desmarcar "carrito" (no toca presupuesto)
   if (typeof body.diente === 'number' || body.diente === null) data.diente = body.diente
   if (typeof body.cara === 'string' || body.cara === null) data.cara = body.cara
   if (typeof body.doctorId === 'string' || body.doctorId === null) data.doctorId = body.doctorId

@@ -155,6 +155,9 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
         fecha: fechaPago, cobroId: creado.id, userId: actor.sub,
       },
     })
+    // Las acciones que se cobraron salen del "carrito" (ya no están marcadas para cobro).
+    const tratIds = items.map((i) => i.tratamientoId).filter(Boolean) as string[]
+    if (tratIds.length > 0) await tx.tratamiento.updateMany({ where: { id: { in: tratIds } }, data: { paraCobro: false } })
     return creado
   })
   // Queda registrado en el Historial de la ficha del paciente (trazabilidad).
