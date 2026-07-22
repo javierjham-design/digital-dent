@@ -15,6 +15,8 @@ const PX_HORA = 60
 const yDe = (h: number, m = 0) => ((h - HORA_INI) * 60 + m) * (PX_HORA / 60)
 const altoDe = (min: number) => Math.max(20, min * (PX_HORA / 60) - 2)
 const TOTAL_H = (HORA_FIN - HORA_INI) * PX_HORA
+// Tamaño del bloque en minutos (configurable por clínica; 15 por defecto).
+const BLOQUE_MIN = 15
 // Tramos de atención disponibles (verde). Fuera de esto = gris (almuerzo 13–14, etc.)
 const DISPONIBLE: [number, number][] = [[8, 13], [14, 18]]
 
@@ -71,7 +73,7 @@ function CitaCard({ c }: { c: Cita }) {
   const finM = c.h * 60 + c.m + c.dur
   return (
     <div className="absolute left-0.5 right-0.5 rounded-md overflow-hidden flex bg-white shadow-sm ring-1 ring-slate-200 hover:ring-slate-300 hover:shadow cursor-pointer transition"
-      style={{ top: yDe(c.h, c.m), height: alto, backgroundColor: `${cfg?.bg}55`, outline: c.sobrecupo ? '2px dashed #f97316' : undefined, outlineOffset: '-2px' }}>
+      style={{ top: yDe(c.h, c.m), height: alto, outline: c.sobrecupo ? '2px dashed #f97316' : undefined, outlineOffset: '-2px' }}>
       <div className="w-2 shrink-0" style={{ backgroundColor: cfg?.color }} />
       <div className="px-1.5 py-0.5 min-w-0 leading-tight">
         <p className="text-[11px] font-semibold text-slate-800 truncate flex items-center gap-1">
@@ -92,27 +94,30 @@ function Columna({ citas }: { citas: Cita[] }) {
       {DISPONIBLE.map(([a, b], i) => (
         <div key={i} className="absolute left-0 right-0 bg-[#e7f8ee]" style={{ top: yDe(a), height: (b - a) * PX_HORA }} />
       ))}
-      {/* Líneas de hora (marcadas) */}
-      {Array.from({ length: HORA_FIN - HORA_INI + 1 }, (_, i) => HORA_INI + i).map((h) => (
-        <div key={h} className="absolute left-0 right-0 border-t border-slate-300" style={{ top: yDe(h) }} />
-      ))}
-      {/* Media hora (tenue) */}
-      {Array.from({ length: HORA_FIN - HORA_INI }, (_, i) => HORA_INI + i).map((h) => (
-        <div key={`m${h}`} className="absolute left-0 right-0 border-t border-dashed border-slate-300/70" style={{ top: yDe(h, 30) }} />
-      ))}
+      {/* Líneas cada BLOQUE_MIN: hora sólida marcada, media hora media, resto tenue */}
+      {Array.from({ length: Math.floor((HORA_FIN - HORA_INI) * 60 / BLOQUE_MIN) + 1 }, (_, i) => i * BLOQUE_MIN).map((t) => {
+        const min = t % 60
+        const cls = min === 0 ? 'border-slate-300' : min === 30 ? 'border-slate-200' : 'border-dashed border-slate-200/70'
+        return <div key={t} className={`absolute left-0 right-0 border-t ${cls}`} style={{ top: yDe(HORA_INI, t) }} />
+      })}
       {citas.map((c, i) => <CitaCard key={i} c={c} />)}
     </div>
   )
 }
 
 function EjeHoras() {
+  // Marca cada 30 min en formato 24h (08:00, 08:30, 09:00…). La hora en punto,
+  // más marcada; la media hora, más tenue.
   return (
     <div className="relative w-14 shrink-0 bg-white" style={{ height: TOTAL_H }}>
-      {Array.from({ length: HORA_FIN - HORA_INI + 1 }, (_, i) => HORA_INI + i).map((h) => (
-        <div key={h} className="absolute right-2 -translate-y-1/2 text-[11px] font-medium text-slate-400" style={{ top: yDe(h) }}>
-          {h <= 12 ? h : h - 12} {h < 12 ? 'AM' : 'PM'}
-        </div>
-      ))}
+      {Array.from({ length: (HORA_FIN - HORA_INI) * 2 + 1 }, (_, i) => i * 30).map((t) => {
+        const h = HORA_INI + Math.floor(t / 60), m = t % 60
+        return (
+          <div key={t} className={`absolute right-2 -translate-y-1/2 font-mono ${m === 0 ? 'text-[11px] font-semibold text-slate-500' : 'text-[10px] text-slate-400'}`} style={{ top: yDe(h, m) }}>
+            {hhmm(h, m)}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -180,12 +185,14 @@ export function AgendaPreview() {
   const [soloSobrecupo, setSoloSobrecupo] = useState(false)
   const [estados, setEstados] = useState<Record<string, boolean>>(() => Object.fromEntries(Object.keys(CITA_ESTADOS).map((k) => [k, true])))
 
-  const filtrar = (cs: Cita[]) => cs.filter((c) => estados[c.estado] && (!soloSobrecupo || c.sobrecupo))
+  // ocultarCancelada: en la rejilla (semanal/global) las canceladas NO se muestran
+  // (el cupo queda libre); sólo aparecen en la vista Diaria.
+  const filtrar = (cs: Cita[], ocultarCancelada = false) => cs.filter((c) => estados[c.estado] && (!soloSobrecupo || c.sobrecupo) && (!ocultarCancelada || c.estado !== 'CANCELADA'))
 
   type Col = { titulo: string; sub: string; citas: Cita[]; dow?: string; num?: number; hoy?: boolean }
   const columnas: Col[] = vista === 'global'
-    ? PROFESIONALES.map((p) => ({ titulo: p.nombre, sub: `${filtrar(p.citas).length} citas`, citas: p.citas }))
-    : DIAS.map((d, i) => ({ titulo: `${d.dow} ${d.num}`, sub: `${filtrar(CITAS_SEMANA[i]).length} citas`, citas: CITAS_SEMANA[i], hoy: d.hoy, num: d.num, dow: d.dow }))
+    ? PROFESIONALES.map((p) => ({ titulo: p.nombre, sub: `${filtrar(p.citas, true).length} citas`, citas: p.citas }))
+    : DIAS.map((d, i) => ({ titulo: `${d.dow} ${d.num}`, sub: `${filtrar(CITAS_SEMANA[i], true).length} citas`, citas: CITAS_SEMANA[i], hoy: d.hoy, num: d.num, dow: d.dow }))
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -276,7 +283,7 @@ export function AgendaPreview() {
                   <EjeHoras />
                   {columnas.map((c, i) => (
                     <div key={i} className="flex-1 min-w-0 border-l border-slate-300 first:border-l-0">
-                      <Columna citas={filtrar(c.citas)} />
+                      <Columna citas={filtrar(c.citas, true)} />
                     </div>
                   ))}
                 </div>
