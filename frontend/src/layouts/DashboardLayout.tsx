@@ -48,6 +48,7 @@ function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, puedeCajas, pue
             {(esAdmin || puedeConfig) && item('/configuracion', 'Configuración de la clínica')}
             {(esAdmin || puedeEquipo) && item('/equipo', 'Equipo')}
             {(esAdmin || puedeConfig) && modAgenda && item('/agendamiento-online', 'Agendamiento online')}
+            {(esAdmin || puedeConfig) && item('/boxes', 'Boxes / Salas de atención')}
             {modCrm && (esAdmin || puedeCrm) && item('/crm', 'CRM · Leads')}
             {(esAdmin || puedeConfig) && item('/consentimientos', 'Consentimientos')}
             {(esAdmin || puedeConfig) && item('/recetas-documentos', 'Recetas y documentos')}

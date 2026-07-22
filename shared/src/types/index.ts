@@ -143,6 +143,8 @@ export interface CitaDTO {
   notas: string
   sobrecupo: boolean
   confirmadoWA: boolean
+  boxId?: string | null
+  box?: { id: string; nombre: string } | null
 }
 
 export interface DoctorDTO {

@@ -11,6 +11,7 @@ type MoveArg = { event: { start: Date | null; end: Date | null; extendedProps: R
 import type { BloqueoDTO, CitaDTO, DoctorDTO, HorarioDTO, ClinicaConfigDTO } from '@shared/types'
 import { CITA_ESTADOS, ESTADOS_NO_OCUPAN, siguienteEstado } from '@shared/constants/cita-estados'
 import { bloqueosService, citasService, horariosLectura, type CitaLogDTO } from '@/services/clinica.service'
+import { boxesService, type BoxDTO } from '@/services/boxes.service'
 import { pacientesService } from '@/services/clinica.service'
 import { clinicaService } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
@@ -346,6 +347,13 @@ export function Agenda() {
       notify('Comentario guardado'); recargar()
     } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo guardar el comentario', false) }
   }
+  async function cambiarBox(cita: CitaDTO, boxId: string, boxNombre: string | null) {
+    try {
+      await citasService.editar(cita.id, { boxId: boxId || null })
+      setSelected((s) => (s && s.id === cita.id ? { ...s, boxId: boxId || null, box: boxId ? { id: boxId, nombre: boxNombre ?? '' } : null } : s))
+      notify(boxId ? `Box cambiado a ${boxNombre}` : 'Box quitado'); recargar()
+    } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo cambiar el box', false) }
+  }
 
   async function eliminarCita(id: string) {
     if (!confirm('¿Eliminar esta cita?')) return
@@ -594,7 +602,7 @@ export function Agenda() {
           onError={(m) => notify(m, false)} />
       )}
       {selected && (
-        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={(c) => { setSelected(null); setReagendar(c) }} onComentario={guardarComentario} />
+        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={(c) => { setSelected(null); setReagendar(c) }} onComentario={guardarComentario} onBox={cambiarBox} />
       )}
       {reagendar && (
         <ReagendarModal cita={reagendar} doctores={doctores} horarios={horariosTodos} onReagendar={reagendarCita} onClose={() => setReagendar(null)} />
@@ -1010,6 +1018,9 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
   const [duracion, setDuracion] = useState(30)
   const [sobrecupo, setSobrecupo] = useState(Boolean(sobrecupoInicial))
   const [comentario, setComentario] = useState('')
+  const [boxes, setBoxes] = useState<BoxDTO[]>([])
+  const [boxId, setBoxId] = useState('')
+  useEffect(() => { boxesService.listar(true).then(setBoxes).catch(() => {}) }, [])
   const [modo, setModo] = useState<'existente' | 'nuevo'>('existente')
   const [pacienteId, setPacienteId] = useState('')
   const [pacienteEmail, setPacienteEmail] = useState<string | null>(null)
@@ -1057,7 +1068,7 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
         const p = await pacientesService.crear({ nombre: nuevo.nombre, apellido: nuevo.apellido, rut: nuevo.rut || undefined, otroDocId: nuevo.otroDoc || undefined, telefono: nuevo.telefono || undefined, email: nuevo.email || undefined })
         pid = p.id
       }
-      await citasService.crear({ pacienteId: pid, doctorId: doc, fecha: slotISO, duracion: durSel, tipo: tipo || 'CONSULTA', sobrecupo, notas: comentario.trim() || undefined, enviarCorreo })
+      await citasService.crear({ pacienteId: pid, doctorId: doc, fecha: slotISO, duracion: durSel, tipo: tipo || 'CONSULTA', sobrecupo, notas: comentario.trim() || undefined, enviarCorreo, boxId: boxId || undefined })
       onCreated()
     } catch (e) {
       const m = e instanceof ApiError ? e.message : 'No se pudo agendar'
@@ -1099,6 +1110,17 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
         <label className="flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" checked={sobrecupo} onChange={(e) => setSobrecupo(e.target.checked)} /> Sobrecupo (permite solaparse)
         </label>
+
+        {/* Box / sala de atención: OPCIONAL. Sólo aparece si la clínica configuró boxes. */}
+        {boxes.length > 0 && (
+          <div>
+            <span className="block text-sm font-medium text-slate-700 mb-1">Box / sala <span className="text-slate-400 font-normal">(opcional)</span></span>
+            <select value={boxId} onChange={(e) => setBoxId(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500">
+              <option value="">Sin box asignado</option>
+              {boxes.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
+            </select>
+          </div>
+        )}
 
         <div>
           <span className="block text-sm font-medium text-slate-700 mb-1">Comentario <span className="text-slate-400 font-normal">(opcional, visible en la agenda)</span></span>
@@ -1151,11 +1173,14 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
 }
 
 // ── Modal: detalle de cita ──
-function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar, onComentario }: {
+function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar, onComentario, onBox }: {
   cita: CitaDTO; clinica: ClinicaConfigDTO | null
   onClose: () => void; onEstado: (id: string, estado: string) => void; onEliminar: (id: string) => void
   onReagendar: (cita: CitaDTO) => void; onComentario: (cita: CitaDTO, notas: string) => Promise<void>
+  onBox: (cita: CitaDTO, boxId: string, boxNombre: string | null) => Promise<void>
 }) {
+  const [boxes, setBoxes] = useState<BoxDTO[]>([])
+  useEffect(() => { boxesService.listar(true).then(setBoxes).catch(() => {}) }, [])
   const next = siguienteEstado(cita.estado)
   const waUrl = waLink(cita, clinica)
   const [nota, setNota] = useState(cita.notas ?? '')
@@ -1215,6 +1240,18 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
         <Row k="Motivo" v={cita.tipo} />
         <Row k="Estado" v={CITA_ESTADOS[cita.estado]?.label ?? cita.estado} />
       </dl>
+
+      {/* Box / sala de atención (opcional): sólo si la clínica configuró boxes. */}
+      {boxes.length > 0 && (
+        <div className="mb-3">
+          <span className="block text-xs font-medium text-slate-500 mb-1">Box / sala de atención</span>
+          <select value={cita.boxId ?? ''} onChange={(e) => { const b = boxes.find((x) => x.id === e.target.value); onBox(cita, e.target.value, b?.nombre ?? null) }}
+            className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500">
+            <option value="">Sin box asignado</option>
+            {boxes.map((b) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
+          </select>
+        </div>
+      )}
 
       {/* Comentario del agendamiento (visible en la agenda) */}
       <div className="mb-3">

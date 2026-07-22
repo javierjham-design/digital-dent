@@ -16,8 +16,10 @@ import { conTitulo } from '@shared/utils/nombre'
 type CitaRow = {
   id: string; pacienteId: string; doctorId: string; fecha: Date; duracion: number
   estado: string; tipo: string | null; notas: string | null; sobrecupo: boolean; confirmadoWA: boolean
+  boxId: string | null
   paciente: { nombre: string; apellido: string; rut: string | null; telefono: string | null }
   doctor: { name: string | null; titulo?: string; email: string | null }
+  box?: { id: string; nombre: string } | null
 }
 
 function toDTO(c: CitaRow): CitaDTO {
@@ -36,12 +38,15 @@ function toDTO(c: CitaRow): CitaDTO {
     notas: c.notas ?? '',
     sobrecupo: c.sobrecupo,
     confirmadoWA: c.confirmadoWA,
+    boxId: c.boxId,
+    box: c.box ? { id: c.box.id, nombre: c.box.nombre } : null,
   }
 }
 
 const INCLUDE = {
   paciente: { select: { nombre: true, apellido: true, rut: true, telefono: true } },
   doctor: { select: { name: true, titulo: true, email: true } },
+  box: { select: { id: true, nombre: true } },
 } as const
 
 // Detección de doble reserva (misma regla que el monolito).
@@ -76,7 +81,7 @@ export async function listarCitas(db: TenantClient, rango?: { from?: string; to?
 
 export interface CrearCitaInput {
   pacienteId: string; doctorId: string; fecha: string; duracion?: number
-  tipo?: string; notas?: string | null; sobrecupo?: boolean; enviarCorreo?: boolean
+  tipo?: string; notas?: string | null; sobrecupo?: boolean; enviarCorreo?: boolean; boxId?: string | null
 }
 
 export async function crearCita(db: TenantClient, userName: string, input: CrearCitaInput): Promise<CitaDTO> {
@@ -116,6 +121,7 @@ export async function crearCita(db: TenantClient, userName: string, input: Crear
     data: {
       pacienteId: input.pacienteId, doctorId: input.doctorId,
       fecha: inicio, duracion: dur, tipo: input.tipo || 'CONSULTA', notas: input.notas || null, sobrecupo,
+      boxId: input.boxId || null,
       logs: { create: { tipo: 'AGENDADA', detalle: `Cita ${sobrecupo ? 'sobrecupo ' : ''}agendada por ${userName}`, userName } },
     },
     include: INCLUDE,
@@ -136,7 +142,7 @@ export async function crearCita(db: TenantClient, userName: string, input: Crear
 }
 
 export interface EditarCitaInput {
-  fecha?: string; duracion?: number; doctorId?: string; tipo?: string; notas?: string | null; sobrecupo?: boolean
+  fecha?: string; duracion?: number; doctorId?: string; tipo?: string; notas?: string | null; sobrecupo?: boolean; boxId?: string | null
 }
 
 export async function editarCita(db: TenantClient, id: string, userName: string, input: EditarCitaInput): Promise<CitaDTO> {
@@ -156,6 +162,7 @@ export async function editarCita(db: TenantClient, id: string, userName: string,
   if (input.tipo !== undefined) data.tipo = input.tipo || null
   if (input.notas !== undefined) data.notas = input.notas || null
   if (input.sobrecupo !== undefined) data.sobrecupo = Boolean(input.sobrecupo)
+  if (input.boxId !== undefined) data.boxId = input.boxId || null
   if (input.doctorId !== undefined) {
     const doctor = await db.user.findFirst({ where: { id: input.doctorId, activo: true }, select: { id: true } })
     if (!doctor) throw badRequest('Doctor no existe en esta clínica')

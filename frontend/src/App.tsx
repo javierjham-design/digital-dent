@@ -16,6 +16,7 @@ import { AgendarPublico } from '@/pages/AgendarPublico'
 import { Crm } from '@/pages/Crm'
 import { Consentimientos } from '@/pages/Consentimientos'
 import { AgendaPreview } from '@/pages/AgendaPreview'
+import { Boxes } from '@/pages/Boxes'
 import { Suscripcion } from '@/pages/Suscripcion'
 import { GestionCajas } from '@/pages/GestionCajas'
 import { FormularioPublico } from '@/pages/FormularioPublico'
@@ -72,6 +73,7 @@ export default function App() {
             <Route path="/prestaciones" element={<Prestaciones />} />
             <Route path="/equipo" element={<Equipo />} />
             <Route path="/configuracion" element={<Configuracion />} />
+            <Route path="/boxes" element={<Boxes />} />
             <Route path="/ayuda" element={<Ayuda />} />
           </Route>
           <Route path="/plataforma" element={<SuperAdminLayout />}>

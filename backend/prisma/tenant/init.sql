@@ -204,6 +204,7 @@ CREATE TABLE "Cita" (
     "tipo" TEXT,
     "notas" TEXT,
     "sala" TEXT,
+    "boxId" TEXT,
     "sobrecupo" BOOLEAN NOT NULL DEFAULT false,
     "confirmadoWA" BOOLEAN NOT NULL DEFAULT false,
     "origen" TEXT,
@@ -570,9 +571,26 @@ CREATE TABLE "HorarioDoctor" (
     "sobrecupoActivo" BOOLEAN NOT NULL DEFAULT false,
     "sobrecupoInicio" TEXT,
     "sobrecupoFin" TEXT,
+    "boxId" TEXT,
 
     CONSTRAINT "HorarioDoctor_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateTable
+CREATE TABLE "Box" (
+    "id" TEXT NOT NULL,
+    "nombre" TEXT NOT NULL,
+    "tipo" TEXT,
+    "orden" INTEGER NOT NULL DEFAULT 0,
+    "activo" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "Box_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX "Box_activo_orden_idx" ON "Box"("activo", "orden");
+ALTER TABLE "Cita" ADD CONSTRAINT "Cita_boxId_fkey" FOREIGN KEY ("boxId") REFERENCES "Box"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "HorarioDoctor" ADD CONSTRAINT "HorarioDoctor_boxId_fkey" FOREIGN KEY ("boxId") REFERENCES "Box"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- CreateTable
 CREATE TABLE "BloqueoAgenda" (

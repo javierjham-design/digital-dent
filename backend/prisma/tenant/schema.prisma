@@ -232,6 +232,7 @@ model Cita {
   tipo         String?
   notas        String?
   sala         String?
+  boxId        String?  // box/sala de atención (opcional; null = sin box asignado)
   sobrecupo    Boolean  @default(false)
   confirmadoWA Boolean  @default(false)
   origen       String?  // null = interna; "ONLINE" = reserva pública del paciente
@@ -247,6 +248,7 @@ model Cita {
   updatedAt    DateTime @updatedAt
   paciente     Paciente @relation(fields: [pacienteId], references: [id])
   doctor       User     @relation("DoctorCitas", fields: [doctorId], references: [id])
+  box          Box?     @relation(fields: [boxId], references: [id])
   logs         CitaLog[]
   mensajes     MensajePaciente[]
 
@@ -680,9 +682,27 @@ model HorarioDoctor {
   sobrecupoActivo Boolean @default(false)
   sobrecupoInicio String?
   sobrecupoFin    String?
+  boxId           String? // box/sala por defecto de este bloque de atención (opcional)
   doctor          User    @relation(fields: [doctorId], references: [id], onDelete: Cascade)
+  box             Box?    @relation(fields: [boxId], references: [id])
 
   @@unique([doctorId, diaSemana])
+}
+
+// Box / sala de atención (opcional y configurable: Box, Pabellón, Estética…). Si
+// la clínica no configura ninguno, la agenda funciona igual (citas "sin box").
+model Box {
+  id        String   @id @default(cuid())
+  nombre    String
+  tipo      String?  // etiqueta libre informativa (Box, Pabellón, Estética…)
+  orden     Int      @default(0)
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  citas     Cita[]
+  horarios  HorarioDoctor[]
+
+  @@index([activo, orden])
 }
 
 model BloqueoAgenda {

@@ -10,9 +10,9 @@ export const citasService = {
     const qs = from && to ? `?from=${from}&to=${to}` : ''
     return api.get<CitaDTO[]>(`/citas${qs}`)
   },
-  crear: (input: { pacienteId: string; doctorId: string; fecha: string; duracion?: number; tipo?: string; notas?: string; sobrecupo?: boolean; enviarCorreo?: boolean }) =>
+  crear: (input: { pacienteId: string; doctorId: string; fecha: string; duracion?: number; tipo?: string; notas?: string; sobrecupo?: boolean; enviarCorreo?: boolean; boxId?: string | null }) =>
     api.post<CitaDTO>('/citas', input),
-  editar: (id: string, input: { fecha?: string; duracion?: number; doctorId?: string; tipo?: string; notas?: string | null; sobrecupo?: boolean }) =>
+  editar: (id: string, input: { fecha?: string; duracion?: number; doctorId?: string; tipo?: string; notas?: string | null; sobrecupo?: boolean; boxId?: string | null }) =>
     api.patch<CitaDTO>(`/citas/${id}`, input),
   cambiarEstado: (id: string, estado: string) =>
     api.patch<CitaDTO>(`/citas/${id}/estado`, { estado }),

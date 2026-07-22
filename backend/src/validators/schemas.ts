@@ -26,6 +26,7 @@ export const crearCitaSchema = z.object({
   notas: z.string().nullish(),
   sobrecupo: z.boolean().optional(),
   enviarCorreo: z.boolean().optional(),
+  boxId: z.string().nullish(),
 })
 
 export const cambiarEstadoSchema = z.object({
@@ -39,6 +40,7 @@ export const editarCitaSchema = z.object({
   tipo: z.string().optional(),
   notas: z.string().nullish(),
   sobrecupo: z.boolean().optional(),
+  boxId: z.string().nullish(),
 })
 
 export const crearUsuarioSchema = z.object({

@@ -10,6 +10,7 @@ import {
   getExport, getTemplate, postImport, getPacientesSinProxima,
 } from '@/controllers/pacientes.controller'
 import { getCitas, postCita, patchCita, deleteCita, patchEstado, getLogsCita } from '@/controllers/citas.controller'
+import * as box from '@/controllers/boxes.controller'
 import { getUsuarios, getDoctores, getCupoProfesionales, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
 import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo } from '@/controllers/agenda.controller'
 import {
@@ -135,6 +136,12 @@ apiRouter.patch('/citas/:id', tenant, asyncHandler(patchCita))
 apiRouter.delete('/citas/:id', tenant, asyncHandler(deleteCita))
 apiRouter.patch('/citas/:id/estado', tenant, asyncHandler(patchEstado))
 apiRouter.get('/citas/:id/logs', tenant, asyncHandler(getLogsCita)) // historial de la cita (agendamiento, notificaciones, cambios de estado)
+
+// ── Boxes / salas de atención (opcionales) ───────────────────────────────────
+apiRouter.get('/boxes', tenant, asyncHandler(box.getBoxes))
+apiRouter.post('/boxes', configTenant, asyncHandler(box.postBox))
+apiRouter.patch('/boxes/:id', configTenant, asyncHandler(box.patchBox))
+apiRouter.delete('/boxes/:id', configTenant, asyncHandler(box.deleteBox))
 
 // ── Equipo / Usuarios (convertido a database-per-tenant) ─────────────────────
 apiRouter.get('/usuarios', tenant, asyncHandler(getUsuarios))
