@@ -113,7 +113,7 @@ export function crmMetaHabilitado(cfg: MetaCrmConfig): boolean {
   return Boolean(cfg.enabled && cfg.datasetId && cfg.accessToken)
 }
 
-export interface MetaCrmEvent { eventName: string; eventTime: number; leadId?: string | null; email?: string | null; telefono?: string | null; nombre?: string | null; apellido?: string | null }
+export interface MetaCrmEvent { eventName: string; eventId?: string; eventTime: number; leadId?: string | null; email?: string | null; telefono?: string | null; nombre?: string | null; apellido?: string | null }
 
 // POST al endpoint de eventos del dataset. Devuelve el resultado real.
 async function postEventoCrm(datasetId: string, token: string, ev: MetaCrmEvent, testCode?: string): Promise<MetaSendResult> {
@@ -131,6 +131,7 @@ async function postEventoCrm(datasetId: string, token: string, ev: MetaCrmEvent,
       data: [{
         action_source: 'system_generated',
         event_name: ev.eventName,
+        ...(ev.eventId ? { event_id: ev.eventId } : {}),
         event_time: ev.eventTime,
         custom_data: { event_source: 'crm', lead_event_source: 'Clariva' },
         user_data,
@@ -158,7 +159,7 @@ export async function probarConexionCrmMeta(cfg: MetaCrmConfig): Promise<MetaTes
   if (!cfg.datasetId) return { ok: false, status: 0, error: 'Falta el Dataset ID de CRM.' }
   if (!cfg.accessToken) return { ok: false, status: 0, error: 'Falta el token de acceso de CRM.' }
   const testCode = cfg.testCode?.trim() || 'CLARIVA_PING'
-  const res = await postEventoCrm(cfg.datasetId, cfg.accessToken, { eventName: 'Lead', eventTime: Math.floor(Date.now() / 1000), email: 'test@clariva.cl' }, testCode)
+  const res = await postEventoCrm(cfg.datasetId, cfg.accessToken, { eventName: 'lead', eventTime: Math.floor(Date.now() / 1000), email: 'test@clariva.cl' }, testCode)
   return { ok: res.ok, status: res.ok ? 200 : 400, recibidos: res.recibidos, testCode, error: res.error }
 }
 

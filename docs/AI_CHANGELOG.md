@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-07-23 — Eventos de etapa CRM: nombres del embudo + event_id + solo leadgenId
+
+Alinea el emisor de etapas de CRM con el embudo de "clientes potenciales
+calificados" de Meta. (El "TestEvent/TestCRM" que se veía era del botón Test
+Events de Meta, no del código.)
+
+- **event_name EXACTO** (case-sensitive): `lead` (entrada), `Schedule` (AGENDADO),
+  `customer` (CONVERTIDO). Se elimina el evento de CONTACTADO (no es etapa del
+  embudo). Antes eran Lead/Contactado/Agendado/Cliente.
+- **event_id** = `crm_{leadId}_{eventName}_{vecesIngresado}` (dedup con reintentos;
+  un reingreso reavanzado genera event_id nuevo → Meta no lo descarta). Idempotencia
+  local por ciclo (`metaCrmEtapas` guarda `evento_veces`).
+- **Solo leads con leadgenId** (Formulario Instantáneo) van al dataset de CRM
+  (guard `sin-leadgen`). Los de la landing siguen su flujo actual al pixel/dataset
+  web, sin `lead_id`.
+- Se mantienen `custom_data.event_source='crm'`, `lead_event_source='Clariva'`,
+  `action_source='system_generated'`, `user_data.lead_id`=leadgenId + em/ph/fn/ln
+  SHA-256. Reingreso por Instant Form reemite `lead`. Test event usa `lead`.
+
+---
+
 ## 2026-07-23 — Reingreso de contactos (leads repetidos) en el CRM
 
 Un contacto cuyo teléfono/email ya existe NO se duplica, pero ahora "vuelve a
