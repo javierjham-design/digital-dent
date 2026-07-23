@@ -139,7 +139,7 @@ export function DashboardLayout() {
   const modAgenda = mods.includes('agendamiento_online')
   return (
     <div className="min-h-screen">
-      <header className="bg-white border-b border-slate-100 sticky top-0 z-10 px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+      <header className="bg-white border-b border-slate-100 sticky top-0 z-30 px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="flex items-center gap-2 shrink-0 order-1">
           {logo
             ? <img src={logo} alt="" className="w-8 h-8 rounded-lg object-contain bg-white" />

@@ -861,7 +861,7 @@ function GridAgenda({ columnas, soloSobrecupo, conflicto, onCita, onBloqueo, onS
           return (
             <div key={col.key} className="flex-1 border-l border-slate-300 first:border-l-0" style={{ minWidth: minColW }}>
               {/* Cabecera de columna: día (semanal) o profesional (global) + conteo */}
-              <div className="h-[54px] flex flex-col items-center justify-center gap-0.5 px-1 border-b-2 border-slate-200 bg-slate-50 sticky top-0 z-10">
+              <div className="h-[54px] flex flex-col items-center justify-center gap-0.5 px-1 border-b-2 border-slate-200 bg-slate-50">
                 {col.dow
                   ? <div className="flex items-center gap-1.5">
                       <span className="text-[10px] font-medium text-slate-400 uppercase">{col.dow}</span>
