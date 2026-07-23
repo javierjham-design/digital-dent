@@ -983,7 +983,9 @@ function EvolucionModal({ accion, pacienteNombre, doctores, plan, onClose, onDon
   accion: TratNode; pacienteNombre: string; doctores: DoctorDTO[]; plan: PlanDetalle
   onClose: () => void; onDone: () => void
 }) {
-  const [profesionalId, setProfesionalId] = useState(accion.doctor?.id ?? plan.doctorTitularId ?? doctores[0]?.id ?? '')
+  // Por defecto, el profesional que evoluciona es el titular / dr a cargo del plan
+  // (modificable). Si el plan no tiene titular, cae al doctor propio de la acción.
+  const [profesionalId, setProfesionalId] = useState(plan.doctorTitularId ?? accion.doctor?.id ?? doctores[0]?.id ?? '')
   const [fecha, setFecha] = useState(hoyISO())
   const [texto, setTexto] = useState('')
   const [guardando, setGuardando] = useState(false)
@@ -1019,6 +1021,9 @@ function EvolucionModal({ accion, pacienteNombre, doctores, plan, onClose, onDon
                 <option value="">Sin asignar</option>
                 {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
               </select>
+              {plan.doctorTitularId && profesionalId === plan.doctorTitularId && (
+                <span className="text-[11px] text-slate-400 mt-0.5 block">Por defecto: dr a cargo del plan (puedes cambiarlo).</span>
+              )}
             </label>
             <label className="block">
               <span className="text-xs font-medium text-slate-500">Fecha</span>
