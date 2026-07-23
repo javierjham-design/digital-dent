@@ -2,11 +2,16 @@ import { randomUUID, randomBytes } from 'node:crypto'
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
-import { enviarEventoMeta, metaHabilitado, probarConexionMeta, type MetaConfig, type MetaSendResult } from '@/lib/meta'
+import { enviarEventoMeta, metaHabilitado, probarConexionMeta, type MetaConfig, type MetaSendResult,
+  enviarEventoCrmMeta, crmMetaHabilitado, probarConexionCrmMeta, type MetaCrmConfig } from '@/lib/meta'
+import { encryptNullable, decryptNullable } from '@/lib/crypto'
 import { crearCita } from '@/services/citas.service'
 import { rangoFechasUtc } from '@/lib/tz'
 
 const ESTADOS = ['NUEVO', 'CONTACTADO', 'AGENDADO', 'CONVERTIDO', 'PERDIDO']
+// Etapa del embudo (estado del lead) → nombre del evento de CRM que Meta espera.
+// PERDIDO no se emite. NUEVO se emite como "Lead" al crear el lead.
+const CRM_ETAPA_EVENTO: Record<string, string> = { NUEVO: 'Lead', CONTACTADO: 'Contactado', AGENDADO: 'Agendado', CONVERTIDO: 'Cliente' }
 // Leads "abiertos" que requieren seguimiento; si pasan de N días sin gestión humana, alertan.
 const ESTADOS_ABIERTOS = ['NUEVO', 'CONTACTADO']
 const DIAS_SIN_GESTION_DEFAULT = 4
@@ -125,6 +130,51 @@ export async function dispararScheduleMeta(db: TenantClient, lead: ScheduleLead,
   // Deja el flag/nota (confirmador). Si falla, scheduleCapiEnviado queda en false para reintento.
   await registrarEnvioMeta(db, lead.id, 'Schedule', res, 'scheduleCapiEnviado')
   return res.ok ? 'enviado' : 'error'
+}
+
+// ── Integración de CRM con Meta (eventos de etapa / "Leads de conversión") ─────
+// Emisor NUEVO e independiente del CAPI web. Cada clínica lo activa con su propio
+// dataset + token (multi-tenant, nada hardcodeado). Emite un evento por CADA
+// cambio de etapa del embudo, atado al leadgen_id cuando existe.
+export async function getMetaCrmConfig(db: TenantClient): Promise<MetaCrmConfig> {
+  const c = await db.configuracion.findUnique({
+    where: { id: 'singleton' },
+    select: { metaCrmEnabled: true, metaCrmDatasetId: true, metaCrmAccessToken: true, metaTestCode: true },
+  })
+  return {
+    enabled: Boolean(c?.metaCrmEnabled),
+    datasetId: c?.metaCrmDatasetId ?? null,
+    accessToken: decryptNullable(c?.metaCrmAccessToken ?? null), // token en claro solo en memoria
+    testCode: c?.metaTestCode ?? null,
+  }
+}
+
+// Emite el evento de la etapa al dataset de CRM de la clínica. Idempotente por
+// etapa (metaCrmEtapas: CSV de eventos ya enviados). Best-effort: nunca rompe la
+// operación principal ni loguea PII. Si Meta falla, no marca la etapa → se puede
+// reintentar. Se llama con `void` desde los puntos de cambio de estado.
+export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eventName: string, cfg?: MetaCrmConfig): Promise<'enviado' | 'error' | 'ya' | 'sin-config'> {
+  const conf = cfg ?? await getMetaCrmConfig(db)
+  if (!crmMetaHabilitado(conf)) return 'sin-config'
+  const lead = await db.lead.findUnique({
+    where: { id: leadId },
+    select: { id: true, email: true, telefono: true, leadgenId: true, metaCrmEtapas: true, ultimaGestionAt: true, updatedAt: true, createdAt: true },
+  })
+  if (!lead) return 'sin-config'
+  const enviadas = (lead.metaCrmEtapas ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  if (enviadas.includes(eventName)) return 'ya' // idempotencia
+
+  // event_time = momento del cambio de etapa, con clamp ≥ now−6d (Meta lo exige).
+  const base = lead.ultimaGestionAt ?? lead.updatedAt ?? lead.createdAt ?? new Date()
+  const eventTime = Math.max(Math.floor(new Date(base).getTime() / 1000), Math.floor(Date.now() / 1000) - 6 * 86400)
+
+  const res = await enviarEventoCrmMeta(conf, { eventName, eventTime, leadId: lead.leadgenId, email: lead.email, telefono: lead.telefono })
+  if (res.ok) {
+    await db.lead.update({ where: { id: lead.id }, data: { metaCrmEtapas: [...enviadas, eventName].join(',') } }).catch(() => {})
+    await db.leadNota.create({ data: { leadId: lead.id, tipo: 'SISTEMA', texto: `Meta CRM: etapa "${eventName}" enviada al dataset.` } }).catch(() => {})
+    return 'enviado'
+  }
+  return 'error'
 }
 
 // ── Listado + detalle ─────────────────────────────────────────────────────────
@@ -306,6 +356,10 @@ export async function crearLead(
       custom: { content_name: lead.tratamiento ?? lead.motivo ?? undefined, source: lead.origen },
     }).then((res) => registrarEnvioMeta(db, lead.id, 'Lead', res, 'metaEnviado'))
   }
+
+  // Etapa inicial del embudo en el CRM de Meta ("Lead"). Canal aparte del CAPI web
+  // (dataset propio de la clínica); si el CRM no está activo, es un no-op silencioso.
+  void dispararEtapaCrmMeta(db, lead.id, 'Lead')
   return lead
 }
 
@@ -377,6 +431,9 @@ export async function actualizarLead(db: TenantClient, actor: JwtPayload, id: st
   }
   // Si pasó a AGENDADO (marca manual), dispara Schedule a Meta (idempotente, no bloquea).
   if (cambioEstado === 'AGENDADO') void dispararScheduleMeta(db, lead as ScheduleLead)
+  // Evento de etapa al CRM de Meta por CADA cambio de estado (Contactado/Agendado/Cliente).
+  const eventoCrm = cambioEstado ? CRM_ETAPA_EVENTO[cambioEstado] : null
+  if (eventoCrm) void dispararEtapaCrmMeta(db, id, eventoCrm)
   return lead
 }
 
@@ -428,6 +485,8 @@ export async function convertirEnPaciente(db: TenantClient, actor: JwtPayload, i
   if (!creado && lead.pacienteId === pacienteId) return { pacienteId, yaExistia: true }
   await db.lead.update({ where: { id }, data: { pacienteId, estado: lead.estado === 'PERDIDO' ? lead.estado : 'CONVERTIDO', ultimaGestionAt: new Date() } })
   await db.leadNota.create({ data: { leadId: id, tipo: 'SISTEMA', texto: creado ? 'Convertido en paciente' : 'Vinculado a paciente existente', autorId: actor.sub, autorNombre: actorName(actor) } })
+  // Etapa final del embudo en el CRM de Meta ("Cliente"), salvo leads perdidos.
+  if (lead.estado !== 'PERDIDO') void dispararEtapaCrmMeta(db, id, 'Cliente')
   return { pacienteId, yaExistia: !creado }
 }
 
@@ -461,6 +520,8 @@ export async function agendarLead(db: TenantClient, actor: JwtPayload, id: strin
   // Evento "Schedule" a Meta (conversión: el lead agendó, aunque sea por recepción).
   // Idempotente y sin bloquear la respuesta; usa la fecha de la cita como event_time.
   void dispararScheduleMeta(db, { ...lead, fechaAgenda: new Date(cita.inicio) } as ScheduleLead)
+  // Etapa "Agendado" al CRM de Meta (la de optimización). Idempotente; no bloquea.
+  void dispararEtapaCrmMeta(db, id, 'Agendado')
   return { pacienteId, citaId: cita.id, inicio: cita.inicio }
 }
 
@@ -502,15 +563,21 @@ export async function eliminarLead(db: TenantClient, id: string) {
 export async function obtenerConfigCrm(db: TenantClient) {
   const c = await db.configuracion.findUnique({
     where: { id: 'singleton' },
-    select: { metaEnabled: true, metaPixelId: true, metaCapiToken: true, metaTestCode: true, crmToken: true, crmDiasSinGestion: true },
+    select: { metaEnabled: true, metaPixelId: true, metaCapiToken: true, metaTestCode: true,
+      metaCrmEnabled: true, metaCrmDatasetId: true, metaCrmAccessToken: true, crmToken: true, crmDiasSinGestion: true },
   })
   let crmToken = c?.crmToken ?? null
   if (!crmToken) { crmToken = nuevoToken(); await db.configuracion.update({ where: { id: 'singleton' }, data: { crmToken } }) }
   const rawTok = c?.metaCapiToken ?? null
+  // Token de CRM: encriptado en DB → nunca se devuelve en claro. Solo se expone si
+  // existe y sus últimos 4 (descifrando en memoria) para que la UI dé feedback.
+  const crmTok = decryptNullable(c?.metaCrmAccessToken ?? null)
   return {
     metaEnabled: Boolean(c?.metaEnabled), metaPixelId: c?.metaPixelId ?? null,
     hasCapiToken: Boolean(rawTok), capiTokenLen: rawTok ? rawTok.length : 0, capiTokenLast4: rawTok ? rawTok.slice(-4) : null,
     metaTestCode: c?.metaTestCode ?? null, crmToken,
+    metaCrmEnabled: Boolean(c?.metaCrmEnabled), metaCrmDatasetId: c?.metaCrmDatasetId ?? null,
+    hasCrmToken: Boolean(crmTok), crmTokenLast4: crmTok ? crmTok.slice(-4) : null,
     diasSinGestion: clampDias(c?.crmDiasSinGestion ?? DIAS_SIN_GESTION_DEFAULT),
   }
 }
@@ -520,6 +587,11 @@ export async function probarMeta(db: TenantClient) {
   return probarConexionMeta(await getMetaConfig(db))
 }
 
+// Valida la integración de CRM (dataset + token) enviando un evento de prueba.
+export async function probarMetaCrm(db: TenantClient) {
+  return probarConexionCrmMeta(await getMetaCrmConfig(db))
+}
+
 export async function guardarConfigCrm(db: TenantClient, body: Record<string, unknown>) {
   const data: Record<string, unknown> = {}
   if (body.metaEnabled !== undefined) data.metaEnabled = Boolean(body.metaEnabled)
@@ -527,6 +599,12 @@ export async function guardarConfigCrm(db: TenantClient, body: Record<string, un
   if (typeof body.metaCapiToken === 'string' && body.metaCapiToken.trim()) data.metaCapiToken = body.metaCapiToken.trim()
   if (body.metaCapiToken === null || body.metaCapiToken === '') data.metaCapiToken = null
   if (body.metaTestCode !== undefined) data.metaTestCode = body.metaTestCode ? String(body.metaTestCode).trim() : null
+  // Integración de CRM (dataset + token propios de la clínica). El token se guarda
+  // ENCRIPTADO; solo se reescribe si viene un valor no vacío (write-only en la UI).
+  if (body.metaCrmEnabled !== undefined) data.metaCrmEnabled = Boolean(body.metaCrmEnabled)
+  if (body.metaCrmDatasetId !== undefined) data.metaCrmDatasetId = body.metaCrmDatasetId ? String(body.metaCrmDatasetId).trim() : null
+  if (typeof body.metaCrmAccessToken === 'string' && body.metaCrmAccessToken.trim()) data.metaCrmAccessToken = encryptNullable(body.metaCrmAccessToken.trim())
+  if (body.metaCrmAccessToken === null || body.metaCrmAccessToken === '') data.metaCrmAccessToken = null
   if (body.diasSinGestion !== undefined) data.crmDiasSinGestion = clampDias(body.diasSinGestion)
   await db.configuracion.update({ where: { id: 'singleton' }, data })
   return obtenerConfigCrm(db)

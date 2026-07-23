@@ -172,6 +172,7 @@ apiRouter.post('/suscripcion/enlace-pago', adminTenant, asyncHandler(suscripcion
 apiRouter.get('/crm/config', crmTenant, asyncHandler(crm.getConfig))
 apiRouter.patch('/crm/config', crmAdmin, asyncHandler(crm.patchConfig))
 apiRouter.post('/crm/meta/test', crmAdmin, asyncHandler(crm.postProbarMeta))
+apiRouter.post('/crm/meta-crm/test', crmAdmin, asyncHandler(crm.postProbarMetaCrm))
 apiRouter.post('/crm/schedule/backfill', crmAdmin, asyncHandler(crm.postBackfillSchedule))
 
 // Gestión de la API key de acceso externo (MCP) — admin de la clínica.

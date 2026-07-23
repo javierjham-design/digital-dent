@@ -59,6 +59,12 @@ model Configuracion {
   metaPixelId   String?
   metaCapiToken String?
   metaTestCode  String?
+  // Integración de CRM (Conversions API para "Leads de conversión"): dataset y
+  // token PROPIOS de cada clínica, DISTINTOS del pixel/token web de arriba (el
+  // dataset de CRM es otro objeto de Meta). El token va encriptado (write-only).
+  metaCrmEnabled     Boolean @default(false)
+  metaCrmDatasetId   String?
+  metaCrmAccessToken String? // encriptado con lib/crypto (nunca se devuelve en claro)
   crmToken      String?
   crmDiasSinGestion Int @default(4) // umbral de días para alertar leads sin gestionar
   crmCampanas   String? // JSON { [claveCampaña]: "Nombre visible" } — renombres de campaña (para no mostrar la URL)
@@ -830,6 +836,7 @@ model Lead {
   metaEventId   String?    // id de evento (Lead) para deduplicar con el Pixel del navegador
   metaEnviado   Boolean    @default(false)
   leadgenId     String?    // leadgen_id del Formulario Instantáneo de Meta (llave para atar Schedule → Leads de conversión)
+  metaCrmEtapas String?    // etapas de CRM ya emitidas al dataset de Meta (CSV, ej. "Lead,Contactado") — idempotencia
   scheduleEventId     String?  // event_id del evento Schedule (dedup con el Pixel)
   scheduleCapiEnviado Boolean @default(false)
   ultimaGestionAt DateTime @default(now()) // última gestión HUMANA (nota, cambio de estado, agendar…), no escrituras del sistema

@@ -98,6 +98,62 @@ export async function probarConexionMeta(cfg: MetaConfig): Promise<MetaTestResul
 // Resultado real del envío a Meta (para confirmar recepción, no best-effort ciego).
 export interface MetaSendResult { ok: boolean; recibidos?: number; error?: string }
 
+// ── Integración de CRM (Conversions API para "Leads de conversión") ───────────
+// Emisor SEPARADO del CAPI web: envía "eventos de etapa de CRM" al DATASET propio
+// de cada clínica (otro objeto de Meta, distinto del pixel web). action_source =
+// system_generated; lead_id (leadgen_id numérico) + em/ph hasheados en user_data.
+// No toca el flujo Lead/Schedule web.
+export interface MetaCrmConfig { enabled: boolean; datasetId: string | null; accessToken: string | null; testCode: string | null }
+export function crmMetaHabilitado(cfg: MetaCrmConfig): boolean {
+  return Boolean(cfg.enabled && cfg.datasetId && cfg.accessToken)
+}
+
+export interface MetaCrmEvent { eventName: string; eventTime: number; leadId?: string | null; email?: string | null; telefono?: string | null }
+
+// POST al endpoint de eventos del dataset (v25.0). Devuelve el resultado real.
+async function postEventoCrm(datasetId: string, token: string, ev: MetaCrmEvent, testCode?: string): Promise<MetaSendResult> {
+  try {
+    const user_data: Record<string, unknown> = {}
+    // lead_id = leadgen_id del Formulario Instantáneo (NÚMERO, sin hashear). Si no
+    // hay, se omite y se manda solo em/ph hasheados.
+    if (ev.leadId && /^\d+$/.test(ev.leadId)) user_data.lead_id = Number(ev.leadId)
+    if (ev.email) user_data.em = [shaNorm(ev.email)]
+    if (ev.telefono) { const ph = normPhone(ev.telefono); if (ph) user_data.ph = [sha(ph)] }
+    const body: Record<string, unknown> = {
+      data: [{
+        action_source: 'system_generated',
+        event_name: ev.eventName,
+        event_time: ev.eventTime,
+        custom_data: { event_source: 'crm', lead_event_source: 'Clariva' },
+        user_data,
+      }],
+      ...(testCode ? { test_event_code: testCode } : {}),
+    }
+    const url = `https://graph.facebook.com/v25.0/${encodeURIComponent(datasetId)}/events?access_token=${encodeURIComponent(token)}`
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const data = (await r.json().catch(() => ({}))) as { events_received?: number; error?: { message?: string } }
+    if (r.ok && (data.events_received ?? 0) >= 1) return { ok: true, recibidos: data.events_received }
+    return { ok: false, error: data.error?.message ?? `Meta respondió ${r.status}.` }
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : 'error de red con Meta' }
+  }
+}
+
+export async function enviarEventoCrmMeta(cfg: MetaCrmConfig, ev: MetaCrmEvent): Promise<MetaSendResult> {
+  if (!crmMetaHabilitado(cfg)) return { ok: false, error: 'Meta CRM no está configurado' }
+  return postEventoCrm(cfg.datasetId!, cfg.accessToken!, ev, cfg.testCode?.trim() || undefined)
+}
+
+// Valida dataset + token del CRM enviando un evento de prueba (test_event_code),
+// que Meta trata como prueba y NO afecta reporte ni optimización.
+export async function probarConexionCrmMeta(cfg: MetaCrmConfig): Promise<MetaTestResult> {
+  if (!cfg.datasetId) return { ok: false, status: 0, error: 'Falta el Dataset ID de CRM.' }
+  if (!cfg.accessToken) return { ok: false, status: 0, error: 'Falta el token de acceso de CRM.' }
+  const testCode = cfg.testCode?.trim() || 'CLARIVA_PING'
+  const res = await postEventoCrm(cfg.datasetId, cfg.accessToken, { eventName: 'Lead', eventTime: Math.floor(Date.now() / 1000), email: 'test@clariva.cl' }, testCode)
+  return { ok: res.ok, status: res.ok ? 200 : 400, recibidos: res.recibidos, testCode, error: res.error }
+}
+
 export async function enviarEventoMeta(cfg: MetaConfig, ev: MetaEvent): Promise<MetaSendResult> {
   if (!metaHabilitado(cfg)) return { ok: false, error: 'Meta no está configurado' }
   try {

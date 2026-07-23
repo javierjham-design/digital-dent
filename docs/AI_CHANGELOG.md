@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-07-23 — Integración de CRM con Meta (Conversions API para "Leads de conversión")
+
+Emisor NUEVO e independiente del CAPI web (Lead/Schedule de la landing). Cada
+clínica lo activa con su **propio dataset + token** (multi-tenant, nada
+hardcodeado). Emite un evento por CADA cambio de etapa del embudo al dataset de
+CRM de Meta, atado al `leadgen_id` cuando existe → optimización por agendamiento.
+
+- **Schema (tenant)**: `Configuracion.metaCrmEnabled Boolean`, `metaCrmDatasetId
+  String?`, `metaCrmAccessToken String?` (encriptado con `lib/crypto`, write-only);
+  `Lead.metaCrmEtapas String?` (CSV de etapas ya enviadas — idempotencia). Campos
+  **separados** del pixel/token web (el dataset de CRM es otro objeto de Meta).
+  Todos nullable/aditivos. ⚠️ PROD: `migrate:tenants` = `prisma db push` **SIN**
+  `--accept-data-loss`. `schema.prisma` + `init.sql` actualizados.
+- **Emisor** (`lib/meta.ts`): `enviarEventoCrmMeta` / `probarConexionCrmMeta` →
+  `POST graph.facebook.com/v25.0/{datasetId}/events`. Payload:
+  `action_source=system_generated`, `custom_data={event_source:'crm',
+  lead_event_source:'Clariva'}`, `user_data={lead_id (número, sin hashear),
+  em, ph (SHA-256)}`. Clamp de `event_time ≥ now−6d`.
+- **Etapas** (`crm.service.ts`): `crearLead → "Lead"`; `actualizarLead` mapea
+  `CONTACTADO→Contactado / AGENDADO→Agendado / CONVERTIDO→Cliente`;
+  `agendarLead → "Agendado"`; `convertirEnPaciente → "Cliente"`. Idempotente por
+  etapa (`metaCrmEtapas`), best-effort (`void`), sin PII en logs. Si el CRM no
+  está activo o falta dataset/token → no-op silencioso (guard `crmMetaHabilitado`).
+- **Config**: `obtenerConfigCrm` expone `metaCrmEnabled/metaCrmDatasetId/
+  hasCrmToken/crmTokenLast4` (token nunca en claro); `guardarConfigCrm` encripta
+  el token entrante (solo si viene valor). Test: `POST /crm/meta-crm/test`
+  (`probarMetaCrm`) reusa el `metaTestCode`.
+- **UI** (`Crm.tsx` → Configuración): sección "Integración con Meta Ads" con
+  toggle + Dataset ID + token (write-only) + "Enviar evento de prueba" + URL del
+  intake `/meta-lead`. Instrucción: Events Manager → Conectar datos → CRM.
+- **No toca** el CAPI web existente. Riesgo: bajo (todo aditivo y detrás de guard).
+  Pendiente validación: probar con 2 tenants que cada uno va a SU dataset.
+
+---
+
 ## 2026-07-23 — Canal nuevo de leads: Formulario Instantáneo de Meta (Instant Form)
 
 Nuevo canal además de la landing. Los leads del Instant Form entran vía Make al

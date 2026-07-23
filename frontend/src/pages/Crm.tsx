@@ -631,10 +631,30 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const [backfillRes, setBackfillRes] = useState<string | null>(null)
   const [apiKeyOn, setApiKeyOn] = useState(false)
   const [nuevaKey, setNuevaKey] = useState<string | null>(null)
+  // Integración de CRM con Meta (dataset + token propios, canal aparte del Pixel web).
+  const [crmOn, setCrmOn] = useState(false)
+  const [crmDataset, setCrmDataset] = useState('')
+  const [crmToken, setCrmToken] = useState('')
+  const [editCrmToken, setEditCrmToken] = useState(false)
+  const [probandoCrm, setProbandoCrm] = useState(false)
+  const [crmTestRes, setCrmTestRes] = useState<{ ok: boolean; msg: string } | null>(null)
   useEffect(() => {
-    crmService.config().then((c) => { setCfg(c); setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled); setDias(String(c.diasSinGestion)) }).catch(() => {})
+    crmService.config().then((c) => {
+      setCfg(c); setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled); setDias(String(c.diasSinGestion))
+      setCrmOn(c.metaCrmEnabled); setCrmDataset(c.metaCrmDatasetId ?? '')
+    }).catch(() => {})
     crmService.apiKeyEstado().then((r) => setApiKeyOn(r.hasApiKey)).catch(() => {})
   }, [])
+
+  async function probarCrm() {
+    setProbandoCrm(true); setCrmTestRes(null)
+    try {
+      const r = await crmService.probarMetaCrm()
+      setCrmTestRes(r.ok
+        ? { ok: true, msg: `Conexión válida · Meta aceptó el evento de prueba${r.testCode ? ` (código ${r.testCode})` : ''}. Búscalo en Events Manager → Eventos de prueba.` }
+        : { ok: false, msg: r.error ?? 'No se pudo validar la conexión de CRM.' })
+    } catch (e) { setCrmTestRes({ ok: false, msg: e instanceof ApiError ? e.message : 'Error al probar la conexión.' }) } finally { setProbandoCrm(false) }
+  }
 
   async function generarKey() {
     if (apiKeyOn && !confirm('Ya hay una API key activa. Al generar una nueva, la anterior deja de funcionar de inmediato. ¿Continuar?')) return
@@ -675,17 +695,23 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const formUrl = cfg ? `${window.location.origin}/c/${cfg.slug}/formulario/${cfg.crmToken}` : ''
   // El intake es una ruta del BACKEND → va en api.clariva.cl (apiAbs), no en el frontend.
   const intakeUrl = cfg ? `${apiAbs}/public/crm/${cfg.slug}/${cfg.crmToken}/lead` : ''
+  // Intake del Formulario Instantáneo de Meta (Make → POST con leadgen_id).
+  const metaLeadUrl = cfg ? `${apiAbs}/public/crm/${cfg.slug}/${cfg.crmToken}/meta-lead` : ''
 
   const editandoToken = !cfg?.hasCapiToken || editToken // el input del token está visible
+  const editandoCrmToken = !cfg?.hasCrmToken || editCrmToken
 
   async function guardar() {
     setBusy(true)
     try {
-      const payload: Record<string, unknown> = { metaEnabled: enabled, metaPixelId: pixel.trim() || null, metaTestCode: test.trim() || null, diasSinGestion: Number(dias) || 4 }
+      const payload: Record<string, unknown> = { metaEnabled: enabled, metaPixelId: pixel.trim() || null, metaTestCode: test.trim() || null, diasSinGestion: Number(dias) || 4,
+        metaCrmEnabled: crmOn, metaCrmDatasetId: crmDataset.trim() || null }
       // Solo tocamos el token si el campo estaba visible y el usuario escribió algo:
       // así un autocompletado del navegador nunca puede sobrescribir el token real.
       if (editandoToken && token.trim()) payload.metaCapiToken = token.trim()
-      const c = await crmService.guardarConfig(payload); setCfg(c); setToken(''); setEditToken(false); setTestRes(null); notify('Configuración guardada')
+      if (editandoCrmToken && crmToken.trim()) payload.metaCrmAccessToken = crmToken.trim()
+      const c = await crmService.guardarConfig(payload); setCfg(c); setToken(''); setEditToken(false); setTestRes(null)
+      setCrmToken(''); setEditCrmToken(false); setCrmTestRes(null); notify('Configuración guardada')
     } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) } finally { setBusy(false) }
   }
   const copiar = (t: string) => { navigator.clipboard.writeText(t).then(() => notify('Copiado')).catch(() => {}) }
@@ -782,6 +808,53 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
               {backfillRes && <span className="text-xs text-slate-600">{backfillRes}</span>}
             </div>
             <p className="text-[11px] text-slate-400 mt-2">El token se guarda oculto por seguridad (por eso no se vuelve a mostrar). "Probar conexión" envía un evento de prueba marcado como test — <span className="font-medium">no afecta tus métricas ni tu reporte</span>. Ingresa tu Test Event Code (de Meta → Eventos de prueba) para verlo entrar en vivo. Los eventos reales (Lead, Schedule) se deduplican con el Pixel por event_id.</p>
+          </div>
+
+          <div className="border-t border-slate-100 pt-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Integración con Meta Ads (clientes potenciales calificados)</p>
+            <p className="text-[11px] text-slate-500 mb-3">Envía las etapas del embudo (Lead → Contactado → Agendado → Cliente) al dataset de CRM de tu clínica para optimizar campañas de Formulario Instantáneo por <span className="font-medium">agendamiento</span>. Es independiente del Pixel de la landing. Obtén tu <span className="font-medium">Dataset ID</span> y <span className="font-medium">token</span> en Meta Events Manager → Conectar datos → CRM → Conectar manualmente.</p>
+            <label className="flex items-center gap-2 text-sm text-slate-700 mb-3">
+              <input type="checkbox" checked={crmOn} onChange={(e) => setCrmOn(e.target.checked)} />
+              Activar integración de CRM con Meta
+            </label>
+            <label className="block mb-2"><span className="text-xs font-medium text-slate-500">Dataset ID (CRM)</span>
+              <input value={crmDataset} onChange={(e) => setCrmDataset(e.target.value)} placeholder="1234567890123456" className={`${inp} font-mono`} /></label>
+            <span className="block text-xs font-medium text-slate-500 mb-1">Token de acceso (CRM)</span>
+            {cfg.hasCrmToken && !editCrmToken ? (
+              <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 mb-2">
+                <span className="text-xs text-emerald-700 font-semibold">✓ Token cargado</span>
+                {cfg.crmTokenLast4 && <span className="text-[11px] text-slate-500 truncate">· termina en …{cfg.crmTokenLast4}</span>}
+                <button type="button" onClick={() => { setEditCrmToken(true); setCrmToken('') }} className="ml-auto shrink-0 text-xs font-semibold text-cyan-700 hover:text-cyan-800">Modificar</button>
+              </div>
+            ) : (
+              <div className="mb-2">
+                <input type="text" name="clariva-crm-decoy" autoComplete="username" tabIndex={-1} aria-hidden className="hidden" />
+                <input
+                  type="password" value={crmToken} onChange={(e) => setCrmToken(e.target.value)}
+                  name="clariva-meta-crm-token" id="clariva-meta-crm-token"
+                  autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                  data-lpignore="true" data-1p-ignore data-form-type="other"
+                  placeholder={cfg.hasCrmToken ? 'Pega el nuevo token' : 'Pega el token de CRM'}
+                  className={`${inp} font-mono`} />
+                {cfg.hasCrmToken && editCrmToken && (
+                  <button type="button" onClick={() => { setEditCrmToken(false); setCrmToken('') }} className="mt-1 text-xs text-slate-500 hover:text-slate-700">Cancelar (mantener el token actual)</button>
+                )}
+                {!cfg.hasCrmToken && <p className="text-[11px] text-amber-600 mt-1">Aún no hay token de CRM guardado.</p>}
+              </div>
+            )}
+            <div className="mt-3 flex items-center gap-2 flex-wrap">
+              <button onClick={probarCrm} disabled={probandoCrm || !cfg.hasCrmToken || !crmDataset.trim()}
+                className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-lg">
+                {probandoCrm ? 'Enviando…' : 'Enviar evento de prueba'}
+              </button>
+              {crmTestRes && <span className={`text-xs font-medium ${crmTestRes.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{crmTestRes.ok ? '✓' : '✗'} {crmTestRes.msg}</span>}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-3 mb-1">Endpoint para leads del Formulario Instantáneo (Make → POST JSON con <span className="font-mono">leadgenId</span>):</p>
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+              <span className="text-xs font-mono text-slate-500 truncate flex-1">{metaLeadUrl}</span>
+              <button type="button" onClick={() => copiar(metaLeadUrl)} className="text-xs font-semibold text-cyan-700 shrink-0">Copiar</button>
+            </div>
+            <p className="text-[11px] text-slate-400 mt-2">Usa el mismo Test Event Code de arriba para la prueba. El token se guarda encriptado y no se vuelve a mostrar.</p>
           </div>
 
           <div className="border-t border-slate-100 pt-3">
