@@ -65,6 +65,13 @@ model Configuracion {
   metaCrmEnabled     Boolean @default(false)
   metaCrmDatasetId   String?
   metaCrmAccessToken String? // encriptado con lib/crypto (nunca se devuelve en claro)
+  // Recepción NATIVA de leads del Formulario Instantáneo (webhook leadgen). La
+  // clínica autoriza su página de Facebook y guarda su token de página (larga
+  // duración, encriptado). El page_id enruta el webhook a esta clínica.
+  metaLeadAdsEnabled  Boolean @default(false)
+  metaPageId          String?
+  metaPageAccessToken String? // token de página encriptado (write-only)
+  metaLeadAdsUltimo   String? // JSON con el último lead recibido (diagnóstico de la UI)
   crmToken      String?
   crmDiasSinGestion Int @default(4) // umbral de días para alertar leads sin gestionar
   crmCampanas   String? // JSON { [claveCampaña]: "Nombre visible" } — renombres de campaña (para no mostrar la URL)

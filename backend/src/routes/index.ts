@@ -32,6 +32,7 @@ import * as googlec from '@/controllers/google.controller'
 import { getPlanesPublicos } from '@/controllers/public.controller'
 import * as agendaOnline from '@/controllers/agenda-online.controller'
 import * as crm from '@/controllers/crm.controller'
+import * as meta from '@/controllers/meta.controller'
 import * as suscripcion from '@/controllers/suscripcion.controller'
 import * as pagosOnline from '@/controllers/pagos-online.controller'
 import * as email from '@/controllers/email.controller'
@@ -89,6 +90,10 @@ apiRouter.get('/public/crm/:slug/:token', asyncHandler(crm.getPublicForm))
 apiRouter.post('/public/crm/:slug/:token/lead', asyncHandler(crm.postPublicLead))
 // Intake del Formulario Instantáneo de Meta (Make hace POST aquí con leadgen_id + ad/adset/campaign).
 apiRouter.post('/public/crm/:slug/:token/meta-lead', asyncHandler(crm.postMetaLead))
+// Webhook NATIVO de Meta Lead Ads (sin Make). Cross-tenant: se enruta por page_id.
+// GET = verificación (hub.challenge); POST = eventos (valida firma HMAC, procesa async).
+apiRouter.get('/public/meta/leadgen-webhook', meta.getMetaWebhook)
+apiRouter.post('/public/meta/leadgen-webhook', meta.postMetaWebhook)
 
 // Webhook de confirmación de Flow (cobros a pacientes). Público, por slug de clínica.
 apiRouter.post('/public/pagos/flow/:slug/webhook', asyncHandler(pagosOnline.postWebhookFlow))
@@ -173,6 +178,7 @@ apiRouter.get('/crm/config', crmTenant, asyncHandler(crm.getConfig))
 apiRouter.patch('/crm/config', crmAdmin, asyncHandler(crm.patchConfig))
 apiRouter.post('/crm/meta/test', crmAdmin, asyncHandler(crm.postProbarMeta))
 apiRouter.post('/crm/meta-crm/test', crmAdmin, asyncHandler(crm.postProbarMetaCrm))
+apiRouter.post('/crm/meta-leadads/test', crmAdmin, asyncHandler(crm.postProbarRecepcionLeadAds))
 apiRouter.post('/crm/schedule/backfill', crmAdmin, asyncHandler(crm.postBackfillSchedule))
 
 // Gestión de la API key de acceso externo (MCP) — admin de la clínica.

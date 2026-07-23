@@ -638,6 +638,13 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const [editCrmToken, setEditCrmToken] = useState(false)
   const [probandoCrm, setProbandoCrm] = useState(false)
   const [crmTestRes, setCrmTestRes] = useState<{ ok: boolean; msg: string } | null>(null)
+  // Recepción nativa de Lead Ads (webhook): página + token propios de la clínica.
+  const [leadAdsOn, setLeadAdsOn] = useState(false)
+  const [pageId, setPageId] = useState('')
+  const [pageToken, setPageToken] = useState('')
+  const [editPageToken, setEditPageToken] = useState(false)
+  const [probandoRec, setProbandoRec] = useState(false)
+  const [recRes, setRecRes] = useState<{ ok: boolean; msg: string } | null>(null)
   // El slug se guarda aparte y solo se actualiza con un valor no vacío: así una
   // respuesta que no lo traiga (o venga vacío) nunca deja las URLs en "undefined".
   const [slug, setSlug] = useState('')
@@ -646,6 +653,7 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
       setCfg(c); if (c.slug) setSlug(c.slug)
       setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled); setDias(String(c.diasSinGestion))
       setCrmOn(c.metaCrmEnabled); setCrmDataset(c.metaCrmDatasetId ?? '')
+      setLeadAdsOn(c.metaLeadAdsEnabled); setPageId(c.metaPageId ?? '')
     }).catch(() => {})
     crmService.apiKeyEstado().then((r) => setApiKeyOn(r.hasApiKey)).catch(() => {})
   }, [])
@@ -658,6 +666,18 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
         ? { ok: true, msg: `Conexión válida · Meta aceptó el evento de prueba${r.testCode ? ` (código ${r.testCode})` : ''}. Búscalo en Events Manager → Eventos de prueba.` }
         : { ok: false, msg: r.error ?? 'No se pudo validar la conexión de CRM.' })
     } catch (e) { setCrmTestRes({ ok: false, msg: e instanceof ApiError ? e.message : 'Error al probar la conexión.' }) } finally { setProbandoCrm(false) }
+  }
+
+  async function probarRecepcion() {
+    setProbandoRec(true); setRecRes(null)
+    try {
+      const r = await crmService.probarRecepcionLeadAds()
+      const u = r.ultimo
+      const ultimoTxt = u?.at ? ` · Último lead recibido: ${new Date(u.at).toLocaleString('es-CL')}${u.duplicado ? ' (duplicado, no recreado)' : u.reconciliado ? ' (reconciliado)' : ''}` : ' · Aún no llega ningún lead por el webhook.'
+      setRecRes(r.ok
+        ? { ok: true, msg: `Conexión con la página "${r.pagina}" OK.${ultimoTxt}` }
+        : { ok: false, msg: (r.error ?? 'No se pudo validar la recepción.') + (u?.at ? ultimoTxt : '') })
+    } catch (e) { setRecRes({ ok: false, msg: e instanceof ApiError ? e.message : 'Error al probar la recepción.' }) } finally { setProbandoRec(false) }
   }
 
   async function generarKey() {
@@ -704,21 +724,28 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const intakeUrl = urlListo ? `${apiAbs}/public/crm/${slug}/${cfg!.crmToken}/lead` : ''
   // Intake del Formulario Instantáneo de Meta (Make → POST con leadgen_id).
   const metaLeadUrl = urlListo ? `${apiAbs}/public/crm/${slug}/${cfg!.crmToken}/meta-lead` : ''
+  // Webhook nativo de Lead Ads: URL de PLATAFORMA (misma para todas las clínicas;
+  // el enrutamiento es por Page ID, no por slug → nunca "undefined").
+  const webhookUrl = `${apiAbs}/public/meta/leadgen-webhook`
 
   const editandoToken = !cfg?.hasCapiToken || editToken // el input del token está visible
   const editandoCrmToken = !cfg?.hasCrmToken || editCrmToken
+  const editandoPageToken = !cfg?.hasPageToken || editPageToken
 
   async function guardar() {
     setBusy(true)
     try {
       const payload: Record<string, unknown> = { metaEnabled: enabled, metaPixelId: pixel.trim() || null, metaTestCode: test.trim() || null, diasSinGestion: Number(dias) || 4,
-        metaCrmEnabled: crmOn, metaCrmDatasetId: crmDataset.trim() || null }
+        metaCrmEnabled: crmOn, metaCrmDatasetId: crmDataset.trim() || null,
+        metaLeadAdsEnabled: leadAdsOn, metaPageId: pageId.trim() || null }
       // Solo tocamos el token si el campo estaba visible y el usuario escribió algo:
       // así un autocompletado del navegador nunca puede sobrescribir el token real.
       if (editandoToken && token.trim()) payload.metaCapiToken = token.trim()
       if (editandoCrmToken && crmToken.trim()) payload.metaCrmAccessToken = crmToken.trim()
+      if (editandoPageToken && pageToken.trim()) payload.metaPageAccessToken = pageToken.trim()
       const c = await crmService.guardarConfig(payload); setCfg(c); if (c.slug) setSlug(c.slug); setToken(''); setEditToken(false); setTestRes(null)
-      setCrmToken(''); setEditCrmToken(false); setCrmTestRes(null); notify('Configuración guardada')
+      setCrmToken(''); setEditCrmToken(false); setCrmTestRes(null)
+      setPageToken(''); setEditPageToken(false); setRecRes(null); notify('Configuración guardada')
     } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) } finally { setBusy(false) }
   }
   const copiar = (t: string) => { navigator.clipboard.writeText(t).then(() => notify('Copiado')).catch(() => {}) }
@@ -862,6 +889,54 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
               <button type="button" onClick={() => copiar(metaLeadUrl)} disabled={!urlListo} className="text-xs font-semibold text-cyan-700 shrink-0 disabled:opacity-40">Copiar</button>
             </div>
             <p className="text-[11px] text-slate-400 mt-2">Usa el mismo Test Event Code de arriba para la prueba. El token se guarda encriptado y no se vuelve a mostrar.</p>
+
+            {/* Recepción NATIVA de leads del Formulario Instantáneo (webhook, sin Make) */}
+            <div className="mt-4 pt-3 border-t border-dashed border-slate-200">
+              <p className="text-[11px] font-semibold text-slate-600 mb-1">Recepción automática de leads (sin Make)</p>
+              <p className="text-[11px] text-slate-500 mb-3">Recibe los leads del Formulario Instantáneo directo desde Meta. Autoriza tu página de Facebook en la App de Cláriva y pega aquí el Page ID + token de página larga duración. La clínica se identifica por su <span className="font-medium">Page ID</span>.</p>
+              <label className="flex items-center gap-2 text-sm text-slate-700 mb-3">
+                <input type="checkbox" checked={leadAdsOn} onChange={(e) => setLeadAdsOn(e.target.checked)} />
+                Recibir leads del Formulario Instantáneo
+              </label>
+              <label className="block mb-2"><span className="text-xs font-medium text-slate-500">Page ID (página de Facebook de la clínica)</span>
+                <input value={pageId} onChange={(e) => setPageId(e.target.value)} placeholder="1234567890" className={`${inp} font-mono`} /></label>
+              <span className="block text-xs font-medium text-slate-500 mb-1">Token de página (larga duración)</span>
+              {cfg.hasPageToken && !editPageToken ? (
+                <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2 mb-2">
+                  <span className="text-xs text-emerald-700 font-semibold">✓ Token cargado</span>
+                  {cfg.pageTokenLast4 && <span className="text-[11px] text-slate-500 truncate">· termina en …{cfg.pageTokenLast4}</span>}
+                  <button type="button" onClick={() => { setEditPageToken(true); setPageToken('') }} className="ml-auto shrink-0 text-xs font-semibold text-cyan-700 hover:text-cyan-800">Modificar</button>
+                </div>
+              ) : (
+                <div className="mb-2">
+                  <input type="text" name="clariva-page-decoy" autoComplete="username" tabIndex={-1} aria-hidden className="hidden" />
+                  <input
+                    type="password" value={pageToken} onChange={(e) => setPageToken(e.target.value)}
+                    name="clariva-meta-page-token" id="clariva-meta-page-token"
+                    autoComplete="new-password" autoCorrect="off" autoCapitalize="off" spellCheck={false}
+                    data-lpignore="true" data-1p-ignore data-form-type="other"
+                    placeholder={cfg.hasPageToken ? 'Pega el nuevo token de página' : 'Pega el token de página'}
+                    className={`${inp} font-mono`} />
+                  {cfg.hasPageToken && editPageToken && (
+                    <button type="button" onClick={() => { setEditPageToken(false); setPageToken('') }} className="mt-1 text-xs text-slate-500 hover:text-slate-700">Cancelar (mantener el token actual)</button>
+                  )}
+                  {!cfg.hasPageToken && <p className="text-[11px] text-amber-600 mt-1">Aún no hay token de página guardado.</p>}
+                </div>
+              )}
+              <p className="text-[11px] text-slate-500 mt-3 mb-1">URL del webhook (pégala en la App de Meta → Webhooks → objeto <span className="font-mono">page</span>, campo <span className="font-mono">leadgen</span>):</p>
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
+                <span className="text-xs font-mono text-slate-500 truncate flex-1">{webhookUrl}</span>
+                <button type="button" onClick={() => copiar(webhookUrl)} className="text-xs font-semibold text-cyan-700 shrink-0">Copiar</button>
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">Es la misma URL para todas las clínicas: Meta enruta cada lead por el Page ID.</p>
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <button onClick={probarRecepcion} disabled={probandoRec || !cfg.hasPageToken || !pageId.trim()}
+                  className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-lg">
+                  {probandoRec ? 'Probando…' : 'Probar recepción'}
+                </button>
+                {recRes && <span className={`text-xs font-medium ${recRes.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{recRes.ok ? '✓' : '✗'} {recRes.msg}</span>}
+              </div>
+            </div>
           </div>
 
           <div className="border-t border-slate-100 pt-3">

@@ -5,6 +5,46 @@
 
 ---
 
+## 2026-07-23 — Recepción NATIVA de leads de Meta Lead Ads (webhook, sin Make)
+
+Dirección ENTRANTE del canal Meta: los leads del Formulario Instantáneo llegan
+solos a Cláriva vía el webhook `leadgen` de una App de Meta compartida, sin
+Make/Zapier. Multi-tenant: cada clínica autoriza su página. Complementa el
+emisor de etapas de CRM (saliente) ya existente.
+
+- **Env (plataforma)**: `META_APP_ID`, `META_APP_SECRET` (valida firma HMAC),
+  `META_WEBHOOK_VERIFY_TOKEN`. Una sola App para toda la plataforma.
+- **Schema (tenant, Configuracion)**: `metaLeadAdsEnabled Boolean`, `metaPageId
+  String?`, `metaPageAccessToken String?` (encriptado, write-only),
+  `metaLeadAdsUltimo String?` (diagnóstico). **Control (Clinica)**: `metaPageId`,
+  `metaLeadAdsEnabled` **denormalizados** (como `waNumero`) para enrutar por
+  page_id SIN abrir cada base. Todo aditivo/nullable; `control:push` y
+  `migrate:tenants` corren `db push` sin `--accept-data-loss`. `init.sql` +
+  ambos `schema.prisma`.
+- **Webhook** (`meta.controller` + `meta-leadads.service`, ruta pública
+  cross-tenant `/public/meta/leadgen-webhook`): GET verifica (hub.challenge en
+  texto plano, 403 si el verify_token no coincide); POST **valida la firma
+  `X-Hub-Signature-256`** (HMAC-SHA256 del `req.rawBody`, 401 si no; comparación
+  en tiempo constante), responde 200 al instante y procesa async.
+- **Enrutado**: `control.clinica.findFirst({ metaPageId, metaLeadAdsEnabled,
+  activo })` → `tenantClient(dbName)`. Sin match → se loguea y descarta.
+- **Graph API** v25.0: `GET /{leadgen_id}?fields=...,field_data,...` con el token
+  de página del tenant → mapea `field_data` a nombre/apellido/telefono/email/rut
+  de forma tolerante (loga names desconocidos, nunca valores/PII).
+- **Creación**: reutiliza `ingestarLeadMeta` (origen META_FORM, IDs en utm*,
+  dedup por teléfono/email/rut, y ahora **idempotencia por leadgenId** — si ya
+  existe, no recrea). Al crearse dispara la etapa "Lead" del emisor de CRM.
+- **UI** (`Crm.tsx`): en "Integración con Meta Ads", subsección de recepción con
+  toggle + Page ID + token de página (write-only) + URL del webhook (de
+  plataforma, no per-slug) + botón "Probar recepción" (`POST
+  /crm/meta-leadads/test`) que valida la página en Graph y muestra el último
+  lead recibido.
+- **No toca** el CAPI web ni el emisor de etapas de CRM. Secretos por env/DB
+  encriptada, nunca en logs. Nota externa: requiere App de Meta suscrita al
+  campo `leadgen` y token de página (MVP manual para Digital-Dent).
+
+---
+
 ## 2026-07-23 — Integración de CRM con Meta (Conversions API para "Leads de conversión")
 
 Emisor NUEVO e independiente del CAPI web (Lead/Schedule de la landing). Cada

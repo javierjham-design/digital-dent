@@ -5,6 +5,7 @@ import { tenantClient, type TenantClient } from '@/db/tenant'
 import { notFound, tooMany } from '@/lib/errors'
 import { rateLimit } from '@/lib/rate-limit'
 import * as svc from '@/services/crm.service'
+import * as leadAds from '@/services/meta-leadads.service'
 import { crearLeadSchema, notaSchema, agendarLeadSchema, metaLeadSchema } from '@/validators/schemas'
 import { parseModulos } from '@shared/constants/modulos'
 
@@ -57,13 +58,16 @@ export async function getConfig(req: Request, res: Response) {
 export async function patchConfig(req: Request, res: Response) {
   // Incluye el slug igual que getConfig: si no, el front pierde el slug al guardar
   // y las URLs de intake (landing + Formulario Meta) quedan con "undefined".
-  res.json({ slug: req.clinica?.slug ?? '', ...(await svc.guardarConfigCrm(tenantDb(req), req.body ?? {})) })
+  res.json({ slug: req.clinica?.slug ?? '', ...(await svc.guardarConfigCrm(tenantDb(req), req.body ?? {}, { slug: req.clinica?.slug })) })
 }
 export async function postProbarMeta(req: Request, res: Response) {
   res.json(await svc.probarMeta(tenantDb(req)))
 }
 export async function postProbarMetaCrm(req: Request, res: Response) {
   res.json(await svc.probarMetaCrm(tenantDb(req)))
+}
+export async function postProbarRecepcionLeadAds(req: Request, res: Response) {
+  res.json(await leadAds.probarRecepcionLeadAds(tenantDb(req)))
 }
 export async function postBackfillSchedule(req: Request, res: Response) {
   res.json(await svc.backfillSchedule(tenantDb(req)))

@@ -62,6 +62,13 @@ model Clinica {
   waEnabled Boolean @default(false)
   waNumero  String? @unique
 
+  // Enrutamiento de Meta Lead Ads (denormalizado desde la Configuracion del
+  // tenant): el webhook nativo de leadgen resuelve la clínica por el page_id
+  // sin abrir cada base. NO @unique (evita que db push exija --accept-data-loss;
+  // una página pertenece a una sola clínica de todos modos).
+  metaPageId         String?
+  metaLeadAdsEnabled Boolean @default(false)
+
   // Último acceso a la plataforma (se actualiza con throttle desde el middleware
   // de tenant). Para el super-admin. ...AdminAt: sólo cuando ingresa un admin de
   // la clínica (para saber si el dueño/administrador ha estado usando la app).

@@ -40,6 +40,14 @@ export const env = {
   platformDomain: (process.env.PLATFORM_DOMAIN ?? '').toLowerCase().trim(),
   encryptionKey: process.env.ENCRYPTION_KEY ?? '',
   cronSecret: process.env.CRON_SECRET ?? '',
+
+  // ── Meta Lead Ads (webhook nativo, compartido por toda la plataforma) ──────
+  // La App de Meta es una sola; cada clínica autoriza su página y guarda su
+  // token de página en su Configuracion. El verify token lo definimos nosotros;
+  // el app secret valida la firma HMAC del webhook. Sin secret → firma no válida.
+  metaAppId: process.env.META_APP_ID ?? '',
+  metaAppSecret: process.env.META_APP_SECRET ?? '',
+  metaWebhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN ?? '',
 }
 
 export const isProd = env.nodeEnv === 'production'

@@ -5,6 +5,7 @@ import { actorName, type JwtPayload } from '@/services/auth.service'
 import { enviarEventoMeta, metaHabilitado, probarConexionMeta, type MetaConfig, type MetaSendResult,
   enviarEventoCrmMeta, crmMetaHabilitado, probarConexionCrmMeta, type MetaCrmConfig } from '@/lib/meta'
 import { encryptNullable, decryptNullable } from '@/lib/crypto'
+import { control } from '@/db/control'
 import { crearCita } from '@/services/citas.service'
 import { rangoFechasUtc } from '@/lib/tz'
 
@@ -147,6 +148,29 @@ export async function getMetaCrmConfig(db: TenantClient): Promise<MetaCrmConfig>
     accessToken: decryptNullable(c?.metaCrmAccessToken ?? null), // token en claro solo en memoria
     testCode: c?.metaTestCode ?? null,
   }
+}
+
+// Config de recepción NATIVA de Lead Ads (webhook leadgen). El token de página se
+// descifra solo en memoria para llamar a Graph API.
+export interface MetaLeadAdsConfig { enabled: boolean; pageId: string | null; pageToken: string | null; ultimo: string | null }
+export async function getMetaLeadAdsConfig(db: TenantClient): Promise<MetaLeadAdsConfig> {
+  const c = await db.configuracion.findUnique({
+    where: { id: 'singleton' },
+    select: { metaLeadAdsEnabled: true, metaPageId: true, metaPageAccessToken: true, metaLeadAdsUltimo: true },
+  })
+  return {
+    enabled: Boolean(c?.metaLeadAdsEnabled),
+    pageId: c?.metaPageId ?? null,
+    pageToken: decryptNullable(c?.metaPageAccessToken ?? null),
+    ultimo: c?.metaLeadAdsUltimo ?? null,
+  }
+}
+
+// Registra el último lead recibido por el webhook (diagnóstico para la UI). Sin
+// PII: solo leadgen_id, id del lead creado y timestamp.
+export async function registrarLeadAdsRecibido(db: TenantClient, info: { leadgenId: string; leadId?: string; reconciliado?: boolean; duplicado?: boolean }) {
+  const payload = JSON.stringify({ at: new Date().toISOString(), ...info })
+  await db.configuracion.update({ where: { id: 'singleton' }, data: { metaLeadAdsUltimo: payload } }).catch(() => {})
 }
 
 // Emite el evento de la etapa al dataset de CRM de la clínica. Idempotente por
@@ -376,6 +400,11 @@ export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput
   if (!leadgenId) throw badRequest('Falta el leadgenId del formulario Meta.')
   const utmCampaign = clean(input.campaignId), utmTerm = clean(input.adsetId), utmContent = clean(input.adId)
 
+  // Idempotencia: Meta puede reenviar el mismo evento. Si ya existe un lead con
+  // este leadgenId, no se crea otro ni se toca (no-op).
+  const yaExiste = await db.lead.findFirst({ where: { leadgenId }, select: { id: true } })
+  if (yaExiste) return { lead: yaExiste, reconciliado: false, duplicado: true }
+
   // Dedup/reconciliación: si la persona ya existe (WhatsApp/landing/otro canal), NO
   // se duplica; se completa el leadgenId y los datos faltantes en el lead existente.
   const existente = await buscarLeadParaReserva(db, { telefono: input.telefono, email: input.email, rut: input.rut })
@@ -564,7 +593,9 @@ export async function obtenerConfigCrm(db: TenantClient) {
   const c = await db.configuracion.findUnique({
     where: { id: 'singleton' },
     select: { metaEnabled: true, metaPixelId: true, metaCapiToken: true, metaTestCode: true,
-      metaCrmEnabled: true, metaCrmDatasetId: true, metaCrmAccessToken: true, crmToken: true, crmDiasSinGestion: true },
+      metaCrmEnabled: true, metaCrmDatasetId: true, metaCrmAccessToken: true,
+      metaLeadAdsEnabled: true, metaPageId: true, metaPageAccessToken: true, metaLeadAdsUltimo: true,
+      crmToken: true, crmDiasSinGestion: true },
   })
   let crmToken = c?.crmToken ?? null
   if (!crmToken) { crmToken = nuevoToken(); await db.configuracion.update({ where: { id: 'singleton' }, data: { crmToken } }) }
@@ -572,12 +603,16 @@ export async function obtenerConfigCrm(db: TenantClient) {
   // Token de CRM: encriptado en DB → nunca se devuelve en claro. Solo se expone si
   // existe y sus últimos 4 (descifrando en memoria) para que la UI dé feedback.
   const crmTok = decryptNullable(c?.metaCrmAccessToken ?? null)
+  const pageTok = decryptNullable(c?.metaPageAccessToken ?? null)
   return {
     metaEnabled: Boolean(c?.metaEnabled), metaPixelId: c?.metaPixelId ?? null,
     hasCapiToken: Boolean(rawTok), capiTokenLen: rawTok ? rawTok.length : 0, capiTokenLast4: rawTok ? rawTok.slice(-4) : null,
     metaTestCode: c?.metaTestCode ?? null, crmToken,
     metaCrmEnabled: Boolean(c?.metaCrmEnabled), metaCrmDatasetId: c?.metaCrmDatasetId ?? null,
     hasCrmToken: Boolean(crmTok), crmTokenLast4: crmTok ? crmTok.slice(-4) : null,
+    metaLeadAdsEnabled: Boolean(c?.metaLeadAdsEnabled), metaPageId: c?.metaPageId ?? null,
+    hasPageToken: Boolean(pageTok), pageTokenLast4: pageTok ? pageTok.slice(-4) : null,
+    metaLeadAdsUltimo: c?.metaLeadAdsUltimo ?? null,
     diasSinGestion: clampDias(c?.crmDiasSinGestion ?? DIAS_SIN_GESTION_DEFAULT),
   }
 }
@@ -592,7 +627,7 @@ export async function probarMetaCrm(db: TenantClient) {
   return probarConexionCrmMeta(await getMetaCrmConfig(db))
 }
 
-export async function guardarConfigCrm(db: TenantClient, body: Record<string, unknown>) {
+export async function guardarConfigCrm(db: TenantClient, body: Record<string, unknown>, ctx?: { slug?: string }) {
   const data: Record<string, unknown> = {}
   if (body.metaEnabled !== undefined) data.metaEnabled = Boolean(body.metaEnabled)
   if (body.metaPixelId !== undefined) data.metaPixelId = body.metaPixelId ? String(body.metaPixelId).trim() : null
@@ -605,8 +640,22 @@ export async function guardarConfigCrm(db: TenantClient, body: Record<string, un
   if (body.metaCrmDatasetId !== undefined) data.metaCrmDatasetId = body.metaCrmDatasetId ? String(body.metaCrmDatasetId).trim() : null
   if (typeof body.metaCrmAccessToken === 'string' && body.metaCrmAccessToken.trim()) data.metaCrmAccessToken = encryptNullable(body.metaCrmAccessToken.trim())
   if (body.metaCrmAccessToken === null || body.metaCrmAccessToken === '') data.metaCrmAccessToken = null
+  // Recepción nativa de Lead Ads (webhook). Token de página encriptado (write-only).
+  if (body.metaLeadAdsEnabled !== undefined) data.metaLeadAdsEnabled = Boolean(body.metaLeadAdsEnabled)
+  if (body.metaPageId !== undefined) data.metaPageId = body.metaPageId ? String(body.metaPageId).trim() : null
+  if (typeof body.metaPageAccessToken === 'string' && body.metaPageAccessToken.trim()) data.metaPageAccessToken = encryptNullable(body.metaPageAccessToken.trim())
+  if (body.metaPageAccessToken === null || body.metaPageAccessToken === '') data.metaPageAccessToken = null
   if (body.diasSinGestion !== undefined) data.crmDiasSinGestion = clampDias(body.diasSinGestion)
   await db.configuracion.update({ where: { id: 'singleton' }, data })
+
+  // Denormaliza el enrutamiento de Lead Ads al control-plane (como waNumero): el
+  // webhook resuelve la clínica por page_id sin abrir cada base. Solo si cambió algo.
+  if (ctx?.slug && (data.metaPageId !== undefined || data.metaLeadAdsEnabled !== undefined)) {
+    const ctl: Record<string, unknown> = {}
+    if (data.metaPageId !== undefined) ctl.metaPageId = data.metaPageId
+    if (data.metaLeadAdsEnabled !== undefined) ctl.metaLeadAdsEnabled = data.metaLeadAdsEnabled
+    await control.clinica.update({ where: { slug: ctx.slug }, data: ctl }).catch(() => {})
+  }
   return obtenerConfigCrm(db)
 }
 
