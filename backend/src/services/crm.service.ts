@@ -54,12 +54,24 @@ function etiquetaCampana(key: string, map: Record<string, string>): string {
   return key || '(Sin campaña)'
 }
 
+// TTL del test_event_code: se auto-desactiva pasado este tiempo para que no quede
+// activo por accidente (los eventos con test_event_code NO cuentan para optimización).
+const TEST_CODE_TTL_MIN = 120
+
+// Devuelve el test_event_code SOLO si sigue vigente (metaTestCodeHasta > ahora).
+// Pasada la ventana, se ignora y los eventos reales vuelven a contar.
+function testCodeVigente(testCode?: string | null, hasta?: Date | null): string | null {
+  if (!testCode) return null
+  if (!hasta || new Date(hasta).getTime() <= Date.now()) return null
+  return testCode
+}
+
 export async function getMetaConfig(db: TenantClient): Promise<MetaConfig> {
   const c = await db.configuracion.findUnique({
     where: { id: 'singleton' },
-    select: { metaEnabled: true, metaPixelId: true, metaCapiToken: true, metaTestCode: true },
+    select: { metaEnabled: true, metaPixelId: true, metaCapiToken: true, metaTestCode: true, metaTestCodeHasta: true },
   })
-  return { enabled: Boolean(c?.metaEnabled), pixelId: c?.metaPixelId ?? null, capiToken: c?.metaCapiToken ?? null, testCode: c?.metaTestCode ?? null }
+  return { enabled: Boolean(c?.metaEnabled), pixelId: c?.metaPixelId ?? null, capiToken: c?.metaCapiToken ?? null, testCode: testCodeVigente(c?.metaTestCode, c?.metaTestCodeHasta) }
 }
 
 // Registra el RESULTADO real del envío a Meta en el lead: el flag queda en true
@@ -159,13 +171,13 @@ export async function dispararScheduleMeta(db: TenantClient, lead: ScheduleLead,
 export async function getMetaCrmConfig(db: TenantClient): Promise<MetaCrmConfig> {
   const c = await db.configuracion.findUnique({
     where: { id: 'singleton' },
-    select: { metaCrmEnabled: true, metaCrmDatasetId: true, metaCrmAccessToken: true, metaTestCode: true },
+    select: { metaCrmEnabled: true, metaCrmDatasetId: true, metaCrmAccessToken: true, metaTestCode: true, metaTestCodeHasta: true },
   })
   return {
     enabled: Boolean(c?.metaCrmEnabled),
     datasetId: c?.metaCrmDatasetId ?? null,
     accessToken: decryptNullable(c?.metaCrmAccessToken ?? null), // token en claro solo en memoria
-    testCode: c?.metaTestCode ?? null,
+    testCode: testCodeVigente(c?.metaTestCode, c?.metaTestCodeHasta),
   }
 }
 
@@ -764,7 +776,7 @@ export async function eliminarLead(db: TenantClient, id: string) {
 export async function obtenerConfigCrm(db: TenantClient) {
   const c = await db.configuracion.findUnique({
     where: { id: 'singleton' },
-    select: { metaEnabled: true, metaPixelId: true, metaCapiToken: true, metaTestCode: true,
+    select: { metaEnabled: true, metaPixelId: true, metaCapiToken: true, metaTestCode: true, metaTestCodeHasta: true,
       metaCrmEnabled: true, metaCrmDatasetId: true, metaCrmAccessToken: true,
       metaLeadAdsEnabled: true, metaPageId: true, metaPageAccessToken: true, metaLeadAdsUltimo: true,
       crmToken: true, crmDiasSinGestion: true },
@@ -779,7 +791,11 @@ export async function obtenerConfigCrm(db: TenantClient) {
   return {
     metaEnabled: Boolean(c?.metaEnabled), metaPixelId: c?.metaPixelId ?? null,
     hasCapiToken: Boolean(rawTok), capiTokenLen: rawTok ? rawTok.length : 0, capiTokenLast4: rawTok ? rawTok.slice(-4) : null,
-    metaTestCode: c?.metaTestCode ?? null, crmToken,
+    metaTestCode: c?.metaTestCode ?? null,
+    // Estado del test_event_code para el aviso de la UI: si sigue activo y hasta cuándo.
+    testCodeActivo: Boolean(testCodeVigente(c?.metaTestCode, c?.metaTestCodeHasta)),
+    testCodeHasta: c?.metaTestCodeHasta ? c.metaTestCodeHasta.toISOString() : null,
+    crmToken,
     metaCrmEnabled: Boolean(c?.metaCrmEnabled), metaCrmDatasetId: c?.metaCrmDatasetId ?? null,
     hasCrmToken: Boolean(crmTok), crmTokenLast4: crmTok ? crmTok.slice(-4) : null,
     metaLeadAdsEnabled: Boolean(c?.metaLeadAdsEnabled), metaPageId: c?.metaPageId ?? null,
@@ -805,7 +821,14 @@ export async function guardarConfigCrm(db: TenantClient, body: Record<string, un
   if (body.metaPixelId !== undefined) data.metaPixelId = body.metaPixelId ? String(body.metaPixelId).trim() : null
   if (typeof body.metaCapiToken === 'string' && body.metaCapiToken.trim()) data.metaCapiToken = body.metaCapiToken.trim()
   if (body.metaCapiToken === null || body.metaCapiToken === '') data.metaCapiToken = null
-  if (body.metaTestCode !== undefined) data.metaTestCode = body.metaTestCode ? String(body.metaTestCode).trim() : null
+  // test_event_code: al setear un valor, se activa por una ventana corta y luego se
+  // auto-desactiva (no queda activo por accidente arruinando la optimización). Al
+  // vaciarlo, se apaga de inmediato.
+  if (body.metaTestCode !== undefined) {
+    const tc = body.metaTestCode ? String(body.metaTestCode).trim() : null
+    data.metaTestCode = tc
+    data.metaTestCodeHasta = tc ? new Date(Date.now() + TEST_CODE_TTL_MIN * 60_000) : null
+  }
   // Integración de CRM (dataset + token propios de la clínica). El token se guarda
   // ENCRIPTADO; solo se reescribe si viene un valor no vacío (write-only en la UI).
   if (body.metaCrmEnabled !== undefined) data.metaCrmEnabled = Boolean(body.metaCrmEnabled)

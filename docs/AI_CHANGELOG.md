@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-07-23 — test_event_code: auto-expira + aviso visible (no arruinar optimización)
+
+Si el test_event_code queda seteado, todos los eventos van a Test Events y NO
+cuentan para optimización ni atribución. Se blinda para que no quede activo por
+accidente.
+
+- **Schema**: `Configuracion.metaTestCodeHasta DateTime?`. El código SOLO se aplica
+  mientras `metaTestCodeHasta > ahora` (helper `testCodeVigente`, usado en
+  `getMetaConfig` y `getMetaCrmConfig`). Pasada la ventana se ignora → los eventos
+  vuelven a contar. Aditivo.
+- **Auto-expiración**: al guardar un test code, `guardarConfigCrm` fija
+  `metaTestCodeHasta = ahora + 120 min`. Al vaciarlo, se apaga de inmediato.
+- **UI** (`Crm.tsx`): banner ámbar visible mientras está activo (con la hora de
+  auto-desactivación) + botón "Desactivar ahora". El input se precarga solo si
+  sigue activo (un "Guardar" de otra config no lo reactiva). Label/ayuda: "vacío
+  en producción".
+- **event_time clamp**: confirmado en `now − 6 días` (dentro del límite de 7 d de
+  Meta, con margen ante demoras/skew) en Schedule y en eventos de etapa CRM. Sin
+  cambios.
+
+---
+
 ## 2026-07-23 — Eventos de etapa CRM: nombres del embudo + event_id + solo leadgenId
 
 Alinea el emisor de etapas de CRM con el embudo de "clientes potenciales

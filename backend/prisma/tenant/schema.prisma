@@ -59,6 +59,7 @@ model Configuracion {
   metaPixelId   String?
   metaCapiToken String?
   metaTestCode  String?
+  metaTestCodeHasta DateTime? // el test_event_code SOLO se aplica hasta esta fecha (auto-expira ~2h); pasado eso, se ignora y los eventos vuelven a contar
   // Integración de CRM (Conversions API para "Leads de conversión"): dataset y
   // token PROPIOS de cada clínica, DISTINTOS del pixel/token web de arriba (el
   // dataset de CRM es otro objeto de Meta). El token va encriptado (write-only).

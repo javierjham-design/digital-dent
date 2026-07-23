@@ -29,6 +29,7 @@ CREATE TABLE "Configuracion" (
     "metaPixelId" TEXT,
     "metaCapiToken" TEXT,
     "metaTestCode" TEXT,
+    "metaTestCodeHasta" TIMESTAMP(3),
     "metaCrmEnabled" BOOLEAN NOT NULL DEFAULT false,
     "metaCrmDatasetId" TEXT,
     "metaCrmAccessToken" TEXT,

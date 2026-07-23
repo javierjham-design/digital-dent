@@ -687,7 +687,9 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   useEffect(() => {
     crmService.config().then((c) => {
       setCfg(c); if (c.slug) setSlug(c.slug)
-      setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled); setDias(String(c.diasSinGestion))
+      // El test code solo se precarga si sigue ACTIVO; si expiró, se deja vacío para
+      // que un "Guardar" de otra config no lo reactive por accidente.
+      setPixel(c.metaPixelId ?? ''); setTest(c.testCodeActivo ? (c.metaTestCode ?? '') : ''); setEnabled(c.metaEnabled); setDias(String(c.diasSinGestion))
       setCrmOn(c.metaCrmEnabled); setCrmDataset(c.metaCrmDatasetId ?? '')
       setLeadAdsOn(c.metaLeadAdsEnabled); setPageId(c.metaPageId ?? '')
     }).catch(() => {})
@@ -796,6 +798,11 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   }
   const copiar = (t: string) => { navigator.clipboard.writeText(t).then(() => notify('Copiado')).catch(() => {}) }
 
+  async function desactivarTestCode() {
+    try { const c = await crmService.guardarConfig({ metaTestCode: null }); setCfg(c); setTest(''); notify('Test Event Code desactivado — los eventos vuelven a contar') }
+    catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
+  }
+
   return (
     <Modal title="Configuración del CRM" onClose={onClose}>
       {!cfg ? <p className="text-sm text-slate-400">Cargando…</p> : (
@@ -869,8 +876,17 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
                 {!cfg.hasCapiToken && <p className="text-[11px] text-amber-600 mt-1">Aún no hay token de Conversions API guardado.</p>}
               </div>
             )}
-            <label className="block"><span className="text-xs font-medium text-slate-500">Test Event Code (opcional, para probar)</span>
-              <input value={test} onChange={(e) => setTest(e.target.value)} placeholder="TEST12345" className={`${inp} font-mono`} /></label>
+            {cfg.testCodeActivo && (
+              <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                <p className="text-[11px] font-semibold text-amber-800">⚠️ Test Event Code ACTIVO — los eventos NO cuentan para optimización ni atribución.</p>
+                <p className="text-[11px] text-amber-700 mt-0.5">Se auto-desactiva {cfg.testCodeHasta ? `el ${fecha(cfg.testCodeHasta)}` : 'en ~2 h'}. Úsalo solo para depurar en Test Events.
+                  <button type="button" onClick={desactivarTestCode} className="ml-2 font-semibold text-amber-900 underline">Desactivar ahora</button>
+                </p>
+              </div>
+            )}
+            <label className="block"><span className="text-xs font-medium text-slate-500">Test Event Code (solo para depurar; se auto-desactiva en ~2 h)</span>
+              <input value={test} onChange={(e) => setTest(e.target.value)} placeholder="Vacío en producción" className={`${inp} font-mono`} /></label>
+            <p className="text-[11px] text-slate-400 mt-1">Déjalo <span className="font-medium">vacío en producción</span>. Al guardarlo con un valor se activa por ~2 h y luego se apaga solo, para que los eventos vuelvan a contar.</p>
 
             <div className="mt-3 flex items-center gap-2">
               <button onClick={probar} disabled={probando || !cfg.hasCapiToken || !pixel.trim()}
