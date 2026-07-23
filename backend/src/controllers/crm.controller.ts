@@ -55,7 +55,9 @@ export async function getConfig(req: Request, res: Response) {
   res.json({ slug: req.clinica?.slug ?? '', ...(await svc.obtenerConfigCrm(tenantDb(req))) })
 }
 export async function patchConfig(req: Request, res: Response) {
-  res.json(await svc.guardarConfigCrm(tenantDb(req), req.body ?? {}))
+  // Incluye el slug igual que getConfig: si no, el front pierde el slug al guardar
+  // y las URLs de intake (landing + Formulario Meta) quedan con "undefined".
+  res.json({ slug: req.clinica?.slug ?? '', ...(await svc.guardarConfigCrm(tenantDb(req), req.body ?? {})) })
 }
 export async function postProbarMeta(req: Request, res: Response) {
   res.json(await svc.probarMeta(tenantDb(req)))

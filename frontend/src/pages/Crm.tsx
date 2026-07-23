@@ -638,9 +638,13 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const [editCrmToken, setEditCrmToken] = useState(false)
   const [probandoCrm, setProbandoCrm] = useState(false)
   const [crmTestRes, setCrmTestRes] = useState<{ ok: boolean; msg: string } | null>(null)
+  // El slug se guarda aparte y solo se actualiza con un valor no vacío: así una
+  // respuesta que no lo traiga (o venga vacío) nunca deja las URLs en "undefined".
+  const [slug, setSlug] = useState('')
   useEffect(() => {
     crmService.config().then((c) => {
-      setCfg(c); setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled); setDias(String(c.diasSinGestion))
+      setCfg(c); if (c.slug) setSlug(c.slug)
+      setPixel(c.metaPixelId ?? ''); setTest(c.metaTestCode ?? ''); setEnabled(c.metaEnabled); setDias(String(c.diasSinGestion))
       setCrmOn(c.metaCrmEnabled); setCrmDataset(c.metaCrmDatasetId ?? '')
     }).catch(() => {})
     crmService.apiKeyEstado().then((r) => setApiKeyOn(r.hasApiKey)).catch(() => {})
@@ -692,11 +696,14 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   }
 
   // El formulario hospedado es una ruta del SPA → va en el origin del frontend.
-  const formUrl = cfg ? `${window.location.origin}/c/${cfg.slug}/formulario/${cfg.crmToken}` : ''
+  // Todas las URLs se arman con `slug` (estado protegido) + el token del cfg. Si el
+  // slug aún no está, quedan vacías y la UI muestra "Cargando…" en vez de una URL rota.
+  const urlListo = Boolean(slug && cfg?.crmToken)
+  const formUrl = urlListo ? `${window.location.origin}/c/${slug}/formulario/${cfg!.crmToken}` : ''
   // El intake es una ruta del BACKEND → va en api.clariva.cl (apiAbs), no en el frontend.
-  const intakeUrl = cfg ? `${apiAbs}/public/crm/${cfg.slug}/${cfg.crmToken}/lead` : ''
+  const intakeUrl = urlListo ? `${apiAbs}/public/crm/${slug}/${cfg!.crmToken}/lead` : ''
   // Intake del Formulario Instantáneo de Meta (Make → POST con leadgen_id).
-  const metaLeadUrl = cfg ? `${apiAbs}/public/crm/${cfg.slug}/${cfg.crmToken}/meta-lead` : ''
+  const metaLeadUrl = urlListo ? `${apiAbs}/public/crm/${slug}/${cfg!.crmToken}/meta-lead` : ''
 
   const editandoToken = !cfg?.hasCapiToken || editToken // el input del token está visible
   const editandoCrmToken = !cfg?.hasCrmToken || editCrmToken
@@ -710,7 +717,7 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
       // así un autocompletado del navegador nunca puede sobrescribir el token real.
       if (editandoToken && token.trim()) payload.metaCapiToken = token.trim()
       if (editandoCrmToken && crmToken.trim()) payload.metaCrmAccessToken = crmToken.trim()
-      const c = await crmService.guardarConfig(payload); setCfg(c); setToken(''); setEditToken(false); setTestRes(null)
+      const c = await crmService.guardarConfig(payload); setCfg(c); if (c.slug) setSlug(c.slug); setToken(''); setEditToken(false); setTestRes(null)
       setCrmToken(''); setEditCrmToken(false); setCrmTestRes(null); notify('Configuración guardada')
     } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) } finally { setBusy(false) }
   }
@@ -724,14 +731,14 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-2">Captación web</p>
             <p className="text-xs text-slate-500 mb-2">Formulario hospedado (compartilo o insértalo con un iframe):</p>
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 mb-2">
-              <span className="text-xs font-mono text-slate-500 truncate flex-1">{formUrl}</span>
-              <button onClick={() => copiar(formUrl)} className="text-xs font-semibold text-cyan-700 shrink-0">Copiar</button>
-              <a href={formUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-slate-500 shrink-0">Abrir</a>
+              <span className="text-xs font-mono text-slate-500 truncate flex-1">{formUrl || 'Cargando…'}</span>
+              <button onClick={() => copiar(formUrl)} disabled={!urlListo} className="text-xs font-semibold text-cyan-700 shrink-0 disabled:opacity-40">Copiar</button>
+              {urlListo && <a href={formUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-semibold text-slate-500 shrink-0">Abrir</a>}
             </div>
             <p className="text-xs text-slate-500 mb-1">Endpoint de intake (para tu formulario web / App Script → POST JSON):</p>
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
-              <span className="text-xs font-mono text-slate-500 truncate flex-1">{intakeUrl}</span>
-              <button onClick={() => copiar(intakeUrl)} className="text-xs font-semibold text-cyan-700 shrink-0">Copiar</button>
+              <span className="text-xs font-mono text-slate-500 truncate flex-1">{intakeUrl || 'Cargando…'}</span>
+              <button onClick={() => copiar(intakeUrl)} disabled={!urlListo} className="text-xs font-semibold text-cyan-700 shrink-0 disabled:opacity-40">Copiar</button>
             </div>
             <details className="mt-2">
               <summary className="text-xs font-semibold text-slate-500 cursor-pointer">Campos que acepta (JSON)</summary>
@@ -851,8 +858,8 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
             </div>
             <p className="text-[11px] text-slate-500 mt-3 mb-1">Endpoint para leads del Formulario Instantáneo (Make → POST JSON con <span className="font-mono">leadgenId</span>):</p>
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">
-              <span className="text-xs font-mono text-slate-500 truncate flex-1">{metaLeadUrl}</span>
-              <button type="button" onClick={() => copiar(metaLeadUrl)} className="text-xs font-semibold text-cyan-700 shrink-0">Copiar</button>
+              <span className="text-xs font-mono text-slate-500 truncate flex-1">{metaLeadUrl || 'Cargando…'}</span>
+              <button type="button" onClick={() => copiar(metaLeadUrl)} disabled={!urlListo} className="text-xs font-semibold text-cyan-700 shrink-0 disabled:opacity-40">Copiar</button>
             </div>
             <p className="text-[11px] text-slate-400 mt-2">Usa el mismo Test Event Code de arriba para la prueba. El token se guarda encriptado y no se vuelve a mostrar.</p>
           </div>
