@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-07-23 — Reproceso de Lead Ads: respuesta de diagnóstico completa
+
+Refina el reproceso ya existente para diagnosticar el fetch a Graph (el paso que
+la herramienta de prueba de Meta NO valida: manda un leadgen_id sintético que da
+code 100/subcode 33). El pipeline es el MISMO que corre el webhook.
+
+- `traerLeadDeGraph` devuelve `status` + `request` (URL SIN access_token) + error
+  con `code/subcode`. `ejecutarPipeline` (compartido webhook/reproceso) devuelve el
+  contrato de diagnóstico: `graphRequest`, `graphStatus`, `graphError` (o null),
+  `fieldDataCrudo`, `mapeo` (con `noReconocidos`), `resultado`
+  (creado|duplicado|error), `leadId`.
+- `reprocesarLead` (`POST /admin/meta/reprocesar-lead`, crmAdmin, config del tenant
+  activo) devuelve ese objeto + el `lead` completo. Dedup por leadgenId → `duplicado`
+  (seguro apretar dos veces). Token nunca en la respuesta ni en logs.
+- Webhook: logging con `page_id/leadgen_id/form_id/tenant` + resultado del fetch
+  (éxito o error de Graph con code/subcode). Fin de los fallos silenciosos.
+- UI: input "Leadgen ID" + botón "Reprocesar lead" + área con la **respuesta JSON
+  completa** (no un toast), resumen y `field_data` crudo. Mapeo tolerante ES/tildes
+  ya vigente (normName + ALIAS); lo no reconocido va a `Lead.camposExtra`.
+
+---
+
 ## 2026-07-23 — Lead Ads: mapeo tolerante (ES+tildes), reproceso manual y logging
 
 1. **Mapeo de field_data tolerante** (`meta-leadads.service`): `normName`

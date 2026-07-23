@@ -688,7 +688,9 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
     setReproBusy(true); setReproRes(null)
     try {
       setReproRes(await crmService.reprocesarLead(reproId.trim()))
-    } catch (e) { setReproRes({ ok: false, error: e instanceof ApiError ? e.message : 'Error al reprocesar.' }) } finally { setReproBusy(false) }
+    } catch (e) {
+      setReproRes({ leadgenId: reproId.trim(), graphRequest: '', graphStatus: 0, graphError: null, resultado: 'error', configError: e instanceof ApiError ? e.message : 'Error al reprocesar.' })
+    } finally { setReproBusy(false) }
   }
 
   async function generarKey() {
@@ -950,31 +952,38 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
 
               {/* Reproceso manual por leadgen_id (validar sin gastar en anuncios) */}
               <div className="mt-4">
-                <p className="text-[11px] font-medium text-slate-500 mb-1">Reprocesar un lead por leadgen_id (mismo pipeline que el webhook):</p>
+                <p className="text-[11px] font-medium text-slate-500 mb-1">Reprocesar lead por Leadgen ID (mismo pipeline que el webhook):</p>
                 <div className="flex items-center gap-2">
-                  <input value={reproId} onChange={(e) => setReproId(e.target.value)} placeholder="leadgen_id" className={`${inp} font-mono flex-1`} />
-                  <button onClick={reprocesar} disabled={reproBusy || !reproId.trim()} className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-lg shrink-0">{reproBusy ? 'Procesando…' : 'Reprocesar'}</button>
+                  <input value={reproId} onChange={(e) => setReproId(e.target.value)} placeholder="Leadgen ID" className={`${inp} font-mono flex-1`} />
+                  <button onClick={reprocesar} disabled={reproBusy || !reproId.trim()} className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-lg shrink-0">{reproBusy ? 'Procesando…' : 'Reprocesar lead'}</button>
                 </div>
-                {reproRes && (
-                  <div className={`mt-2 rounded-lg border p-2 text-[11px] ${reproRes.ok ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
-                    {reproRes.ok ? (
-                      <div className="space-y-1">
-                        <p className="font-semibold text-emerald-700">✓ Lead {reproRes.estado} {reproRes.lead?.id ? `(${reproRes.lead?.nombre ?? reproRes.lead.id})` : ''}</p>
-                        <p className="text-slate-600">Mapeado: <span className="font-mono">{[reproRes.mapeado?.nombre, reproRes.mapeado?.apellido, reproRes.mapeado?.telefono, reproRes.mapeado?.email].filter(Boolean).join(' · ') || '—'}</span></p>
-                        {reproRes.camposExtra && Object.keys(reproRes.camposExtra).length > 0 && (
-                          <p className="text-amber-700">Sin mapear (camposExtra): <span className="font-mono">{Object.keys(reproRes.camposExtra).join(', ')}</span></p>
-                        )}
-                        {reproRes.fieldData && (
-                          <details><summary className="cursor-pointer text-slate-500">field_data crudo de Meta</summary>
-                            <pre className="mt-1 overflow-x-auto text-[10px] text-slate-600 whitespace-pre-wrap">{JSON.stringify(reproRes.fieldData, null, 2)}</pre>
-                          </details>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-rose-700">✗ {reproRes.error}{reproRes.graphError?.code ? ` (code ${reproRes.graphError.code}${reproRes.graphError.subcode ? `/${reproRes.graphError.subcode}` : ''})` : ''}</p>
-                    )}
-                  </div>
-                )}
+                {reproRes && (() => {
+                  const r = reproRes
+                  const okTono = r.resultado === 'creado' || r.resultado === 'duplicado'
+                  const ge = r.graphError
+                  return (
+                    <div className={`mt-2 rounded-lg border p-2 text-[11px] space-y-1 ${okTono ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+                      {r.configError ? (
+                        <p className="text-rose-700 font-semibold">✗ {r.configError}</p>
+                      ) : (
+                        <>
+                          <p className={`font-semibold ${okTono ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            {okTono ? '✓' : '✗'} resultado: {r.resultado}
+                            {r.leadId ? ` · lead ${r.lead?.nombre ?? ''} ${r.lead?.apellido ?? ''}`.trimEnd() : ''}
+                          </p>
+                          <p className="text-slate-600">Graph {r.graphStatus}{ge ? ` · error code ${ge.code}${ge.subcode ? `/${ge.subcode}` : ''}: ${ge.message}` : ' · sin error'}</p>
+                          {r.mapeo && (
+                            <p className="text-slate-600">Mapeo: <span className="font-mono">{[r.mapeo.nombre, r.mapeo.telefono, r.mapeo.email].filter(Boolean).join(' · ') || '—'}</span>
+                              {r.mapeo.noReconocidos.length > 0 && <span className="text-amber-700"> · sin reconocer: {r.mapeo.noReconocidos.join(', ')}</span>}</p>
+                          )}
+                        </>
+                      )}
+                      <details open={!okTono}><summary className="cursor-pointer text-slate-500">Respuesta completa (diagnóstico)</summary>
+                        <pre className="mt-1 max-h-72 overflow-auto text-[10px] text-slate-600 whitespace-pre-wrap bg-white/60 rounded p-2">{JSON.stringify(r, null, 2)}</pre>
+                      </details>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           </div>

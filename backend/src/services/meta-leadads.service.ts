@@ -36,22 +36,25 @@ interface WebhookPayload { object?: string; entry?: WebhookEntry[] }
 // ── TAREA 4: traer los datos del lead desde Graph API ─────────────────────────
 interface FieldDatum { name?: string; values?: string[] }
 interface GraphLead { id?: string; created_time?: string; field_data?: FieldDatum[]; ad_id?: string; adgroup_id?: string; campaign_id?: string; form_id?: string }
-export interface GraphError { message: string; type?: string; code?: number; subcode?: number; status: number }
-type GraphResult = { ok: true; lead: GraphLead } | { ok: false; error: GraphError }
+export interface GraphError { message: string; type?: string; code?: number; subcode?: number }
+// Resultado del fetch a Graph. `request` es la URL SIN el access_token (para
+// diagnóstico/registro seguro); nunca se expone el token.
+interface GraphFetch { ok: boolean; status: number; request: string; lead?: GraphLead; error?: GraphError }
 
-async function traerLeadDeGraph(leadgenId: string, pageToken: string): Promise<GraphResult> {
+async function traerLeadDeGraph(leadgenId: string, pageToken: string): Promise<GraphFetch> {
   const fields = 'id,created_time,field_data,ad_id,adgroup_id,campaign_id,form_id'
+  const request = `GET /${env.metaGraphVersion}/${leadgenId}?fields=${fields}` // sin access_token
   const url = `${graphBase()}/${encodeURIComponent(leadgenId)}?fields=${fields}&access_token=${encodeURIComponent(pageToken)}`
   try {
     const r = await fetch(url)
     const data = (await r.json().catch(() => ({}))) as GraphLead & { error?: { message?: string; type?: string; code?: number; error_subcode?: number } }
     if (!r.ok || data.error) {
       const e = data.error ?? {}
-      return { ok: false, error: { message: e.message ?? `Graph respondió ${r.status}`, type: e.type, code: e.code, subcode: e.error_subcode, status: r.status } }
+      return { ok: false, status: r.status, request, error: { message: e.message ?? `Graph respondió ${r.status}`, type: e.type, code: e.code, subcode: e.error_subcode } }
     }
-    return { ok: true, lead: data }
+    return { ok: true, status: r.status, request, lead: data }
   } catch (e) {
-    return { ok: false, error: { message: e instanceof Error ? e.message : 'error de red con Graph', status: 0 } }
+    return { ok: false, status: 0, request, error: { message: e instanceof Error ? e.message : 'error de red con Graph' } }
   }
 }
 
@@ -146,22 +149,25 @@ export async function procesarWebhookLeadgen(payload: WebhookPayload): Promise<v
 }
 
 // Pipeline compartido: fetch a Graph → mapeo → dedup/ingesta. Lo usan el webhook
-// y el reproceso manual. Devuelve el field_data crudo y lo mapeado para diagnóstico.
+// y el reproceso manual (misma ruta de código; nunca divergen). Devuelve todo el
+// diagnóstico (request sin token, status, error, field_data crudo, mapeo).
 export interface PipelineResult {
-  ok: boolean
-  error?: GraphError
-  fieldData?: FieldDatum[]
-  mapeado?: Omit<MapeoLead, 'camposExtra'>
-  camposExtra?: Record<string, string>
+  graphRequest: string
+  graphStatus: number
+  graphError: GraphError | null
+  fieldDataCrudo?: FieldDatum[]
+  mapeo?: { nombre?: string; apellido?: string; telefono?: string; email?: string; rut?: string; motivo?: string; noReconocidos: string[] }
+  resultado: 'creado' | 'duplicado' | 'error'
   leadId?: string
-  estado?: 'creado' | 'reconciliado' | 'duplicado'
 }
 async function ejecutarPipeline(
   db: ReturnType<typeof tenantClient>,
   args: { leadgenId: string; pageToken: string; pageId?: string; formId?: string; adId?: string; adsetId?: string; campaignId?: string },
 ): Promise<PipelineResult> {
   const g = await traerLeadDeGraph(args.leadgenId, args.pageToken)
-  if (!g.ok) return { ok: false, error: g.error }
+  if (!g.ok || !g.lead) {
+    return { graphRequest: g.request, graphStatus: g.status, graphError: g.error ?? { message: 'Graph no devolvió datos.' }, resultado: 'error' }
+  }
   const graph = g.lead
   const { camposExtra, ...persona } = mapearFieldData(graph.field_data)
   const extraJson = Object.keys(camposExtra).length ? JSON.stringify(camposExtra) : undefined
@@ -176,14 +182,17 @@ async function ejecutarPipeline(
     campaignId: graph.campaign_id ?? args.campaignId,
     pageId: args.pageId,
   })
-  const estado = (r as { duplicado?: boolean }).duplicado ? 'duplicado' : r.reconciliado ? 'reconciliado' : 'creado'
-  return { ok: true, fieldData: graph.field_data, mapeado: persona, camposExtra, leadId: r.lead?.id, estado }
+  // "duplicado" = ya existía un lead con ese leadgenId, o se reconció con la misma
+  // persona (en ambos casos no se creó un lead nuevo). Si no, "creado".
+  const dup = (r as { duplicado?: boolean }).duplicado || r.reconciliado
+  const mapeo = { ...persona, noReconocidos: Object.keys(camposExtra) }
+  return { graphRequest: g.request, graphStatus: g.status, graphError: null, fieldDataCrudo: graph.field_data, mapeo, resultado: dup ? 'duplicado' : 'creado', leadId: r.lead?.id }
 }
 
 async function procesarUnLead(v: LeadgenValue): Promise<void> {
   const leadgenId = v.leadgen_id ? String(v.leadgen_id) : ''
   const pageId = v.page_id ? String(v.page_id) : ''
-  // TAREA 3 (logging): dejar rastro de CADA evento recibido con sus IDs.
+  // TAREA 7 (logging): dejar rastro de CADA evento recibido con sus IDs.
   console.log('[meta-leadads] Webhook leadgen recibido', { page_id: pageId || null, leadgen_id: leadgenId || null, form_id: v.form_id ?? null })
   if (!leadgenId || !pageId) { console.warn('[meta-leadads] Evento sin leadgen_id o page_id; descartado.'); return }
 
@@ -198,17 +207,17 @@ async function procesarUnLead(v: LeadgenValue): Promise<void> {
   const cfg = await getMetaLeadAdsConfig(db)
   if (!cfg.enabled || !cfg.pageToken) { console.warn(`[meta-leadads] Clínica ${clinica.slug} sin token de página; descartado.`); return }
 
-  // TAREA 4/5: fetch + mapeo + dedup/ingesta.
+  // TAREA 4/5: fetch + mapeo + dedup/ingesta (mismo pipeline que el reproceso).
   const res = await ejecutarPipeline(db, { leadgenId, pageToken: cfg.pageToken, pageId, formId: v.form_id, adId: v.ad_id, adsetId: v.adgroup_id, campaignId: v.campaign_id })
-  if (!res.ok) {
+  if (res.resultado === 'error') {
     // Antes el fallo era silencioso (Meta reportaba éxito y no aparecía nada). Ahora
-    // se registra el error de Graph con code/subcode para diagnóstico.
-    const e = res.error
-    console.error('[meta-leadads] Graph fetch FALLÓ', { page_id: pageId, leadgen_id: leadgenId, form_id: v.form_id ?? null, clinica: clinica.slug, status: e?.status, code: e?.code, subcode: e?.subcode, message: e?.message })
+    // se registra el error de Graph con code/subcode y el tenant resuelto.
+    const e = res.graphError
+    console.error('[meta-leadads] Graph fetch FALLÓ', { page_id: pageId, leadgen_id: leadgenId, form_id: v.form_id ?? null, tenant: clinica.slug, graphStatus: res.graphStatus, code: e?.code, subcode: e?.subcode, message: e?.message })
     return
   }
-  await registrarLeadAdsRecibido(db, { leadgenId, leadId: res.leadId, reconciliado: res.estado === 'reconciliado', duplicado: res.estado === 'duplicado' })
-  console.log('[meta-leadads] Lead procesado', { leadgen_id: leadgenId, clinica: clinica.slug, lead_id: res.leadId ?? null, estado: res.estado })
+  await registrarLeadAdsRecibido(db, { leadgenId, leadId: res.leadId, duplicado: res.resultado === 'duplicado' })
+  console.log('[meta-leadads] Lead procesado', { leadgen_id: leadgenId, tenant: clinica.slug, lead_id: res.leadId ?? null, resultado: res.resultado, noReconocidos: res.mapeo?.noReconocidos ?? [] })
 }
 
 // ── TAREA 6: "Probar recepción" (valida token+página y devuelve el último) ─────
@@ -230,29 +239,35 @@ export async function probarRecepcionLeadAds(db: ReturnType<typeof tenantClient>
 }
 
 // ── Reproceso manual (admin) — mismo pipeline que el webhook, sin gastar anuncios.
-// Usa el token de página del TENANT actual. Devuelve el field_data crudo y lo que
-// se mapeó (y qué quedó en camposExtra) para poder validar exactamente.
+// Usa la config Meta del TENANT actual (metaPageId/metaPageAccessToken). Devuelve
+// el diagnóstico completo (request sin token, status, error con code/subcode,
+// field_data crudo, mapeo con noReconocidos y el lead resultante).
 export interface ReprocesoResult {
-  ok: boolean
-  error?: string
-  graphError?: GraphError
-  fieldData?: FieldDatum[]
-  mapeado?: Omit<MapeoLead, 'camposExtra'>
-  camposExtra?: Record<string, string>
-  estado?: 'creado' | 'reconciliado' | 'duplicado'
+  leadgenId: string
+  graphRequest: string
+  graphStatus: number
+  graphError: GraphError | null
+  fieldDataCrudo?: FieldDatum[]
+  mapeo?: PipelineResult['mapeo']
+  resultado: 'creado' | 'duplicado' | 'error'
+  leadId?: string
   lead?: unknown
+  configError?: string // faltó page id/token en la clínica (no es error de Graph)
 }
 export async function reprocesarLead(db: ReturnType<typeof tenantClient>, leadgenId: string): Promise<ReprocesoResult> {
   const id = String(leadgenId ?? '').trim()
-  if (!id) return { ok: false, error: 'Falta el leadgenId.' }
+  const vacio: ReprocesoResult = { leadgenId: id, graphRequest: '', graphStatus: 0, graphError: null, resultado: 'error' }
+  if (!id) return { ...vacio, configError: 'Falta el leadgenId.' }
   const cfg = await getMetaLeadAdsConfig(db)
-  if (!cfg.pageToken) return { ok: false, error: 'La clínica no tiene token de página configurado.' }
-  const res = await ejecutarPipeline(db, { leadgenId: id, pageToken: cfg.pageToken, pageId: cfg.pageId ?? undefined })
-  if (!res.ok) return { ok: false, error: res.error?.message, graphError: res.error }
-  await registrarLeadAdsRecibido(db, { leadgenId: id, leadId: res.leadId, reconciliado: res.estado === 'reconciliado', duplicado: res.estado === 'duplicado' })
+  if (!cfg.pageToken) return { ...vacio, configError: 'La clínica no tiene token de página configurado (cargalo en esta pantalla).' }
+
+  const p = await ejecutarPipeline(db, { leadgenId: id, pageToken: cfg.pageToken, pageId: cfg.pageId ?? undefined })
+  if (p.resultado !== 'error' && p.leadId) {
+    await registrarLeadAdsRecibido(db, { leadgenId: id, leadId: p.leadId, duplicado: p.resultado === 'duplicado' })
+  }
   // Re-lee el lead completo para inspección (ingestarLeadMeta a veces devuelve solo el id).
-  const lead = res.leadId ? await db.lead.findUnique({ where: { id: res.leadId } }) : null
-  return { ok: true, fieldData: res.fieldData, mapeado: res.mapeado, camposExtra: res.camposExtra, estado: res.estado, lead }
+  const lead = p.leadId ? await db.lead.findUnique({ where: { id: p.leadId } }) : null
+  return { leadgenId: id, graphRequest: p.graphRequest, graphStatus: p.graphStatus, graphError: p.graphError, fieldDataCrudo: p.fieldDataCrudo, mapeo: p.mapeo, resultado: p.resultado, leadId: p.leadId, lead }
 }
 
 function safeJson(s: string): unknown { try { return JSON.parse(s) } catch { return s } }
