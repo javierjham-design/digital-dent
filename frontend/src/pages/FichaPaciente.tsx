@@ -1138,6 +1138,17 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
   )
 }
 
+// Carrito "marcar para cobro". SVG (toma el color: gris sin marcar, verde marcado).
+function CartIcon({ marcado }: { marcado: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" className="w-[18px] h-[18px]" fill={marcado ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="9" cy="20" r="1.4" />
+      <circle cx="18" cy="20" r="1.4" />
+      <path d="M2 3h2.4l2.3 12.1a1.5 1.5 0 0 0 1.5 1.2h8.5a1.5 1.5 0 0 0 1.5-1.2L21 7H6" fill="none" />
+    </svg>
+  )
+}
+
 function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
   t: TratNode; bloqueado: boolean; accion: (fn: () => Promise<unknown>) => Promise<void>; onEvolucionar: (t: TratNode) => void
 }) {
@@ -1228,7 +1239,9 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
       {!completado && !pagada ? (
         <button onClick={() => accion(() => tratamientosService.actualizar(t.id, { paraCobro: !t.paraCobro }))}
           title={t.paraCobro ? 'Marcada para cobro (clic para quitar)' : 'Marcar para cobro'}
-          className={`shrink-0 text-base leading-none ${t.paraCobro ? 'text-emerald-600' : 'text-slate-300 hover:text-slate-500'}`}>🛒</button>
+          className={`shrink-0 ${t.paraCobro ? 'text-emerald-600' : 'text-slate-300 hover:text-slate-500'}`}>
+          <CartIcon marcado={Boolean(t.paraCobro)} />
+        </button>
       ) : <span className="shrink-0 w-[18px]" />}
 
       {/* Estado de PAGO (independiente del ✓ realizada de la izquierda):
