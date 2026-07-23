@@ -35,14 +35,20 @@ interface WebhookPayload { object?: string; entry?: WebhookEntry[] }
 
 // ── TAREA 4: traer los datos del lead desde Graph API ─────────────────────────
 interface FieldDatum { name?: string; values?: string[] }
-interface GraphLead { id?: string; created_time?: string; field_data?: FieldDatum[]; ad_id?: string; adgroup_id?: string; campaign_id?: string; form_id?: string }
+// OJO: al consultar el NODO leadgen el conjunto de anuncios es `adset_id` (no
+// `adgroup_id` como en el payload del webhook). En orgánicos/prueba vienen null.
+interface GraphLead { id?: string; created_time?: string; field_data?: FieldDatum[]; ad_id?: string; adset_id?: string; campaign_id?: string; form_id?: string; is_organic?: boolean; platform?: string }
 export interface GraphError { message: string; type?: string; code?: number; subcode?: number }
 // Resultado del fetch a Graph. `request` es la URL SIN el access_token (para
 // diagnóstico/registro seguro); nunca se expone el token.
 interface GraphFetch { ok: boolean; status: number; request: string; lead?: GraphLead; error?: GraphError }
 
-async function traerLeadDeGraph(leadgenId: string, pageToken: string): Promise<GraphFetch> {
-  const fields = 'id,created_time,field_data,ad_id,adgroup_id,campaign_id,form_id'
+// Campos válidos del nodo leadgen. El set mínimo es el respaldo si Graph rechaza
+// alguno (así un cambio futuro de la API no vuelve a tumbar la ingesta entera).
+const FIELDS_LEADGEN = 'id,created_time,field_data,form_id,ad_id,adset_id,campaign_id,is_organic,platform'
+const FIELDS_MINIMO = 'id,created_time,field_data,form_id'
+
+async function fetchGraph(leadgenId: string, pageToken: string, fields: string): Promise<GraphFetch> {
   const request = `GET /${env.metaGraphVersion}/${leadgenId}?fields=${fields}` // sin access_token
   const url = `${graphBase()}/${encodeURIComponent(leadgenId)}?fields=${fields}&access_token=${encodeURIComponent(pageToken)}`
   try {
@@ -56,6 +62,18 @@ async function traerLeadDeGraph(leadgenId: string, pageToken: string): Promise<G
   } catch (e) {
     return { ok: false, status: 0, request, error: { message: e instanceof Error ? e.message : 'error de red con Graph' } }
   }
+}
+
+async function traerLeadDeGraph(leadgenId: string, pageToken: string): Promise<GraphFetch> {
+  const primero = await fetchGraph(leadgenId, pageToken, FIELDS_LEADGEN)
+  // Tolerancia: si Graph rechaza un campo inválido (#100 "nonexisting field"),
+  // reintentar UNA vez con el set mínimo y loguear cuál campo lo causó.
+  if (!primero.ok && primero.error?.code === 100 && /nonexisting field|accessing/i.test(primero.error.message)) {
+    const campo = primero.error.message.match(/\(([^)]+)\)/)?.[1] ?? '¿?'
+    console.warn(`[meta-leadads] Graph rechazó el campo "${campo}"; reintentando con set mínimo (${FIELDS_MINIMO}).`)
+    return fetchGraph(leadgenId, pageToken, FIELDS_MINIMO)
+  }
+  return primero
 }
 
 // Normaliza el `name` de un campo: minúsculas, sin tildes/diacríticos, separadores
@@ -178,7 +196,9 @@ async function ejecutarPipeline(
     leadgenId: args.leadgenId,
     formId: graph.form_id ?? args.formId,
     adId: graph.ad_id ?? args.adId,
-    adsetId: graph.adgroup_id ?? args.adsetId,
+    // Conjunto de anuncios: al leer el nodo leadgen es adset_id; el webhook lo trae
+    // como adgroup_id (args.adsetId). Se guarda en utmTerm (nivel de optimización).
+    adsetId: graph.adset_id ?? args.adsetId,
     campaignId: graph.campaign_id ?? args.campaignId,
     pageId: args.pageId,
   })
