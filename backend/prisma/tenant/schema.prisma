@@ -845,6 +845,14 @@ model Lead {
   leadgenId     String?    // leadgen_id del Formulario Instantáneo de Meta (llave para atar Schedule → Leads de conversión)
   camposExtra   String?    // JSON con los campos del Formulario Meta que no mapearon a un campo conocido (no se pierden)
   metaCrmEtapas String?    // etapas de CRM ya emitidas al dataset de Meta (CSV, ej. "Lead,Contactado") — idempotencia
+  // Reingreso de contactos: un lead cuyo teléfono/email ya existía no se duplica,
+  // sino que "vuelve a entrar". El CRM ordena por ultimoIngresoAt para subirlo al tope.
+  ultimoIngresoAt DateTime? // fecha del último ingreso (creación o reingreso). Orden del listado.
+  vecesIngresado  Int       @default(1) // cuántas veces ingresó este contacto (1 = solo el original)
+  ingresos        String?   // JSON array: historial de toques (fecha, origen, campaña, ids de atribución)
+  ultimoOrigen    String?   // atribución de ÚLTIMO toque (no pisa la original del primer toque)
+  ultimaCampana   String?
+  ultimoLeadgenId String?
   scheduleEventId     String?  // event_id del evento Schedule (dedup con el Pixel)
   scheduleCapiEnviado Boolean @default(false)
   ultimaGestionAt DateTime @default(now()) // última gestión HUMANA (nota, cambio de estado, agendar…), no escrituras del sistema

@@ -13,7 +13,7 @@
 // como efecto colateral de un deploy. Requiere alcanzar cada base.
 import { execSync } from 'node:child_process'
 import { control } from '@/db/control'
-import { tenantUrl } from '@/db/tenant'
+import { tenantUrl, tenantClient, disposeTenant } from '@/db/tenant'
 
 async function main() {
   const ahora = new Date()
@@ -36,6 +36,13 @@ async function main() {
         timeout: 90_000, // una base lenta/colgada no debe estancar el arranque
         env: { ...process.env, TENANT_DATABASE_URL: tenantUrl(c.dbName) },
       })
+      // Backfill idempotente: los leads previos no tienen ultimoIngresoAt y el CRM
+      // ahora ordena por ese campo. Se iguala a createdAt (no cambia su posición).
+      try {
+        const tc = tenantClient(c.dbName)
+        await tc.$executeRawUnsafe('UPDATE "Lead" SET "ultimoIngresoAt" = "createdAt" WHERE "ultimoIngresoAt" IS NULL')
+        await disposeTenant(c.dbName)
+      } catch { /* best-effort: si falla, el orden usa createdAt como respaldo en app */ }
       console.log('OK')
       ok++
     } catch {

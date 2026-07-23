@@ -91,7 +91,7 @@ type ScheduleLead = {
   landing: string | null; ip: string | null; userAgent: string | null; tratamiento: string | null
   utmCampaign: string | null; utmTerm: string | null; utmContent: string | null
   fechaAgenda: Date | null; ultimaGestionAt: Date; updatedAt: Date
-  scheduleEventId: string | null; scheduleCapiEnviado: boolean
+  scheduleEventId: string | null; scheduleCapiEnviado: boolean; vecesIngresado?: number | null
 }
 export type ScheduleOutcome = 'enviado' | 'error' | 'ya' | 'sin-config' | 'sin-match'
 
@@ -121,8 +121,11 @@ export async function dispararScheduleMeta(db: TenantClient, lead: ScheduleLead,
     console.warn(`[meta] Schedule omitido para lead ${lead.id}: sin llaves de match (email/teléfono/leadgen/fbc/fbp).`)
     return 'sin-match'
   }
-  // event_id estable para deduplicar reintentos (y con el Pixel si existiera).
-  const eventId = lead.scheduleEventId || `sched_${lead.id}`
+  // event_id estable para deduplicar reintentos (y con el Pixel si existiera). Incluye
+  // el ciclo de reingreso: si el contacto reingresa y vuelve a agendar, el event_id
+  // cambia (sched_{id}_{veces}) para que Meta NO deduplique la nueva conversión. Los
+  // leads ya existentes conservan su scheduleEventId actual (no reenvío retroactivo).
+  const eventId = lead.scheduleEventId || `sched_${lead.id}_${lead.vecesIngresado ?? 1}`
   if (eventId !== lead.scheduleEventId) {
     await db.lead.update({ where: { id: lead.id }, data: { scheduleEventId: eventId } }).catch(() => {})
   }
@@ -222,15 +225,18 @@ export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eve
 
 // ── Listado + detalle ─────────────────────────────────────────────────────────
 
-export async function listarLeads(db: TenantClient, f: { estado?: string; origen?: string; campana?: string; q?: string; desde?: string; hasta?: string }) {
+export async function listarLeads(db: TenantClient, f: { estado?: string; origen?: string; campana?: string; q?: string; desde?: string; hasta?: string; reingresos?: boolean }) {
   const where: Record<string, unknown> = {}
   if (f.estado && ESTADOS.includes(f.estado)) where.estado = f.estado
   if (f.origen) where.origen = f.origen
+  if (f.reingresos) where.vecesIngresado = { gt: 1 }
   // Rango de fechas interpretado en hora de la clínica (America/Santiago), no en
   // UTC: un lead creado a las 22:00 hora Chile cuenta en el día correcto.
   if (f.desde || f.hasta) where.createdAt = rangoFechasUtc(f.desde, f.hasta)
   const [leads, campanasMap, dias] = await Promise.all([
-    db.lead.findMany({ where, orderBy: { createdAt: 'desc' }, take: 500 }),
+    // Orden por ÚLTIMO ingreso: un reingreso sube al tope igual que un lead nuevo.
+    // nulls last + createdAt de respaldo por si el backfill aún no corrió.
+    db.lead.findMany({ where, orderBy: [{ ultimoIngresoAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }], take: 500 }),
     getCampanasMap(db),
     getDiasSinGestion(db),
   ])
@@ -238,11 +244,15 @@ export async function listarLeads(db: TenantClient, f: { estado?: string; origen
   const cutoff = new Date(Date.now() - dias * 86400_000)
   const conCampana = leads.map((l) => {
     const campanaKey = campanaKeyDe(l)
+    const esReingreso = (l.vecesIngresado ?? 1) > 1
+    // Reingreso pendiente: volvió a entrar y nadie lo gestionó desde entonces.
+    const reingresoPendiente = esReingreso && !!l.ultimoIngresoAt && l.ultimoIngresoAt > l.ultimaGestionAt && l.estado !== 'CONVERTIDO'
     return {
       ...l,
       campanaKey,
       campanaLabel: etiquetaCampana(campanaKey, campanasMap),
-      sinGestionar: ESTADOS_ABIERTOS.includes(l.estado) && l.ultimaGestionAt < cutoff,
+      esReingreso,
+      sinGestionar: (ESTADOS_ABIERTOS.includes(l.estado) && l.ultimaGestionAt < cutoff) || reingresoPendiente,
     }
   })
   // Filtro por campaña (clave exacta) + búsqueda de texto (incluye la etiqueta de campaña).
@@ -287,10 +297,11 @@ export async function renombrarCampana(db: TenantClient, key: string, label: str
 export async function resumenCrm(db: TenantClient) {
   const dias = await getDiasSinGestion(db)
   const cutoff = new Date(Date.now() - dias * 86400_000)
-  const [porEstado, porOrigen, sinGestionar] = await Promise.all([
+  const [porEstado, porOrigen, sinGestionar, reingresos] = await Promise.all([
     db.lead.groupBy({ by: ['estado'], _count: { _all: true } }),
     db.lead.groupBy({ by: ['origen'], _count: { _all: true } }),
     db.lead.count({ where: { estado: { in: ESTADOS_ABIERTOS }, ultimaGestionAt: { lt: cutoff } } }),
+    db.lead.count({ where: { vecesIngresado: { gt: 1 } } }),
   ])
   const total = porEstado.reduce((s, r) => s + r._count._all, 0)
   return {
@@ -298,6 +309,7 @@ export async function resumenCrm(db: TenantClient) {
     estados: Object.fromEntries(porEstado.map((r) => [r.estado, r._count._all])),
     origenes: porOrigen.map((r) => ({ origen: r.origen, n: r._count._all })).sort((a, b) => b.n - a.n),
     sinGestionar,
+    reingresos,
     diasSinGestion: dias,
   }
 }
@@ -313,12 +325,17 @@ export async function obtenerLead(db: TenantClient, id: string) {
 // online). Match por external_id → RUT → teléfono → email → cookies de Meta.
 // Devuelve el más reciente no cerrado (dentro de 180 días).
 export interface IdentLead { rut?: string | null; telefono?: string | null; email?: string | null; fbp?: string | null; fbc?: string | null; externalId?: string | null }
-export async function buscarLeadParaReserva(db: TenantClient, ident: IdentLead) {
+export async function buscarLeadParaReserva(db: TenantClient, ident: IdentLead, opts?: { incluirConvertidos?: boolean }) {
   const dig = (ident.telefono ?? '').replace(/\D/g, '')
   const email = ident.email?.trim().toLowerCase() || null
   const desde = new Date(Date.now() - 180 * 24 * 3600_000)
+  // Por defecto se excluyen los CONVERTIDOS (reserva online: no reactivar un
+  // paciente). Para el REINGRESO sí se incluyen (una consulta nueva de un
+  // paciente existente vuelve a NUEVO conservando su pacienteId).
+  const where: Record<string, unknown> = { createdAt: { gte: desde } }
+  if (!opts?.incluirConvertidos) where.estado = { not: 'CONVERTIDO' }
   const candidatos = await db.lead.findMany({
-    where: { createdAt: { gte: desde }, estado: { not: 'CONVERTIDO' } },
+    where,
     orderBy: { createdAt: 'desc' },
     take: 500,
   })
@@ -330,6 +347,72 @@ export async function buscarLeadParaReserva(db: TenantClient, ident: IdentLead) 
     (!!ident.fbp && !!l.fbp && l.fbp === ident.fbp) ||
     (!!ident.fbc && !!l.fbc && l.fbc === ident.fbc),
   ) ?? null
+}
+
+// ── Reingreso de contactos ────────────────────────────────────────────────────
+// Un contacto cuyo teléfono/email ya existe no se duplica: "vuelve a entrar". Se
+// sube al tope (ultimoIngresoAt), se apila el toque en el historial y se ajusta el
+// estado. NO se pisa la atribución original (primer toque); sí se guarda el último.
+export interface ToqueLead {
+  origen?: string | null; campana?: string | null; campanaKey?: string | null; leadgenId?: string | null
+  formId?: string | null; adId?: string | null; adsetId?: string | null; campaignId?: string | null
+  utmSource?: string | null; utmMedium?: string | null; utmCampaign?: string | null; utmContent?: string | null; utmTerm?: string | null
+  fbc?: string | null; fbp?: string | null
+}
+
+function entradaIngreso(t: ToqueLead): Record<string, unknown> {
+  return {
+    fecha: new Date().toISOString(),
+    origen: t.origen ?? null, campana: t.campana ?? null, campanaKey: t.campanaKey ?? null,
+    leadgenId: t.leadgenId ?? null, formId: t.formId ?? null,
+    adId: t.adId ?? null, adsetId: t.adsetId ?? null, campaignId: t.campaignId ?? null,
+    utmSource: t.utmSource ?? null, utmMedium: t.utmMedium ?? null, utmCampaign: t.utmCampaign ?? null,
+    utmContent: t.utmContent ?? null, utmTerm: t.utmTerm ?? null, fbc: t.fbc ?? null, fbp: t.fbp ?? null,
+  }
+}
+
+function parseIngresos(raw?: string | null): unknown[] {
+  if (!raw) return []
+  try { const v = JSON.parse(raw); return Array.isArray(v) ? v : [] } catch { return [] }
+}
+
+// Decide el estado tras un reingreso (regla del negocio, item 3). Devuelve también
+// si hay que resetear el ciclo de Schedule (para que un nuevo agendamiento dispare).
+type LeadReingreso = { id: string; estado: string; citaId?: string | null; asistio?: boolean | null; vecesIngresado?: number | null; ingresos?: string | null }
+async function decidirEstadoReingreso(db: TenantClient, l: LeadReingreso): Promise<{ estado: string; resetSchedule: boolean }> {
+  if (l.estado === 'PERDIDO' || l.estado === 'CONVERTIDO') return { estado: 'NUEVO', resetSchedule: true }
+  if (l.estado === 'AGENDADO') {
+    // Cita FUTURA pendiente (y no marcada como no-asistió) → mantener AGENDADO: ya
+    // está agendado, resetearlo falsearía la métrica de agendamiento.
+    const citaFutura = l.citaId
+      ? await db.cita.findFirst({ where: { id: l.citaId, fecha: { gte: new Date() } }, select: { id: true } })
+      : null
+    if (citaFutura && l.asistio !== false) return { estado: 'AGENDADO', resetSchedule: false }
+    return { estado: 'NUEVO', resetSchedule: true } // cita pasada o no asistió
+  }
+  return { estado: l.estado, resetSchedule: true } // NUEVO / CONTACTADO → se mantiene
+}
+
+// Construye el fragmento de update para registrar un reingreso. `estadoForzado`
+// (p. ej. la reserva online que agenda ahora) omite la regla de estado.
+export async function construirReingreso(db: TenantClient, existente: LeadReingreso, toque: ToqueLead, estadoForzado?: string): Promise<Record<string, unknown>> {
+  const veces = (existente.vecesIngresado ?? 1) + 1
+  const ingresos = JSON.stringify([...parseIngresos(existente.ingresos), entradaIngreso(toque)].slice(-50))
+  const data: Record<string, unknown> = {
+    vecesIngresado: veces,
+    ultimoIngresoAt: new Date(),
+    ingresos,
+    // Atribución de ÚLTIMO toque (no pisa la original del lead).
+    ultimoOrigen: clean(toque.origen), ultimaCampana: clean(toque.campana ?? toque.utmCampaign), ultimoLeadgenId: clean(toque.leadgenId),
+  }
+  if (estadoForzado) {
+    if (estadoForzado !== existente.estado) data.estado = estadoForzado
+  } else {
+    const { estado, resetSchedule } = await decidirEstadoReingreso(db, existente)
+    if (estado !== existente.estado) data.estado = estado
+    if (resetSchedule) { data.scheduleEventId = null; data.scheduleCapiEnviado = false }
+  }
+  return data
 }
 
 // ── Captación (intake público o alta manual) ─────────────────────────────────
@@ -415,6 +498,16 @@ export async function crearLead(
       primeraVisita: fecha(input.primeraVisita), ultimaVisita: fecha(input.ultimaVisita),
       ip: ctx?.ip || null, userAgent: ctx?.userAgent || null,
       metaEventId: eventId, metaEnviado: false, // se confirma abajo con la respuesta real de Meta
+      // Reingreso: el primer toque también cuenta (ultimoIngresoAt = creación) para
+      // que el orden por reingreso sea consistente con leads nuevos.
+      ultimoIngresoAt: new Date(),
+      ultimoOrigen: (input.origen || 'FORMULARIO').toUpperCase(),
+      ultimaCampana: clean(input.campana ?? input.utmCampaign), ultimoLeadgenId: clean(input.leadgenId),
+      ingresos: JSON.stringify([entradaIngreso({
+        origen: (input.origen || 'FORMULARIO').toUpperCase(), campana: input.campana, leadgenId: input.leadgenId,
+        utmSource: input.utmSource, utmMedium: input.utmMedium, utmCampaign: input.utmCampaign,
+        utmContent: input.utmContent, utmTerm: input.utmTerm, fbc: input.fbc, fbp: input.fbp,
+      })]),
       notas: { create: { tipo: 'SISTEMA', texto: `Lead recibido · origen ${(input.origen || 'FORMULARIO').toUpperCase()}`, autorNombre: ctx?.autorNombre ?? null, autorId: ctx?.autorId ?? null } },
     },
   })
@@ -460,12 +553,19 @@ export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput
   const yaExiste = await db.lead.findFirst({ where: { leadgenId }, select: { id: true } })
   if (yaExiste) return { lead: yaExiste, reconciliado: false, duplicado: true }
 
-  // Dedup/reconciliación: si la persona ya existe (WhatsApp/landing/otro canal), NO
-  // se duplica; se completa el leadgenId y los datos faltantes en el lead existente.
-  const existente = await buscarLeadParaReserva(db, { telefono: input.telefono, email: input.email, rut: input.rut })
+  // Dedup/reconciliación + REINGRESO: si la persona ya existe (WhatsApp/landing/otro
+  // canal, incluso convertida), NO se duplica; se registra el reingreso (sube al
+  // tope + historial + regla de estado) y se completan los datos faltantes.
+  const existente = await buscarLeadParaReserva(db, { telefono: input.telefono, email: input.email, rut: input.rut }, { incluirConvertidos: true })
   if (existente) {
+    const reingreso = await construirReingreso(db, existente, {
+      origen: 'META_FORM', campana: utmCampaign, leadgenId,
+      formId: input.formId, adId: input.adId, adsetId: input.adsetId, campaignId: input.campaignId,
+      utmSource: 'meta', utmMedium: 'paid', utmCampaign, utmTerm, utmContent,
+    })
     const data: Record<string, unknown> = {
-      notas: { create: { tipo: 'SISTEMA', texto: `Formulario Meta reconciliado con lead existente (leadgen ${leadgenId}${input.formId ? `, form ${input.formId}` : ''}).` } },
+      ...reingreso,
+      notas: { create: { tipo: 'SISTEMA', texto: `Reingreso: Formulario Meta (leadgen ${leadgenId}${input.formId ? `, form ${input.formId}` : ''}). Toque #${(existente.vecesIngresado ?? 1) + 1}.` } },
     }
     if (!existente.leadgenId) data.leadgenId = leadgenId // atar la llave sin pisar otra existente
     if (!existente.telefono && clean(input.telefono)) data.telefono = clean(input.telefono)
@@ -477,7 +577,7 @@ export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput
     if (!existente.utmContent && utmContent) data.utmContent = utmContent
     if (!existente.camposExtra && clean(input.camposExtra)) data.camposExtra = clean(input.camposExtra)
     const lead = await db.lead.update({ where: { id: existente.id }, data })
-    return { lead, reconciliado: true }
+    return { lead, reconciliado: true, reingreso: true }
   }
 
   // Nuevo lead del formulario Meta. NO se emite el evento "Lead" por CAPI: Meta ya

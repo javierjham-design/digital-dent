@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-07-23 — Reingreso de contactos (leads repetidos) en el CRM
+
+Un contacto cuyo teléfono/email ya existe NO se duplica, pero ahora "vuelve a
+entrar": sube al tope del listado y se ve que volvió (oportunidad caliente).
+
+- **Schema (Lead)**: `ultimoIngresoAt DateTime?`, `vecesIngresado Int @default(1)`,
+  `ingresos String?` (JSON historial de toques), `ultimoOrigen/ultimaCampana/
+  ultimoLeadgenId` (atribución de ÚLTIMO toque, sin pisar la original). Aditivo.
+  Backfill en `migrate-tenants` (ultimoIngresoAt = createdAt para leads previos).
+- **Detección**: `buscarLeadParaReserva` con opción `incluirConvertidos`. Helper
+  `construirReingreso` aplicado en la reconciliación de `ingestarLeadMeta` (form
+  Meta) y en la reserva online (`agenda-online`, estado forzado AGENDADO).
+  `crearLead` setea el primer toque en la creación.
+- **Orden**: `listarLeads` ordena por `ultimoIngresoAt` DESC (nulls last +
+  createdAt de respaldo). `resumenCrm` cuenta reingresos; filtro `reingresos`.
+- **Regla de estado (item 3)**: PERDIDO/CONVERTIDO → NUEVO (conserva pacienteId);
+  NUEVO/CONTACTADO → se mantiene; AGENDADO con cita futura pendiente → se mantiene
+  (no falsear agendamiento), si la cita pasó o no asistió → NUEVO. Reingreso
+  pendiente (volvió y nadie gestionó) entra a la cola (`sinGestionar`).
+- **Schedule CAPI (item 5)**: event_id ahora `sched_{leadId}_{vecesIngresado}` para
+  que un reagendamiento tras reingreso NO se deduplique en Meta. Al reingresar se
+  resetea `scheduleEventId=null`+`scheduleCapiEnviado=false` (salvo AGENDADO-keep).
+  Leads existentes conservan su event_id actual (sin reenvío retroactivo).
+- **Atribución (item 6)**: se implementó la propuesta de campos de ÚLTIMO toque
+  (ultimoOrigen/ultimaCampana/ultimoLeadgenId) que sí se actualizan; los originales
+  (primer toque) quedan intactos → el reporte puede mirar primer o último toque.
+- **UI**: badge "↩ Reingreso" (×N si >2) en la fila, filtro "Reingresos" con
+  contador, y línea de tiempo del historial `ingresos` en el detalle.
+
+---
+
 ## 2026-07-23 — Reproceso de Lead Ads: respuesta de diagnóstico completa
 
 Refina el reproceso ya existente para diagnosticar el fetch a Graph (el paso que

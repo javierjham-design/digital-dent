@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, type NavigateFunction } from 'react-router-dom'
-import { crmService, type Lead, type CrmResumen, type CrmConfig, type CampanaItem } from '@/services/crm.service'
+import { crmService, type Lead, type CrmResumen, type CrmConfig, type CampanaItem, type IngresoEntry } from '@/services/crm.service'
 import { usuariosService } from '@/services/equipo.service'
 import { clinicaService } from '@/services/catalogo.service'
 import type { DoctorDTO } from '@shared/types'
@@ -19,6 +19,10 @@ const ESTADOS = [
 ]
 const estadoCfg = (k: string) => ESTADOS.find((e) => e.k === k) ?? { k, l: k, c: 'bg-slate-100 text-slate-600' }
 const fecha = (iso: string) => new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
+function parseIngresos(raw?: string | null): IngresoEntry[] {
+  if (!raw) return []
+  try { const v = JSON.parse(raw); return Array.isArray(v) ? v : [] } catch { return [] }
+}
 
 // Origen de captación (de dónde vino el lead) → etiqueta + color.
 const ORIGENES: Record<string, { l: string; c: string }> = {
@@ -131,6 +135,7 @@ export function Crm() {
   const [hasta, setHasta] = useState(hoyYmd())
   const [preset, setPreset] = useState<Preset>('30')
   const [soloSinGestionar, setSoloSinGestionar] = useState(false)
+  const [soloReingresos, setSoloReingresos] = useState(false)
   const [sel, setSel] = useState<Lead | null>(null)
   const [modal, setModal] = useState<null | 'nuevo' | 'config' | 'campanas'>(null)
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
@@ -157,7 +162,7 @@ export function Crm() {
   useEffect(() => { const t = setTimeout(cargar, 250); return () => clearTimeout(t) }, [estado, campana, q, desde, hasta]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { cargarCampanas() }, [desde, hasta]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const visibles = soloSinGestionar ? leads.filter((l) => l.sinGestionar) : leads
+  const visibles = leads.filter((l) => (!soloSinGestionar || l.sinGestionar) && (!soloReingresos || l.esReingreso))
   const verSinGestionar = () => { setSoloSinGestionar(true); aplicarPreset('todo') } // amplía el rango para ver todos
 
   if (!puedeCrm) return (
@@ -231,6 +236,10 @@ export function Crm() {
           {ESTADOS.map((e) => <option key={e.k} value={e.k}>{e.l}</option>)}
         </select>
         {puedeCrm && <button onClick={() => setModal('campanas')} className="px-3 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm font-medium rounded-xl">Renombrar campañas</button>}
+        <button onClick={() => setSoloReingresos((v) => !v)}
+          className={`px-3 py-2.5 rounded-xl text-sm font-medium border ${soloReingresos ? 'bg-amber-100 text-amber-700 border-amber-200' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+          Reingresos{resumen?.reingresos ? ` (${resumen.reingresos})` : ''}{soloReingresos ? ' ✕' : ''}
+        </button>
         {soloSinGestionar && (
           <button onClick={() => setSoloSinGestionar(false)} className="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-100 text-rose-700 border border-rose-200">
             Solo sin gestionar ✕
@@ -252,6 +261,7 @@ export function Crm() {
                       <p className="font-semibold text-slate-800 truncate">{l.nombre} {l.apellido ?? ''}</p>
                       <span className={`${chip} ${oc.c}`}>{oc.l}</span>
                       {(l.campanaKey || l.campana) && <span className={`${chip} bg-indigo-100 text-indigo-700`} title="Campaña">🎯 {campanaDe(l)}</span>}
+                      {l.esReingreso && <span className={`${chip} bg-amber-100 text-amber-700`} title={`Volvió a consultar${l.ultimoIngresoAt ? ` · ${fecha(l.ultimoIngresoAt)}` : ''}`}>↩ Reingreso{(l.vecesIngresado ?? 1) > 2 ? ` ×${l.vecesIngresado}` : ''}</span>}
                       {l.sinGestionar && <span className={`${chip} bg-rose-100 text-rose-700`}>⏰ Sin gestionar{l.ultimaGestionAt ? ` · ${diasDesde(l.ultimaGestionAt)}d` : ''}</span>}
                       {agendoOnline(l) && <span className={`${chip} bg-emerald-100 text-emerald-700`}>Agendó online</span>}
                       {l.pacienteId && <span className={`${chip} bg-slate-100 text-slate-500`}>Paciente</span>}
@@ -355,6 +365,29 @@ function LeadDetalle({ lead, waPlantilla, clinicaNombre, onClose, onChanged, not
         {full.agendaFuente && <Row k="Agenda vía" v={full.agendaFuente} />}
         <Row k="Recibido" v={fecha(full.createdAt)} />
       </dl>
+
+      {/* Historial de ingresos (reingresos): cuántas veces consultó y por qué canal */}
+      {(full.vecesIngresado ?? 1) > 1 && (
+        <div className="border-t border-slate-100 pt-3 mb-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-600 mb-2">↩ Reingresos · consultó {full.vecesIngresado} veces</p>
+          <ol className="space-y-1.5">
+            {parseIngresos(full.ingresos).slice().reverse().map((ing, i) => (
+              <li key={i} className="flex items-start gap-2 text-xs">
+                <span className="mt-1 w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                <span className="text-slate-600">
+                  <span className="font-medium text-slate-700">{ing.fecha ? fecha(ing.fecha) : '—'}</span>
+                  {' · '}{ing.origen ?? '—'}
+                  {(ing.campana || ing.utmCampaign) ? ` · ${ing.campana ?? ing.utmCampaign}` : ''}
+                  {ing.leadgenId ? ` · leadgen ${ing.leadgenId}` : ''}
+                </span>
+              </li>
+            ))}
+          </ol>
+          {(full.ultimoOrigen || full.ultimaCampana) && (
+            <p className="text-[11px] text-slate-400 mt-2">Último toque: {full.ultimoOrigen ?? '—'}{full.ultimaCampana ? ` · ${full.ultimaCampana}` : ''} (la atribución original se conserva arriba).</p>
+          )}
+        </div>
+      )}
 
       {/* Datos de la campaña dental (editables) + asistencia */}
       <div className="border-t border-slate-100 pt-3 mb-3">

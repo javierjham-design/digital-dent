@@ -11,8 +11,8 @@ import { parseModulos } from '@shared/constants/modulos'
 
 // ── Admin (tenant) ────────────────────────────────────────────────────────────
 export async function getLeads(req: Request, res: Response) {
-  const { estado, origen, campana, q, desde, hasta } = req.query as Record<string, string | undefined>
-  res.json(await svc.listarLeads(tenantDb(req), { estado, origen, campana, q, desde, hasta }))
+  const { estado, origen, campana, q, desde, hasta, reingresos } = req.query as Record<string, string | undefined>
+  res.json(await svc.listarLeads(tenantDb(req), { estado, origen, campana, q, desde, hasta, reingresos: reingresos === '1' || reingresos === 'true' }))
 }
 export async function getCampanas(req: Request, res: Response) {
   const { desde, hasta } = req.query as Record<string, string | undefined>

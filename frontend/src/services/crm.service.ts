@@ -16,10 +16,14 @@ export interface Lead {
   pacienteId: string | null; citaId: string | null; responsableId: string | null; createdAt: string
   ultimaGestionAt?: string; sinGestionar?: boolean
   campanaKey?: string; campanaLabel?: string
+  // Reingreso de contactos
+  vecesIngresado?: number; ultimoIngresoAt?: string | null; ingresos?: string | null; esReingreso?: boolean
+  ultimoOrigen?: string | null; ultimaCampana?: string | null; ultimoLeadgenId?: string | null
   notas?: LeadNota[]
 }
+export interface IngresoEntry { fecha?: string; origen?: string | null; campana?: string | null; campanaKey?: string | null; leadgenId?: string | null; utmCampaign?: string | null }
 export interface CampanaItem { key: string; label: string; n: number }
-export interface CrmResumen { total: number; estados: Record<string, number>; origenes: { origen: string; n: number }[]; sinGestionar: number; diasSinGestion: number }
+export interface CrmResumen { total: number; estados: Record<string, number>; origenes: { origen: string; n: number }[]; sinGestionar: number; reingresos?: number; diasSinGestion: number }
 export interface CrmConfig { slug: string; metaEnabled: boolean; metaPixelId: string | null; hasCapiToken: boolean; capiTokenLen: number; capiTokenLast4: string | null; metaTestCode: string | null; crmToken: string; diasSinGestion: number; metaCrmEnabled: boolean; metaCrmDatasetId: string | null; hasCrmToken: boolean; crmTokenLast4: string | null; metaLeadAdsEnabled: boolean; metaPageId: string | null; hasPageToken: boolean; pageTokenLast4: string | null; metaLeadAdsUltimo: string | null }
 export interface MetaTestResult { ok: boolean; status: number; recibidos?: number; testCode?: string; error?: string }
 export interface MetaRecepcionResult { ok: boolean; enabled: boolean; pagina?: string; error?: string; ultimo: { at?: string; leadgenId?: string; leadId?: string; reconciliado?: boolean; duplicado?: boolean } | null }
