@@ -87,6 +87,8 @@ apiRouter.post('/public/agenda/:slug/:token/reservar', asyncHandler(agendaOnline
 // ── Público: CRM (formulario web hospedado + intake de leads) ────────────────
 apiRouter.get('/public/crm/:slug/:token', asyncHandler(crm.getPublicForm))
 apiRouter.post('/public/crm/:slug/:token/lead', asyncHandler(crm.postPublicLead))
+// Intake del Formulario Instantáneo de Meta (Make hace POST aquí con leadgen_id + ad/adset/campaign).
+apiRouter.post('/public/crm/:slug/:token/meta-lead', asyncHandler(crm.postMetaLead))
 
 // Webhook de confirmación de Flow (cobros a pacientes). Público, por slug de clínica.
 apiRouter.post('/public/pagos/flow/:slug/webhook', asyncHandler(pagosOnline.postWebhookFlow))

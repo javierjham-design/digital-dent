@@ -81,6 +81,7 @@ export async function registrarEnvioMeta(
 type ScheduleLead = {
   id: string; email: string | null; telefono: string | null; nombre: string; apellido: string | null
   rut: string | null; externalId: string | null; fbp: string | null; fbc: string | null; ctwaClid: string | null
+  leadgenId: string | null
   landing: string | null; ip: string | null; userAgent: string | null; tratamiento: string | null
   utmCampaign: string | null; utmTerm: string | null; utmContent: string | null
   fechaAgenda: Date | null; ultimaGestionAt: Date; updatedAt: Date
@@ -112,6 +113,9 @@ export async function dispararScheduleMeta(db: TenantClient, lead: ScheduleLead,
     eventSourceUrl: lead.landing ?? null,
     email: lead.email, telefono: lead.telefono, nombre: lead.nombre, apellido: lead.apellido,
     externalId, ctwaClid: lead.ctwaClid, pais: 'cl', fbp: lead.fbp, fbc: lead.fbc,
+    // Si el lead vino del Formulario Meta, ata el Schedule a su leadgen_id
+    // (habilita "Leads de conversión"). Los leads de la landing van sin esto.
+    leadId: lead.leadgenId ?? undefined,
     ip: lead.ip, userAgent: lead.userAgent,
     custom: {
       tratamiento: lead.tratamiento ?? undefined, campaign_id: lead.utmCampaign ?? undefined,
@@ -240,7 +244,7 @@ export async function buscarLeadParaReserva(db: TenantClient, ident: IdentLead) 
 export interface CrearLeadInput {
   nombre: string; apellido?: string; telefono?: string; email?: string; rut?: string
   motivo?: string; tratamiento?: string; piezasReemplazar?: string; tiempoDesdePerdida?: string
-  origen?: string; campana?: string; externalId?: string
+  origen?: string; campana?: string; externalId?: string; leadgenId?: string
   utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmTerm?: string
   fbclid?: string; ctwaClid?: string; gclid?: string; msclkid?: string; ttclid?: string
   twclid?: string; liFatId?: string; igclid?: string; dclid?: string
@@ -271,7 +275,7 @@ export async function crearLead(
       tratamiento: clean(input.tratamiento), piezasReemplazar: clean(input.piezasReemplazar),
       tiempoDesdePerdida: clean(input.tiempoDesdePerdida),
       origen: (input.origen || 'FORMULARIO').toUpperCase(), campana: clean(input.campana),
-      externalId: clean(input.externalId),
+      externalId: clean(input.externalId), leadgenId: clean(input.leadgenId),
       utmSource: clean(input.utmSource), utmMedium: clean(input.utmMedium), utmCampaign: clean(input.utmCampaign),
       utmContent: clean(input.utmContent), utmTerm: clean(input.utmTerm),
       fbclid: clean(input.fbclid), ctwaClid: clean(input.ctwaClid), gclid: clean(input.gclid),
@@ -303,6 +307,51 @@ export async function crearLead(
     }).then((res) => registrarEnvioMeta(db, lead.id, 'Lead', res, 'metaEnviado'))
   }
   return lead
+}
+
+// ── Ingesta del Formulario Instantáneo de Meta (Instant Form, vía Make) ───────
+// Los IDs de campaña/adset/ad se guardan en utm* (igual que la landing). El
+// leadgen_id es la llave que luego ata el Schedule → "Leads de conversión".
+export interface IngestaMetaInput {
+  nombre: string; apellido?: string; telefono?: string; email?: string; rut?: string
+  motivo?: string; tratamiento?: string
+  leadgenId: string; formId?: string; adId?: string; adsetId?: string; campaignId?: string; pageId?: string
+}
+export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput, ctx?: { ip?: string; userAgent?: string }) {
+  const leadgenId = clean(input.leadgenId)
+  if (!leadgenId) throw badRequest('Falta el leadgenId del formulario Meta.')
+  const utmCampaign = clean(input.campaignId), utmTerm = clean(input.adsetId), utmContent = clean(input.adId)
+
+  // Dedup/reconciliación: si la persona ya existe (WhatsApp/landing/otro canal), NO
+  // se duplica; se completa el leadgenId y los datos faltantes en el lead existente.
+  const existente = await buscarLeadParaReserva(db, { telefono: input.telefono, email: input.email, rut: input.rut })
+  if (existente) {
+    const data: Record<string, unknown> = {
+      notas: { create: { tipo: 'SISTEMA', texto: `Formulario Meta reconciliado con lead existente (leadgen ${leadgenId}${input.formId ? `, form ${input.formId}` : ''}).` } },
+    }
+    if (!existente.leadgenId) data.leadgenId = leadgenId // atar la llave sin pisar otra existente
+    if (!existente.telefono && clean(input.telefono)) data.telefono = clean(input.telefono)
+    if (!existente.email && clean(input.email)) data.email = clean(input.email)
+    if (!existente.rut && clean(input.rut)) data.rut = clean(input.rut)
+    if (!existente.apellido && clean(input.apellido)) data.apellido = clean(input.apellido)
+    if (!existente.utmCampaign && utmCampaign) data.utmCampaign = utmCampaign
+    if (!existente.utmTerm && utmTerm) data.utmTerm = utmTerm
+    if (!existente.utmContent && utmContent) data.utmContent = utmContent
+    const lead = await db.lead.update({ where: { id: existente.id }, data })
+    return { lead, reconciliado: true }
+  }
+
+  // Nuevo lead del formulario Meta. NO se emite el evento "Lead" por CAPI: Meta ya
+  // lo contó al enviarse el formulario (evitar doble conteo). El evento Schedule se
+  // dispara luego, al pasar a AGENDADO, ya atado al leadgen_id.
+  const lead = await crearLead(db, {
+    nombre: input.nombre, apellido: input.apellido, telefono: input.telefono, email: input.email, rut: input.rut,
+    motivo: input.motivo, tratamiento: input.tratamiento,
+    origen: 'META_FORM', leadgenId,
+    utmSource: 'meta', utmMedium: 'paid',
+    utmCampaign: utmCampaign ?? undefined, utmTerm: utmTerm ?? undefined, utmContent: utmContent ?? undefined,
+  }, { ip: ctx?.ip, userAgent: ctx?.userAgent, emitirMeta: false })
+  return { lead, reconciliado: false }
 }
 
 // ── Gestión (admin) ───────────────────────────────────────────────────────────

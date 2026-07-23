@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-07-23 — Canal nuevo de leads: Formulario Instantáneo de Meta (Instant Form)
+
+Nuevo canal además de la landing. Los leads del Instant Form entran vía Make al
+intake público, se gestionan igual, y al agendar el Schedule vuelve a Meta **atado
+al leadgen_id** para optimizar por AGENDAMIENTO ("Leads de conversión").
+
+- **Schema (tenant, Lead)**: nuevo campo `leadgenId String?` (nullable, aditivo).
+  ⚠️ Schema en PROD: `migrate:tenants` corre `prisma db push` **SIN**
+  `--accept-data-loss`; una columna nullable es aditiva y segura. `init.sql` +
+  `prisma/tenant/schema.prisma` actualizados.
+- **Ingesta** `POST /public/crm/:slug/:token/meta-lead` (`crm.controller.postMetaLead`
+  → `crm.service.ingestarLeadMeta`): acepta `nombre/apellido/telefono/email/rut` +
+  `leadgenId` (obligatorio) + `formId/adId/adsetId/campaignId/pageId`. Mapea
+  `campaignId→utmCampaign`, `adsetId→utmTerm`, `adId→utmContent` (igual que la
+  landing). Origen `META_FORM` (distinto de `FORMULARIO`, para medir separado).
+  Dedup por teléfono/rut/email (`buscarLeadParaReserva`): si la persona ya existe,
+  NO duplica → completa el `leadgenId` y datos faltantes. No emite "Lead" por CAPI
+  (Meta ya lo contó al enviarse el form; evita doble conteo).
+- **Schedule → Meta con lead_id** (`dispararScheduleMeta` + `lib/meta.ts`): si el
+  lead tiene `leadgenId`, el evento Schedule incluye `user_data.lead_id` (sin
+  hashear, numérico). Los leads de la landing (sin leadgenId) NO cambian (fbc/fbp/
+  external_id). Se mantiene la idempotencia (`scheduleCapiEnviado`) y el clamp de
+  event_time. Token/secretos solo por ENV; nunca se loguea token ni PII.
+
 ## 2026-07-04 — Consentimientos informados (generación, firma y PDF) + almacenamiento por clínica
 
 **Consentimientos informados** (15 formatos base Digital Dent, Ley 20.584, sirven para LatAm):

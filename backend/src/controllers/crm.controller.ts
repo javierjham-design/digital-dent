@@ -5,7 +5,7 @@ import { tenantClient, type TenantClient } from '@/db/tenant'
 import { notFound, tooMany } from '@/lib/errors'
 import { rateLimit } from '@/lib/rate-limit'
 import * as svc from '@/services/crm.service'
-import { crearLeadSchema, notaSchema, agendarLeadSchema } from '@/validators/schemas'
+import { crearLeadSchema, notaSchema, agendarLeadSchema, metaLeadSchema } from '@/validators/schemas'
 import { parseModulos } from '@shared/constants/modulos'
 
 // ── Admin (tenant) ────────────────────────────────────────────────────────────
@@ -94,4 +94,18 @@ export async function postPublicLead(req: Request, res: Response) {
     ip, userAgent: req.get('user-agent') ?? undefined,
   })
   res.status(201).json({ ok: true, leadId: lead.id })
+}
+
+// Intake del Formulario Instantáneo de Meta (Make hace POST aquí con los campos +
+// leadgen_id + ad/adset/campaign/form/page). Dedup por teléfono/rut/email.
+export async function postMetaLead(req: Request, res: Response) {
+  const ip = req.ip ?? 'unknown'
+  const rl = rateLimit(`metalead:ip:${ip}`, { limit: 60, windowMs: 60 * 60_000 })
+  if (!rl.ok) throw tooMany('Demasiados envíos seguidos. Intenta nuevamente en un rato.')
+  const { slug, token } = req.params
+  const db = await resolverTenant(slug)
+  if (!(await svc.tokenCrmValido(db, token))) throw notFound('Formulario no encontrado')
+  const input = metaLeadSchema.parse(req.body)
+  const r = await svc.ingestarLeadMeta(db, input, { ip, userAgent: req.get('user-agent') ?? undefined })
+  res.status(201).json({ ok: true, leadId: r.lead?.id, reconciliado: r.reconciliado })
 }

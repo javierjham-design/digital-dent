@@ -905,6 +905,7 @@ CREATE TABLE "Lead" (
     "responsableId" TEXT,
     "metaEventId" TEXT,
     "metaEnviado" BOOLEAN NOT NULL DEFAULT false,
+    "leadgenId" TEXT,
     "scheduleEventId" TEXT,
     "scheduleCapiEnviado" BOOLEAN NOT NULL DEFAULT false,
     "ultimaGestionAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

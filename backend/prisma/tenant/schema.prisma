@@ -829,6 +829,7 @@ model Lead {
   responsableId String?    // usuario a cargo del seguimiento
   metaEventId   String?    // id de evento (Lead) para deduplicar con el Pixel del navegador
   metaEnviado   Boolean    @default(false)
+  leadgenId     String?    // leadgen_id del Formulario Instantáneo de Meta (llave para atar Schedule → Leads de conversión)
   scheduleEventId     String?  // event_id del evento Schedule (dedup con el Pixel)
   scheduleCapiEnviado Boolean @default(false)
   ultimaGestionAt DateTime @default(now()) // última gestión HUMANA (nota, cambio de estado, agendar…), no escrituras del sistema

@@ -302,6 +302,24 @@ export const crearLeadSchema = z.object({
   ...trackingFields,
 })
 
+// Intake del Formulario Instantáneo de Meta (vía Make): campos del formulario +
+// las llaves de Meta. leadgenId es obligatorio (es la llave de reconciliación).
+export const metaLeadSchema = z.object({
+  nombre: z.string().min(1, 'Falta el nombre'),
+  apellido: z.string().optional(),
+  telefono: z.string().optional(),
+  email: z.string().optional(),
+  rut: z.string().optional(),
+  motivo: z.string().optional(),
+  tratamiento: z.string().optional(),
+  leadgenId: z.string().min(1, 'Falta el leadgenId'),
+  formId: z.string().optional(),
+  adId: z.string().optional(),
+  adsetId: z.string().optional(),
+  campaignId: z.string().optional(),
+  pageId: z.string().optional(),
+})
+
 export const notaSchema = z.object({ texto: z.string().min(1, 'La nota no puede quedar vacía') })
 
 export const agendarLeadSchema = z.object({

@@ -26,6 +26,7 @@ export interface MetaEvent {
   fbp?: string | null
   fbc?: string | null
   ctwaClid?: string | null     // Click-to-WhatsApp: se envía sin hashear
+  leadId?: string | null       // leadgen_id del Formulario Meta → user_data.lead_id (sin hashear)
   ip?: string | null
   userAgent?: string | null
   custom?: Record<string, unknown>
@@ -115,6 +116,9 @@ export async function enviarEventoMeta(cfg: MetaConfig, ev: MetaEvent): Promise<
     if (ev.fbp) user_data.fbp = ev.fbp
     if (ev.fbc) user_data.fbc = ev.fbc
     if (ev.ctwaClid) user_data.ctwa_clid = ev.ctwaClid
+    // lead_id = leadgen_id del Formulario Meta (NO se hashea; ata el evento al lead
+    // de Meta para optimizar por "Leads de conversión"). Numérico si corresponde.
+    if (ev.leadId) user_data.lead_id = /^\d+$/.test(ev.leadId) ? Number(ev.leadId) : ev.leadId
     if (ev.ip) user_data.client_ip_address = ev.ip
     if (ev.userAgent) user_data.client_user_agent = ev.userAgent
 
