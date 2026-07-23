@@ -3,13 +3,13 @@ import { env } from '@/config/env'
 import { control } from '@/db/control'
 import { tenantClient } from '@/db/tenant'
 import { ingestarLeadMeta, getMetaLeadAdsConfig, registrarLeadAdsRecibido } from '@/services/crm.service'
+import { graphBase } from '@/lib/meta'
 
 // Recepción NATIVA de leads del Formulario Instantáneo de Meta (Lead Ads), sin
 // Make/Zapier. Una sola App de Meta (plataforma) recibe el webhook `leadgen`;
 // cada clínica autoriza su página y guarda su token. El page_id enruta el evento
 // al tenant correcto. Multi-tenant, cero constantes de una clínica específica.
 
-const GRAPH = 'https://graph.facebook.com/v25.0'
 
 // ── TAREA 1: verificación del webhook (handshake GET) ─────────────────────────
 // Devuelve el challenge (texto plano) si el verify_token coincide; null si no.
@@ -39,7 +39,7 @@ interface GraphLead { id?: string; created_time?: string; field_data?: FieldDatu
 
 async function traerLeadDeGraph(leadgenId: string, pageToken: string): Promise<GraphLead> {
   const fields = 'id,created_time,field_data,ad_id,adgroup_id,campaign_id,form_id'
-  const url = `${GRAPH}/${encodeURIComponent(leadgenId)}?fields=${fields}&access_token=${encodeURIComponent(pageToken)}`
+  const url = `${graphBase()}/${encodeURIComponent(leadgenId)}?fields=${fields}&access_token=${encodeURIComponent(pageToken)}`
   const r = await fetch(url)
   const data = (await r.json().catch(() => ({}))) as GraphLead & { error?: { message?: string } }
   if (!r.ok) throw new Error(data.error?.message ?? `Graph respondió ${r.status}`)
@@ -138,7 +138,7 @@ export async function probarRecepcionLeadAds(db: ReturnType<typeof tenantClient>
   if (!cfg.pageId) return { ok: false, enabled: cfg.enabled, error: 'Falta el Page ID de la clínica.', ultimo }
   if (!cfg.pageToken) return { ok: false, enabled: cfg.enabled, error: 'Falta el token de página.', ultimo }
   try {
-    const url = `${GRAPH}/${encodeURIComponent(cfg.pageId)}?fields=id,name&access_token=${encodeURIComponent(cfg.pageToken)}`
+    const url = `${graphBase()}/${encodeURIComponent(cfg.pageId)}?fields=id,name&access_token=${encodeURIComponent(cfg.pageToken)}`
     const r = await fetch(url)
     const d = (await r.json().catch(() => ({}))) as { name?: string; error?: { message?: string } }
     if (!r.ok) return { ok: false, enabled: cfg.enabled, error: d.error?.message ?? `Graph respondió ${r.status}`, ultimo }

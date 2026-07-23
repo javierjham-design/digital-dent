@@ -48,6 +48,9 @@ export const env = {
   metaAppId: process.env.META_APP_ID ?? '',
   metaAppSecret: process.env.META_APP_SECRET ?? '',
   metaWebhookVerifyToken: process.env.META_WEBHOOK_VERIFY_TOKEN ?? '',
+  // Versión ÚNICA de la Graph API para TODAS las llamadas a Meta (CAPI web,
+  // emisor de etapas de CRM, webhook de Lead Ads). Configurable por env.
+  metaGraphVersion: process.env.META_GRAPH_VERSION ?? 'v25.0',
 }
 
 export const isProd = env.nodeEnv === 'production'

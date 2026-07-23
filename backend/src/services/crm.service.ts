@@ -93,7 +93,7 @@ type ScheduleLead = {
   fechaAgenda: Date | null; ultimaGestionAt: Date; updatedAt: Date
   scheduleEventId: string | null; scheduleCapiEnviado: boolean
 }
-export type ScheduleOutcome = 'enviado' | 'error' | 'ya' | 'sin-config'
+export type ScheduleOutcome = 'enviado' | 'error' | 'ya' | 'sin-config' | 'sin-match'
 
 // event_time con clamp: Meta rechaza eventos de más de 7 días → nunca antes de
 // (ahora − 6 días). Usa el mayor entre (fechaAgenda ?? ultimaGestionAt ?? updatedAt) y ese piso.
@@ -104,10 +104,23 @@ function scheduleEventTime(l: ScheduleLead): number {
   return Math.max(baseSec, pisoSec)
 }
 
+// ¿El lead tiene alguna llave de match REAL para atribuir en Meta? El externalId
+// sintetizado (= id del lead) y fn/ln solos NO atribuyen. Sin ninguna llave, no
+// vale la pena emitir: Meta no lo puede atribuir y solo ensucia el dataset.
+export function tieneMatchKeys(l: { id?: string; email?: string | null; telefono?: string | null; leadgenId?: string | null; fbc?: string | null; fbp?: string | null; externalId?: string | null }): boolean {
+  const externalReal = l.externalId && l.externalId !== l.id ? l.externalId : null
+  return Boolean(l.email || l.telefono || l.leadgenId || l.fbc || l.fbp || externalReal)
+}
+
 export async function dispararScheduleMeta(db: TenantClient, lead: ScheduleLead, cfg?: MetaConfig): Promise<ScheduleOutcome> {
   if (lead.scheduleCapiEnviado) return 'ya' // idempotencia
   const conf = cfg ?? await getMetaConfig(db)
   if (!metaHabilitado(conf)) return 'sin-config'
+  // Sin llaves de match no se emite (no atribuye y ensucia el dataset). Se loguea.
+  if (!tieneMatchKeys(lead)) {
+    console.warn(`[meta] Schedule omitido para lead ${lead.id}: sin llaves de match (email/teléfono/leadgen/fbc/fbp).`)
+    return 'sin-match'
+  }
   // event_id estable para deduplicar reintentos (y con el Pixel si existiera).
   const eventId = lead.scheduleEventId || `sched_${lead.id}`
   if (eventId !== lead.scheduleEventId) {
@@ -177,22 +190,28 @@ export async function registrarLeadAdsRecibido(db: TenantClient, info: { leadgen
 // etapa (metaCrmEtapas: CSV de eventos ya enviados). Best-effort: nunca rompe la
 // operación principal ni loguea PII. Si Meta falla, no marca la etapa → se puede
 // reintentar. Se llama con `void` desde los puntos de cambio de estado.
-export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eventName: string, cfg?: MetaCrmConfig): Promise<'enviado' | 'error' | 'ya' | 'sin-config'> {
+export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eventName: string, cfg?: MetaCrmConfig): Promise<'enviado' | 'error' | 'ya' | 'sin-config' | 'sin-match'> {
   const conf = cfg ?? await getMetaCrmConfig(db)
   if (!crmMetaHabilitado(conf)) return 'sin-config'
   const lead = await db.lead.findUnique({
     where: { id: leadId },
-    select: { id: true, email: true, telefono: true, leadgenId: true, metaCrmEtapas: true, ultimaGestionAt: true, updatedAt: true, createdAt: true },
+    select: { id: true, nombre: true, apellido: true, email: true, telefono: true, leadgenId: true, metaCrmEtapas: true, fechaAgenda: true, ultimaGestionAt: true, updatedAt: true, createdAt: true },
   })
   if (!lead) return 'sin-config'
+  // Sin llaves de match (leadgen/email/teléfono) no se emite: no atribuye y ensucia.
+  if (!tieneMatchKeys(lead)) {
+    console.warn(`[meta] Etapa CRM "${eventName}" omitida para lead ${lead.id}: sin llaves de match.`)
+    return 'sin-match'
+  }
   const enviadas = (lead.metaCrmEtapas ?? '').split(',').map((s) => s.trim()).filter(Boolean)
   if (enviadas.includes(eventName)) return 'ya' // idempotencia
 
-  // event_time = momento del cambio de etapa, con clamp ≥ now−6d (Meta lo exige).
-  const base = lead.ultimaGestionAt ?? lead.updatedAt ?? lead.createdAt ?? new Date()
+  // event_time = fecha de la cita si el lead agendó (más preciso), si no el momento
+  // del cambio de etapa. Con clamp ≥ now−6d (Meta lo exige).
+  const base = lead.fechaAgenda ?? lead.ultimaGestionAt ?? lead.updatedAt ?? lead.createdAt ?? new Date()
   const eventTime = Math.max(Math.floor(new Date(base).getTime() / 1000), Math.floor(Date.now() / 1000) - 6 * 86400)
 
-  const res = await enviarEventoCrmMeta(conf, { eventName, eventTime, leadId: lead.leadgenId, email: lead.email, telefono: lead.telefono })
+  const res = await enviarEventoCrmMeta(conf, { eventName, eventTime, leadId: lead.leadgenId, email: lead.email, telefono: lead.telefono, nombre: lead.nombre, apellido: lead.apellido })
   if (res.ok) {
     await db.lead.update({ where: { id: lead.id }, data: { metaCrmEtapas: [...enviadas, eventName].join(',') } }).catch(() => {})
     await db.leadNota.create({ data: { leadId: lead.id, tipo: 'SISTEMA', texto: `Meta CRM: etapa "${eventName}" enviada al dataset.` } }).catch(() => {})
@@ -330,15 +349,50 @@ export interface CrearLeadInput {
 const clean = (v?: string | null) => (typeof v === 'string' && v.trim() ? v.trim() : null)
 const fecha = (v?: string | null) => { if (!v) return null; const d = new Date(v); return Number.isNaN(d.getTime()) ? null : d }
 
+// Busca un lead creado en los últimos `minutos` con el mismo teléfono (por dígitos)
+// o email (normalizado). Para frenar el doble submit del formulario de captación.
+async function buscarDuplicadoReciente(db: TenantClient, telefono?: string, email?: string, minutos = 10) {
+  const dig = (telefono ?? '').replace(/\D/g, '')
+  const em = email?.trim().toLowerCase() || null
+  if (!dig && !em) return null
+  const desde = new Date(Date.now() - minutos * 60_000)
+  const recientes = await db.lead.findMany({
+    where: { createdAt: { gte: desde } },
+    orderBy: { createdAt: 'desc' }, take: 50,
+    select: { id: true, telefono: true, email: true, apellido: true },
+  })
+  return recientes.find((l) =>
+    (dig && (l.telefono ?? '').replace(/\D/g, '') === dig) ||
+    (em && (l.email ?? '').trim().toLowerCase() === em),
+  ) ?? null
+}
+
 export async function crearLead(
   db: TenantClient,
   input: CrearLeadInput,
-  ctx?: { ip?: string; userAgent?: string; autorId?: string; autorNombre?: string; emitirMeta?: boolean },
+  ctx?: { ip?: string; userAgent?: string; autorId?: string; autorNombre?: string; emitirMeta?: boolean; antiDuplicadoMin?: number },
 ) {
   const nombre = (input.nombre ?? '').trim()
   if (!nombre) throw badRequest('Falta el nombre del prospecto')
   const eventId = input.eventId?.trim() || randomUUID()
   const emitir = ctx?.emitirMeta !== false
+
+  // Anti-duplicado por doble submit del formulario: si el mismo teléfono/email
+  // llegó en los últimos N minutos, se actualiza ese lead en vez de crear otro (y
+  // NO se reemite el evento Lead, que ya salió en el primer envío).
+  if (ctx?.antiDuplicadoMin && (clean(input.telefono) || clean(input.email))) {
+    const dup = await buscarDuplicadoReciente(db, input.telefono, input.email, ctx.antiDuplicadoMin)
+    if (dup) {
+      const upd: Record<string, unknown> = { ultimaGestionAt: new Date() }
+      if (!dup.telefono && clean(input.telefono)) upd.telefono = clean(input.telefono)
+      if (!dup.email && clean(input.email)) upd.email = clean(input.email)
+      if (!dup.apellido && clean(input.apellido)) upd.apellido = clean(input.apellido)
+      return db.lead.update({
+        where: { id: dup.id },
+        data: { ...upd, notas: { create: { tipo: 'SISTEMA', texto: 'Reenvío del formulario ignorado (anti-duplicado).' } } },
+      })
+    }
+  }
 
   const cfg = emitir ? await getMetaConfig(db) : null
 
@@ -370,8 +424,9 @@ export async function crearLead(
   if (!lead.externalId) await db.lead.update({ where: { id: lead.id }, data: { externalId } })
 
   // Evento "Lead" a Meta (server-side), deduplicado con el Pixel por event_id.
-  // Se registra el RESULTADO real (confirmador) sin bloquear la respuesta.
-  if (cfg && metaHabilitado(cfg)) {
+  // Se registra el RESULTADO real (confirmador) sin bloquear la respuesta. Solo si
+  // el lead tiene llaves de match (si no, no atribuye y ensucia el dataset).
+  if (cfg && metaHabilitado(cfg) && tieneMatchKeys(lead)) {
     void enviarEventoMeta(cfg, {
       eventName: 'Lead', eventId, eventSourceUrl: input.landing ?? null,
       email: lead.email, telefono: lead.telefono, nombre: lead.nombre, apellido: lead.apellido,
@@ -440,7 +495,7 @@ export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput
 // ── Gestión (admin) ───────────────────────────────────────────────────────────
 
 export async function actualizarLead(db: TenantClient, actor: JwtPayload, id: string, body: Record<string, unknown>) {
-  const existing = await db.lead.findUnique({ where: { id }, select: { id: true, estado: true } })
+  const existing = await db.lead.findUnique({ where: { id }, select: { id: true, estado: true, citaId: true, fechaAgenda: true } })
   if (!existing) throw notFound('Lead no encontrado')
   const data: Record<string, unknown> = {}
   for (const k of ['nombre', 'apellido', 'telefono', 'email', 'rut', 'motivo', 'tratamiento', 'piezasReemplazar', 'tiempoDesdePerdida', 'campana', 'agendaFuente', 'responsableId'] as const) {
@@ -453,6 +508,12 @@ export async function actualizarLead(db: TenantClient, actor: JwtPayload, id: st
   if (typeof body.estado === 'string') {
     if (!ESTADOS.includes(body.estado)) throw badRequest(`Estado inválido. Use: ${ESTADOS.join(', ')}`)
     if (body.estado !== existing.estado) { data.estado = body.estado; cambioEstado = body.estado }
+  }
+  // Al pasar a AGENDADO sin fecha explícita: usar la de la cita vinculada si existe,
+  // para tener event_time preciso y poder cerrar la reportería de asistencia.
+  if (cambioEstado === 'AGENDADO' && data.fechaAgenda === undefined && !existing.fechaAgenda && existing.citaId) {
+    const cita = await db.cita.findUnique({ where: { id: existing.citaId }, select: { fecha: true } })
+    if (cita?.fecha) data.fechaAgenda = cita.fecha
   }
   const lead = await db.lead.update({ where: { id }, data })
   if (cambioEstado) {
@@ -568,10 +629,7 @@ export async function backfillSchedule(db: TenantClient): Promise<BackfillSchedu
   let enviados = 0, omitidos = 0, errores = 0
   const omitidosIds: string[] = []
   for (const l of leads) {
-    // externalId sintetizado (= id del lead) NO cuenta como clave real de match.
-    const externalReal = l.externalId && l.externalId !== l.id ? l.externalId : null
-    const tieneMatch = Boolean(l.email || l.telefono || l.fbc || l.fbp || externalReal)
-    if (!tieneMatch) { omitidos++; omitidosIds.push(l.id); continue }
+    if (!tieneMatchKeys(l)) { omitidos++; omitidosIds.push(l.id); continue }
     const r = await dispararScheduleMeta(db, l as ScheduleLead, cfg)
     if (r === 'enviado') enviados++
     else if (r === 'error' || r === 'sin-config') errores++

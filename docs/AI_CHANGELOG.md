@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-07-23 — Ajustes finos de la integración con Meta (match quality, versión, dedup)
+
+Mejoras puntuales sobre lo ya construido; no rehace nada.
+
+1. **fn/ln en eventos de etapa de CRM** (`lib/meta.ts` `MetaCrmEvent` +
+   `dispararEtapaCrmMeta`): se agregan `fn`/`ln` (nombre/apellido) hasheados con el
+   mismo helper del CAPI web. Suben el Event Match Quality. Solo si existen.
+2. **Versión ÚNICA de Graph API**: `env.metaGraphVersion` (`META_GRAPH_VERSION`,
+   default `v25.0`) + `graphBase()` en `lib/meta.ts`, reutilizado por el CAPI web,
+   el emisor de CRM y el webhook de Lead Ads. Antes el web iba en v19.0 y el
+   webhook en v25.0.
+3. **No emitir sin llaves de match**: helper `tieneMatchKeys` (email/teléfono/
+   leadgen/fbc/fbp/external real; el external sintetizado = id NO cuenta). Guarda
+   en `dispararScheduleMeta`, `dispararEtapaCrmMeta` y el "Lead" web de `crearLead`
+   → si no hay ninguna llave, se omite y se loguea (nuevo outcome `sin-match`).
+4. **fechaAgenda**: al marcar AGENDADO manual sin fecha, se deriva de la cita
+   vinculada; se usa como `event_time` del evento de etapa (más preciso) y habilita
+   la reportería de asistencia. (`agendarLead` ya la fijaba; el input datetime-local
+   ya existe en la UI para el caso sin cita.)
+5. **Anti-duplicado del intake**: `crearLead` acepta `antiDuplicadoMin` (el intake
+   público de la landing pasa 10 min): si el mismo teléfono/email llegó en la
+   ventana, actualiza el lead existente en vez de crear otro (doble submit) y no
+   reemite el evento Lead. Helper `buscarDuplicadoReciente`.
+
+No toca funcionalidades validadas. Multi-tenant, secretos por env/DB, sin PII en logs.
+
+---
+
 ## 2026-07-23 — Recepción NATIVA de leads de Meta Lead Ads (webhook, sin Make)
 
 Dirección ENTRANTE del canal Meta: los leads del Formulario Instantáneo llegan

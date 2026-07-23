@@ -1,4 +1,9 @@
 import { createHash } from 'node:crypto'
+import { env } from '@/config/env'
+
+// Base de la Graph API con la versión ÚNICA (env.metaGraphVersion) para todas las
+// llamadas a Meta. Exportada para reutilizarla en el webhook de Lead Ads.
+export const graphBase = () => `https://graph.facebook.com/${env.metaGraphVersion}`
 
 // Integración con Meta Conversions API (server-side). Envía eventos (Lead,
 // Schedule, etc.) con los datos del usuario hasheados (SHA-256), como exige Meta.
@@ -85,7 +90,7 @@ export async function probarConexionMeta(cfg: MetaConfig): Promise<MetaTestResul
       }],
       test_event_code: testCode,
     }
-    const url = `https://graph.facebook.com/v19.0/${encodeURIComponent(cfg.pixelId)}/events?access_token=${encodeURIComponent(cfg.capiToken)}`
+    const url = `${graphBase()}/${encodeURIComponent(cfg.pixelId)}/events?access_token=${encodeURIComponent(cfg.capiToken)}`
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const data = (await r.json().catch(() => ({}))) as { events_received?: number; error?: { message?: string; code?: number }; fbtrace_id?: string }
     if (r.ok && (data.events_received ?? 0) >= 1) return { ok: true, status: r.status, recibidos: data.events_received, testCode }
@@ -108,17 +113,20 @@ export function crmMetaHabilitado(cfg: MetaCrmConfig): boolean {
   return Boolean(cfg.enabled && cfg.datasetId && cfg.accessToken)
 }
 
-export interface MetaCrmEvent { eventName: string; eventTime: number; leadId?: string | null; email?: string | null; telefono?: string | null }
+export interface MetaCrmEvent { eventName: string; eventTime: number; leadId?: string | null; email?: string | null; telefono?: string | null; nombre?: string | null; apellido?: string | null }
 
-// POST al endpoint de eventos del dataset (v25.0). Devuelve el resultado real.
+// POST al endpoint de eventos del dataset. Devuelve el resultado real.
 async function postEventoCrm(datasetId: string, token: string, ev: MetaCrmEvent, testCode?: string): Promise<MetaSendResult> {
   try {
     const user_data: Record<string, unknown> = {}
     // lead_id = leadgen_id del Formulario Instantáneo (NÚMERO, sin hashear). Si no
-    // hay, se omite y se manda solo em/ph hasheados.
+    // hay, se omite y se manda solo em/ph/fn/ln hasheados.
     if (ev.leadId && /^\d+$/.test(ev.leadId)) user_data.lead_id = Number(ev.leadId)
     if (ev.email) user_data.em = [shaNorm(ev.email)]
     if (ev.telefono) { const ph = normPhone(ev.telefono); if (ph) user_data.ph = [sha(ph)] }
+    // fn/ln (nombre/apellido) hasheados: suben el Event Match Quality. Solo si existen.
+    if (ev.nombre) user_data.fn = [shaNorm(ev.nombre)]
+    if (ev.apellido) user_data.ln = [shaNorm(ev.apellido)]
     const body: Record<string, unknown> = {
       data: [{
         action_source: 'system_generated',
@@ -129,7 +137,7 @@ async function postEventoCrm(datasetId: string, token: string, ev: MetaCrmEvent,
       }],
       ...(testCode ? { test_event_code: testCode } : {}),
     }
-    const url = `https://graph.facebook.com/v25.0/${encodeURIComponent(datasetId)}/events?access_token=${encodeURIComponent(token)}`
+    const url = `${graphBase()}/${encodeURIComponent(datasetId)}/events?access_token=${encodeURIComponent(token)}`
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const data = (await r.json().catch(() => ({}))) as { events_received?: number; error?: { message?: string } }
     if (r.ok && (data.events_received ?? 0) >= 1) return { ok: true, recibidos: data.events_received }
@@ -190,7 +198,7 @@ export async function enviarEventoMeta(cfg: MetaConfig, ev: MetaEvent): Promise<
       }],
       ...(cfg.testCode ? { test_event_code: cfg.testCode } : {}),
     }
-    const url = `https://graph.facebook.com/v19.0/${cfg.pixelId}/events?access_token=${encodeURIComponent(cfg.capiToken!)}`
+    const url = `${graphBase()}/${cfg.pixelId}/events?access_token=${encodeURIComponent(cfg.capiToken!)}`
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
     const data = (await r.json().catch(() => ({}))) as { events_received?: number; error?: { message?: string } }
     if (r.ok && (data.events_received ?? 0) >= 1) return { ok: true, recibidos: data.events_received }
