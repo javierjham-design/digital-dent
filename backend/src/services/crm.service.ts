@@ -343,7 +343,7 @@ export interface CrearLeadInput {
   twclid?: string; liFatId?: string; igclid?: string; dclid?: string
   fbp?: string; fbc?: string; referrer?: string; landing?: string; tituloPagina?: string; pantalla?: string; locale?: string
   primeraVisita?: string; ultimaVisita?: string
-  eventId?: string
+  eventId?: string; camposExtra?: string
 }
 
 const clean = (v?: string | null) => (typeof v === 'string' && v.trim() ? v.trim() : null)
@@ -403,7 +403,7 @@ export async function crearLead(
       tratamiento: clean(input.tratamiento), piezasReemplazar: clean(input.piezasReemplazar),
       tiempoDesdePerdida: clean(input.tiempoDesdePerdida),
       origen: (input.origen || 'FORMULARIO').toUpperCase(), campana: clean(input.campana),
-      externalId: clean(input.externalId), leadgenId: clean(input.leadgenId),
+      externalId: clean(input.externalId), leadgenId: clean(input.leadgenId), camposExtra: clean(input.camposExtra),
       utmSource: clean(input.utmSource), utmMedium: clean(input.utmMedium), utmCampaign: clean(input.utmCampaign),
       utmContent: clean(input.utmContent), utmTerm: clean(input.utmTerm),
       fbclid: clean(input.fbclid), ctwaClid: clean(input.ctwaClid), gclid: clean(input.gclid),
@@ -447,7 +447,7 @@ export async function crearLead(
 // leadgen_id es la llave que luego ata el Schedule → "Leads de conversión".
 export interface IngestaMetaInput {
   nombre: string; apellido?: string; telefono?: string; email?: string; rut?: string
-  motivo?: string; tratamiento?: string
+  motivo?: string; tratamiento?: string; camposExtra?: string
   leadgenId: string; formId?: string; adId?: string; adsetId?: string; campaignId?: string; pageId?: string
 }
 export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput, ctx?: { ip?: string; userAgent?: string }) {
@@ -475,6 +475,7 @@ export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput
     if (!existente.utmCampaign && utmCampaign) data.utmCampaign = utmCampaign
     if (!existente.utmTerm && utmTerm) data.utmTerm = utmTerm
     if (!existente.utmContent && utmContent) data.utmContent = utmContent
+    if (!existente.camposExtra && clean(input.camposExtra)) data.camposExtra = clean(input.camposExtra)
     const lead = await db.lead.update({ where: { id: existente.id }, data })
     return { lead, reconciliado: true }
   }
@@ -484,7 +485,7 @@ export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput
   // dispara luego, al pasar a AGENDADO, ya atado al leadgen_id.
   const lead = await crearLead(db, {
     nombre: input.nombre, apellido: input.apellido, telefono: input.telefono, email: input.email, rut: input.rut,
-    motivo: input.motivo, tratamiento: input.tratamiento,
+    motivo: input.motivo, tratamiento: input.tratamiento, camposExtra: input.camposExtra,
     origen: 'META_FORM', leadgenId,
     utmSource: 'meta', utmMedium: 'paid',
     utmCampaign: utmCampaign ?? undefined, utmTerm: utmTerm ?? undefined, utmContent: utmContent ?? undefined,

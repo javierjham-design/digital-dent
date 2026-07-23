@@ -23,6 +23,7 @@ export interface CrmResumen { total: number; estados: Record<string, number>; or
 export interface CrmConfig { slug: string; metaEnabled: boolean; metaPixelId: string | null; hasCapiToken: boolean; capiTokenLen: number; capiTokenLast4: string | null; metaTestCode: string | null; crmToken: string; diasSinGestion: number; metaCrmEnabled: boolean; metaCrmDatasetId: string | null; hasCrmToken: boolean; crmTokenLast4: string | null; metaLeadAdsEnabled: boolean; metaPageId: string | null; hasPageToken: boolean; pageTokenLast4: string | null; metaLeadAdsUltimo: string | null }
 export interface MetaTestResult { ok: boolean; status: number; recibidos?: number; testCode?: string; error?: string }
 export interface MetaRecepcionResult { ok: boolean; enabled: boolean; pagina?: string; error?: string; ultimo: { at?: string; leadgenId?: string; leadId?: string; reconciliado?: boolean; duplicado?: boolean } | null }
+export interface MetaReprocesoResult { ok: boolean; error?: string; graphError?: { message: string; code?: number; subcode?: number; status: number }; fieldData?: { name?: string; values?: string[] }[]; mapeado?: { nombre: string; apellido?: string; telefono?: string; email?: string; rut?: string; motivo?: string }; camposExtra?: Record<string, string>; estado?: string; lead?: { id?: string; nombre?: string } | null }
 
 function qs(p?: Record<string, string | undefined>): string {
   if (!p) return ''
@@ -50,6 +51,7 @@ export const crmService = {
   probarMeta: () => api.post<MetaTestResult>('/crm/meta/test', {}),
   probarMetaCrm: () => api.post<MetaTestResult>('/crm/meta-crm/test', {}),
   probarRecepcionLeadAds: () => api.post<MetaRecepcionResult>('/crm/meta-leadads/test', {}),
+  reprocesarLead: (leadgenId: string) => api.post<MetaReprocesoResult>('/admin/meta/reprocesar-lead', { leadgenId }),
   backfillSchedule: () => api.post<{ total: number; enviados: number; omitidos: number; errores: number; omitidosIds: string[] }>('/crm/schedule/backfill', {}),
   apiKeyEstado: () => api.get<{ hasApiKey: boolean }>('/crm/api-key'),
   rotarApiKey: () => api.post<{ apiKey: string }>('/crm/api-key/rotate', {}),

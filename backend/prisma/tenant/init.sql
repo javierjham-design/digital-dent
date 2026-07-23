@@ -913,6 +913,7 @@ CREATE TABLE "Lead" (
     "metaEventId" TEXT,
     "metaEnviado" BOOLEAN NOT NULL DEFAULT false,
     "leadgenId" TEXT,
+    "camposExtra" TEXT,
     "metaCrmEtapas" TEXT,
     "scheduleEventId" TEXT,
     "scheduleCapiEnviado" BOOLEAN NOT NULL DEFAULT false,

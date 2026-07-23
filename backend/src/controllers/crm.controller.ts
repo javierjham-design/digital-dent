@@ -69,6 +69,10 @@ export async function postProbarMetaCrm(req: Request, res: Response) {
 export async function postProbarRecepcionLeadAds(req: Request, res: Response) {
   res.json(await leadAds.probarRecepcionLeadAds(tenantDb(req)))
 }
+export async function postReprocesarLead(req: Request, res: Response) {
+  const { leadgenId } = (req.body ?? {}) as { leadgenId?: string }
+  res.json(await leadAds.reprocesarLead(tenantDb(req), String(leadgenId ?? '')))
+}
 export async function postBackfillSchedule(req: Request, res: Response) {
   res.json(await svc.backfillSchedule(tenantDb(req)))
 }

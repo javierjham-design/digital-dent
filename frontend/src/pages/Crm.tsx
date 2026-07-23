@@ -645,6 +645,9 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
   const [editPageToken, setEditPageToken] = useState(false)
   const [probandoRec, setProbandoRec] = useState(false)
   const [recRes, setRecRes] = useState<{ ok: boolean; msg: string } | null>(null)
+  const [reproId, setReproId] = useState('')
+  const [reproBusy, setReproBusy] = useState(false)
+  const [reproRes, setReproRes] = useState<import('../services/crm.service').MetaReprocesoResult | null>(null)
   // El slug se guarda aparte y solo se actualiza con un valor no vacío: así una
   // respuesta que no lo traiga (o venga vacío) nunca deja las URLs en "undefined".
   const [slug, setSlug] = useState('')
@@ -678,6 +681,14 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
         ? { ok: true, msg: `Conexión con la página "${r.pagina}" OK.${ultimoTxt}` }
         : { ok: false, msg: (r.error ?? 'No se pudo validar la recepción.') + (u?.at ? ultimoTxt : '') })
     } catch (e) { setRecRes({ ok: false, msg: e instanceof ApiError ? e.message : 'Error al probar la recepción.' }) } finally { setProbandoRec(false) }
+  }
+
+  async function reprocesar() {
+    if (!reproId.trim()) return
+    setReproBusy(true); setReproRes(null)
+    try {
+      setReproRes(await crmService.reprocesarLead(reproId.trim()))
+    } catch (e) { setReproRes({ ok: false, error: e instanceof ApiError ? e.message : 'Error al reprocesar.' }) } finally { setReproBusy(false) }
   }
 
   async function generarKey() {
@@ -935,6 +946,35 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
                   {probandoRec ? 'Probando…' : 'Probar recepción'}
                 </button>
                 {recRes && <span className={`text-xs font-medium ${recRes.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{recRes.ok ? '✓' : '✗'} {recRes.msg}</span>}
+              </div>
+
+              {/* Reproceso manual por leadgen_id (validar sin gastar en anuncios) */}
+              <div className="mt-4">
+                <p className="text-[11px] font-medium text-slate-500 mb-1">Reprocesar un lead por leadgen_id (mismo pipeline que el webhook):</p>
+                <div className="flex items-center gap-2">
+                  <input value={reproId} onChange={(e) => setReproId(e.target.value)} placeholder="leadgen_id" className={`${inp} font-mono flex-1`} />
+                  <button onClick={reprocesar} disabled={reproBusy || !reproId.trim()} className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-lg shrink-0">{reproBusy ? 'Procesando…' : 'Reprocesar'}</button>
+                </div>
+                {reproRes && (
+                  <div className={`mt-2 rounded-lg border p-2 text-[11px] ${reproRes.ok ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-50 border-rose-200'}`}>
+                    {reproRes.ok ? (
+                      <div className="space-y-1">
+                        <p className="font-semibold text-emerald-700">✓ Lead {reproRes.estado} {reproRes.lead?.id ? `(${reproRes.lead?.nombre ?? reproRes.lead.id})` : ''}</p>
+                        <p className="text-slate-600">Mapeado: <span className="font-mono">{[reproRes.mapeado?.nombre, reproRes.mapeado?.apellido, reproRes.mapeado?.telefono, reproRes.mapeado?.email].filter(Boolean).join(' · ') || '—'}</span></p>
+                        {reproRes.camposExtra && Object.keys(reproRes.camposExtra).length > 0 && (
+                          <p className="text-amber-700">Sin mapear (camposExtra): <span className="font-mono">{Object.keys(reproRes.camposExtra).join(', ')}</span></p>
+                        )}
+                        {reproRes.fieldData && (
+                          <details><summary className="cursor-pointer text-slate-500">field_data crudo de Meta</summary>
+                            <pre className="mt-1 overflow-x-auto text-[10px] text-slate-600 whitespace-pre-wrap">{JSON.stringify(reproRes.fieldData, null, 2)}</pre>
+                          </details>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-rose-700">✗ {reproRes.error}{reproRes.graphError?.code ? ` (code ${reproRes.graphError.code}${reproRes.graphError.subcode ? `/${reproRes.graphError.subcode}` : ''})` : ''}</p>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>

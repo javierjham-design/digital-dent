@@ -179,6 +179,8 @@ apiRouter.patch('/crm/config', crmAdmin, asyncHandler(crm.patchConfig))
 apiRouter.post('/crm/meta/test', crmAdmin, asyncHandler(crm.postProbarMeta))
 apiRouter.post('/crm/meta-crm/test', crmAdmin, asyncHandler(crm.postProbarMetaCrm))
 apiRouter.post('/crm/meta-leadads/test', crmAdmin, asyncHandler(crm.postProbarRecepcionLeadAds))
+// Reproceso manual de un lead por leadgen_id (mismo pipeline que el webhook). Admin.
+apiRouter.post('/admin/meta/reprocesar-lead', crmAdmin, asyncHandler(crm.postReprocesarLead))
 apiRouter.post('/crm/schedule/backfill', crmAdmin, asyncHandler(crm.postBackfillSchedule))
 
 // Gestión de la API key de acceso externo (MCP) — admin de la clínica.

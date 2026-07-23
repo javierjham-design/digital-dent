@@ -843,6 +843,7 @@ model Lead {
   metaEventId   String?    // id de evento (Lead) para deduplicar con el Pixel del navegador
   metaEnviado   Boolean    @default(false)
   leadgenId     String?    // leadgen_id del Formulario Instantáneo de Meta (llave para atar Schedule → Leads de conversión)
+  camposExtra   String?    // JSON con los campos del Formulario Meta que no mapearon a un campo conocido (no se pierden)
   metaCrmEtapas String?    // etapas de CRM ya emitidas al dataset de Meta (CSV, ej. "Lead,Contactado") — idempotencia
   scheduleEventId     String?  // event_id del evento Schedule (dedup con el Pixel)
   scheduleCapiEnviado Boolean @default(false)

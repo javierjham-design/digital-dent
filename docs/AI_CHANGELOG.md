@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-07-23 — Lead Ads: mapeo tolerante (ES+tildes), reproceso manual y logging
+
+1. **Mapeo de field_data tolerante** (`meta-leadads.service`): `normName`
+   (minúsculas, sin diacríticos, separadores→`_`) + tabla `ALIAS` ES/EN (match
+   exacto + respaldo por substring). Cubre `nombre_completo`,
+   `número_de_teléfono`, `correo_electrónico`, etc. Lo que no matchea NO se
+   descarta: va a `Lead.camposExtra` (nuevo campo JSON, nullable/aditivo) y se
+   loga el name crudo. `IngestaMetaInput`/`CrearLeadInput` plumbean `camposExtra`.
+2. **Reproceso manual** `POST /admin/meta/reprocesar-lead` (crmAdmin): mismo
+   pipeline que el webhook (fetch Graph → mapeo → dedup/ingesta) usando el token
+   de página del tenant. Devuelve `field_data` crudo + lo mapeado + `camposExtra`
+   + el lead resultante, para validar sin gastar en anuncios. UI en Configuración
+   (input leadgen_id + resultado con field_data crudo).
+3. **Logging del webhook**: se registra cada POST con page_id/leadgen_id/form_id;
+   el fetch a Graph ahora devuelve error estructurado (message/code/subcode/status)
+   y se loga en el fallo (antes era silencioso: Meta reportaba éxito y no aparecía
+   nada). Pipeline extraído a `ejecutarPipeline` (compartido webhook + reproceso).
+
+Aditivo; no toca el CAPI web ni el emisor de CRM. Sin PII en logs (solo names).
+
+---
+
 ## 2026-07-23 — Ajustes finos de la integración con Meta (match quality, versión, dedup)
 
 Mejoras puntuales sobre lo ya construido; no rehace nada.
