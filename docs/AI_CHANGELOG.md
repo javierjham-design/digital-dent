@@ -5,6 +5,32 @@
 
 ---
 
+## 2026-07-24 — Fix: agendamiento online de leads META_FORM (Schedule CRM + no reingreso)
+
+Un lead de Meta Form (con leadgenId) que agendaba por AGENDA_ONLINE disparaba el
+Schedule LANDING (dataset web) en vez del CRM, y se contaba como reingreso.
+
+- **FIX 1 (una sola vía por ORIGEN)**: `dispararScheduleMeta` (landing) ahora OMITE
+  los leads con leadgenId (`sin-leadgen`) → esos van SIEMPRE al dataset de CRM vía
+  `dispararEtapaCrmMeta('Schedule')`. En agenda-online el Schedule se rutea por
+  `lead.leadgenId` (CRM) vs. landing. Nunca ambas. Manual (actualizar/agendar) ya
+  llamaba a las dos funciones; el guard hace que solo dispare la correcta.
+- **FIX 2 (progresión, no reingreso)**: la reserva online de un lead existente ya
+  NO usa `construirReingreso`: no incrementa `vecesIngresado`, no marca reingreso,
+  no pisa origen/ultimoOrigen/ultimoLeadgenId. Solo transiciona a AGENDADO en el
+  mismo ciclo (fechaAgenda + cita). El contador de reingreso solo sube ante inbound
+  real (webhook META_FORM / intake landing), nunca ante progresiones internas.
+- **FIX 3 (backfill)**: `backfillCrmSchedule` (`POST /crm/crm-schedule/backfill`,
+  botón en Config): para leads META_FORM ya AGENDADO sin Schedule CRM, limpia los
+  toques AGENDA_ONLINE del historial, recalcula `vecesIngresado`, restaura
+  `ultimoLeadgenId`, y dispara el Schedule CRM (`crm_{id}_Schedule_{ciclo}`).
+  Corrige a Ma Paz y a cualquier otro en el mismo estado.
+- **FIX 4 (UI)**: el badge de Schedule del lead, para leads con leadgenId, refleja
+  el Schedule del dataset de CRM (`metaCrmEtapas` contiene `Schedule_N`), no el
+  `scheduleCapiEnviado` del landing (evita falsa confianza).
+
+---
+
 ## 2026-07-24 — Recaudación 2do medio de pago + comentario de cita + amarillo abono parcial
 
 Tres ajustes:

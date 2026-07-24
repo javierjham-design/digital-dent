@@ -417,7 +417,13 @@ function LeadDetalle({ lead, waPlantilla, clinicaNombre, onClose, onChanged, not
         </div>
         <div className="flex flex-wrap gap-1.5 mt-2 text-[11px]">
           <span className={`px-2 py-0.5 rounded-full ${full.metaEnviado ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Lead {full.metaEnviado ? '✓ confirmado en Meta' : 'sin confirmar'}</span>
-          {(full.origen === 'AGENDA_ONLINE' || full.scheduleEventId) && (
+          {full.leadgenId ? (
+            // Lead del Formulario Instantáneo → el Schedule va al dataset de CRM
+            // (metaCrmEtapas contiene "Schedule_N"), NO al Schedule landing.
+            (() => { const crmSched = (full.metaCrmEtapas ?? '').split(',').some((s) => s.trim().startsWith('Schedule')); return (
+              <span className={`px-2 py-0.5 rounded-full ${crmSched ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Schedule CRM {crmSched ? '✓ enviado al dataset' : 'pendiente'}</span>
+            ) })()
+          ) : (full.origen === 'AGENDA_ONLINE' || full.scheduleEventId) && (
             <span className={`px-2 py-0.5 rounded-full ${full.scheduleCapiEnviado ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-400'}`}>Schedule {full.scheduleCapiEnviado ? '✓ confirmado en Meta' : 'sin confirmar'}</span>
           )}
           {full.externalId && <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">external_id ✓</span>}
@@ -763,6 +769,16 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
     } catch (e) { setBackfillRes(e instanceof ApiError ? e.message : 'Error en el backfill'); notify('Error en el backfill', false) } finally { setBackfilling(false) }
   }
 
+  async function backfillCrm() {
+    if (!confirm('Enviar el evento CRM "Schedule" al dataset de CRM para los leads del Formulario Instantáneo que ya están AGENDADO y aún no lo dispararon (p. ej. agendaron online). También corrige el contador de reingreso mal contado. ¿Continuar?')) return
+    setBackfilling(true); setBackfillRes(null)
+    try {
+      const r = await crmService.backfillCrmSchedule()
+      setBackfillRes(`CRM Schedule — Enviados: ${r.enviados} · Corregidos (reingreso): ${r.corregidos} · Omitidos: ${r.omitidos} · Errores: ${r.errores} · Total: ${r.total}`)
+      notify('Backfill CRM completado')
+    } catch (e) { setBackfillRes(e instanceof ApiError ? e.message : 'Error en el backfill CRM'); notify('Error en el backfill CRM', false) } finally { setBackfilling(false) }
+  }
+
   // El formulario hospedado es una ruta del SPA → va en el origin del frontend.
   // Todas las URLs se arman con `slug` (estado protegido) + el token del cfg. Si el
   // slug aún no está, quedan vacías y la UI muestra "Cargando…" en vez de una URL rota.
@@ -944,6 +960,14 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
                 {probandoCrm ? 'Enviando…' : 'Enviar evento de prueba'}
               </button>
               {crmTestRes && <span className={`text-xs font-medium ${crmTestRes.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{crmTestRes.ok ? '✓' : '✗'} {crmTestRes.msg}</span>}
+            </div>
+            {/* Backfill del Schedule CRM para leads de Meta Form ya AGENDADO que no lo dispararon */}
+            <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <button onClick={backfillCrm} disabled={backfilling}
+                className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-lg">
+                {backfilling ? 'Procesando…' : 'Enviar Schedule CRM a AGENDADO pendientes'}
+              </button>
+              {backfillRes && <span className="text-xs text-slate-600">{backfillRes}</span>}
             </div>
             <p className="text-[11px] text-slate-500 mt-3 mb-1">Endpoint para leads del Formulario Instantáneo (Make → POST JSON con <span className="font-mono">leadgenId</span>):</p>
             <div className="flex items-center gap-2 bg-slate-50 border border-slate-100 rounded-lg px-3 py-2">

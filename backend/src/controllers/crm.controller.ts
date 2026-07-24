@@ -76,6 +76,9 @@ export async function postReprocesarLead(req: Request, res: Response) {
 export async function postBackfillSchedule(req: Request, res: Response) {
   res.json(await svc.backfillSchedule(tenantDb(req)))
 }
+export async function postBackfillCrmSchedule(req: Request, res: Response) {
+  res.json(await svc.backfillCrmSchedule(tenantDb(req)))
+}
 
 // ── Público (formulario hospedado + intake por slug/token) ───────────────────
 // Resuelve la clínica por slug y exige que tenga el módulo CRM habilitado (si el

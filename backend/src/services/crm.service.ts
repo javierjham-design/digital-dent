@@ -108,7 +108,7 @@ type ScheduleLead = {
   fechaAgenda: Date | null; ultimaGestionAt: Date; updatedAt: Date
   scheduleEventId: string | null; scheduleCapiEnviado: boolean; vecesIngresado?: number | null
 }
-export type ScheduleOutcome = 'enviado' | 'error' | 'ya' | 'sin-config' | 'sin-match'
+export type ScheduleOutcome = 'enviado' | 'error' | 'ya' | 'sin-config' | 'sin-match' | 'sin-leadgen'
 
 // event_time con clamp: Meta rechaza eventos de más de 7 días → nunca antes de
 // (ahora − 6 días). Usa el mayor entre (fechaAgenda ?? ultimaGestionAt ?? updatedAt) y ese piso.
@@ -129,6 +129,10 @@ export function tieneMatchKeys(l: { id?: string; email?: string | null; telefono
 
 export async function dispararScheduleMeta(db: TenantClient, lead: ScheduleLead, cfg?: MetaConfig): Promise<ScheduleOutcome> {
   if (lead.scheduleCapiEnviado) return 'ya' // idempotencia
+  // UNA SOLA VÍA: los leads del Formulario Instantáneo (con leadgenId) NO usan el
+  // Schedule landing (dataset web); su agendamiento va al dataset de CRM vía
+  // dispararEtapaCrmMeta('Schedule'). Aquí se omiten para no disparar por dos vías.
+  if (lead.leadgenId) return 'sin-leadgen'
   const conf = cfg ?? await getMetaConfig(db)
   if (!metaHabilitado(conf)) return 'sin-config'
   // Sin llaves de match no se emite (no atribuye y ensucia el dataset). Se loguea.
@@ -762,6 +766,39 @@ export async function backfillSchedule(db: TenantClient): Promise<BackfillSchedu
     // 'ya' no debería ocurrir (el where filtra scheduleCapiEnviado=false), pero no suma a nada.
   }
   return { total: leads.length, enviados, omitidos, errores, omitidosIds }
+}
+
+// Backfill del evento CRM "Schedule" para leads del Formulario Instantáneo que ya
+// están AGENDADO pero nunca lo dispararon (p. ej. agendaron online, cuando el path
+// no miraba el origen). También CORRIGE el daño de reingreso que dejó ese path: quita
+// del historial los toques AGENDA_ONLINE (que no eran reingresos), recalcula
+// vecesIngresado y restaura ultimoLeadgenId/ultimoOrigen desde el último toque real.
+export interface BackfillCrmResumen { total: number; enviados: number; corregidos: number; omitidos: number; errores: number }
+export async function backfillCrmSchedule(db: TenantClient): Promise<BackfillCrmResumen> {
+  const cfg = await getMetaCrmConfig(db)
+  if (!crmMetaHabilitado(cfg)) throw badRequest('La integración de CRM con Meta no está configurada en esta clínica.')
+  const leads = await db.lead.findMany({ where: { estado: 'AGENDADO', leadgenId: { not: null } } })
+  let enviados = 0, corregidos = 0, omitidos = 0, errores = 0
+  for (const l of leads) {
+    // 1) Corrige el daño de reingreso por AGENDA_ONLINE (progresión mal contada).
+    const ingresos = parseIngresos(l.ingresos) as { origen?: string; campana?: string; leadgenId?: string }[]
+    const limpios = ingresos.filter((e) => e?.origen !== 'AGENDA_ONLINE')
+    const vecesReal = Math.max(1, limpios.length || 1)
+    const ultimoReal = limpios[limpios.length - 1]
+    const dataFix: Record<string, unknown> = {}
+    if ((l.vecesIngresado ?? 1) !== vecesReal) dataFix.vecesIngresado = vecesReal
+    if (limpios.length !== ingresos.length) dataFix.ingresos = JSON.stringify(limpios)
+    if (l.ultimoLeadgenId !== l.leadgenId) dataFix.ultimoLeadgenId = l.leadgenId
+    if (ultimoReal?.origen && l.ultimoOrigen !== ultimoReal.origen) dataFix.ultimoOrigen = ultimoReal.origen
+    if (Object.keys(dataFix).length > 0) { await db.lead.update({ where: { id: l.id }, data: dataFix }).catch(() => {}); corregidos++ }
+
+    // 2) Dispara el Schedule CRM si no se envió aún (idempotente por ciclo).
+    const r = await dispararEtapaCrmMeta(db, l.id, 'Schedule', cfg)
+    if (r === 'enviado') enviados++
+    else if (r === 'ya' || r === 'sin-leadgen') omitidos++
+    else if (r === 'error' || r === 'sin-config') errores++
+  }
+  return { total: leads.length, enviados, corregidos, omitidos, errores }
 }
 
 export async function eliminarLead(db: TenantClient, id: string) {

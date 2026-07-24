@@ -13,6 +13,7 @@ export interface Lead {
   referrer: string | null; landing: string | null; tituloPagina: string | null; pantalla: string | null; locale: string | null
   primeraVisita: string | null; ultimaVisita: string | null; fechaAgenda: string | null; agendaFuente: string | null; asistio: boolean | null
   metaEventId: string | null; metaEnviado: boolean; scheduleEventId: string | null; scheduleCapiEnviado: boolean
+  leadgenId?: string | null; metaCrmEtapas?: string | null
   pacienteId: string | null; citaId: string | null; responsableId: string | null; createdAt: string
   ultimaGestionAt?: string; sinGestionar?: boolean
   campanaKey?: string; campanaLabel?: string
@@ -68,6 +69,7 @@ export const crmService = {
   probarRecepcionLeadAds: () => api.post<MetaRecepcionResult>('/crm/meta-leadads/test', {}),
   reprocesarLead: (leadgenId: string) => api.post<MetaReprocesoResult>('/admin/meta/reprocesar-lead', { leadgenId }),
   backfillSchedule: () => api.post<{ total: number; enviados: number; omitidos: number; errores: number; omitidosIds: string[] }>('/crm/schedule/backfill', {}),
+  backfillCrmSchedule: () => api.post<{ total: number; enviados: number; corregidos: number; omitidos: number; errores: number }>('/crm/crm-schedule/backfill', {}),
   apiKeyEstado: () => api.get<{ hasApiKey: boolean }>('/crm/api-key'),
   rotarApiKey: () => api.post<{ apiKey: string }>('/crm/api-key/rotate', {}),
   revocarApiKey: () => api.del<{ ok: true }>('/crm/api-key'),

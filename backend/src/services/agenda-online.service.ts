@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { listarHorarios } from '@/services/horarios.service'
-import { getMetaConfig, buscarLeadParaReserva, registrarEnvioMeta, construirReingreso } from '@/services/crm.service'
+import { getMetaConfig, buscarLeadParaReserva, registrarEnvioMeta, dispararEtapaCrmMeta } from '@/services/crm.service'
 import { crearLinkParaCobro } from '@/services/pagos-online.service'
 import { enviarConfirmacionHora } from '@/services/email.service'
 import { enviarEventoMeta, metaHabilitado } from '@/lib/meta'
@@ -398,27 +398,25 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
 
     let lead
     if (existente) {
-      // Reingreso: el contacto ya existía y ahora agenda por el link. Se registra el
-      // toque (sube al tope + historial) forzando estado AGENDADO (ya agendó).
-      const reingreso = await construirReingreso(db, existente, {
-        origen: 'AGENDA_ONLINE', campana: t(input.campana), utmSource: t(input.utmSource), utmMedium: t(input.utmMedium),
-        utmCampaign: t(input.utmCampaign), utmContent: t(input.utmContent), utmTerm: t(input.utmTerm),
-        fbc: t(input.fbc), fbp: t(input.fbp),
-      }, 'AGENDADO')
+      // PROGRESIÓN (no reingreso): el contacto ya existía y ahora agenda por el link.
+      // Se AVANZA a AGENDADO en el mismo ciclo, sin tocar el contador de reingreso ni
+      // la atribución original (origen/ultimoOrigen/ultimoLeadgenId se conservan).
+      // El Schedule landing (scheduleEventId) solo aplica si NO es un lead de Meta Form.
+      const esLeadgen = Boolean(existente.leadgenId)
       lead = await db.lead.update({
         where: { id: existente.id },
         data: {
-          ...reingreso,
           estado: 'AGENDADO', pacienteId: existente.pacienteId ?? paciente.id, citaId: cita.id,
-          fechaAgenda: cita.fecha, agendaFuente: link.nombre,
+          fechaAgenda: cita.fecha, agendaFuente: link.nombre, ultimaGestionAt: new Date(),
           // Completar identificadores/tracking que ahora tenemos y al lead le faltaban
           telefono: existente.telefono ?? telefono, email: existente.email ?? emailNorm, rut: existente.rut ?? rut,
           externalId: existente.externalId ?? t(input.externalId),
           fbp: existente.fbp ?? t(input.fbp), fbc: existente.fbc ?? t(input.fbc),
           fbclid: existente.fbclid ?? t(input.fbclid), ctwaClid: existente.ctwaClid ?? t(input.ctwaClid),
           landing: existente.landing ?? t(input.landing),
-          scheduleEventId: eventId, scheduleCapiEnviado: false, // se confirma con la respuesta real de Meta
-          notas: { create: { tipo: 'SISTEMA', texto: `Reingreso: agendó por el link online · ${link.nombre} (toque #${(existente.vecesIngresado ?? 1) + 1})` } },
+          // Reset del Schedule landing SOLO para leads no-Meta (los de Meta Form van al CRM).
+          ...(esLeadgen ? {} : { scheduleEventId: eventId, scheduleCapiEnviado: false }),
+          notas: { create: { tipo: 'SISTEMA', texto: `Agendó por el link online · ${link.nombre}` } },
         },
       })
     } else {
@@ -441,8 +439,14 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
       })
     }
 
+    // Schedule a Meta por UNA SOLA VÍA, decidida por el ORIGEN del lead (no el método):
+    //  · lead del Formulario Instantáneo (leadgenId) → evento CRM "Schedule" al dataset
+    //    de CRM, atado al leadgenId ORIGINAL de la ficha (event_id crm_{id}_Schedule_N).
+    //  · lead de landing/otro → Schedule landing al dataset web (comportamiento actual).
     const externalId = lead.externalId || rut || lead.id
-    if (enviado) {
+    if (lead.leadgenId) {
+      void dispararEtapaCrmMeta(db, lead.id, 'Schedule')
+    } else if (enviado) {
       // Confirmador: registramos el resultado real (events_received) en el lead.
       void enviarEventoMeta(cfg, {
         eventName: 'Schedule', eventId, email: input.email, telefono, nombre, apellido,
