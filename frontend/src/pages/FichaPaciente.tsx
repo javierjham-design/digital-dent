@@ -387,7 +387,8 @@ function DatosTab({ paciente, onSaved, onFichaSaved }: { paciente: PacienteDTO; 
 function CitasTab({ pacienteId }: { pacienteId: string }) {
   const [citas, setCitas] = useState<CitaDTO[]>([])
   const [cargando, setCargando] = useState(true)
-  useEffect(() => { pacientesService.citas(pacienteId).then(setCitas).finally(() => setCargando(false)) }, [pacienteId])
+  // Ordenadas de la más reciente a la más antigua (por fecha de inicio).
+  useEffect(() => { pacientesService.citas(pacienteId).then((cs) => setCitas([...cs].sort((a, b) => new Date(b.inicio).getTime() - new Date(a.inicio).getTime()))).finally(() => setCargando(false)) }, [pacienteId])
   if (cargando) return <p className="text-slate-500 text-sm">Cargando…</p>
   if (citas.length === 0) return <p className="text-slate-500 text-sm">Este paciente no tiene citas.</p>
   return (
