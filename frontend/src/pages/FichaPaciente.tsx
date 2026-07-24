@@ -395,12 +395,13 @@ function CitasTab({ pacienteId }: { pacienteId: string }) {
       {citas.map((c) => {
         const cfg = CITA_ESTADOS[c.estado]
         return (
-          <div key={c.id} className="flex items-center justify-between px-5 py-3">
-            <div>
+          <div key={c.id} className="flex items-start justify-between gap-3 px-5 py-3">
+            <div className="min-w-0">
               <p className="text-sm font-medium text-slate-800">{new Date(c.inicio).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</p>
               <p className="text-xs text-slate-500">{c.doctor} · {c.tipo}</p>
+              {c.notas?.trim() && <p className="text-xs text-slate-600 mt-1 whitespace-pre-wrap">💬 {c.notas.trim()}</p>}
             </div>
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full" style={{ backgroundColor: cfg?.bg, color: cfg?.text }}>{cfg?.label ?? c.estado}</span>
+            <span className="shrink-0 text-xs font-semibold px-2.5 py-1 rounded-full" style={{ backgroundColor: cfg?.bg, color: cfg?.text }}>{cfg?.label ?? c.estado}</span>
           </div>
         )
       })}
@@ -1164,6 +1165,8 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
   const puedeAplicarDescuento = esAdmin || Boolean(user?.permisos?.puedeAplicarDescuento)
   const completado = t.estado === 'COMPLETADO'
   const pagada = pagadaTrat(t)
+  // Realizada con abono PARCIAL (pagó algo pero no cubre el neto) → amarillo.
+  const abonoParcial = completado && !pagada && pagadoTrat(t) > 0.5
   const liquidada = (t._count?.liquidacionItems ?? 0) > 0 // ya pagada al profesional
   // Una acción realizada bloquea precio y descuento (hay que desrealizarla primero).
   const precioEditable = !bloqueado && !completado && puedeModificarPrecio
@@ -1249,11 +1252,11 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
         </button>
       ) : <span className="shrink-0 w-[18px]" />}
 
-      {/* Estado de PAGO (independiente del ✓ realizada de la izquierda):
-          verde = pagada · rojo = realizada pero impaga (DEUDA) · azul = agregada (aún sin realizar). */}
+      {/* Estado de PAGO (independiente del ✓ realizada de la izquierda): verde = pagada ·
+          amarillo = realizada con abono parcial · rojo = realizada impaga (DEUDA) · azul = sin realizar. */}
       <span className="w-7 sm:w-10 flex justify-center shrink-0">
-        <span className={`w-2.5 h-2.5 rounded-full ${pagada ? 'bg-emerald-500' : completado ? 'bg-rose-500' : 'bg-sky-500'}`}
-          title={pagada ? 'Pagada' : completado ? 'En deuda (realizada e impaga)' : 'Agregada (aún sin realizar)'} />
+        <span className={`w-2.5 h-2.5 rounded-full ${pagada ? 'bg-emerald-500' : abonoParcial ? 'bg-amber-400' : completado ? 'bg-rose-500' : 'bg-sky-500'}`}
+          title={pagada ? 'Pagada' : abonoParcial ? 'Realizada con abono parcial' : completado ? 'En deuda (realizada e impaga)' : 'Agregada (aún sin realizar)'} />
       </span>
       {!bloqueado
         ? <button onClick={() => accion(() => tratamientosService.eliminar(t.id))} className="w-4 text-slate-300 hover:text-rose-600 text-sm shrink-0" title="Quitar">×</button>
@@ -1418,6 +1421,11 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   const [medioPagoId, setMedioPagoId] = useState('')
   const [numeroReferencia, setNumeroReferencia] = useState('')
   const [numeroBoleta, setNumeroBoleta] = useState('')
+  // Segundo medio de pago (pago dividido): monto2 va a este medio; el resto al primero.
+  const [dividir, setDividir] = useState(false)
+  const [medioPago2Id, setMedioPago2Id] = useState('')
+  const [monto2, setMonto2] = useState('')
+  const [numeroReferencia2, setNumeroReferencia2] = useState('')
   const [sel, setSel] = useState<Record<string, number>>({})
   const [abono, setAbono] = useState('')
   const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null)
@@ -1426,6 +1434,8 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
 
   const medioSel = medios.find((m) => m.id === medioPagoId)
   const requiereRef = Boolean(medioSel?.requiereReferencia)
+  const medioSel2 = medios.find((m) => m.id === medioPago2Id)
+  const requiereRef2 = dividir && Boolean(medioSel2?.requiereReferencia)
 
   const cargarDetalle = (id: string) => { if (id) planesService.obtener(id).then((d) => setDetalle(d as PlanDetalle)).catch(() => {}) }
   useEffect(() => {
@@ -1444,6 +1454,11 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   const acciones = detalle ? [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos] : []
   const restante = (t: TratNode) => Math.max(0, netoTrat(t) - pagadoTrat(t))
   const totalSel = Object.values(sel).reduce((s, n) => s + n, 0) + (Number(abono) || 0)
+  // Split: monto2 al segundo medio, el resto (monto1) al primero. La suma = totalSel.
+  const monto2Num = Math.round(Number(monto2) || 0)
+  const splitActivo = dividir && Boolean(medioPago2Id) && monto2Num > 0
+  const monto1Num = totalSel - monto2Num
+  const splitValido = !splitActivo || (monto2Num > 0 && monto2Num < totalSel && medioPago2Id !== medioPagoId)
   // Deuda = acciones REALIZADAS (completadas) aún impagas.
   const deuda = acciones.filter((t) => t.estado === 'COMPLETADO').reduce((s, t) => s + restante(t), 0)
   // Grupos de cobro: por sección del plan (+ "Sin sección"), sólo con acciones que restan por pagar.
@@ -1480,14 +1495,20 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
     if (items.length === 0) { setMsg({ t: 'Selecciona acciones o ingresa un abono.', ok: false }); return }
     if (!miCaja) { setMsg({ t: 'No tienes una caja abierta. Abre tu caja en Cobros para recibir pagos.', ok: false }); return }
     if (requiereRef && !numeroReferencia.trim()) { setMsg({ t: `Ingresa el N° de referencia de la operación (${medioSel?.nombre}).`, ok: false }); return }
+    if (splitActivo) {
+      if (!splitValido) { setMsg({ t: 'El segundo medio debe ser distinto y su monto menor al total.', ok: false }); return }
+      if (requiereRef2 && !numeroReferencia2.trim()) { setMsg({ t: `Ingresa el N° de referencia del segundo medio (${medioSel2?.nombre}).`, ok: false }); return }
+    }
     setSaving(true); setMsg(null)
     try {
       await cobrosService.crear({
         pacienteId, cajaId: miCaja.id, medioPagoId: medioPagoId || undefined, items,
         numeroReferencia: numeroReferencia.trim() || undefined, numeroBoleta: numeroBoleta.trim() || undefined,
+        ...(splitActivo ? { medioPago2Id, monto2: monto2Num, numeroReferencia2: numeroReferencia2.trim() || undefined } : {}),
       })
       setMsg({ t: `Recaudación de ${fmtCLP(totalSel)} registrada.`, ok: true })
-      setSel({}); setAbono(''); setNumeroReferencia(''); setNumeroBoleta(''); cargarDetalle(planId)
+      setSel({}); setAbono(''); setNumeroReferencia(''); setNumeroBoleta('')
+      setDividir(false); setMedioPago2Id(''); setMonto2(''); setNumeroReferencia2(''); cargarDetalle(planId)
     } catch (e) { setMsg({ t: e instanceof ApiError ? e.message : 'No se pudo recaudar', ok: false }) } finally { setSaving(false) }
   }
 
@@ -1617,11 +1638,52 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
                   className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
               </label>
             </div>
+
+            {/* Segundo medio de pago (pago dividido). El monto2 va al 2do medio; el resto al 1ro. */}
+            {!dividir ? (
+              <button type="button" onClick={() => { setDividir(true); if (totalSel > 0) setMonto2(String(Math.floor(totalSel / 2))) }}
+                disabled={totalSel <= 0}
+                className="text-xs font-semibold text-cyan-700 hover:text-cyan-800 disabled:opacity-40">+ Agregar segundo medio de pago</button>
+            ) : (
+              <div className="rounded-lg border border-slate-200 p-3 space-y-2 bg-slate-50/60">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-600">Segundo medio de pago (pago dividido)</span>
+                  <button type="button" onClick={() => { setDividir(false); setMedioPago2Id(''); setMonto2(''); setNumeroReferencia2('') }} className="text-xs text-slate-400 hover:text-rose-600">Quitar</button>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-500">2do medio</span>
+                    <select value={medioPago2Id} onChange={(e) => setMedioPago2Id(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                      <option value="">Efectivo / sin comisión</option>
+                      {medios.map((m) => <option key={m.id} value={m.id}>{m.nombre}{m.comision ? ` (${m.comision}%)` : ''}</option>)}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-500">Monto en el 2do medio</span>
+                    <input type="number" min={1} value={monto2} onChange={(e) => setMonto2(e.target.value)} placeholder="0"
+                      className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
+                  </label>
+                </div>
+                {requiereRef2 && (
+                  <label className="block">
+                    <span className="text-xs font-medium text-slate-500">N° de referencia del 2do medio *</span>
+                    <input value={numeroReferencia2} onChange={(e) => setNumeroReferencia2(e.target.value)} placeholder="Obligatorio para tarjeta"
+                      className="mt-1 w-full px-3 py-2 border border-cyan-300 bg-cyan-50/40 rounded-lg text-sm" />
+                  </label>
+                )}
+                <div className="text-xs text-slate-600 flex items-center justify-between">
+                  <span>{medioSel?.nombre ?? 'Efectivo'}: <span className="font-mono font-semibold">{fmtCLP(Math.max(0, monto1Num))}</span></span>
+                  <span>{medioSel2?.nombre ?? 'Efectivo'}: <span className="font-mono font-semibold">{fmtCLP(monto2Num)}</span></span>
+                </div>
+                {splitActivo && !splitValido && <p className="text-[11px] text-rose-600">El 2do medio debe ser distinto del 1ro y su monto menor al total ({fmtCLP(totalSel)}).</p>}
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <span className="text-sm text-slate-500">Total a recaudar</span>
               <span className="text-lg font-bold text-cyan-700">{fmtCLP(totalSel)}</span>
             </div>
-            <button onClick={recaudar} disabled={saving || totalSel <= 0 || (requiereRef && !numeroReferencia.trim())} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
+            <button onClick={recaudar} disabled={saving || totalSel <= 0 || (requiereRef && !numeroReferencia.trim()) || (splitActivo && (!splitValido || (requiereRef2 && !numeroReferencia2.trim())))} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
             {msg && <p className={`text-sm ${msg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{msg.t}</p>}
             <p className="text-[11px] text-slate-400">La caja debe estar abierta (ábrela en Cobros si hace falta).</p>
           </div>

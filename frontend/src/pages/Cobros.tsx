@@ -28,7 +28,7 @@ interface ResumenCaja {
 // Abierta → el ciclo en curso; si no hay abierta, "tu caja" (el Nº se asigna al abrir).
 const etiquetaCaja = (c: ResumenCaja) => c.sesionAbierta ? `Caja N° ${c.sesionAbierta.numero}` : 'tu caja'
 interface Movimiento { id: string; tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; user?: { name: string | null } | null; cobro?: { numero?: number; paciente?: { nombre: string; apellido: string } | null; medioPago?: { nombre: string | null } | null } | null }
-interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; pacienteId: string; paciente: { nombre: string; apellido: string; email?: string | null }; medioPago?: { nombre: string } | null; movimientos?: { sesion?: { numero: number } | null }[] }
+interface Cobro { id: string; numero: number; concepto: string; monto: number; estado: string; anulado: boolean; fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null; pacienteId: string; paciente: { nombre: string; apellido: string; email?: string | null }; medioPago?: { nombre: string } | null; medioPago2?: { nombre: string } | null; monto2?: number | null; movimientos?: { sesion?: { numero: number } | null }[] }
 
 // Plan (para recibir pago obligado a un plan)
 interface CobroItemLite { monto: number; cobro?: { estado: string } | null }
@@ -142,7 +142,7 @@ export function Cobros() {
                 <p className="text-sm font-medium text-slate-800 truncate">#{c.numero} · {c.paciente.nombre} {c.paciente.apellido}</p>
                 {c.movimientos?.[0]?.sesion?.numero != null && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 shrink-0">Caja Nº {c.movimientos[0].sesion!.numero}</span>}
               </div>
-              <p className="text-xs text-slate-500 truncate">{c.concepto}{c.medioPago ? ` · ${c.medioPago.nombre}` : ' · Efectivo'}{c.numeroReferencia ? ` · Ref ${c.numeroReferencia}` : ''}{c.numeroBoleta ? ` · Boleta ${c.numeroBoleta}` : ''}{c.fechaPago ? ` · ${fechaHora(c.fechaPago)}` : ''}</p>
+              <p className="text-xs text-slate-500 truncate">{c.concepto}{c.medioPago ? ` · ${c.medioPago.nombre}` : ' · Efectivo'}{c.monto2 ? ` + ${c.medioPago2?.nombre ?? 'Efectivo'} ${fmt(c.monto2)}` : ''}{c.numeroReferencia ? ` · Ref ${c.numeroReferencia}` : ''}{c.numeroBoleta ? ` · Boleta ${c.numeroBoleta}` : ''}{c.fechaPago ? ` · ${fechaHora(c.fechaPago)}` : ''}</p>
             </div>
             {/* En móvil: monto + acciones bajan a su propia fila (con wrap) para que no se encimen. */}
             <div className="flex items-center gap-x-4 gap-y-1.5 flex-wrap sm:flex-nowrap sm:flex-shrink-0 sm:justify-end border-t border-slate-100 pt-2 sm:border-0 sm:pt-0">

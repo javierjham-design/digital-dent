@@ -11,6 +11,7 @@ const fmtMoney = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(Math
 const COBRO_INCLUDE = {
   paciente: true,
   medioPago: true,
+  medioPago2: true,
   caja: { select: { id: true, numero: true, nombre: true } },
   // Nº de la CAJA (ciclo apertura→cierre) en que se recibió el pago: es el
   // correlativo global de la sesión, no un "registro físico". Viene del
@@ -47,6 +48,7 @@ export async function obtenerCobro(db: TenantClient, id: string) {
 
 export interface CrearCobroInput {
   pacienteId: string; cajaId: string; medioPagoId?: string; reciboUsuarioId?: string
+  medioPago2Id?: string; monto2?: number; numeroReferencia2?: string
   fechaPago?: string; notas?: string; numeroReferencia?: string; numeroBoleta?: string
   items: { tratamientoId?: string; planId?: string; descripcion: string; monto: number }[]
 }
@@ -113,19 +115,38 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
 
   const numeroReferencia = input.numeroReferencia?.trim() || null
   const numeroBoleta = input.numeroBoleta?.trim() || null
+  const numeroReferencia2 = input.numeroReferencia2?.trim() || null
+
+  // Pago DIVIDIDO: monto2 va al segundo medio; el resto (monto − monto2) al primero.
+  // La suma siempre iguala el total del cobro (acciones seleccionadas / abono libre).
+  const esDividido = Boolean(input.medioPago2Id) && Number(input.monto2) > 0
+  const monto2 = esDividido ? Math.round(Number(input.monto2)) : 0
+  if (esDividido) {
+    if (monto2 >= Math.round(monto)) throw badRequest('El monto del segundo medio debe ser menor al total (el resto va al primer medio).')
+    if (monto2 <= 0) throw badRequest('El monto del segundo medio debe ser mayor a 0.')
+    if (input.medioPago2Id === input.medioPagoId) throw badRequest('El segundo medio de pago debe ser distinto del primero.')
+  }
+  const monto1 = esDividido ? Math.round(monto) - monto2 : monto
 
   let comisionMonto = 0
   let montoNeto = monto
   let medioNombre = ''
-  if (input.medioPagoId) {
-    const medio = await db.medioPago.findUnique({ where: { id: input.medioPagoId } })
-    if (!medio) throw badRequest('Medio de pago inválido')
-    comisionMonto = monto * (medio.comision / 100); montoNeto = monto - comisionMonto; medioNombre = medio.nombre
-    // Pagos con tarjeta (medios marcados como "requiere referencia") exigen el N° de operación.
-    if (medio.requiereReferencia && !numeroReferencia) {
-      throw badRequest(`El medio de pago "${medio.nombre}" requiere el número de referencia de la operación.`)
-    }
+  let medioPago2Id: string | null = null
+  // Comisión y validación de referencia POR medio (cada tramo con su medio).
+  const aplicarMedio = async (medioId: string | undefined, montoTramo: number, ref: string | null, cual: string): Promise<{ nombre: string; comision: number }> => {
+    if (!medioId) return { nombre: 'Efectivo', comision: 0 } // efectivo/sin medio: sin comisión
+    const medio = await db.medioPago.findUnique({ where: { id: medioId } })
+    if (!medio) throw badRequest(`Medio de pago ${cual} inválido`)
+    if (medio.requiereReferencia && !ref) throw badRequest(`El medio de pago "${medio.nombre}" requiere el número de referencia de la operación.`)
+    return { nombre: medio.nombre, comision: montoTramo * (medio.comision / 100) }
   }
+  const m1 = await aplicarMedio(input.medioPagoId, monto1, numeroReferencia, 'principal')
+  comisionMonto = m1.comision; medioNombre = m1.nombre
+  if (esDividido) {
+    const m2 = await aplicarMedio(input.medioPago2Id, monto2, numeroReferencia2, 'secundario')
+    comisionMonto += m2.comision; medioNombre = `${m1.nombre} + ${m2.nombre}`; medioPago2Id = input.medioPago2Id!
+  }
+  montoNeto = monto - comisionMonto
 
   const concepto = items.map((i) => i.descripcion).join(', ')
   const last = await db.cobro.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
@@ -140,6 +161,7 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
       data: {
         pacienteId: input.pacienteId, numero, concepto, monto, montoNeto, comisionMonto,
         estado: 'PAGADO', medioPagoId: input.medioPagoId || null, reciboUsuarioId: input.reciboUsuarioId || actor.sub,
+        medioPago2Id, monto2: esDividido ? monto2 : null, numeroReferencia2,
         cajaId: caja.id, fechaPago, notas: input.notas || null, numeroReferencia, numeroBoleta,
         items: { create: items.map((i) => ({ tratamientoId: i.tratamientoId || null, planId: i.planId || null, descripcion: i.descripcion, monto: Number(i.monto) })) },
       },

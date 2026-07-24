@@ -14,6 +14,7 @@ interface Cobro {
   fechaPago: string | null; numeroReferencia?: string | null; numeroBoleta?: string | null
   paciente: { nombre: string; apellido: string; rut?: string | null }
   medioPago?: { nombre: string } | null
+  medioPago2?: { nombre: string } | null; monto2?: number | null; numeroReferencia2?: string | null
   reciboUsuario?: { name?: string | null; email?: string | null } | null
   items?: CobroItem[]
   movimientos?: { sesion?: { numero: number } | null }[]
@@ -75,8 +76,9 @@ export function ComprobantePrint() {
         <Linea k="Paciente" v={`${cobro.paciente.nombre} ${cobro.paciente.apellido}`} />
         <Linea k="RUT" v={cobro.paciente.rut ?? '—'} />
         <Linea k="Fecha de pago" v={fechaHora(cobro.fechaPago)} />
-        <Linea k="Medio de pago" v={cobro.medioPago?.nombre ?? 'Efectivo'} />
+        <Linea k="Medio de pago" v={cobro.monto2 ? `${cobro.medioPago?.nombre ?? 'Efectivo'} ${fmt(cobro.monto - cobro.monto2)} + ${cobro.medioPago2?.nombre ?? 'Efectivo'} ${fmt(cobro.monto2)}` : (cobro.medioPago?.nombre ?? 'Efectivo')} />
         {cobro.numeroReferencia && <Linea k="N° de operación" v={cobro.numeroReferencia} />}
+        {cobro.numeroReferencia2 && <Linea k="N° operación (2do medio)" v={cobro.numeroReferencia2} />}
         {cobro.numeroBoleta && <Linea k="N° de boleta" v={cobro.numeroBoleta} />}
         <Linea k="Recibido por" v={recibio} />
         {cajaNumero != null && <Linea k="Caja" v={`N° ${cajaNumero}`} />}

@@ -416,6 +416,9 @@ CREATE TABLE "Cobro" (
     "comisionMonto" DOUBLE PRECISION,
     "estado" TEXT NOT NULL DEFAULT 'PENDIENTE',
     "medioPagoId" TEXT,
+    "medioPago2Id" TEXT,
+    "monto2" DOUBLE PRECISION,
+    "numeroReferencia2" TEXT,
     "metodoPago" TEXT,
     "reciboUsuarioId" TEXT,
     "cajaId" TEXT,
@@ -750,6 +753,7 @@ ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_pacienteId_fkey" FOREIGN KEY ("pacient
 
 -- AddForeignKey
 ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_medioPagoId_fkey" FOREIGN KEY ("medioPagoId") REFERENCES "MedioPago"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_medioPago2Id_fkey" FOREIGN KEY ("medioPago2Id") REFERENCES "MedioPago"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_reciboUsuarioId_fkey" FOREIGN KEY ("reciboUsuarioId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;

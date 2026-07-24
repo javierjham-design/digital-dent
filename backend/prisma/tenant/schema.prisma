@@ -461,7 +461,8 @@ model MedioPago {
   comision           Float   @default(0)
   activo             Boolean @default(true)
   requiereReferencia Boolean @default(false) // pagos con tarjeta exigen N° de operación
-  cobros             Cobro[]
+  cobros             Cobro[] @relation("CobroMedio")
+  cobros2            Cobro[] @relation("CobroMedio2")
 }
 
 model Cobro {
@@ -475,6 +476,11 @@ model Cobro {
   estado           String     @default("PENDIENTE")
   medioPagoId      String?
   metodoPago       String?
+  // Pago DIVIDIDO en un segundo medio: monto2 va al medioPago2, el resto (monto − monto2)
+  // al medioPago principal. La suma siempre iguala el total del cobro (acciones/abono).
+  medioPago2Id     String?
+  monto2           Float?
+  numeroReferencia2 String?
   reciboUsuarioId  String?
   cajaId           String?
   fechaPago        DateTime?
@@ -489,7 +495,8 @@ model Cobro {
   createdAt        DateTime   @default(now())
   updatedAt        DateTime   @updatedAt
   paciente         Paciente   @relation(fields: [pacienteId], references: [id])
-  medioPago        MedioPago? @relation(fields: [medioPagoId], references: [id])
+  medioPago        MedioPago? @relation("CobroMedio",  fields: [medioPagoId],  references: [id])
+  medioPago2       MedioPago? @relation("CobroMedio2", fields: [medioPago2Id], references: [id])
   reciboUsuario    User?      @relation("CobroUsuario", fields: [reciboUsuarioId], references: [id])
   caja             Caja?      @relation(fields: [cajaId], references: [id])
   items            CobroItem[]

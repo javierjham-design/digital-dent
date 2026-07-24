@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-07-24 — Recaudación 2do medio de pago + comentario de cita + amarillo abono parcial
+
+Tres ajustes:
+1. **Segundo medio de pago (pago dividido)** en Recaudación: `Cobro` gana
+   `medioPago2Id`/`monto2`/`numeroReferencia2` (aditivos; relaciones nombradas
+   CobroMedio/CobroMedio2). `crearCobro` valida `0 < monto2 < total` y 2do medio
+   distinto; comisión y N° de referencia se calculan POR medio (monto1 = total −
+   monto2 al 1ro); `comisionMonto/montoNeto` agregan ambos tramos. La suma siempre
+   iguala el total (acciones seleccionadas / abono libre). UI en RecaudacionTab
+   ("+ Agregar segundo medio") + se muestra en la lista de Cobros y el comprobante.
+2. **Comentario de la cita** (`notas`) visible en la pestaña Citas del paciente.
+3. **Amarillo** en el punto de estado del plan cuando la acción está realizada con
+   **abono parcial** (pagó algo pero no cubre el neto): verde=pagada ·
+   amarillo=abono parcial · rojo=deuda · azul=sin realizar.
+
+---
+
 ## 2026-07-23 — test_event_code: auto-expira + aviso visible (no arruinar optimización)
 
 Si el test_event_code queda seteado, todos los eventos van a Test Events y NO

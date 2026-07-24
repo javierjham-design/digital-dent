@@ -183,6 +183,10 @@ export const crearCobroSchema = z.object({
   pacienteId: z.string().min(1),
   cajaId: z.string().min(1),
   medioPagoId: z.string().optional(),
+  // Segundo medio de pago (pago dividido): monto2 va a este medio.
+  medioPago2Id: z.string().optional(),
+  monto2: z.number().optional(),
+  numeroReferencia2: z.string().optional(),
   reciboUsuarioId: z.string().optional(),
   fechaPago: z.string().optional(),
   notas: z.string().optional(),
