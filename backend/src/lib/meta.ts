@@ -115,13 +115,24 @@ export function crmMetaHabilitado(cfg: MetaCrmConfig): boolean {
 
 export interface MetaCrmEvent { eventName: string; eventId?: string; eventTime: number; leadId?: string | null; email?: string | null; telefono?: string | null; nombre?: string | null; apellido?: string | null }
 
+// lead_id debe viajar como NÚMERO (sin comillas). Pero los leadgen_id reales superan
+// Number.MAX_SAFE_INTEGER (2^53), así que Number()/JSON.stringify perderían precisión
+// (ej. 37083026944645017 → …016). Se marca con un sentinel string y luego se sustituye
+// por el número CRUDO en el JSON ya serializado, preservando todos los dígitos.
+const LEAD_ID_SENTINEL = '__CLARIVA_LEAD_ID__'
+function serializarConLeadId(body: Record<string, unknown>, leadIdDigits: string | null): string {
+  const json = JSON.stringify(body)
+  return leadIdDigits ? json.replace(`"${LEAD_ID_SENTINEL}"`, leadIdDigits) : json
+}
+
 // POST al endpoint de eventos del dataset. Devuelve el resultado real.
 async function postEventoCrm(datasetId: string, token: string, ev: MetaCrmEvent, testCode?: string): Promise<MetaSendResult> {
   try {
     const user_data: Record<string, unknown> = {}
-    // lead_id = leadgen_id del Formulario Instantáneo (NÚMERO, sin hashear). Si no
-    // hay, se omite y se manda solo em/ph/fn/ln hasheados.
-    if (ev.leadId && /^\d+$/.test(ev.leadId)) user_data.lead_id = Number(ev.leadId)
+    // lead_id = leadgen_id del Formulario Instantáneo (NÚMERO crudo, sin hashear). Si
+    // no hay, se omite y se manda solo em/ph/fn/ln hasheados.
+    const leadIdDigits = ev.leadId && /^\d+$/.test(ev.leadId) ? ev.leadId : null
+    if (leadIdDigits) user_data.lead_id = LEAD_ID_SENTINEL
     if (ev.email) user_data.em = [shaNorm(ev.email)]
     if (ev.telefono) { const ph = normPhone(ev.telefono); if (ph) user_data.ph = [sha(ph)] }
     // fn/ln (nombre/apellido) hasheados: suben el Event Match Quality. Solo si existen.
@@ -139,7 +150,7 @@ async function postEventoCrm(datasetId: string, token: string, ev: MetaCrmEvent,
       ...(testCode ? { test_event_code: testCode } : {}),
     }
     const url = `${graphBase()}/${encodeURIComponent(datasetId)}/events?access_token=${encodeURIComponent(token)}`
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: serializarConLeadId(body, leadIdDigits) })
     const data = (await r.json().catch(() => ({}))) as { events_received?: number; error?: { message?: string } }
     if (r.ok && (data.events_received ?? 0) >= 1) return { ok: true, recibidos: data.events_received }
     return { ok: false, error: data.error?.message ?? `Meta respondió ${r.status}.` }
@@ -182,8 +193,11 @@ export async function enviarEventoMeta(cfg: MetaConfig, ev: MetaEvent): Promise<
     if (ev.fbc) user_data.fbc = ev.fbc
     if (ev.ctwaClid) user_data.ctwa_clid = ev.ctwaClid
     // lead_id = leadgen_id del Formulario Meta (NO se hashea; ata el evento al lead
-    // de Meta para optimizar por "Leads de conversión"). Numérico si corresponde.
-    if (ev.leadId) user_data.lead_id = /^\d+$/.test(ev.leadId) ? Number(ev.leadId) : ev.leadId
+    // de Meta para optimizar por "Leads de conversión"). Se envía como NÚMERO crudo
+    // (sentinel + sustitución) para no perder precisión con ids > 2^53.
+    const leadIdDigits = ev.leadId && /^\d+$/.test(ev.leadId) ? ev.leadId : null
+    if (leadIdDigits) user_data.lead_id = LEAD_ID_SENTINEL
+    else if (ev.leadId) user_data.lead_id = ev.leadId // no numérico: se manda tal cual
     if (ev.ip) user_data.client_ip_address = ev.ip
     if (ev.userAgent) user_data.client_user_agent = ev.userAgent
 
@@ -200,7 +214,7 @@ export async function enviarEventoMeta(cfg: MetaConfig, ev: MetaEvent): Promise<
       ...(cfg.testCode ? { test_event_code: cfg.testCode } : {}),
     }
     const url = `${graphBase()}/${cfg.pixelId}/events?access_token=${encodeURIComponent(cfg.capiToken!)}`
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: serializarConLeadId(body, leadIdDigits) })
     const data = (await r.json().catch(() => ({}))) as { events_received?: number; error?: { message?: string } }
     if (r.ok && (data.events_received ?? 0) >= 1) return { ok: true, recibidos: data.events_received }
     return { ok: false, error: data.error?.message ?? `Meta respondió ${r.status}.` }
