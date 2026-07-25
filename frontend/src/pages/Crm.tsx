@@ -774,7 +774,8 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
     setBackfilling(true); setBackfillRes(null)
     try {
       const r = await crmService.backfillCrmSchedule()
-      setBackfillRes(`CRM Schedule — Enviados: ${r.enviados} · Corregidos (reingreso): ${r.corregidos} · Omitidos: ${r.omitidos} · Errores: ${r.errores} · Total: ${r.total}`)
+      const errTxt = r.detalleErrores?.length ? ` · Errores: ${r.detalleErrores.join(' | ')}` : ''
+      setBackfillRes(`CRM Schedule — Enviados: ${r.enviados} · Corregidos (reingreso): ${r.corregidos} · Omitidos: ${r.omitidos} · Errores: ${r.errores} · Total: ${r.total}${errTxt}`)
       notify('Backfill CRM completado')
     } catch (e) { setBackfillRes(e instanceof ApiError ? e.message : 'Error en el backfill CRM'); notify('Error en el backfill CRM', false) } finally { setBackfilling(false) }
   }

@@ -852,7 +852,8 @@ model Lead {
   metaEnviado   Boolean    @default(false)
   leadgenId     String?    // leadgen_id del Formulario Instantáneo de Meta (llave para atar Schedule → Leads de conversión)
   camposExtra   String?    // JSON con los campos del Formulario Meta que no mapearon a un campo conocido (no se pierden)
-  metaCrmEtapas String?    // etapas de CRM ya emitidas al dataset de Meta (CSV, ej. "Lead,Contactado") — idempotencia
+  metaCrmEtapas String?    // etapas de CRM ya emitidas al dataset de Meta (CSV, ej. "lead_1,Schedule_1") — idempotencia
+  crmScheduleEnviado Boolean @default(false) // Schedule CRM confirmado en el dataset (SEPARADO de scheduleCapiEnviado del landing)
   // Reingreso de contactos: un lead cuyo teléfono/email ya existía no se duplica,
   // sino que "vuelve a entrar". El CRM ordena por ultimoIngresoAt para subirlo al tope.
   ultimoIngresoAt DateTime? // fecha del último ingreso (creación o reingreso). Orden del listado.

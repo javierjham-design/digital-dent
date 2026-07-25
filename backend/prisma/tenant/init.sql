@@ -920,6 +920,7 @@ CREATE TABLE "Lead" (
     "leadgenId" TEXT,
     "camposExtra" TEXT,
     "metaCrmEtapas" TEXT,
+    "crmScheduleEnviado" BOOLEAN NOT NULL DEFAULT false,
     "ultimoIngresoAt" TIMESTAMP(3),
     "vecesIngresado" INTEGER NOT NULL DEFAULT 1,
     "ingresos" TEXT,

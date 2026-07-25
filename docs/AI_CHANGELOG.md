@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-07-25 — Fix: Schedule CRM no se enviaba (event_time futuro) + flag dedicado + surface de error
+
+Ma Paz quedaba limpia pero el Schedule CRM no se disparaba (metaCrmEtapas="lead_1").
+El guard ya era por metaCrmEtapas (no scheduleCapiEnviado); el envío FALLABA en
+silencio.
+
+- **Causa raíz (event_time futuro)**: el event_time usaba `fechaAgenda` como base;
+  si la cita es a FUTURO, el event_time quedaba en el futuro y **Meta rechaza** el
+  evento (`res.ok=false` → 'error', sin persistir). Se capa a **[now−6d, now]** en
+  el emisor CRM (`dispararEtapaCrmMeta`) y en el landing (`scheduleEventTime`).
+- **Flag dedicado**: `Lead.crmScheduleEnviado Boolean` (SEPARADO de
+  `scheduleCapiEnviado` del landing); se marca al confirmar el Schedule CRM.
+- **Surface de error**: `dispararEtapaCrmMeta` ahora devuelve `{ estado, error }` y
+  loguea el rechazo de Meta con event_id. `backfillCrmSchedule` devuelve
+  `detalleErrores[]` y la UI los muestra (fin de fallos mudos).
+
+---
+
 ## 2026-07-25 — Fix backfill CRM Schedule: recupera leadgenId base perdido
 
 El backfill anterior filtraba `leadgenId IS NOT NULL` (base), pero en los leads
