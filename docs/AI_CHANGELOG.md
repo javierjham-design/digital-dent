@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-07-25 — Fix backfill CRM Schedule: recupera leadgenId base perdido
+
+El backfill anterior filtraba `leadgenId IS NOT NULL` (base), pero en los leads
+afectados el leadgenId BASE se perdió en el reingreso (quedó null), así que el
+query los dejaba fuera (caso Ma Paz).
+
+- Selección robusta: `estado='AGENDADO'` AND (leadgenId base, o ultimoLeadgenId,
+  o `metaCrmEtapas LIKE '%lead%'`, o `ingresos LIKE '%leadgenId%'`). "Sin Schedule
+  CRM" se mide SOLO por `metaCrmEtapas` (no scheduleCapiEnviado del landing).
+- Recupera el leadgenId efectivo del historial `ingresos` / `ultimoLeadgenId` si el
+  base es null, RESTAURA el base, y dispara `dispararEtapaCrmMeta('Schedule')` (que
+  usa el leadgenId base ya restaurado). event_id `crm_{id}_Schedule_1`.
+- Tras correr: el lead pasa a `metaCrmEtapas="lead_1,Schedule_1"`, `vecesIngresado=1`,
+  `ultimoLeadgenId` restaurado, y el dataset CRM recibe 1 "Programar".
+
+---
+
 ## 2026-07-24 — Fix: agendamiento online de leads META_FORM (Schedule CRM + no reingreso)
 
 Un lead de Meta Form (con leadgenId) que agendaba por AGENDA_ONLINE disparaba el

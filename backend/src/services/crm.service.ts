@@ -777,26 +777,47 @@ export interface BackfillCrmResumen { total: number; enviados: number; corregido
 export async function backfillCrmSchedule(db: TenantClient): Promise<BackfillCrmResumen> {
   const cfg = await getMetaCrmConfig(db)
   if (!crmMetaHabilitado(cfg)) throw badRequest('La integración de CRM con Meta no está configurada en esta clínica.')
-  const leads = await db.lead.findMany({ where: { estado: 'AGENDADO', leadgenId: { not: null } } })
+  // Candidatos: AGENDADO que fueron leads de Meta Form. Se incluyen aunque el
+  // leadgenId BASE se haya perdido en el reingreso (se recupera del historial /
+  // ultimoLeadgenId). "Sin Schedule CRM" se mide por metaCrmEtapas, NUNCA por
+  // scheduleCapiEnviado (ese es true por el Schedule landing).
+  const leads = await db.lead.findMany({
+    where: {
+      estado: 'AGENDADO',
+      OR: [
+        { leadgenId: { not: null } },
+        { ultimoLeadgenId: { not: null } },
+        { metaCrmEtapas: { contains: 'lead' } }, // ya emitió "lead" → era Meta Form
+        { ingresos: { contains: 'leadgenId' } },  // el historial guarda el leadgenId de algún toque
+      ],
+    },
+  })
   let enviados = 0, corregidos = 0, omitidos = 0, errores = 0
   for (const l of leads) {
-    // 1) Corrige el daño de reingreso por AGENDA_ONLINE (progresión mal contada).
+    if (/schedule/i.test(l.metaCrmEtapas ?? '')) { omitidos++; continue } // ya tiene Schedule CRM
+    // leadgenId efectivo: el base, o el recuperado del historial / ultimoLeadgenId.
     const ingresos = parseIngresos(l.ingresos) as { origen?: string; campana?: string; leadgenId?: string }[]
+    const leadgen = l.leadgenId ?? ingresos.map((e) => e?.leadgenId).find(Boolean) ?? l.ultimoLeadgenId ?? null
+    if (!leadgen) { omitidos++; continue } // no era un lead de Meta Form → no aplica
+
+    // 1) Corrige: restaura el leadgenId base (si se perdió), limpia los toques
+    // AGENDA_ONLINE (no eran reingresos), recalcula vecesIngresado y restaura ultimo*.
     const limpios = ingresos.filter((e) => e?.origen !== 'AGENDA_ONLINE')
     const vecesReal = Math.max(1, limpios.length || 1)
     const ultimoReal = limpios[limpios.length - 1]
     const dataFix: Record<string, unknown> = {}
+    if (l.leadgenId !== leadgen) dataFix.leadgenId = leadgen // restaura el base perdido → dispararEtapaCrmMeta lo usa
     if ((l.vecesIngresado ?? 1) !== vecesReal) dataFix.vecesIngresado = vecesReal
     if (limpios.length !== ingresos.length) dataFix.ingresos = JSON.stringify(limpios)
-    if (l.ultimoLeadgenId !== l.leadgenId) dataFix.ultimoLeadgenId = l.leadgenId
+    if (l.ultimoLeadgenId !== leadgen) dataFix.ultimoLeadgenId = leadgen
     if (ultimoReal?.origen && l.ultimoOrigen !== ultimoReal.origen) dataFix.ultimoOrigen = ultimoReal.origen
     if (Object.keys(dataFix).length > 0) { await db.lead.update({ where: { id: l.id }, data: dataFix }).catch(() => {}); corregidos++ }
 
-    // 2) Dispara el Schedule CRM si no se envió aún (idempotente por ciclo).
+    // 2) Dispara el Schedule CRM (dispararEtapaCrmMeta usa el leadgenId BASE ya restaurado).
     const r = await dispararEtapaCrmMeta(db, l.id, 'Schedule', cfg)
     if (r === 'enviado') enviados++
     else if (r === 'ya' || r === 'sin-leadgen') omitidos++
-    else if (r === 'error' || r === 'sin-config') errores++
+    else errores++
   }
   return { total: leads.length, enviados, corregidos, omitidos, errores }
 }
