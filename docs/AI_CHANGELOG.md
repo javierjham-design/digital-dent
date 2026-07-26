@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-07-25 — Schedule CRM: event_time nunca fechaAgenda + reenvío de rechazados + warnings
+
+3 de 4 Schedules (Ma Paz/Fernando/Ivonne, con cita a futuro) los aceptó el POST
+pero Meta los descartó por event_time FUTURO; quedaron con crmScheduleEnviado=true.
+
+- **event_time**: se saca `fechaAgenda` de la base por completo (era un dato de
+  negocio, no el timestamp). Ahora = `ultimaGestionAt / now`, clamp [now−6d, now],
+  en el emisor CRM (`dispararEtapaCrmMeta`) y en el landing (`scheduleEventTime`).
+- **Warnings de Meta**: `postEventoCrm` ahora trata como NO ok una respuesta con
+  `messages` (warnings, ej. "event_time is in the future") aunque events_received≥1,
+  y surfacea el detalle → así `crmScheduleEnviado` NO se marca en falso y el error
+  se ve en el backfill.
+- **Reenvío forzado**: `dispararEtapaCrmMeta` acepta `{ force }` (salta la
+  idempotencia local; Meta deduplica por event_id lo ya recibido). El backfill
+  REENVÍA forzado los AGENDADO con Schedule marcado PERO cita a futuro (los
+  rechazados), con el event_time corregido; omite los ya aceptados (ej. Roberto).
+
+Tras correr el backfill: "Programar" en el dataset 1156… debería subir a 4.
+
+---
+
 ## 2026-07-25 — Identidad robusta + modelo de ciclo/flujo + merge de duplicados
 
 - **FIX A (identidad robusta)**: `telCanonico` (quita no-dígitos, código país 56,

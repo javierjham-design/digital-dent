@@ -133,14 +133,14 @@ type ScheduleLead = {
 }
 export type ScheduleOutcome = 'enviado' | 'error' | 'ya' | 'sin-config' | 'sin-match' | 'sin-leadgen'
 
-// event_time con clamp: Meta rechaza eventos de más de 7 días → nunca antes de
-// (ahora − 6 días). Usa el mayor entre (fechaAgenda ?? ultimaGestionAt ?? updatedAt) y ese piso.
+// event_time = MOMENTO en que se registró el agendamiento (ultimaGestionAt / now),
+// NUNCA la fechaAgenda (es un dato de negocio, no el timestamp del evento; una cita
+// a futuro haría que Meta RECHACE el evento por event_time futuro). Clamp a
+// [now−6d, now] (Meta rechaza > 7 días y también el futuro).
 function scheduleEventTime(l: ScheduleLead): number {
-  const base = l.fechaAgenda ?? l.ultimaGestionAt ?? l.updatedAt ?? new Date()
+  const base = l.ultimaGestionAt ?? l.updatedAt ?? new Date()
   const baseSec = Math.floor(new Date(base).getTime() / 1000)
   const nowSec = Math.floor(Date.now() / 1000)
-  // Clamp a [now−6d, now]: Meta rechaza eventos > 7 días y también en el FUTURO.
-  // Una cita a futuro no debe quedar como event_time (se capa a now).
   return Math.min(nowSec, Math.max(baseSec, nowSec - 6 * 86400))
 }
 
@@ -239,7 +239,7 @@ export async function registrarLeadAdsRecibido(db: TenantClient, info: { leadgen
 // reintentar. Se llama con `void` desde los puntos de cambio de estado.
 export type EtapaCrmEstado = 'enviado' | 'error' | 'ya' | 'sin-config' | 'sin-leadgen'
 export interface EtapaCrmResultado { estado: EtapaCrmEstado; error?: string }
-export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eventName: string, cfg?: MetaCrmConfig): Promise<EtapaCrmResultado> {
+export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eventName: string, cfg?: MetaCrmConfig, opts?: { force?: boolean }): Promise<EtapaCrmResultado> {
   const conf = cfg ?? await getMetaCrmConfig(db)
   if (!crmMetaHabilitado(conf)) return { estado: 'sin-config' }
   const lead = await db.lead.findUnique({
@@ -258,13 +258,15 @@ export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eve
   // metaCrmEtapas, NUNCA scheduleCapiEnviado (ese es del Schedule landing).
   const token = `${eventName}_${veces}`
   const enviadas = (lead.metaCrmEtapas ?? '').split(',').map((s) => s.trim()).filter(Boolean)
-  if (enviadas.includes(token)) return { estado: 'ya' }
+  // force = reenviar aunque ya esté marcado (para los que Meta descartó, p. ej. por
+  // event_time futuro). Mismo event_id → Meta deduplica lo ya recibido.
+  if (enviadas.includes(token) && !opts?.force) return { estado: 'ya' }
 
-  // event_time = momento del AGENDAMIENTO, con clamp a [now−6d, now]: Meta rechaza
-  // eventos > 7 días y también en el FUTURO. Una cita a futuro (fechaAgenda) NO debe
-  // usarse como event_time (quedaría en el futuro y Meta lo rechaza) → se capa a now.
+  // event_time = MOMENTO del AGENDAMIENTO (ultimaGestionAt / now), NUNCA la fechaAgenda
+  // (una cita a futuro haría que Meta rechace el evento por event_time futuro). Clamp
+  // a [now−6d, now].
   const nowSec = Math.floor(Date.now() / 1000)
-  const base = lead.fechaAgenda ?? lead.ultimaGestionAt ?? lead.updatedAt ?? lead.createdAt ?? new Date()
+  const base = lead.ultimaGestionAt ?? lead.updatedAt ?? lead.createdAt ?? new Date()
   const eventTime = Math.min(nowSec, Math.max(Math.floor(new Date(base).getTime() / 1000), nowSec - 6 * 86400))
   // event_id estable y por ciclo: dedup con reintentos, pero un reingreso reavanzado
   // genera un event_id distinto para que Meta NO descarte la nueva conversión.
@@ -272,8 +274,9 @@ export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eve
 
   const res = await enviarEventoCrmMeta(conf, { eventName, eventId, eventTime, leadId: lead.leadgenId, email: lead.email, telefono: lead.telefono, nombre: lead.nombre, apellido: lead.apellido })
   if (res.ok) {
-    // Marca la etapa + (si es Schedule) el flag dedicado del CRM, separado del landing.
-    const data: Record<string, unknown> = { metaCrmEtapas: [...enviadas, token].join(',') }
+    // Marca la etapa (sin duplicar el token si fue un reenvío forzado) + (si es
+    // Schedule) el flag dedicado del CRM, separado del landing.
+    const data: Record<string, unknown> = { metaCrmEtapas: [...new Set([...enviadas, token])].join(',') }
     if (eventName.toLowerCase() === 'schedule') data.crmScheduleEnviado = true
     await db.lead.update({ where: { id: lead.id }, data }).catch((e) => console.error(`[meta-crm] No se pudo marcar la etapa "${eventName}" en el lead ${lead.id}: ${e instanceof Error ? e.message : e}`))
     await db.leadNota.create({ data: { leadId: lead.id, tipo: 'SISTEMA', texto: `Meta CRM: evento "${eventName}" enviado al dataset.` } }).catch(() => {})
@@ -881,8 +884,14 @@ export async function backfillCrmSchedule(db: TenantClient): Promise<BackfillCrm
   const detalleErrores: string[] = []
   for (const l of leads) {
     // "Sin Schedule CRM" se mide por metaCrmEtapas / crmScheduleEnviado, NUNCA por
-    // scheduleCapiEnviado (ese es del Schedule landing).
-    if (/schedule/i.test(l.metaCrmEtapas ?? '')) { omitidos++; continue } // ya tiene Schedule CRM
+    // scheduleCapiEnviado (ese es del Schedule landing). Un Schedule ya marcado PERO
+    // con cita a FUTURO probablemente fue RECHAZADO por Meta (event_time futuro, bug
+    // ya corregido) → se REENVÍA forzado con el event_time corregido. Los que ya
+    // tienen Schedule y NO tienen cita futura (aceptados, ej. Roberto) se omiten.
+    const tieneSchedule = /schedule/i.test(l.metaCrmEtapas ?? '')
+    const citaFutura = l.fechaAgenda != null && new Date(l.fechaAgenda).getTime() > Date.now()
+    const reenvioForzado = tieneSchedule && citaFutura
+    if (tieneSchedule && !reenvioForzado) { omitidos++; continue }
     // leadgenId efectivo: el base, o el recuperado del historial / ultimoLeadgenId.
     const ingresos = parseIngresos(l.ingresos) as { origen?: string; campana?: string; leadgenId?: string }[]
     const leadgen = l.leadgenId ?? ingresos.map((e) => e?.leadgenId).find(Boolean) ?? l.ultimoLeadgenId ?? null
@@ -901,8 +910,8 @@ export async function backfillCrmSchedule(db: TenantClient): Promise<BackfillCrm
     if (ultimoReal?.origen && l.ultimoOrigen !== ultimoReal.origen) dataFix.ultimoOrigen = ultimoReal.origen
     if (Object.keys(dataFix).length > 0) { await db.lead.update({ where: { id: l.id }, data: dataFix }).catch(() => {}); corregidos++ }
 
-    // 2) Dispara el Schedule CRM (dispararEtapaCrmMeta usa el leadgenId BASE ya restaurado).
-    const r = await dispararEtapaCrmMeta(db, l.id, 'Schedule', cfg)
+    // 2) Dispara (o reenvía forzado) el Schedule CRM con el event_time corregido.
+    const r = await dispararEtapaCrmMeta(db, l.id, 'Schedule', cfg, { force: reenvioForzado })
     if (r.estado === 'enviado') enviados++
     else if (r.estado === 'ya' || r.estado === 'sin-leadgen') omitidos++
     else { errores++; detalleErrores.push(`${l.nombre ?? l.id.slice(-6)}: ${r.error ?? r.estado}`) }

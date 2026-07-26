@@ -151,9 +151,14 @@ async function postEventoCrm(datasetId: string, token: string, ev: MetaCrmEvent,
     }
     const url = `${graphBase()}/${encodeURIComponent(datasetId)}/events?access_token=${encodeURIComponent(token)}`
     const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: serializarConLeadId(body, leadIdDigits) })
-    const data = (await r.json().catch(() => ({}))) as { events_received?: number; error?: { message?: string } }
-    if (r.ok && (data.events_received ?? 0) >= 1) return { ok: true, recibidos: data.events_received }
-    return { ok: false, error: data.error?.message ?? `Meta respondió ${r.status}.` }
+    const data = (await r.json().catch(() => ({}))) as { events_received?: number; error?: { message?: string }; messages?: string[]; fbtrace_id?: string }
+    // Meta puede aceptar el POST (events_received≥1) PERO devolver warnings en
+    // `messages` (p. ej. "event_time is in the future") y luego DESCARTAR el evento.
+    // Si hay warnings, se trata como NO ok para que se reintente/registre.
+    const warnings = Array.isArray(data.messages) ? data.messages.filter(Boolean) : []
+    if (r.ok && (data.events_received ?? 0) >= 1 && warnings.length === 0) return { ok: true, recibidos: data.events_received }
+    const detalle = data.error?.message ?? (warnings.length ? `Meta advirtió: ${warnings.join('; ')}` : `Meta respondió ${r.status}.`)
+    return { ok: false, error: detalle }
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : 'error de red con Meta' }
   }
