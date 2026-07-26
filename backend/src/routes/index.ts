@@ -183,6 +183,7 @@ apiRouter.post('/crm/meta-leadads/test', crmAdmin, asyncHandler(crm.postProbarRe
 apiRouter.post('/admin/meta/reprocesar-lead', crmAdmin, asyncHandler(crm.postReprocesarLead))
 apiRouter.post('/crm/schedule/backfill', crmAdmin, asyncHandler(crm.postBackfillSchedule))
 apiRouter.post('/crm/crm-schedule/backfill', crmAdmin, asyncHandler(crm.postBackfillCrmSchedule))
+apiRouter.post('/crm/leads/fusionar-duplicados', crmAdmin, asyncHandler(crm.postFusionarDuplicados))
 
 // Gestión de la API key de acceso externo (MCP) — admin de la clínica.
 apiRouter.get('/crm/api-key', crmAdmin, asyncHandler(ext.getApiKey))

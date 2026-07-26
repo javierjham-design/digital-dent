@@ -70,6 +70,7 @@ export const crmService = {
   reprocesarLead: (leadgenId: string) => api.post<MetaReprocesoResult>('/admin/meta/reprocesar-lead', { leadgenId }),
   backfillSchedule: () => api.post<{ total: number; enviados: number; omitidos: number; errores: number; omitidosIds: string[] }>('/crm/schedule/backfill', {}),
   backfillCrmSchedule: () => api.post<{ total: number; enviados: number; corregidos: number; omitidos: number; errores: number; detalleErrores: string[] }>('/crm/crm-schedule/backfill', {}),
+  fusionarDuplicados: () => api.post<{ grupos: number; fusionados: number; detalle: string[] }>('/crm/leads/fusionar-duplicados', {}),
   apiKeyEstado: () => api.get<{ hasApiKey: boolean }>('/crm/api-key'),
   rotarApiKey: () => api.post<{ apiKey: string }>('/crm/api-key/rotate', {}),
   revocarApiKey: () => api.del<{ ok: true }>('/crm/api-key'),

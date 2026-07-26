@@ -780,6 +780,16 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
     } catch (e) { setBackfillRes(e instanceof ApiError ? e.message : 'Error en el backfill CRM'); notify('Error en el backfill CRM', false) } finally { setBackfilling(false) }
   }
 
+  async function fusionar() {
+    if (!confirm('Fusionar leads duplicados de la MISMA persona (mismo teléfono/email normalizado). Se conserva el registro de Meta Form (con leadgenId), absorbe la cita real del duplicado y borra el duplicado. ¿Continuar?')) return
+    setBackfilling(true); setBackfillRes(null)
+    try {
+      const r = await crmService.fusionarDuplicados()
+      setBackfillRes(`Merge — Grupos con duplicados: ${r.grupos} · Fusionados: ${r.fusionados}${r.detalle?.length ? ` · ${r.detalle.slice(0, 8).join(' | ')}` : ''}`)
+      notify('Duplicados fusionados')
+    } catch (e) { setBackfillRes(e instanceof ApiError ? e.message : 'Error al fusionar'); notify('Error al fusionar', false) } finally { setBackfilling(false) }
+  }
+
   // El formulario hospedado es una ruta del SPA → va en el origin del frontend.
   // Todas las URLs se arman con `slug` (estado protegido) + el token del cfg. Si el
   // slug aún no está, quedan vacías y la UI muestra "Cargando…" en vez de una URL rota.
@@ -967,6 +977,10 @@ function ConfigModal({ onClose, notify }: { onClose: () => void; notify: (t: str
               <button onClick={backfillCrm} disabled={backfilling}
                 className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-lg">
                 {backfilling ? 'Procesando…' : 'Enviar Schedule CRM a AGENDADO pendientes'}
+              </button>
+              <button onClick={fusionar} disabled={backfilling}
+                className="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 disabled:opacity-50 text-slate-700 text-xs font-semibold rounded-lg">
+                {backfilling ? 'Procesando…' : 'Fusionar leads duplicados'}
               </button>
               {backfillRes && <span className="text-xs text-slate-600">{backfillRes}</span>}
             </div>

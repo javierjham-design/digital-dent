@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-07-25 — Identidad robusta + modelo de ciclo/flujo + merge de duplicados
+
+- **FIX A (identidad robusta)**: `telCanonico` (quita no-dígitos, código país 56,
+  ceros iniciales; compara los últimos 8) + `emailCanonico` (lowercase+trim).
+  `buscarLeadParaReserva` y `buscarDuplicadoReciente` ahora matchean por teléfono
+  normalizado O email → "954814817" = "+56954814817". Una persona = un registro.
+  Esto causaba el duplicado de Ivonne.
+- **FIX B (ciclo/flujo)**: el primer inbound fija el flujo; ventana de 7 días
+  (`abreReingreso`). Una nueva captura del MISMO flujo dentro de la ventana NO abre
+  reingreso (mismo ciclo, solo sube); fuera de la ventana o por OTRO flujo →
+  reingreso (nuevo ciclo). `construirReingreso` acepta `nuevoCiclo`. El intake de
+  la landing (`crearLead` con `reingresarSiExiste`) ya NO duplica: reingresa/cicla
+  sobre el registro existente. La reserva online ya era progresión (no reingreso).
+- **FIX C (merge)**: `fusionarLeadsDuplicados` (`POST /crm/leads/fusionar-duplicados`,
+  botón en Config): agrupa por identidad, conserva el META_FORM (leadgenId) como
+  canónico, absorbe del duplicado la cita real (citaId/pacienteId/fechaAgenda) +
+  datos faltantes, mueve las notas, borra el duplicado, y dispara el Schedule CRM
+  si quedó AGENDADO (sin repetir el landing ya disparado). Fusiona a Ivonne y a
+  cualquier otro con el mismo patrón.
+
+---
+
 ## 2026-07-25 — Fix: Schedule CRM no se enviaba (event_time futuro) + flag dedicado + surface de error
 
 Ma Paz quedaba limpia pero el Schedule CRM no se disparaba (metaCrmEtapas="lead_1").

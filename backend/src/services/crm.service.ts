@@ -29,6 +29,29 @@ const nuevoToken = () => randomBytes(9).toString('base64url')
 
 const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
+// ── Resolución de identidad (FIX A) ───────────────────────────────────────────
+// Teléfono → forma canónica para comparar: quita todo lo no-dígito, el código de
+// país (56 de Chile) y ceros iniciales; devuelve los últimos 8 dígitos (el número
+// de abonado). Así "954814817" y "+56954814817" y "0954814817" matchean.
+export function telCanonico(t?: string | null): string | null {
+  let d = (t ?? '').replace(/\D/g, '')
+  if (!d) return null
+  if (d.length > 9 && d.startsWith('56')) d = d.slice(2) // código país Chile
+  d = d.replace(/^0+/, '')
+  return d.length >= 8 ? d.slice(-8) : d
+}
+export function emailCanonico(e?: string | null): string | null {
+  const v = (e ?? '').trim().toLowerCase()
+  return v || null
+}
+// ¿Dos personas son la MISMA por teléfono normalizado O email? Una persona = un registro.
+export function mismaPersona(a: { telefono?: string | null; email?: string | null }, b: { telefono?: string | null; email?: string | null }): boolean {
+  const ta = telCanonico(a.telefono), tb = telCanonico(b.telefono)
+  if (ta && tb && ta === tb) return true
+  const ea = emailCanonico(a.email), eb = emailCanonico(b.email)
+  return Boolean(ea && eb && ea === eb)
+}
+
 // ── Campañas ──────────────────────────────────────────────────────────────────
 // Clave de campaña de un lead: campaña explícita → utm_campaign → URL de origen
 // (landing, normalizada) → '' (sin campaña). Es lo que agrupa/filtra los leads.
@@ -363,8 +386,9 @@ export async function obtenerLead(db: TenantClient, id: string) {
 // Devuelve el más reciente no cerrado (dentro de 180 días).
 export interface IdentLead { rut?: string | null; telefono?: string | null; email?: string | null; fbp?: string | null; fbc?: string | null; externalId?: string | null }
 export async function buscarLeadParaReserva(db: TenantClient, ident: IdentLead, opts?: { incluirConvertidos?: boolean }) {
-  const dig = (ident.telefono ?? '').replace(/\D/g, '')
-  const email = ident.email?.trim().toLowerCase() || null
+  // FIX A: teléfono/email NORMALIZADOS (una persona = un registro).
+  const tel = telCanonico(ident.telefono)
+  const email = emailCanonico(ident.email)
   const desde = new Date(Date.now() - 180 * 24 * 3600_000)
   // Por defecto se excluyen los CONVERTIDOS (reserva online: no reactivar un
   // paciente). Para el REINGRESO sí se incluyen (una consulta nueva de un
@@ -379,8 +403,8 @@ export async function buscarLeadParaReserva(db: TenantClient, ident: IdentLead, 
   return candidatos.find((l) =>
     (!!ident.externalId && l.externalId === ident.externalId) ||
     (!!ident.rut && !!l.rut && l.rut === ident.rut) ||
-    (!!dig && (l.telefono ?? '').replace(/\D/g, '') === dig) ||
-    (!!email && (l.email ?? '').trim().toLowerCase() === email) ||
+    (!!tel && telCanonico(l.telefono) === tel) ||
+    (!!email && emailCanonico(l.email) === email) ||
     (!!ident.fbp && !!l.fbp && l.fbp === ident.fbp) ||
     (!!ident.fbc && !!l.fbc && l.fbc === ident.fbc),
   ) ?? null
@@ -413,9 +437,25 @@ function parseIngresos(raw?: string | null): unknown[] {
   try { const v = JSON.parse(raw); return Array.isArray(v) ? v : [] } catch { return [] }
 }
 
-// Decide el estado tras un reingreso (regla del negocio, item 3). Devuelve también
-// si hay que resetear el ciclo de Schedule (para que un nuevo agendamiento dispare).
-type LeadReingreso = { id: string; estado: string; citaId?: string | null; asistio?: boolean | null; vecesIngresado?: number | null; ingresos?: string | null }
+// ── Modelo de flujo/ciclo (FIX B) ─────────────────────────────────────────────
+// El PRIMER inbound fija el FLUJO. El ciclo dura 7 días: una nueva captura dentro
+// de la ventana Y del mismo flujo NO abre reingreso (mismo ciclo, solo sube). Una
+// captura pasada la ventana O por OTRO flujo → REINGRESO (nuevo ciclo).
+const VENTANA_CICLO_MS = 7 * 24 * 3600_000
+type LeadReingreso = { id: string; estado: string; origen?: string | null; leadgenId?: string | null; citaId?: string | null; asistio?: boolean | null; vecesIngresado?: number | null; ingresos?: string | null; ultimoIngresoAt?: Date | null }
+export function flujoDe(l: { leadgenId?: string | null; origen?: string | null }): string {
+  return l.leadgenId ? 'META_FORM' : (l.origen ?? 'OTRO')
+}
+// ¿La nueva captura (por `flujoNuevo`) abre un reingreso, o cae en el ciclo vigente?
+export function abreReingreso(existente: LeadReingreso, flujoNuevo: string): boolean {
+  const ultimo = existente.ultimoIngresoAt ? new Date(existente.ultimoIngresoAt).getTime() : 0
+  const dentroVentana = ultimo > 0 && (Date.now() - ultimo) < VENTANA_CICLO_MS
+  const mismoFlujo = flujoNuevo === flujoDe(existente)
+  return !dentroVentana || !mismoFlujo
+}
+
+// Decide el estado tras un reingreso (regla del negocio). Devuelve también si hay
+// que resetear el ciclo de Schedule (para que un nuevo agendamiento dispare).
 async function decidirEstadoReingreso(db: TenantClient, l: LeadReingreso): Promise<{ estado: string; resetSchedule: boolean }> {
   if (l.estado === 'PERDIDO' || l.estado === 'CONVERTIDO') return { estado: 'NUEVO', resetSchedule: true }
   if (l.estado === 'AGENDADO') {
@@ -430,24 +470,32 @@ async function decidirEstadoReingreso(db: TenantClient, l: LeadReingreso): Promi
   return { estado: l.estado, resetSchedule: true } // NUEVO / CONTACTADO → se mantiene
 }
 
-// Construye el fragmento de update para registrar un reingreso. `estadoForzado`
-// (p. ej. la reserva online que agenda ahora) omite la regla de estado.
-export async function construirReingreso(db: TenantClient, existente: LeadReingreso, toque: ToqueLead, estadoForzado?: string): Promise<Record<string, unknown>> {
-  const veces = (existente.vecesIngresado ?? 1) + 1
+// Construye el fragmento de update para registrar un TOQUE en un lead existente.
+//  · nuevoCiclo=false (mismo ciclo/flujo, dentro de ventana): solo sube (ultimoIngresoAt),
+//    apila el toque y actualiza el último toque. NO incrementa vecesIngresado ni cambia estado.
+//  · nuevoCiclo=true (REINGRESO: fuera de ventana u otro flujo): además incrementa
+//    vecesIngresado, aplica la regla de estado y resetea el ciclo de Schedule.
+// `estadoForzado` (p. ej. reserva online que agenda ahora) omite la regla de estado.
+export async function construirReingreso(db: TenantClient, existente: LeadReingreso, toque: ToqueLead, opts?: { estadoForzado?: string; nuevoCiclo?: boolean }): Promise<Record<string, unknown>> {
+  const nuevoCiclo = opts?.nuevoCiclo !== false // por defecto true (compat)
   const ingresos = JSON.stringify([...parseIngresos(existente.ingresos), entradaIngreso(toque)].slice(-50))
   const data: Record<string, unknown> = {
-    vecesIngresado: veces,
     ultimoIngresoAt: new Date(),
     ingresos,
     // Atribución de ÚLTIMO toque (no pisa la original del lead).
     ultimoOrigen: clean(toque.origen), ultimaCampana: clean(toque.campana ?? toque.utmCampaign), ultimoLeadgenId: clean(toque.leadgenId),
   }
-  if (estadoForzado) {
-    if (estadoForzado !== existente.estado) data.estado = estadoForzado
-  } else {
-    const { estado, resetSchedule } = await decidirEstadoReingreso(db, existente)
-    if (estado !== existente.estado) data.estado = estado
-    if (resetSchedule) { data.scheduleEventId = null; data.scheduleCapiEnviado = false }
+  if (nuevoCiclo) {
+    data.vecesIngresado = (existente.vecesIngresado ?? 1) + 1
+    if (opts?.estadoForzado) {
+      if (opts.estadoForzado !== existente.estado) data.estado = opts.estadoForzado
+    } else {
+      const { estado, resetSchedule } = await decidirEstadoReingreso(db, existente)
+      if (estado !== existente.estado) data.estado = estado
+      if (resetSchedule) { data.scheduleEventId = null; data.scheduleCapiEnviado = false; data.crmScheduleEnviado = false }
+    }
+  } else if (opts?.estadoForzado && opts.estadoForzado !== existente.estado) {
+    data.estado = opts.estadoForzado
   }
   return data
 }
@@ -472,25 +520,22 @@ const fecha = (v?: string | null) => { if (!v) return null; const d = new Date(v
 // Busca un lead creado en los últimos `minutos` con el mismo teléfono (por dígitos)
 // o email (normalizado). Para frenar el doble submit del formulario de captación.
 async function buscarDuplicadoReciente(db: TenantClient, telefono?: string, email?: string, minutos = 10) {
-  const dig = (telefono ?? '').replace(/\D/g, '')
-  const em = email?.trim().toLowerCase() || null
-  if (!dig && !em) return null
+  const tel = telCanonico(telefono)
+  const em = emailCanonico(email)
+  if (!tel && !em) return null
   const desde = new Date(Date.now() - minutos * 60_000)
   const recientes = await db.lead.findMany({
     where: { createdAt: { gte: desde } },
     orderBy: { createdAt: 'desc' }, take: 50,
     select: { id: true, telefono: true, email: true, apellido: true },
   })
-  return recientes.find((l) =>
-    (dig && (l.telefono ?? '').replace(/\D/g, '') === dig) ||
-    (em && (l.email ?? '').trim().toLowerCase() === em),
-  ) ?? null
+  return recientes.find((l) => mismaPersona(l, { telefono, email })) ?? null
 }
 
 export async function crearLead(
   db: TenantClient,
   input: CrearLeadInput,
-  ctx?: { ip?: string; userAgent?: string; autorId?: string; autorNombre?: string; emitirMeta?: boolean; antiDuplicadoMin?: number },
+  ctx?: { ip?: string; userAgent?: string; autorId?: string; autorNombre?: string; emitirMeta?: boolean; antiDuplicadoMin?: number; reingresarSiExiste?: boolean },
 ) {
   const nombre = (input.nombre ?? '').trim()
   if (!nombre) throw badRequest('Falta el nombre del prospecto')
@@ -511,6 +556,30 @@ export async function crearLead(
         where: { id: dup.id },
         data: { ...upd, notas: { create: { tipo: 'SISTEMA', texto: 'Reenvío del formulario ignorado (anti-duplicado).' } } },
       })
+    }
+  }
+
+  // Intake público (FIX B): una persona = un registro. Si ya existe (identidad
+  // robusta) NO se duplica; se registra el toque en su ciclo (reingreso si pasó la
+  // ventana de 7 días o vino por otro flujo; mismo ciclo si no).
+  if (ctx?.reingresarSiExiste && (clean(input.telefono) || clean(input.email))) {
+    const existente = await buscarLeadParaReserva(db, { telefono: input.telefono, email: input.email, rut: input.rut }, { incluirConvertidos: true })
+    if (existente) {
+      const flujoNuevo = flujoDe({ leadgenId: input.leadgenId, origen: (input.origen || 'FORMULARIO').toUpperCase() })
+      const nuevoCiclo = abreReingreso(existente, flujoNuevo)
+      const reingreso = await construirReingreso(db, existente, {
+        origen: (input.origen || 'FORMULARIO').toUpperCase(), campana: input.campana, leadgenId: input.leadgenId,
+        utmSource: input.utmSource, utmMedium: input.utmMedium, utmCampaign: input.utmCampaign, utmContent: input.utmContent, utmTerm: input.utmTerm,
+        fbc: input.fbc, fbp: input.fbp,
+      }, { nuevoCiclo })
+      const data: Record<string, unknown> = { ...reingreso,
+        notas: { create: { tipo: 'SISTEMA', texto: nuevoCiclo ? `Reingreso: ${(input.origen || 'FORMULARIO').toUpperCase()}.` : 'Nueva captación dentro del ciclo vigente. Sin nuevo reingreso.' } } }
+      for (const k of ['telefono', 'email', 'rut', 'apellido', 'utmCampaign', 'utmTerm', 'utmContent'] as const) {
+        if (!(existente as Record<string, unknown>)[k] && clean(input[k])) data[k] = clean(input[k])
+      }
+      const lead = await db.lead.update({ where: { id: existente.id }, data })
+      if (lead.leadgenId) void dispararEtapaCrmMeta(db, lead.id, 'lead') // idempotente por ciclo
+      return lead
     }
   }
 
@@ -595,14 +664,19 @@ export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput
   // tope + historial + regla de estado) y se completan los datos faltantes.
   const existente = await buscarLeadParaReserva(db, { telefono: input.telefono, email: input.email, rut: input.rut }, { incluirConvertidos: true })
   if (existente) {
+    // Nueva captura META_FORM: ¿abre reingreso (fuera de la ventana de 7 días u otro
+    // flujo) o cae en el ciclo vigente (mismo flujo, dentro de ventana)?
+    const nuevoCiclo = abreReingreso(existente, 'META_FORM')
     const reingreso = await construirReingreso(db, existente, {
       origen: 'META_FORM', campana: utmCampaign, leadgenId,
       formId: input.formId, adId: input.adId, adsetId: input.adsetId, campaignId: input.campaignId,
       utmSource: 'meta', utmMedium: 'paid', utmCampaign, utmTerm, utmContent,
-    })
+    }, { nuevoCiclo })
     const data: Record<string, unknown> = {
       ...reingreso,
-      notas: { create: { tipo: 'SISTEMA', texto: `Reingreso: Formulario Meta (leadgen ${leadgenId}${input.formId ? `, form ${input.formId}` : ''}). Toque #${(existente.vecesIngresado ?? 1) + 1}.` } },
+      notas: { create: { tipo: 'SISTEMA', texto: nuevoCiclo
+        ? `Reingreso: Formulario Meta (leadgen ${leadgenId}${input.formId ? `, form ${input.formId}` : ''}). Toque #${(existente.vecesIngresado ?? 1) + 1}.`
+        : `Nueva captura Formulario Meta dentro del ciclo vigente (leadgen ${leadgenId}). Sin nuevo reingreso.` } },
     }
     if (!existente.leadgenId) data.leadgenId = leadgenId // atar la llave sin pisar otra existente
     if (!existente.telefono && clean(input.telefono)) data.telefono = clean(input.telefono)
@@ -840,6 +914,58 @@ export async function eliminarLead(db: TenantClient, id: string) {
   const existing = await db.lead.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Lead no encontrado')
   await db.lead.delete({ where: { id } })
+}
+
+// FIX C: fusiona leads duplicados (misma persona por teléfono/email normalizado).
+// El canónico es el META_FORM (con leadgenId); absorbe del duplicado la cita real
+// (citaId/pacienteId/fechaAgenda) y los datos faltantes, mueve sus notas y lo borra.
+export interface MergeDuplicadosResumen { grupos: number; fusionados: number; detalle: string[] }
+export async function fusionarLeadsDuplicados(db: TenantClient): Promise<MergeDuplicadosResumen> {
+  const leads = await db.lead.findMany({ orderBy: { createdAt: 'asc' } })
+  // Agrupa por identidad: teléfono canónico, o email si no hay teléfono.
+  const grupos = new Map<string, typeof leads>()
+  for (const l of leads) {
+    const key = telCanonico(l.telefono) ?? emailCanonico(l.email)
+    if (!key) continue
+    const arr = grupos.get(key) ?? []
+    arr.push(l); grupos.set(key, arr)
+  }
+  let gruposConDup = 0, fusionados = 0
+  const detalle: string[] = []
+  for (const [, arr] of grupos) {
+    if (arr.length < 2) continue
+    gruposConDup++
+    // Canónico: el que tiene leadgenId (META_FORM); si varios/ninguno, el más antiguo.
+    const canonico = arr.find((l) => l.leadgenId) ?? arr[0]
+    const dups = arr.filter((l) => l.id !== canonico.id)
+    const c = canonico as Record<string, unknown>
+    const data: Record<string, unknown> = {}
+    for (const d of dups) {
+      const dd = d as Record<string, unknown>
+      // Absorber la CITA REAL si el canónico no la tiene.
+      if (!c.citaId && !data.citaId && d.citaId) {
+        data.citaId = d.citaId; data.pacienteId = canonico.pacienteId ?? d.pacienteId; data.fechaAgenda = d.fechaAgenda
+        data.agendaFuente = canonico.agendaFuente ?? d.agendaFuente; data.ultimaGestionAt = new Date()
+        if (d.estado === 'AGENDADO' && canonico.estado !== 'CONVERTIDO') data.estado = 'AGENDADO'
+      }
+      // Completar identificadores/datos que al canónico le falten.
+      for (const k of ['telefono', 'email', 'rut', 'apellido', 'pacienteId', 'motivo', 'tratamiento'] as const) {
+        if (!c[k] && !(k in data) && dd[k]) data[k] = dd[k]
+      }
+      // Mover las notas del duplicado al canónico y borrar el duplicado.
+      await db.leadNota.updateMany({ where: { leadId: d.id }, data: { leadId: canonico.id } }).catch(() => {})
+      await db.lead.delete({ where: { id: d.id } }).catch(() => {})
+      fusionados++
+    }
+    data.notas = { create: { tipo: 'SISTEMA', texto: `Fusionados ${dups.length} duplicado(s) por identidad (mismo teléfono/email). Se conservó este registro canónico.` } }
+    await db.lead.update({ where: { id: canonico.id }, data }).catch(() => {})
+    // Si el canónico quedó AGENDADO y es de Meta Form, dispara el Schedule CRM
+    // (idempotente; NO repite el landing que ya se disparó en el duplicado).
+    const estadoFinal = (data.estado as string) ?? canonico.estado
+    if (estadoFinal === 'AGENDADO' && canonico.leadgenId) void dispararEtapaCrmMeta(db, canonico.id, 'Schedule')
+    detalle.push(`${canonico.nombre}: absorbió ${dups.length} duplicado(s)`)
+  }
+  return { grupos: gruposConDup, fusionados, detalle }
 }
 
 // ── Config de Meta / captación (admin) ────────────────────────────────────────

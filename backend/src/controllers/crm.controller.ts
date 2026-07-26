@@ -79,6 +79,9 @@ export async function postBackfillSchedule(req: Request, res: Response) {
 export async function postBackfillCrmSchedule(req: Request, res: Response) {
   res.json(await svc.backfillCrmSchedule(tenantDb(req)))
 }
+export async function postFusionarDuplicados(req: Request, res: Response) {
+  res.json(await svc.fusionarLeadsDuplicados(tenantDb(req)))
+}
 
 // ── Público (formulario hospedado + intake por slug/token) ───────────────────
 // Resuelve la clínica por slug y exige que tenga el módulo CRM habilitado (si el
@@ -107,7 +110,7 @@ export async function postPublicLead(req: Request, res: Response) {
   if (!(await svc.tokenCrmValido(db, token))) throw notFound('Formulario no encontrado')
   const input = crearLeadSchema.parse(req.body)
   const lead = await svc.crearLead(db, { ...input, origen: input.origen || 'FORMULARIO' }, {
-    ip, userAgent: req.get('user-agent') ?? undefined, antiDuplicadoMin: 10,
+    ip, userAgent: req.get('user-agent') ?? undefined, antiDuplicadoMin: 10, reingresarSiExiste: true,
   })
   res.status(201).json({ ok: true, leadId: lead.id })
 }
