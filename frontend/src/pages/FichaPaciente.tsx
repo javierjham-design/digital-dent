@@ -1414,8 +1414,8 @@ function AgregarSeccion({ planId, accion, sinSeccionIds }: { planId: string; acc
 function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   const { user } = useAuth()
   const [planes, setPlanes] = useState<PlanCard[]>([])
-  const [planId, setPlanId] = useState('')
-  const [detalle, setDetalle] = useState<PlanDetalle | null>(null)
+  const [planId, setPlanId] = useState('') // plan destino del abono libre nuevo / derivar
+  const [detalles, setDetalles] = useState<PlanDetalle[]>([]) // TODOS los planes (se cobra a través de varios)
   // Cada usuario recibe pagos SÓLO con su propia caja abierta: no hay selector.
   const [miCaja, setMiCaja] = useState<{ id: string; numero: number } | null>(null)
   const [medios, setMedios] = useState<MedioPagoDTO[]>([])
@@ -1439,9 +1439,16 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   const medioSel2 = medios.find((m) => m.id === medioPago2Id)
   const requiereRef2 = dividir && Boolean(medioSel2?.requiereReferencia)
 
-  const cargarDetalle = (id: string) => { if (id) planesService.obtener(id).then((d) => setDetalle(d as PlanDetalle)).catch(() => {}) }
+  // Carga los planes y el detalle de TODOS (para poder cobrar acciones de varios).
+  const cargarTodo = () => {
+    planesService.listar(pacienteId).then(async (p) => {
+      const ps = p as PlanCard[]; setPlanes(ps); setPlanId((x) => x || ps[0]?.id || '')
+      const dets = await Promise.all(ps.map((pl) => planesService.obtener(pl.id).then((d) => d as PlanDetalle).catch(() => null)))
+      setDetalles(dets.filter((d): d is PlanDetalle => d != null))
+    }).catch(() => {})
+  }
   useEffect(() => {
-    planesService.listar(pacienteId).then((p) => { const ps = p as PlanCard[]; setPlanes(ps); setPlanId((x) => x || ps[0]?.id || '') }).catch(() => {})
+    cargarTodo()
     // Sólo la caja PROPIA del usuario que esté abierta (no las de otros usuarios).
     cajasService.resumen().then((c) => {
       const list = c as { id: string; numero: number; sesionAbierta: { numero: number } | null; usuarios?: { user: { id: string } }[] }[]
@@ -1450,15 +1457,19 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
       setMiCaja(propia ? { id: propia.id, numero: propia.sesionAbierta!.numero } : null)
     }).catch(() => {})
     mediosPagoService.listar().then((m) => setMedios(m.filter((x) => x.activo))).catch(() => {})
-  }, [pacienteId, user?.id])
-  useEffect(() => { cargarDetalle(planId); setSel({}); setAbono('') }, [planId])
+  }, [pacienteId, user?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const acciones = detalle ? [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos] : []
   const restante = (t: TratNode) => Math.max(0, netoTrat(t) - pagadoTrat(t))
-  // Abono libre del plan aplicado como "pie" de las acciones seleccionadas.
-  const abonoLibreDisp = detalle?.abonoLibre ?? 0
+  const accionesTodas = detalles.flatMap((d) => [...d.secciones.flatMap((s) => s.tratamientos), ...d.tratamientos])
+  // Mapa acción → plan (para aplicar el abono libre POR plan).
+  const planDeTrat = new Map<string, string>()
+  for (const d of detalles) for (const t of [...d.secciones.flatMap((s) => s.tratamientos), ...d.tratamientos]) planDeTrat.set(t.id, d.id)
+  const sumSelPorPlan = new Map<string, number>()
+  for (const [tid, m] of Object.entries(sel)) { const pid = planDeTrat.get(tid); if (pid) sumSelPorPlan.set(pid, (sumSelPorPlan.get(pid) ?? 0) + m) }
+  const abonoLibreTotal = detalles.reduce((s, d) => s + (d.abonoLibre ?? 0), 0)
   const sumAcciones = Object.values(sel).reduce((s, n) => s + n, 0)
-  const creditoPie = usarAbono ? Math.min(abonoLibreDisp, sumAcciones) : 0
+  // Abono libre como "pie": por plan, min(abono libre del plan, seleccionado de ese plan).
+  const creditoPie = usarAbono ? detalles.reduce((s, d) => s + Math.min(d.abonoLibre ?? 0, sumSelPorPlan.get(d.id) ?? 0), 0) : 0
   const nuevoAbono = Number(abono) || 0
   // Total a recaudar (dinero nuevo) = acciones − pie + abono nuevo.
   const totalSel = (sumAcciones - creditoPie) + nuevoAbono
@@ -1467,24 +1478,24 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   const splitActivo = dividir && Boolean(medioPago2Id) && monto2Num > 0
   const monto1Num = totalSel - monto2Num
   const splitValido = !splitActivo || (monto2Num > 0 && monto2Num < totalSel && medioPago2Id !== medioPagoId)
-  // Deuda = acciones REALIZADAS (completadas) aún impagas.
-  const deuda = acciones.filter((t) => t.estado === 'COMPLETADO').reduce((s, t) => s + restante(t), 0)
-  // Grupos de cobro: por sección del plan (+ "Sin sección"), sólo con acciones que restan por pagar.
-  const gruposPago = detalle
-    ? [
-        ...detalle.secciones.map((s) => ({ id: s.id, titulo: s.titulo || 'Sección', trats: s.tratamientos.filter((t) => restante(t) > 0) })),
-        { id: '', titulo: 'Sin sección', trats: detalle.tratamientos.filter((t) => restante(t) > 0) },
-      ].filter((g) => g.trats.length > 0)
-    : []
+  // Deuda = acciones REALIZADAS (completadas) aún impagas (en todos los planes).
+  const deuda = accionesTodas.filter((t) => t.estado === 'COMPLETADO').reduce((s, t) => s + restante(t), 0)
+  // Grupos de cobro por PLAN → sección (+ "Sin sección"), sólo acciones que restan por pagar.
+  const planesConCobro = detalles.map((d) => ({
+    plan: d,
+    grupos: [
+      ...d.secciones.map((s) => ({ id: s.id, titulo: s.titulo || 'Sección', trats: s.tratamientos.filter((t) => restante(t) > 0) })),
+      { id: '', titulo: 'Sin sección', trats: d.tratamientos.filter((t) => restante(t) > 0) },
+    ].filter((g) => g.trats.length > 0),
+  })).filter((p) => p.grupos.length > 0)
 
-  // Al cargar el plan, pre-selecciona las acciones marcadas con el carrito (paraCobro).
+  // Al cargar, pre-selecciona las acciones marcadas con el carrito (paraCobro) de todos los planes.
   useEffect(() => {
-    if (!detalle) return
-    const acc = [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos]
+    if (detalles.length === 0) return
     const pre: Record<string, number> = {}
-    for (const t of acc) if (t.paraCobro && restante(t) > 0) pre[t.id] = restante(t)
-    if (Object.keys(pre).length > 0) setSel(pre)
-  }, [detalle]) // eslint-disable-line react-hooks/exhaustive-deps
+    for (const t of accionesTodas) if (t.paraCobro && restante(t) > 0) pre[t.id] = restante(t)
+    if (Object.keys(pre).length > 0) setSel((s) => ({ ...pre, ...s }))
+  }, [detalles]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggle(t: TratNode) {
     setSel((s) => { const n = { ...s }; if (n[t.id] != null) delete n[t.id]; else n[t.id] = restante(t); return n })
@@ -1496,7 +1507,7 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   async function recaudar() {
     const items: Record<string, unknown>[] = []
     for (const [tid, monto] of Object.entries(sel)) if (monto > 0) {
-      const t = acciones.find((a) => a.id === tid)
+      const t = accionesTodas.find((a) => a.id === tid)
       items.push({ tratamientoId: tid, descripcion: t?.prestacion.nombre ?? 'Acción', monto })
     }
     if (nuevoAbono > 0) items.push({ planId, descripcion: 'Abono libre al plan', monto: nuevoAbono })
@@ -1521,7 +1532,7 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
         ? `Cubierto con abono libre (${fmtCLP(r.montoAplicado ?? creditoPie)}). No se requirió pago nuevo.`
         : `Recaudación de ${fmtCLP(totalSel)} registrada${usarPie ? ` (abono libre aplicado: ${fmtCLP(creditoPie)})` : ''}.` })
       setSel({}); setAbono(''); setNumeroReferencia(''); setNumeroBoleta('')
-      setDividir(false); setMedioPago2Id(''); setMonto2(''); setNumeroReferencia2(''); cargarDetalle(planId)
+      setDividir(false); setMedioPago2Id(''); setMonto2(''); setNumeroReferencia2(''); cargarTodo()
     } catch (e) { setMsg({ t: e instanceof ApiError ? e.message : 'No se pudo recaudar', ok: false }) } finally { setSaving(false) }
   }
 
@@ -1529,53 +1540,47 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
 
   return (
     <div className="max-w-2xl space-y-4">
-      {planes.length > 1 && (
-        <label className="block">
-          <span className="text-sm font-medium text-slate-700">Plan de tratamiento</span>
-          <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm">
-            {planes.map((p) => <option key={p.id} value={p.id}>#{p.id.slice(-4)} · {p.nombre}</option>)}
-          </select>
-        </label>
-      )}
-
-      {(detalle?.abonoLibre ?? 0) > 0 && (
+      {abonoLibreTotal > 0 && (
         <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-emerald-800">Abono libre en este plan: {fmtCLP(detalle?.abonoLibre ?? 0)}</p>
-            <p className="text-xs text-emerald-700">Monto abonado sin asignar a una acción específica.</p>
+            <p className="text-sm font-semibold text-emerald-800">Abono libre disponible: {fmtCLP(abonoLibreTotal)}</p>
+            <p className="text-xs text-emerald-700">Se aplica como pie de las acciones seleccionadas (por su plan).</p>
           </div>
           {planes.length > 1 && (
-            <button onClick={() => setDerivar(true)} className="shrink-0 px-3 py-2 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100 text-sm font-semibold rounded-xl">Derivar a otro plan</button>
+            <button onClick={() => setDerivar(true)} className="shrink-0 px-3 py-2 bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-100 text-sm font-semibold rounded-xl">Derivar entre planes</button>
           )}
         </div>
       )}
 
-      {/* Deuda del plan (realizado impago), bien visible al abrir la recaudación. */}
+      {/* Deuda (realizado impago) en todos los planes. */}
       {deuda > 0 && (
         <div className="bg-rose-50 border border-rose-200 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
           <div>
-            <p className="text-sm font-semibold text-rose-700">Deuda del plan (realizado impago): {fmtCLP(deuda)}</p>
+            <p className="text-sm font-semibold text-rose-700">Deuda (realizado impago): {fmtCLP(deuda)}</p>
             <p className="text-xs text-rose-600">Selecciona las acciones en rojo abajo para cobrarlas.</p>
           </div>
-          <button onClick={() => { const pend = acciones.filter((t) => t.estado === 'COMPLETADO' && restante(t) > 0); toggleSeccion(pend, true) }}
+          <button onClick={() => { const pend = accionesTodas.filter((t) => t.estado === 'COMPLETADO' && restante(t) > 0); toggleSeccion(pend, true) }}
             className="shrink-0 px-3 py-2 bg-white border border-rose-300 text-rose-700 hover:bg-rose-100 text-sm font-semibold rounded-xl">Cobrar toda la deuda</button>
         </div>
       )}
 
-      {acciones.length === 0 ? (
-        <p className="text-sm text-slate-500">El plan no tiene acciones clínicas. Agrega prestaciones antes de recaudar.</p>
+      {planesConCobro.length === 0 ? (
+        <p className="text-sm text-slate-500">No hay acciones pendientes de pago en ningún plan de este paciente.</p>
       ) : (
         <>
-          {/* Acciones a cobrar, ordenadas por sección del plan. Las marcadas con el
-              carrito vienen pre-seleccionadas. Se pueden elegir y sumar. */}
-          <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-            <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-800">Acciones a cobrar</p>
-              <span className="text-xs text-slate-400">Marca las que se pagan; el total se suma abajo.</span>
-            </div>
-            {gruposPago.length === 0 ? <p className="px-4 py-4 text-xs text-slate-400">No hay acciones pendientes de pago en este plan.</p> : (
+          <div className="flex items-center justify-between px-1">
+            <p className="text-sm font-semibold text-slate-800">Acciones a cobrar</p>
+            <span className="text-xs text-slate-400">De uno o varios planes; el total se suma abajo.</span>
+          </div>
+          {/* Un card por PLAN; se pueden marcar acciones de varios planes en un solo cobro. */}
+          {planesConCobro.map(({ plan, grupos }) => (
+            <div key={plan.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-800 truncate">Plan: {plan.nombre || `#${plan.id.slice(-4)}`}</p>
+                {(plan.abonoLibre ?? 0) > 0 && <span className="text-[11px] font-semibold text-emerald-700 shrink-0">Abono libre {fmtCLP(plan.abonoLibre ?? 0)}</span>}
+              </div>
               <div className="divide-y divide-slate-100">
-                {gruposPago.map((g) => {
+                {grupos.map((g) => {
                   const todasSel = g.trats.every((t) => sel[t.id] != null)
                   const subtotal = g.trats.reduce((s, t) => s + (sel[t.id] ?? 0), 0)
                   return (
@@ -1606,13 +1611,20 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
                   )
                 })}
               </div>
-            )}
-          </div>
+            </div>
+          ))}
 
           <div className="bg-white rounded-2xl border border-slate-200 p-4">
-            <p className="text-sm font-semibold text-slate-800 mb-1">Abono libre al plan</p>
-            <p className="text-xs text-slate-400 mb-2">Un monto que queda abonado al plan, sin asociarlo a una acción específica.</p>
-            <input type="number" value={abono} onChange={(e) => setAbono(e.target.value)} placeholder="Monto" className="w-40 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+            <p className="text-sm font-semibold text-slate-800 mb-1">Abono libre a un plan</p>
+            <p className="text-xs text-slate-400 mb-2">Un monto que queda abonado al plan elegido, sin asociarlo a una acción específica.</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input type="number" value={abono} onChange={(e) => setAbono(e.target.value)} placeholder="Monto" className="w-40 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+              {planes.length > 1 && (
+                <select value={planId} onChange={(e) => setPlanId(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-xl text-sm max-w-[220px]">
+                  {planes.map((p) => <option key={p.id} value={p.id}>{p.nombre || `#${p.id.slice(-4)}`}</option>)}
+                </select>
+              )}
+            </div>
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
@@ -1693,11 +1705,11 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
             )}
 
             {/* Abono libre como "pie": se descuenta automáticamente de las acciones seleccionadas. */}
-            {abonoLibreDisp > 0 && sumAcciones > 0 && (
+            {abonoLibreTotal > 0 && sumAcciones > 0 && (
               <label className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2">
                 <span className="flex items-center gap-2 text-xs text-emerald-800">
                   <input type="checkbox" checked={usarAbono} onChange={(e) => setUsarAbono(e.target.checked)} />
-                  Usar abono libre como pie ({fmtCLP(abonoLibreDisp)} disponible)
+                  Usar abono libre como pie ({fmtCLP(abonoLibreTotal)} disponible)
                 </span>
                 {usarAbono && <span className="text-xs font-semibold text-emerald-700">− {fmtCLP(creditoPie)}</span>}
               </label>
@@ -1715,10 +1727,10 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
       )}
 
       {derivar && (
-        <DerivarAbonoModal fromPlanId={planId} disponible={detalle?.abonoLibre ?? 0}
+        <DerivarAbonoModal fromPlanId={planId} disponible={detalles.find((d) => d.id === planId)?.abonoLibre ?? 0}
           planes={planes.filter((p) => p.id !== planId)}
           onClose={() => setDerivar(false)}
-          onDone={(t) => { setDerivar(false); setMsg({ t, ok: true }); cargarDetalle(planId); planesService.listar(pacienteId).then((p) => setPlanes(p as PlanCard[])).catch(() => {}) }}
+          onDone={(t) => { setDerivar(false); setMsg({ t, ok: true }); cargarTodo() }}
           onError={(t) => setMsg({ t, ok: false })} />
       )}
     </div>

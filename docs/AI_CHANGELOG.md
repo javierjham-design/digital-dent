@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-07-27 — Recaudación: cobrar acciones de VARIOS planes en un solo pago
+
+Ej.: radiografías en un plan y limpieza en otro → un solo cobro. El backend
+(`crearCobro`/`validarItemsCobro`) ya validaba por paciente (no exigía un solo
+plan); el cambio es de UI.
+
+- `RecaudacionTab` carga el detalle de TODOS los planes del paciente y los muestra
+  en cards separadas (por plan → sección). El carrito (`sel`) es global por acción,
+  así se marcan acciones de distintos planes en un mismo cobro.
+- Abono libre como pie: se aplica POR plan (min(abono libre del plan, seleccionado
+  de ese plan)); el `aplicarAbonoLibreAAccion` del backend usa el plan de cada
+  acción. Se muestra el total disponible y el descuento combinado.
+- "Abono libre a un plan" ahora tiene selector de plan destino; "Derivar entre
+  planes" toma el plan elegido. Deuda y total suman todos los planes.
+
+---
+
 ## 2026-07-27 — Recaudación: abono libre como "pie" (descuento automático del cobro)
 
 El abono libre del plan (crédito ya pagado sin asignar) se aplica automáticamente
