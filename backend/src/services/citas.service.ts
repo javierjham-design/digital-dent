@@ -148,7 +148,7 @@ export interface EditarCitaInput {
 export async function editarCita(db: TenantClient, id: string, userName: string, input: EditarCitaInput): Promise<CitaDTO> {
   const current = await db.cita.findUnique({
     where: { id },
-    select: { fecha: true, duracion: true, doctorId: true, sobrecupo: true },
+    select: { fecha: true, duracion: true, doctorId: true, sobrecupo: true, estado: true },
   })
   if (!current) throw notFound('Cita no encontrada')
 
@@ -199,6 +199,17 @@ export async function editarCita(db: TenantClient, id: string, userName: string,
   if (data.fecha !== undefined && (data.fecha as Date).getTime() !== current.fecha.getTime()) {
     const fmt = (d: Date) => d.toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
     logs.push({ tipo: 'ESTADO', detalle: `Reagendada de ${fmt(current.fecha)} a ${fmt(data.fecha as Date)}`, userName })
+    // Al REAGENDAR (mover a otra fecha/hora), la cita vuelve SIEMPRE a "Agendada",
+    // cualquiera sea su estado anterior (No asistió, Notificado por WhatsApp, etc.):
+    // es una cita nueva por atender en el nuevo horario. El slug anterior queda libre
+    // porque es el MISMO registro que se mueve (no ocupa el horario original). Se
+    // resetean también las señales de WhatsApp para poder notificar la nueva hora.
+    if (current.estado !== 'PENDIENTE') {
+      data.estado = 'PENDIENTE'
+      data.confirmadoWA = false
+      data.waMessageSid = null
+      logs.push({ tipo: 'ESTADO', detalle: `Estado → Agendada (por reagendamiento, desde "${CITA_ESTADO_LABELS[current.estado] ?? current.estado}")`, userName })
+    }
   }
 
   const cita = await db.cita.update({
