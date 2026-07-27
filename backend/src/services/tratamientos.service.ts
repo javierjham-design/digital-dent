@@ -341,7 +341,10 @@ export async function eliminarTratamiento(db: TenantClient, actorId: string, id:
 // Aplica el abono libre disponible del plan para cubrir (total o parcialmente) una
 // acción recién realizada, SIN recibir dinero nuevo: reasigna CobroItem de abono
 // (del plan, sin acción) a esta acción. Best-effort; nunca hace fallar la operación.
-export async function aplicarAbonoLibreAAccion(db: TenantClient, tratamientoId: string) {
+// Reasigna abono libre del plan (crédito PAGADO sin acción) a una acción concreta,
+// reduciendo su saldo. Money-neutral. `maxAplicar` topa cuánto aplicar (p. ej. sólo
+// lo que se está cobrando ahora). Devuelve el monto efectivamente aplicado.
+export async function aplicarAbonoLibreAAccion(db: TenantClient, tratamientoId: string, maxAplicar?: number): Promise<number> {
   const t = await db.tratamiento.findUnique({
     where: { id: tratamientoId },
     select: {
@@ -349,19 +352,21 @@ export async function aplicarAbonoLibreAAccion(db: TenantClient, tratamientoId: 
       cobroItems: { where: { cobro: { estado: 'PAGADO', anulado: false } }, select: { monto: true } },
     },
   })
-  if (!t || !t.planId) return
+  if (!t || !t.planId) return 0
   const neto = Math.round(t.precio * (1 - (t.descuento || 0) / 100))
   const restante = Math.round(neto - t.cobroItems.reduce((s, i) => s + i.monto, 0))
-  if (restante <= 0) return
+  if (restante <= 0) return 0
 
   const itemsLibres = await db.cobroItem.findMany({
     where: { planId: t.planId, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } },
     select: { id: true, monto: true, cobroId: true, descripcion: true },
     orderBy: { id: 'asc' },
   })
-  const aplicar = Math.min(restante, Math.round(itemsLibres.reduce((s, i) => s + i.monto, 0)))
-  if (aplicar <= 0) return
+  let aplicar = Math.min(restante, Math.round(itemsLibres.reduce((s, i) => s + i.monto, 0)))
+  if (maxAplicar != null) aplicar = Math.min(aplicar, Math.max(0, Math.round(maxAplicar)))
+  if (aplicar <= 0) return 0
 
+  const total = aplicar
   await db.$transaction(async (tx) => {
     let rem = aplicar
     for (const it of itemsLibres) {
@@ -376,6 +381,7 @@ export async function aplicarAbonoLibreAAccion(db: TenantClient, tratamientoId: 
       }
     }
   })
+  return total
 }
 
 // Aplica el abono libre del plan a TODAS sus acciones realizadas e impagas (en

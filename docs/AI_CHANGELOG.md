@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-07-27 — Recaudación: abono libre como "pie" (descuento automático del cobro)
+
+El abono libre del plan (crédito ya pagado sin asignar) se aplica automáticamente
+como pie de las acciones que se cobran. Ej: 200 de abono libre + implante 299 →
+se cobran solo 99 (antes se calculaba a mano).
+
+- `aplicarAbonoLibreAAccion` acepta `maxAplicar` (topa al monto que se cobra) y
+  devuelve lo aplicado. Money-neutral (reasigna crédito ya recibido).
+- `crearCobro` acepta `aplicarAbonoLibre`: por cada acción cobrada aplica el abono
+  libre (capado a lo que se cobra), reduce el ítem por lo aplicado, y el cobro
+  nuevo es la diferencia. Si el abono cubre TODO → no crea cobro ni usa caja
+  (devuelve `{ cubiertoConAbono, montoAplicado }`). `cajaId` pasa a opcional
+  (runtime exige caja solo si hay pago nuevo). Limpia `paraCobro` de todas las
+  acciones originales (incluidas las cubiertas por crédito).
+- UI (RecaudacionTab): checkbox "Usar abono libre como pie" (on por defecto si hay
+  crédito) + descuento visible y total neto; maneja el caso "cubierto sin pago".
+
+---
+
 ## 2026-07-25 — Schedule CRM: event_time nunca fechaAgenda + reenvío de rechazados + warnings
 
 3 de 4 Schedules (Ma Paz/Fernando/Ivonne, con cita a futuro) los aceptó el POST

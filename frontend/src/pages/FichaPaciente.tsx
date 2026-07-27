@@ -1429,6 +1429,7 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   const [numeroReferencia2, setNumeroReferencia2] = useState('')
   const [sel, setSel] = useState<Record<string, number>>({})
   const [abono, setAbono] = useState('')
+  const [usarAbono, setUsarAbono] = useState(true) // usar el abono libre del plan como "pie"
   const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null)
   const [saving, setSaving] = useState(false)
   const [derivar, setDerivar] = useState(false)
@@ -1454,7 +1455,13 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
 
   const acciones = detalle ? [...detalle.secciones.flatMap((s) => s.tratamientos), ...detalle.tratamientos] : []
   const restante = (t: TratNode) => Math.max(0, netoTrat(t) - pagadoTrat(t))
-  const totalSel = Object.values(sel).reduce((s, n) => s + n, 0) + (Number(abono) || 0)
+  // Abono libre del plan aplicado como "pie" de las acciones seleccionadas.
+  const abonoLibreDisp = detalle?.abonoLibre ?? 0
+  const sumAcciones = Object.values(sel).reduce((s, n) => s + n, 0)
+  const creditoPie = usarAbono ? Math.min(abonoLibreDisp, sumAcciones) : 0
+  const nuevoAbono = Number(abono) || 0
+  // Total a recaudar (dinero nuevo) = acciones − pie + abono nuevo.
+  const totalSel = (sumAcciones - creditoPie) + nuevoAbono
   // Split: monto2 al segundo medio, el resto (monto1) al primero. La suma = totalSel.
   const monto2Num = Math.round(Number(monto2) || 0)
   const splitActivo = dividir && Boolean(medioPago2Id) && monto2Num > 0
@@ -1492,22 +1499,27 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
       const t = acciones.find((a) => a.id === tid)
       items.push({ tratamientoId: tid, descripcion: t?.prestacion.nombre ?? 'Acción', monto })
     }
-    if (Number(abono) > 0) items.push({ planId, descripcion: 'Abono libre al plan', monto: Number(abono) })
+    if (nuevoAbono > 0) items.push({ planId, descripcion: 'Abono libre al plan', monto: nuevoAbono })
     if (items.length === 0) { setMsg({ t: 'Selecciona acciones o ingresa un abono.', ok: false }); return }
-    if (!miCaja) { setMsg({ t: 'No tienes una caja abierta. Abre tu caja en Cobros para recibir pagos.', ok: false }); return }
-    if (requiereRef && !numeroReferencia.trim()) { setMsg({ t: `Ingresa el N° de referencia de la operación (${medioSel?.nombre}).`, ok: false }); return }
-    if (splitActivo) {
+    const usarPie = usarAbono && creditoPie > 0
+    // La caja solo se necesita si hay dinero nuevo por recibir (si el abono libre lo cubre todo, no).
+    if (totalSel > 0 && !miCaja) { setMsg({ t: 'No tienes una caja abierta. Abre tu caja en Cobros para recibir pagos.', ok: false }); return }
+    if (totalSel > 0 && requiereRef && !numeroReferencia.trim()) { setMsg({ t: `Ingresa el N° de referencia de la operación (${medioSel?.nombre}).`, ok: false }); return }
+    if (splitActivo && totalSel > 0) {
       if (!splitValido) { setMsg({ t: 'El segundo medio debe ser distinto y su monto menor al total.', ok: false }); return }
       if (requiereRef2 && !numeroReferencia2.trim()) { setMsg({ t: `Ingresa el N° de referencia del segundo medio (${medioSel2?.nombre}).`, ok: false }); return }
     }
     setSaving(true); setMsg(null)
     try {
-      await cobrosService.crear({
-        pacienteId, cajaId: miCaja.id, medioPagoId: medioPagoId || undefined, items,
+      const r = await cobrosService.crear({
+        pacienteId, cajaId: miCaja?.id, medioPagoId: medioPagoId || undefined, items,
         numeroReferencia: numeroReferencia.trim() || undefined, numeroBoleta: numeroBoleta.trim() || undefined,
-        ...(splitActivo ? { medioPago2Id, monto2: monto2Num, numeroReferencia2: numeroReferencia2.trim() || undefined } : {}),
-      })
-      setMsg({ t: `Recaudación de ${fmtCLP(totalSel)} registrada.`, ok: true })
+        aplicarAbonoLibre: usarPie,
+        ...(splitActivo && totalSel > 0 ? { medioPago2Id, monto2: monto2Num, numeroReferencia2: numeroReferencia2.trim() || undefined } : {}),
+      }) as { cubiertoConAbono?: boolean; montoAplicado?: number }
+      setMsg({ ok: true, t: r?.cubiertoConAbono
+        ? `Cubierto con abono libre (${fmtCLP(r.montoAplicado ?? creditoPie)}). No se requirió pago nuevo.`
+        : `Recaudación de ${fmtCLP(totalSel)} registrada${usarPie ? ` (abono libre aplicado: ${fmtCLP(creditoPie)})` : ''}.` })
       setSel({}); setAbono(''); setNumeroReferencia(''); setNumeroBoleta('')
       setDividir(false); setMedioPago2Id(''); setMonto2(''); setNumeroReferencia2(''); cargarDetalle(planId)
     } catch (e) { setMsg({ t: e instanceof ApiError ? e.message : 'No se pudo recaudar', ok: false }) } finally { setSaving(false) }
@@ -1680,11 +1692,22 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
               </div>
             )}
 
+            {/* Abono libre como "pie": se descuenta automáticamente de las acciones seleccionadas. */}
+            {abonoLibreDisp > 0 && sumAcciones > 0 && (
+              <label className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2">
+                <span className="flex items-center gap-2 text-xs text-emerald-800">
+                  <input type="checkbox" checked={usarAbono} onChange={(e) => setUsarAbono(e.target.checked)} />
+                  Usar abono libre como pie ({fmtCLP(abonoLibreDisp)} disponible)
+                </span>
+                {usarAbono && <span className="text-xs font-semibold text-emerald-700">− {fmtCLP(creditoPie)}</span>}
+              </label>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-sm text-slate-500">Total a recaudar</span>
               <span className="text-lg font-bold text-cyan-700">{fmtCLP(totalSel)}</span>
             </div>
-            <button onClick={recaudar} disabled={saving || totalSel <= 0 || (requiereRef && !numeroReferencia.trim()) || (splitActivo && (!splitValido || (requiereRef2 && !numeroReferencia2.trim())))} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
+            {usarAbono && creditoPie > 0 && totalSel === 0 && <p className="text-[11px] text-emerald-700">Se cubre por completo con el abono libre; no se requiere pago nuevo.</p>}
+            <button onClick={recaudar} disabled={saving || (sumAcciones <= 0 && nuevoAbono <= 0) || (totalSel > 0 && requiereRef && !numeroReferencia.trim()) || (splitActivo && totalSel > 0 && (!splitValido || (requiereRef2 && !numeroReferencia2.trim())))} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
             {msg && <p className={`text-sm ${msg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{msg.t}</p>}
             <p className="text-[11px] text-slate-400">La caja debe estar abierta (ábrela en Cobros si hace falta).</p>
           </div>

@@ -181,12 +181,15 @@ export const motivoSchema = z.object({
 
 export const crearCobroSchema = z.object({
   pacienteId: z.string().min(1),
-  cajaId: z.string().min(1),
+  // Opcional: si el abono libre cubre todo el cobro, no hay pago nuevo ni caja.
+  // Para un pago real, crearCobro exige la caja en runtime.
+  cajaId: z.string().optional(),
   medioPagoId: z.string().optional(),
   // Segundo medio de pago (pago dividido): monto2 va a este medio.
   medioPago2Id: z.string().optional(),
   monto2: z.number().optional(),
   numeroReferencia2: z.string().optional(),
+  aplicarAbonoLibre: z.boolean().optional(),
   reciboUsuarioId: z.string().optional(),
   fechaPago: z.string().optional(),
   notas: z.string().optional(),

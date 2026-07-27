@@ -4,6 +4,7 @@ import { actorName, type JwtPayload } from '@/services/auth.service'
 import { getSesionAbierta } from '@/lib/caja'
 import { audit } from '@/lib/audit'
 import { crearLinkParaCobro, type ResultadoLinkPago } from '@/services/pagos-online.service'
+import { aplicarAbonoLibreAAccion } from '@/services/tratamientos.service'
 
 const ESTADOS = ['PENDIENTE', 'PAGADO', 'PARCIAL', 'ANULADO']
 const fmtMoney = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n))
@@ -47,11 +48,13 @@ export async function obtenerCobro(db: TenantClient, id: string) {
 }
 
 export interface CrearCobroInput {
-  pacienteId: string; cajaId: string; medioPagoId?: string; reciboUsuarioId?: string
+  pacienteId: string; cajaId?: string; medioPagoId?: string; reciboUsuarioId?: string
   medioPago2Id?: string; monto2?: number; numeroReferencia2?: string
   fechaPago?: string; notas?: string; numeroReferencia?: string; numeroBoleta?: string
+  aplicarAbonoLibre?: boolean // usa el abono libre del plan como "pie": descuenta del cobro
   items: { tratamientoId?: string; planId?: string; descripcion: string; monto: number }[]
 }
+export interface CobroCubiertoAbono { cubiertoConAbono: true; montoAplicado: number }
 
 // Valida los items del cobro y que TODO pago quede asociado a un plan de
 // tratamiento (acciones del plan o abono al plan). Devuelve el monto total.
@@ -103,6 +106,37 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
   const paciente = await db.paciente.findUnique({ where: { id: input.pacienteId }, select: { id: true, nombre: true, apellido: true } })
   if (!paciente) throw notFound('Paciente no encontrado')
 
+  let items = input.items ?? []
+  await validarItemsCobro(db, input.pacienteId, items)
+
+  // Abono libre como "pie": descuenta del cobro el crédito ya abonado al plan y
+  // asignado a las acciones que se están cobrando (capado a lo que se cobra de cada
+  // una). Money-neutral: reasigna crédito existente; el cobro nuevo es la diferencia.
+  let montoAplicado = 0
+  if (input.aplicarAbonoLibre) {
+    const reducidos: typeof items = []
+    for (const it of items) {
+      if (it.tratamientoId) {
+        const aplicado = await aplicarAbonoLibreAAccion(db, it.tratamientoId, it.monto)
+        montoAplicado += aplicado
+        const nuevo = Math.round(Number(it.monto)) - aplicado
+        if (nuevo > 0) reducidos.push({ ...it, monto: nuevo })
+      } else {
+        reducidos.push(it)
+      }
+    }
+    items = reducidos
+    // Todo cubierto con el abono libre → no hay pago nuevo (ni caja).
+    if (items.length === 0 || items.reduce((s, i) => s + Number(i.monto), 0) <= 0) {
+      await audit(db, actor.sub, {
+        accion: 'CREAR', entidad: 'Cobro', entidadId: input.pacienteId, pacienteId: input.pacienteId,
+        resumen: `Aplicó ${fmtMoney(montoAplicado)} de abono libre a las acciones (sin pago nuevo)`,
+      })
+      const res: CobroCubiertoAbono = { cubiertoConAbono: true, montoAplicado }
+      return res
+    }
+  }
+
   if (!input.cajaId) throw badRequest('Debes seleccionar una caja.')
   const caja = await db.caja.findFirst({ where: { id: input.cajaId, activo: true }, include: { usuarios: { select: { userId: true } } } })
   if (!caja) throw notFound('Caja no encontrada')
@@ -110,8 +144,7 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
   // recibir pagos con la caja de otro.
   if (!caja.usuarios.some((cu) => cu.userId === actor.sub)) throw forbidden('Esta caja es de otro usuario. Recibe los pagos con tu propia caja.')
 
-  const items = input.items ?? []
-  const monto = await validarItemsCobro(db, input.pacienteId, items)
+  const monto = items.reduce((s, i) => s + Number(i.monto), 0)
 
   const numeroReferencia = input.numeroReferencia?.trim() || null
   const numeroBoleta = input.numeroBoleta?.trim() || null
@@ -177,8 +210,9 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
         fecha: fechaPago, cobroId: creado.id, userId: actor.sub,
       },
     })
-    // Las acciones que se cobraron salen del "carrito" (ya no están marcadas para cobro).
-    const tratIds = items.map((i) => i.tratamientoId).filter(Boolean) as string[]
+    // Las acciones que se cobraron salen del "carrito" (todas las originalmente
+    // seleccionadas, incluidas las que quedaron cubiertas por el abono libre).
+    const tratIds = (input.items ?? []).map((i) => i.tratamientoId).filter(Boolean) as string[]
     if (tratIds.length > 0) await tx.tratamiento.updateMany({ where: { id: { in: tratIds } }, data: { paraCobro: false } })
     return creado
   })
