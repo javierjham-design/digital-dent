@@ -124,7 +124,7 @@ export function FichaPaciente() {
           cómodo de lectura; Planes de Tratamiento usa todo el ancho disponible. */}
       {tab === 'Datos' && <div className="max-w-5xl"><DatosTab paciente={paciente} onSaved={setPaciente} onFichaSaved={setFicha} /></div>}
       {tab === 'Citas' && <div className="max-w-4xl"><CitasTab pacienteId={id} /></div>}
-      {tab === 'Planes de Tratamiento' && <PlanesTab key={planesNonce} pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} pacienteEmail={paciente.email} />}
+      {tab === 'Planes de Tratamiento' && <PlanesTab key={`${id}:${planesNonce}`} pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} pacienteEmail={paciente.email} />}
       {tab === 'Recaudación' && <RecaudacionTab pacienteId={id} />}
       {tab === 'Evoluciones' && <div className="max-w-4xl"><EvolucionesTab pacienteId={id} isAdmin={isAdmin} /></div>}
       {tab === 'Consentimientos' && <div className="max-w-4xl"><ConsentimientosPaciente pacienteId={id} pacienteNombre={`${paciente.nombre} ${paciente.apellido}`} pacienteEmail={paciente.email} /></div>}
