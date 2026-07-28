@@ -17,6 +17,7 @@ export function Pacientes() {
   const [pacientes, setPacientes] = useState<PacienteDTO[]>([])
   const [recall, setRecall] = useState<PacienteRecall[]>([])
   const [q, setQ] = useState('')
+  const [verInactivos, setVerInactivos] = useState(false) // ver pacientes dados de baja (reactivar)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [total, setTotal] = useState(0)
@@ -34,7 +35,7 @@ export function Pacientes() {
         .then((r) => { setRecall(r.items); setTotal(r.total) })
         .finally(() => setCargando(false))
     } else {
-      pacientesService.listarPaginado(q.trim() || undefined, page, pageSize)
+      pacientesService.listarPaginado(q.trim() || undefined, page, pageSize, verInactivos)
         .then((r) => { setPacientes(r.items); setTotal(r.total) })
         .finally(() => setCargando(false))
     }
@@ -42,7 +43,7 @@ export function Pacientes() {
   useEffect(() => {
     const t = setTimeout(cargar, 250)
     return () => clearTimeout(t)
-  }, [q, page, pageSize, tab]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, page, pageSize, tab, verInactivos]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function cambiarTab(t: Tab) { setTab(t); setPage(1) }
 
@@ -127,6 +128,12 @@ export function Pacientes() {
           </select>
           por página
         </label>
+        {esAdmin && tab === 'todos' && (
+          <button onClick={() => { setVerInactivos((v) => !v); setPage(1) }}
+            className={`px-3 py-2 rounded-xl text-sm font-medium border whitespace-nowrap ${verInactivos ? 'bg-rose-100 text-rose-700 border-rose-200' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+            {verInactivos ? 'Viendo dados de baja ✕' : 'Ver dados de baja'}
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">

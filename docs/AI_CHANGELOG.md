@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-07-28 — Pacientes: dar de baja / reactivar (para duplicados)
+
+El backend ya tenía `Paciente.activo` y el listado filtraba `activo: true`; faltaba
+la UI para darlos de baja (útil para duplicados, sin borrar el historial).
+
+- Ficha del paciente (DatosTab, solo admin): botón "Dar de baja" (confirm →
+  `activo:false` → vuelve al listado; queda oculto de listas y búsqueda) y
+  "Reactivar paciente" cuando está de baja. Badge "Dado de baja" en el encabezado.
+- Listado de pacientes: toggle "Ver dados de baja" (solo admin) para encontrarlos y
+  reactivarlos. `listarPacientesPaginado` acepta `inactivos`; el controller lee
+  `?inactivos=1`. El detalle (`obtenerPaciente`) ya cargaba sin importar el estado.
+
+---
+
 ## 2026-07-27 — Fix (causa real): "Solo crear paciente" ya no dispara customer
 
 Corrección del anterior: la causa NO era la reserva online, sino el flujo MANUAL.

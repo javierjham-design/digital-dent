@@ -94,17 +94,19 @@ const PAGE_SIZES = [25, 50, 100]
 // (para construir el paginador). La búsqueda filtra sobre TODOS los activos.
 export async function listarPacientesPaginado(
   db: TenantClient,
-  opts: { q?: string; page?: number; pageSize?: number },
+  opts: { q?: string; page?: number; pageSize?: number; inactivos?: boolean },
 ): Promise<PacientesPagina> {
   const pageSize = PAGE_SIZES.includes(Number(opts.pageSize)) ? Number(opts.pageSize) : 25
   const page = Math.max(1, Number(opts.page) || 1)
   const needle = opts.q && opts.q.trim().length >= 2 ? norm(opts.q.trim()) : null
+  // Por defecto solo activos; con inactivos=true, solo los dados de baja (para reactivarlos).
+  const activoFiltro = opts.inactivos ? false : true
 
   if (needle) {
-    // Búsqueda: traemos todos los activos, filtramos (insensible a acentos/mayúsculas)
-    // y paginamos en memoria. A esta escala (miles) es instantáneo.
+    // Búsqueda: traemos todos (del estado pedido), filtramos (insensible a acentos/
+    // mayúsculas) y paginamos en memoria. A esta escala (miles) es instantáneo.
     const rutDigits = soloRut(opts.q)
-    const todos = await db.paciente.findMany({ where: { activo: true }, orderBy: { nombre: 'asc' }, select: LIST_SELECT })
+    const todos = await db.paciente.findMany({ where: { activo: activoFiltro }, orderBy: { nombre: 'asc' }, select: LIST_SELECT })
     const filtrados = todos.filter((p) => coincide(p, needle, rutDigits))
     const start = (page - 1) * pageSize
     return { items: filtrados.slice(start, start + pageSize).map(toDTO), total: filtrados.length, page, pageSize }
@@ -112,9 +114,9 @@ export async function listarPacientesPaginado(
 
   // Sin búsqueda: paginación en la base (count + skip/take).
   const [total, pacientes] = await Promise.all([
-    db.paciente.count({ where: { activo: true } }),
+    db.paciente.count({ where: { activo: activoFiltro } }),
     db.paciente.findMany({
-      where: { activo: true }, orderBy: { nombre: 'asc' },
+      where: { activo: activoFiltro }, orderBy: { nombre: 'asc' },
       skip: (page - 1) * pageSize, take: pageSize, select: LIST_SELECT,
     }),
   ])

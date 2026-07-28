@@ -16,7 +16,8 @@ export async function getPacientes(req: Request, res: Response) {
   if (req.query.page !== undefined) {
     const page = Number(req.query.page)
     const pageSize = req.query.pageSize !== undefined ? Number(req.query.pageSize) : undefined
-    res.json(await listarPacientesPaginado(tenantDb(req), { q, page, pageSize }))
+    const inactivos = req.query.inactivos === '1' || req.query.inactivos === 'true'
+    res.json(await listarPacientesPaginado(tenantDb(req), { q, page, pageSize, inactivos }))
     return
   }
   res.json(await listarPacientes(tenantDb(req), q))

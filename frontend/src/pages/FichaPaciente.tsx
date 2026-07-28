@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { CitaDTO, DoctorDTO, PacienteDTO, PrestacionDTO, ClinicaConfigDTO } from '@shared/types'
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
 import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO } from '@/services/clinica.service'
@@ -81,7 +81,9 @@ export function FichaPaciente() {
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
           {/* Izquierda: identidad + KPIs */}
           <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl font-bold leading-tight">{paciente.nombre} {paciente.apellido}</h1>
+            <h1 className="text-xl sm:text-2xl font-bold leading-tight">{paciente.nombre} {paciente.apellido}
+              {paciente.activo === false && <span className="ml-2 align-middle text-xs font-semibold bg-white/25 rounded-full px-2 py-0.5">Dado de baja</span>}
+            </h1>
             <p className="text-cyan-100 text-sm mt-1">
               {paciente.rut ?? 'Sin RUT'} · {edadTexto(paciente.fechaNacimiento)}{paciente.prevision ? ` · ${paciente.prevision}` : ''}
             </p>
@@ -254,6 +256,22 @@ function DatosTab({ paciente, onSaved, onFichaSaved }: { paciente: PacienteDTO; 
   })
   const [msg, setMsg] = useState('')
   const [saving, setSaving] = useState(false)
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const navigate = useNavigate()
+  const [bajaBusy, setBajaBusy] = useState(false)
+
+  // Dar de baja / reactivar. Los de baja no aparecen en el listado ni en la búsqueda.
+  async function toggleActivo() {
+    const dando = paciente.activo !== false
+    if (dando && !window.confirm(`¿Dar de baja a ${paciente.nombre} ${paciente.apellido}? Quedará oculto del listado y la búsqueda (no se elimina; su historial se conserva). Útil para duplicados.`)) return
+    setBajaBusy(true); setMsg('')
+    try {
+      const p = await pacientesService.actualizar(paciente.id, { activo: !dando })
+      if (dando) { navigate('/pacientes') } // ya no aparece en listas; volvemos al listado
+      else { onSaved(p); setMsg('Paciente reactivado') }
+    } catch (e) { setMsg(e instanceof ApiError ? e.message : 'No se pudo cambiar el estado del paciente') } finally { setBajaBusy(false) }
+  }
 
   useEffect(() => {
     pacientesService.ficha(paciente.id).then((f) => {
@@ -375,9 +393,16 @@ function DatosTab({ paciente, onSaved, onFichaSaved }: { paciente: PacienteDTO; 
             className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
         </label>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <button onClick={guardar} disabled={saving || rutInvalido} className="px-5 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-60 text-white text-sm font-semibold rounded-xl">{saving ? 'Guardando…' : 'Guardar'}</button>
         {msg && <span className="text-sm text-emerald-600">{msg}</span>}
+        {isAdmin && (
+          paciente.activo === false ? (
+            <button onClick={toggleActivo} disabled={bajaBusy} className="ml-auto px-4 py-2.5 border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-60 text-sm font-semibold rounded-xl">{bajaBusy ? '…' : 'Reactivar paciente'}</button>
+          ) : (
+            <button onClick={toggleActivo} disabled={bajaBusy} className="ml-auto px-4 py-2.5 border border-rose-300 text-rose-700 hover:bg-rose-50 disabled:opacity-60 text-sm font-semibold rounded-xl">{bajaBusy ? '…' : 'Dar de baja'}</button>
+          )
+        )}
       </div>
     </div>
   )

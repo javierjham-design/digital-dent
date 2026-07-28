@@ -48,11 +48,12 @@ export interface DienteDTO { numero: number; cara: string; estado: string }
 
 export const pacientesService = {
   listar: (q?: string) => api.get<PacienteDTO[]>(`/pacientes${q ? `?q=${encodeURIComponent(q)}` : ''}`),
-  listarPaginado: (q: string | undefined, page: number, pageSize: number) => {
+  listarPaginado: (q: string | undefined, page: number, pageSize: number, inactivos = false) => {
     const p = new URLSearchParams()
     if (q) p.set('q', q)
     p.set('page', String(page))
     p.set('pageSize', String(pageSize))
+    if (inactivos) p.set('inactivos', '1')
     return api.get<PacientesPagina>(`/pacientes?${p.toString()}`)
   },
   // Pacientes con citas pasadas pero sin próxima cita agendada (recall).
