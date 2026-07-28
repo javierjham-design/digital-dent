@@ -406,7 +406,9 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
       lead = await db.lead.update({
         where: { id: existente.id },
         data: {
-          estado: 'AGENDADO', pacienteId: existente.pacienteId ?? paciente.id, citaId: cita.id,
+          // No degradar un lead ya CONVERTIDO a AGENDADO (perdería la conversión y
+          // dejaría "AGENDADO con customer"); si no, avanza a AGENDADO.
+          estado: existente.estado === 'CONVERTIDO' ? existente.estado : 'AGENDADO', pacienteId: existente.pacienteId ?? paciente.id, citaId: cita.id,
           fechaAgenda: cita.fecha, agendaFuente: link.nombre, ultimaGestionAt: new Date(),
           // Completar identificadores/tracking que ahora tenemos y al lead le faltaban
           telefono: existente.telefono ?? telefono, email: existente.email ?? emailNorm, rut: existente.rut ?? rut,

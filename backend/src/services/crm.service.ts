@@ -237,20 +237,27 @@ export async function registrarLeadAdsRecibido(db: TenantClient, info: { leadgen
 // etapa (metaCrmEtapas: CSV de eventos ya enviados). Best-effort: nunca rompe la
 // operación principal ni loguea PII. Si Meta falla, no marca la etapa → se puede
 // reintentar. Se llama con `void` desde los puntos de cambio de estado.
-export type EtapaCrmEstado = 'enviado' | 'error' | 'ya' | 'sin-config' | 'sin-leadgen'
+export type EtapaCrmEstado = 'enviado' | 'error' | 'ya' | 'sin-config' | 'sin-leadgen' | 'no-aplica'
 export interface EtapaCrmResultado { estado: EtapaCrmEstado; error?: string }
 export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eventName: string, cfg?: MetaCrmConfig, opts?: { force?: boolean }): Promise<EtapaCrmResultado> {
   const conf = cfg ?? await getMetaCrmConfig(db)
   if (!crmMetaHabilitado(conf)) return { estado: 'sin-config' }
   const lead = await db.lead.findUnique({
     where: { id: leadId },
-    select: { id: true, nombre: true, apellido: true, email: true, telefono: true, leadgenId: true, vecesIngresado: true, metaCrmEtapas: true, fechaAgenda: true, ultimaGestionAt: true, updatedAt: true, createdAt: true },
+    select: { id: true, estado: true, nombre: true, apellido: true, email: true, telefono: true, leadgenId: true, vecesIngresado: true, metaCrmEtapas: true, fechaAgenda: true, ultimaGestionAt: true, updatedAt: true, createdAt: true },
   })
   if (!lead) return { estado: 'sin-config' }
   // SOLO leads del Formulario Instantáneo (con leadgenId) van al dataset de CRM: son
   // los que llevan user_data.lead_id para la optimización por "clientes calificados".
   // Los de la landing NO llevan lead_id y siguen su flujo actual al pixel/dataset web.
   if (!lead.leadgenId) return { estado: 'sin-leadgen' }
+  // GUARD del embudo: "customer" (conversión) SOLO si el lead está realmente
+  // CONVERTIDO. Nunca en AGENDADO u otro estado (evita inflar conversiones). El
+  // "Schedule" del embudo lo dispara el agendamiento; nunca cae en "customer".
+  if (eventName.toLowerCase() === 'customer' && lead.estado !== 'CONVERTIDO') {
+    console.warn(`[meta-crm] "customer" OMITIDO para lead ${lead.id}: estado ${lead.estado} (solo se emite en CONVERTIDO).`)
+    return { estado: 'no-aplica' }
+  }
 
   const veces = lead.vecesIngresado ?? 1
   // Idempotencia por ciclo de reingreso: si el contacto reingresa y reavanza, el

@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-07-27 — Fix: evento "customer" solo en CONVERTIDO (no en AGENDADO)
+
+10 leads AGENDADO recibieron "customer" en el dataset CRM. Origen: la reserva
+online forzaba AGENDADO incondicionalmente (degradaba incluso un lead ya
+CONVERTIDO), dejando "AGENDADO + customer"; el customer había salido al convertir.
+
+- **Guard duro** en `dispararEtapaCrmMeta`: el evento `customer` SOLO se emite si
+  el lead está en estado `CONVERTIDO`. En cualquier otro estado (AGENDADO, etc.)
+  se omite (`no-aplica`) y se loguea. Estructuralmente imposible mandar customer
+  fuera de CONVERTIDO. AGENDADO sigue disparando solo `Schedule` (+`lead` de
+  entrada).
+- **Reserva online** ya no degrada un lead CONVERTIDO a AGENDADO (conserva la
+  conversión; igual dispara Schedule). Evita el estado inconsistente.
+- Los eventos ya enviados a Meta no se borran; esto frena que siga.
+
+---
+
 ## 2026-07-27 — Recaudación: cobrar acciones de VARIOS planes en un solo pago
 
 Ej.: radiografías en un plan y limpieza en otro → un solo cobro. El backend
