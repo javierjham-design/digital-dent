@@ -332,7 +332,7 @@ function LeadDetalle({ lead, waPlantilla, clinicaNombre, onClose, onChanged, not
   }
   async function convertir() {
     setBusy(true)
-    try { const r = await crmService.convertir(lead.id); notify(r.yaExistia ? 'Ya estaba vinculado a un paciente' : 'Convertido en paciente'); navigate(`/pacientes/${r.pacienteId}`) }
+    try { const r = await crmService.convertir(lead.id); notify(r.yaExistia ? 'Ya estaba vinculado a un paciente' : 'Paciente creado'); navigate(`/pacientes/${r.pacienteId}`) }
     catch (err) { notify(err instanceof ApiError ? err.message : 'Error', false) } finally { setBusy(false) }
   }
   async function eliminar() {

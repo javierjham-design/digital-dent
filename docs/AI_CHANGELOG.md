@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-07-27 — Fix (causa real): "Solo crear paciente" ya no dispara customer
+
+Corrección del anterior: la causa NO era la reserva online, sino el flujo MANUAL.
+La clínica usa "Solo crear paciente" (convertirEnPaciente) para registrar la ficha
+y agendar; eso marcaba el lead CONVERTIDO y disparaba "customer", y luego lo
+marcaban AGENDADO → quedaba "AGENDADO con customer, pacienteId, citaId null".
+
+- `convertirEnPaciente` ("Solo crear paciente") ahora es SOLO administrativo:
+  vincula/crea el paciente y CONSERVA el estado del lead. NO marca CONVERTIDO ni
+  dispara customer. (Crear la ficha ≠ conversión del embudo.)
+- El evento `customer` queda con UNA sola fuente: el cambio de estado deliberado a
+  CONVERTIDO (`CRM_ETAPA_EVENTO`), reforzado por el guard `dispararEtapaCrmMeta`
+  (solo si estado=CONVERTIDO). Reproducción (trazado estático): "Solo crear
+  paciente" + marcar AGENDADO → dispara `lead`/`Schedule`, NUNCA `customer`.
+- Frontend: el aviso de "Solo crear paciente" pasa a "Paciente creado".
+
+---
+
 ## 2026-07-27 — Fix: evento "customer" solo en CONVERTIDO (no en AGENDADO)
 
 10 leads AGENDADO recibieron "customer" en el dataset CRM. Origen: la reserva

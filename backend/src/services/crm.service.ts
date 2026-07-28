@@ -798,10 +798,12 @@ export async function convertirEnPaciente(db: TenantClient, actor: JwtPayload, i
   if (!lead) throw notFound('Lead no encontrado')
   const { id: pacienteId, creado } = await pacienteDesdeLead(db, lead)
   if (!creado && lead.pacienteId === pacienteId) return { pacienteId, yaExistia: true }
-  await db.lead.update({ where: { id }, data: { pacienteId, estado: lead.estado === 'PERDIDO' ? lead.estado : 'CONVERTIDO', ultimaGestionAt: new Date() } })
-  await db.leadNota.create({ data: { leadId: id, tipo: 'SISTEMA', texto: creado ? 'Convertido en paciente' : 'Vinculado a paciente existente', autorId: actor.sub, autorNombre: actorName(actor) } })
-  // Etapa final del embudo en el CRM de Meta ("Cliente"), salvo leads perdidos.
-  if (lead.estado !== 'PERDIDO') void dispararEtapaCrmMeta(db, id, 'customer')
+  // "Solo crear paciente" es administrativo (registrar la ficha para agendar/atender),
+  // NO una conversión del embudo: se vincula el paciente y se CONSERVA el estado del
+  // lead. NO se marca CONVERTIDO ni se dispara "customer" (eso es solo cuando el lead
+  // pasa deliberadamente a CONVERTIDO vía el estado, que emite customer con su guard).
+  await db.lead.update({ where: { id }, data: { pacienteId, ultimaGestionAt: new Date() } })
+  await db.leadNota.create({ data: { leadId: id, tipo: 'SISTEMA', texto: creado ? 'Paciente creado desde el lead' : 'Vinculado a paciente existente', autorId: actor.sub, autorNombre: actorName(actor) } })
   return { pacienteId, yaExistia: !creado }
 }
 
