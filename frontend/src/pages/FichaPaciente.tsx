@@ -534,7 +534,10 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   }, [enviarPlan, pacienteId])
 
   const abrir = async (planId: string) => { try { clearSel(); setDetalle(await planesService.obtener(planId) as PlanDetalle) } catch (e) { setError((e as Error).message) } }
-  const recargar = () => { if (detalle) abrir(detalle.id) }
+  // Recarga los datos del plan CONSERVANDO la selección del odontograma (para poder
+  // cargar varias acciones a las mismas piezas sin volver a marcarlas). Solo `abrir`
+  // (elegir otro plan) o "Limpiar selección" borran la selección.
+  const recargar = async () => { if (detalle) { try { setDetalle(await planesService.obtener(detalle.id) as PlanDetalle) } catch (e) { setError((e as Error).message) } } }
   // Selección múltiple en el odontograma: se pueden marcar varias piezas y, en
   // cada una, sus caras. Clic en una cara agrega esa pieza+cara; clic en la
   // silueta/número selecciona/deselecciona la pieza completa (implante).
@@ -759,9 +762,9 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
   return (
     <div>
       <button onClick={onCerrar} className="text-sm text-cyan-600 hover:underline mb-3">← Planes de tratamiento</button>
-      <div className="grid lg:grid-cols-[280px_1fr] gap-4">
+      <div className="grid lg:grid-cols-[280px_minmax(0,1fr)] gap-4">
         {/* Panel izquierdo: presupuesto + datos */}
-        <div className="space-y-3">
+        <div className="space-y-3 min-w-0">
           <div className="rounded-2xl bg-gradient-to-br from-cyan-600 to-cyan-700 text-white p-4">
             <p className="text-xs text-cyan-100">Plan de tratamiento #{plan.id.slice(-4)}</p>
             <div className="flex items-center gap-2 mt-1">
@@ -810,7 +813,7 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
         </div>
 
         {/* Panel derecho: odontograma + secciones */}
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           <div className="bg-white rounded-2xl border border-slate-200 p-4">
             <OdontogramaPlan caraMap={caraMap} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} denticion={denticion}
               onFace={toggleFace} onWhole={toggleWhole} onZona={toggleZona} onClear={clearSel} onDenticion={cambiarDenticion} />
@@ -1333,6 +1336,8 @@ function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas,
 }) {
   const [prestId, setPrestId] = useState('')
   const [modo, setModo] = useState<'porPieza' | 'unaSola'>('porPieza')
+  const [buscadorKey, setBuscadorKey] = useState(0) // remonta el buscador para limpiarlo entre acciones
+  const [agregadas, setAgregadas] = useState(0)
   const prest = prestaciones.find((p) => p.id === prestId)
   const piezas = [...selPiezas].sort((a, b) => a - b)
   const resumen = piezas.map((n) => `${n}${selCaras[n]?.length ? `(${selCaras[n].join('')})` : ''}`).join(', ')
@@ -1356,14 +1361,15 @@ function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas,
         })))
       }
     })
-    // NO se limpia la selección: así se pueden agregar varias acciones a la(s)
-    // misma(s) pieza(s) sin volver a marcarlas. Se limpia con "Limpiar selección".
-    onDone()
+    // NO se limpia la selección NI se cierra el form: así se pueden cargar varias
+    // acciones a la(s) misma(s) pieza(s) sin volver a marcarlas ni reabrir. Solo se
+    // limpia la prestación elegida (se remonta el buscador). Cierra con "Listo".
+    setPrestId(''); setBuscadorKey((k) => k + 1); setAgregadas((n) => n + 1)
   }
 
   return (
     <div className="space-y-2 py-1">
-      <PrestacionBuscador prestaciones={prestaciones} onSelect={(p) => setPrestId(p.id)} />
+      <PrestacionBuscador key={buscadorKey} prestaciones={prestaciones} onSelect={(p) => setPrestId(p.id)} />
       {selZonas.length > 0 ? (
         <p className="text-xs text-cyan-700">Asociada a <b>{selZonas.join(' + ')}</b> (sin dientes){selZonas.length > 1 ? ` · ${selZonas.length} acciones` : ''}{prest ? ` · ${fmtCLP(prest.precio * selZonas.length)}` : ''}.</p>
       ) : piezas.length > 0 ? (
@@ -1377,9 +1383,10 @@ function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas,
       ) : (
         <p className="text-xs text-slate-400">Sin selección → se agrega como prestación general. Marca piezas o una zona en el odontograma para asociarla.</p>
       )}
-      <div className="flex gap-2">
+      <div className="flex items-center gap-2">
         <button onClick={añadir} disabled={!prestId} className="px-3 py-1.5 bg-cyan-600 disabled:opacity-50 text-white text-sm rounded-lg">Agregar</button>
-        <button onClick={onDone} className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg">Cancelar</button>
+        <button onClick={onDone} className="px-3 py-1.5 border border-slate-200 text-slate-600 text-sm rounded-lg">{agregadas > 0 ? 'Listo' : 'Cancelar'}</button>
+        {agregadas > 0 && <span className="text-xs text-emerald-600">✓ {agregadas} acción{agregadas > 1 ? 'es' : ''} agregada{agregadas > 1 ? 's' : ''} · la selección se mantiene</span>}
       </div>
     </div>
   )

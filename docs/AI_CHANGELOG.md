@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-07-28 — Planes: barras completas + la selección de dientes se mantiene
+
+- **Layout**: la columna derecha del detalle del plan (odontograma + acciones) no
+  podía encogerse (grid `1fr` sin `min-w-0`), así el contenido empujaba el ancho y
+  cortaba las barras de acciones a la derecha. Se cambió a
+  `grid-cols-[280px_minmax(0,1fr)]` + `min-w-0` en ambas columnas → las barras se
+  ven completas y el odontograma scrollea solo si hace falta.
+- **Selección de dientes persistente**: al agregar una acción, `recargar()` hacía
+  `abrir()` que llamaba `clearSel()` → borraba la selección. Ahora `recargar()`
+  recarga los datos SIN limpiar la selección (solo `abrir` otro plan / "Limpiar
+  selección" la borran). Además el form "Agregar prestación" queda ABIERTO tras
+  agregar (resetea solo la prestación, muestra "✓ N agregadas · la selección se
+  mantiene"), para cargar 4-5 acciones a los mismos dientes sin re-seleccionar.
+
+---
+
 ## 2026-07-28 — Pacientes: dar de baja / reactivar (para duplicados)
 
 El backend ya tenía `Paciente.activo` y el listado filtraba `activo: true`; faltaba
