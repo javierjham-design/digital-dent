@@ -568,6 +568,26 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
     setError('')
     try { await fn(); recargar(); cargarPlanes() } catch (e) { setError(e instanceof ApiError ? e.message : 'Error') }
   }
+  const finalizar = (id: string) => accion(() => planesService.actualizar(id, { estado: 'FINALIZADO' }))
+  const reabrir = (id: string) => accion(() => planesService.actualizar(id, { estado: 'ACTIVO' }))
+
+  // Tras evolucionar una acción: si quedó completada la ÚLTIMA acción pendiente del
+  // plan, se consulta si finalizarlo. Se relee el plan para evaluar sobre datos frescos.
+  async function trasEvolucionar() {
+    setEvoAccion(null)
+    cargarPlanes()
+    if (!detalle) return
+    let fresh: PlanDetalle
+    try { fresh = await planesService.obtener(detalle.id) as PlanDetalle } catch { recargar(); return }
+    setDetalle(fresh)
+    const acc = [...fresh.secciones.flatMap((s) => s.tratamientos), ...fresh.tratamientos]
+    const todasHechas = acc.length > 0 && acc.every((t) => t.estado === 'COMPLETADO')
+    if (todasHechas && fresh.estado !== 'FINALIZADO') {
+      if (window.confirm('Se completó la última acción de este plan de tratamiento. ¿Deseas finalizarlo? Podrás verlo luego en la pestaña "Finalizados".')) {
+        await finalizar(fresh.id)
+      }
+    }
+  }
   async function eliminarPlan(id: string) {
     if (!window.confirm('¿Eliminar este plan? Las acciones ya realizadas quedan registradas en la ficha del paciente.')) return
     await accion(() => planesService.eliminar(id))
@@ -589,6 +609,7 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
           toggleFace={toggleFace} toggleWhole={toggleWhole} toggleZona={toggleZona} clearSel={clearSel} cambiarDenticion={cambiarDenticion}
           accion={accion}
           onCerrar={() => setDetalle(null)} onEvolucionar={setEvoAccion} onRenombrar={renombrar}
+          onFinalizar={() => finalizar(detalle.id)} onReabrir={() => reabrir(detalle.id)}
           puedeDesbloquear={puedeDesbloquear}
           onBloquear={() => {
             if (detalle.bloqueado && !puedeDesbloquear) { setError('No tienes permiso para desbloquear presupuestos. Pídeselo a un administrador.'); return }
@@ -631,7 +652,7 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
       {evoAccion && detalle && (
         <EvolucionModal accion={evoAccion} pacienteNombre={pacienteNombre} doctores={doctores} plan={detalle}
           onClose={() => setEvoAccion(null)}
-          onDone={() => { setEvoAccion(null); recargar(); cargarPlanes() }} />
+          onDone={trasEvolucionar} />
       )}
     </div>
   )
@@ -700,40 +721,42 @@ function PlanTarjeta({ p, onAbrir, onEliminar, onEnviar }: { p: PlanCard; onAbri
 function PlanLista({ planes, onAbrir, onNuevo, onEliminar, onEnviar }: {
   planes: PlanCard[]; onAbrir: (id: string) => void; onNuevo: () => void; onEliminar: (id: string) => void; onEnviar: (p: PlanCard) => void
 }) {
+  const [tab, setTab] = useState<'ejecucion' | 'finalizados'>('ejecucion')
   const enEjecucion = planes.filter((p) => p.estado !== 'FINALIZADO')
   const finalizados = planes.filter((p) => p.estado === 'FINALIZADO')
+  const lista = tab === 'finalizados' ? finalizados : enEjecucion
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-4">
         <h2 className="text-lg font-bold text-slate-900">Planes de tratamiento</h2>
         <button onClick={onNuevo} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl whitespace-nowrap">+ Nuevo plan de tratamiento</button>
       </div>
-      {planes.length === 0 && <p className="text-sm text-slate-500">Este paciente no tiene planes de tratamiento.</p>}
-      {enEjecucion.length > 0 && (
-        <div className="mb-5">
-          <p className="text-sm font-semibold text-cyan-700 mb-2">En ejecución</p>
-          <div className="space-y-3">{enEjecucion.map((p) => <PlanTarjeta key={p.id} p={p} onAbrir={onAbrir} onEliminar={onEliminar} onEnviar={onEnviar} />)}</div>
-        </div>
-      )}
-      {finalizados.length > 0 && (
-        <div className="mb-5">
-          <p className="text-sm font-semibold text-slate-500 mb-2">Finalizados</p>
-          <div className="space-y-3">{finalizados.map((p) => <PlanTarjeta key={p.id} p={p} onAbrir={onAbrir} onEliminar={onEliminar} onEnviar={onEnviar} />)}</div>
-        </div>
-      )}
+      <div className="flex gap-1 border-b border-slate-200 mb-4">
+        <button onClick={() => setTab('ejecucion')}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px ${tab === 'ejecucion' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>En ejecución{enEjecucion.length ? ` (${enEjecucion.length})` : ''}</button>
+        <button onClick={() => setTab('finalizados')}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px ${tab === 'finalizados' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Finalizados{finalizados.length ? ` (${finalizados.length})` : ''}</button>
+      </div>
+      {planes.length === 0
+        ? <p className="text-sm text-slate-500">Este paciente no tiene planes de tratamiento.</p>
+        : lista.length === 0
+          ? <p className="text-sm text-slate-500">{tab === 'finalizados' ? 'No hay planes finalizados.' : 'No hay planes en ejecución.'}</p>
+          : <div className="space-y-3">{lista.map((p) => <PlanTarjeta key={p.id} p={p} onAbrir={onAbrir} onEliminar={onEliminar} onEnviar={onEnviar} />)}</div>}
     </div>
   )
 }
 
-function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, selCaras, selZonas, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onBloquear, onProfesional, onEnviarCorreo, puedeDesbloquear }: {
+function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, selCaras, selZonas, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onFinalizar, onReabrir, onBloquear, onProfesional, onEnviarCorreo, puedeDesbloquear }: {
   plan: PlanDetalle; prestaciones: PrestacionDTO[]; doctores: DoctorDTO[]; pacienteId: string
   selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; denticion: 'PERM' | 'TEMP'
   toggleFace: (n: number, f: string) => void; toggleWhole: (n: number) => void; toggleZona: (label: string) => void
   clearSel: () => void; cambiarDenticion: (d: 'PERM' | 'TEMP') => void
   accion: (fn: () => Promise<unknown>) => Promise<void>
   onCerrar: () => void; onEvolucionar: (t: TratNode) => void; onRenombrar: () => void
+  onFinalizar: () => void; onReabrir: () => void
   onBloquear: () => void; onProfesional: (id: string) => void; onEnviarCorreo: () => void; puedeDesbloquear: boolean
 }) {
+  const finalizado = plan.estado === 'FINALIZADO'
   const [agregando, setAgregando] = useState(false)
   const todas = [...plan.secciones.flatMap((s) => s.tratamientos), ...plan.tratamientos]
   const fin = planFinanzas(todas)
@@ -766,7 +789,10 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
         {/* Panel izquierdo: presupuesto + datos */}
         <div className="space-y-3 min-w-0">
           <div className="rounded-2xl bg-gradient-to-br from-cyan-600 to-cyan-700 text-white p-4">
-            <p className="text-xs text-cyan-100">Plan de tratamiento #{plan.id.slice(-4)}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-cyan-100">Plan de tratamiento #{plan.id.slice(-4)}</p>
+              {finalizado && <span className="text-[10px] font-semibold bg-white/25 rounded-full px-2 py-0.5">Finalizado</span>}
+            </div>
             <div className="flex items-center gap-2 mt-1">
               <h3 className="text-lg font-bold truncate">{plan.nombre}</h3>
               <button onClick={onRenombrar} title="Renombrar" className="text-cyan-100 hover:text-white shrink-0">✏️</button>
@@ -809,6 +835,13 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
               ✉ Enviar presupuesto por correo (PDF)
             </button>
             {!plan.bloqueado && <p className="text-[11px] text-slate-400 leading-tight">Al imprimir o enviar, el presupuesto queda bloqueado para no modificarlo.</p>}
+            {finalizado ? (
+              <button onClick={() => { if (window.confirm('¿Reabrir este plan? Volverá a "En ejecución".')) onReabrir() }}
+                className="w-full text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">↩ Reabrir plan</button>
+            ) : (
+              <button onClick={() => { if (window.confirm('¿Finalizar este plan de tratamiento? Pasará a la pestaña "Finalizados".')) onFinalizar() }}
+                className="w-full text-xs font-semibold px-3 py-2 rounded-lg border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100">✓ Finalizar plan de tratamiento</button>
+            )}
           </div>
         </div>
 

@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-07-29 — Planes: finalizar plan + auto-consulta + pestaña "Finalizados"
+
+Backend ya tenía `PlanTratamiento.estado` (default ACTIVO) y `actualizarPlan` lo
+acepta; solo se agregó UI.
+
+- **Finalizar / Reabrir**: botón en el detalle del plan que setea
+  `estado='FINALIZADO'` (o 'ACTIVO' al reabrir), con confirmación. Badge
+  "Finalizado" en el encabezado del plan.
+- **Auto-consulta**: al evolucionar una acción, si quedó completada la ÚLTIMA
+  pendiente del plan (todas COMPLETADO), se relee el plan y aparece un confirm
+  "¿Finalizar este plan?". Si acepta, se finaliza.
+- **Pestaña "Finalizados"**: `PlanLista` pasó de secciones a pestañas "En
+  ejecución (N)" / "Finalizados (N)" para ver los planes ya finalizados.
+
+---
+
 ## 2026-07-28 — Planes: barras completas + la selección de dientes se mantiene
 
 - **Layout**: la columna derecha del detalle del plan (odontograma + acciones) no
