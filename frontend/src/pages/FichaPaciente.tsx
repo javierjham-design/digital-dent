@@ -437,11 +437,13 @@ function CitasTab({ pacienteId }: { pacienteId: string }) {
 
 // ── Planes de tratamiento (estilo Dentalink) ──
 interface CobroItemLite { monto: number; cobro: { estado: string } | null }
+interface EvolucionLite { id: string; fecha: string; texto: string; autor: { id: string; name: string | null; email: string | null } | null }
 interface TratNode {
   id: string; estado: string; precio: number; descuento: number; diente: number | null; cara: string | null; notas: string | null
-  paraCobro?: boolean
+  paraCobro?: boolean; fechaCompletado?: string | null
   prestacion: { nombre: string; categoria: string | null }; cobroItems: CobroItemLite[]
   doctor: { id: string; name: string | null } | null
+  evoluciones?: EvolucionLite[]
   _count?: { liquidacionItems: number }
 }
 interface TratLite { estado: string; precio: number; descuento: number; cobroItems: CobroItemLite[] }
@@ -505,6 +507,7 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   const [selZonas, setSelZonas] = useState<string[]>([])
   const [denticion, setDenticion] = useState<'PERM' | 'TEMP'>('PERM')
   const [evoAccion, setEvoAccion] = useState<TratNode | null>(null)
+  const [nuevoPlanOpen, setNuevoPlanOpen] = useState(false)
   const [error, setError] = useState('')
   const { user } = useAuth()
   // Al imprimir/enviar un presupuesto queda bloqueado; sólo puede reabrirlo un
@@ -562,7 +565,12 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
     setSelZonas((zs) => (zs.includes(label) ? zs.filter((x) => x !== label) : [...zs, label]))
   }
   const cambiarDenticion = (d: 'PERM' | 'TEMP') => { setDenticion(d); clearSel() }
-  async function crearPlan() { const p = await planesService.crear({ pacienteId, doctorTitularId: doctores[0]?.id }) as { id: string }; cargarPlanes(); abrir(p.id) }
+  // El profesional a cargo se elige al crear el plan (NuevoPlanModal). Antes caía
+  // por defecto al primer doctor de la lista, dejando todos los planes con el mismo.
+  async function crearPlan(doctorTitularId: string) {
+    const p = await planesService.crear({ pacienteId, doctorTitularId: doctorTitularId || undefined }) as { id: string }
+    setNuevoPlanOpen(false); cargarPlanes(); abrir(p.id)
+  }
 
   async function accion<T>(fn: () => Promise<T>) {
     setError('')
@@ -623,7 +631,7 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
           })}
         />
       ) : (
-        <PlanLista planes={planes} onAbrir={abrir} onNuevo={crearPlan} onEliminar={eliminarPlan} onEnviar={setEnviarPlan} />
+        <PlanLista planes={planes} onAbrir={abrir} onNuevo={() => setNuevoPlanOpen(true)} onEliminar={eliminarPlan} onEnviar={setEnviarPlan} />
       )}
       {enviarPlan && (() => { const fin = planFinanzas(enviarPlan.tratamientos); const saldo = Math.max(0, fin.total - (fin.abonado + (enviarPlan.abonoLibre ?? 0))); return (
         <EnviarCorreoModal
@@ -654,6 +662,57 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
           onClose={() => setEvoAccion(null)}
           onDone={trasEvolucionar} />
       )}
+      {nuevoPlanOpen && (
+        <NuevoPlanModal doctores={doctores} onClose={() => setNuevoPlanOpen(false)} onCrear={crearPlan} />
+      )}
+    </div>
+  )
+}
+
+// Al crear un plan se pregunta el profesional a cargo (antes caía por defecto al
+// primer doctor). Queda asignado desde el inicio; se puede cambiar luego en el detalle.
+function NuevoPlanModal({ doctores, onClose, onCrear }: {
+  doctores: DoctorDTO[]; onClose: () => void; onCrear: (doctorTitularId: string) => Promise<void>
+}) {
+  const [doctorId, setDoctorId] = useState('')
+  const [creando, setCreando] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  async function crear() {
+    if (!doctorId) { setErr('Selecciona el profesional a cargo del plan'); return }
+    setCreando(true); setErr('')
+    try { await onCrear(doctorId) } catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo crear el plan'); setCreando(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h3 className="text-lg font-bold text-slate-900">Nuevo plan de tratamiento</h3>
+          <p className="text-sm text-slate-500">¿Qué profesional queda a cargo de este plan?</p>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block">
+            <span className="text-xs font-medium text-slate-500">Profesional a cargo</span>
+            <select value={doctorId} onChange={(e) => { setDoctorId(e.target.value); setErr('') }} autoFocus
+              className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
+              <option value="">Selecciona un profesional…</option>
+              {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
+            </select>
+          </label>
+          {err && <p className="text-sm text-rose-600">{err}</p>}
+        </div>
+        <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 border border-slate-200 text-slate-600 text-sm rounded-lg">Cancelar</button>
+          <button onClick={crear} disabled={creando || !doctorId} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg">{creando ? 'Creando…' : 'Crear plan'}</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1235,6 +1294,9 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
   const dsctoEditable = !bloqueado && !completado && puedeAplicarDescuento
   const [edit, setEdit] = useState<null | 'precio' | 'dscto'>(null)
   const [val, setVal] = useState('')
+  // Al pinchar una acción ya realizada se despliega su trazabilidad (fecha,
+  // profesional a cargo y evolución anotada). Cerrado por defecto.
+  const [verDetalle, setVerDetalle] = useState(false)
   // Desevolucionar (revertir a planificada): requiere permiso, confirmación, y que
   // la acción NO esté liquidada (ya pagada al profesional).
   const puedeDesevolucionar = puedeRevertir && !liquidada
@@ -1266,6 +1328,7 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
   }
 
   return (
+    <div>
     <div className={`flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2.5 ${!bloqueado && !edit ? 'cursor-move' : ''}`}
       draggable={!bloqueado && !edit}
       onDragStart={(e) => { e.dataTransfer.setData('text/plain', t.id); e.dataTransfer.effectAllowed = 'move' }}>
@@ -1278,12 +1341,31 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
         className={`w-5 h-5 rounded-full flex items-center justify-center text-[11px] shrink-0 ${completado ? `bg-emerald-500 text-white ${puedeDesevolucionar ? '' : 'cursor-default opacity-90'}` : 'border-2 border-slate-300 hover:border-cyan-400'}`}>
         {completado ? '✓' : ''}
       </button>
-      <div className="min-w-0 flex-1">
-        <p className="text-sm text-slate-800 truncate">{t.prestacion.nombre}</p>
-        {/* En móvil la pieza/zona va bajo el nombre (la columna de la derecha se oculta). */}
-        <p className="sm:hidden text-xs text-slate-400 truncate">{piezaLabel}</p>
-      </div>
-      <span className="hidden sm:block w-28 text-sm text-slate-600 truncate" title={piezaLabel}>{piezaLabel}</span>
+      {completado ? (
+        <button type="button" onClick={() => setVerDetalle((v) => !v)} draggable={false}
+          title="Ver detalle de la realización (fecha, profesional y evolución)"
+          className="min-w-0 flex-1 text-left flex items-center gap-1">
+          <span className="min-w-0 flex-1">
+            <span className="text-sm text-slate-800 truncate flex items-center gap-1">
+              {t.prestacion.nombre}
+              <span className="text-cyan-500 text-xs shrink-0">{verDetalle ? '▾' : '▸'}</span>
+            </span>
+            <span className="sm:hidden block text-xs text-slate-400 truncate">{piezaLabel}</span>
+          </span>
+        </button>
+      ) : (
+        <div className="min-w-0 flex-1">
+          <p className="text-sm text-slate-800 truncate">{t.prestacion.nombre}</p>
+          {/* En móvil la pieza/zona va bajo el nombre (la columna de la derecha se oculta). */}
+          <p className="sm:hidden text-xs text-slate-400 truncate">{piezaLabel}</p>
+        </div>
+      )}
+      {completado ? (
+        <button type="button" onClick={() => setVerDetalle((v) => !v)} draggable={false}
+          className="hidden sm:block w-28 text-left text-sm text-slate-600 truncate" title={piezaLabel}>{piezaLabel}</button>
+      ) : (
+        <span className="hidden sm:block w-28 text-sm text-slate-600 truncate" title={piezaLabel}>{piezaLabel}</span>
+      )}
 
       {/* Descuento (editable, 0% por defecto) */}
       {edit === 'dscto' ? (
@@ -1323,6 +1405,30 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
       {!bloqueado
         ? <button onClick={() => accion(() => tratamientosService.eliminar(t.id))} className="w-4 text-slate-300 hover:text-rose-600 text-sm shrink-0" title="Quitar">×</button>
         : <span className="w-4" />}
+    </div>
+    {completado && verDetalle && (
+      <div className="mx-3 sm:mx-4 mb-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600 space-y-1.5">
+        <div className="flex flex-wrap gap-x-5 gap-y-0.5">
+          <span><span className="text-slate-400">Realizada el:</span> {t.fechaCompletado ? new Date(t.fechaCompletado).toLocaleDateString('es-CL', { dateStyle: 'long' }) : '—'}</span>
+          <span><span className="text-slate-400">Profesional a cargo:</span> {t.doctor?.name ?? 'Sin asignar'}</span>
+        </div>
+        <div className="pt-1 border-t border-slate-200">
+          <p className="text-slate-400 mb-0.5">Evolución anotada</p>
+          {t.evoluciones && t.evoluciones.length > 0 ? (
+            <div className="space-y-1.5">
+              {t.evoluciones.map((e) => (
+                <div key={e.id}>
+                  <p className="text-slate-700 whitespace-pre-wrap">{e.texto}</p>
+                  <p className="text-[11px] text-slate-400">{new Date(e.fecha).toLocaleDateString('es-CL', { dateStyle: 'medium' })}{e.autor ? ` · registrada por ${e.autor.name ?? e.autor.email}` : ''}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-slate-400 italic">Sin evolución anotada al momento de realizarla.</p>
+          )}
+        </div>
+      </div>
+    )}
     </div>
   )
 }

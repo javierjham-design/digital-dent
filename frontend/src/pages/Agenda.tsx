@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { BloqueoDTO, CitaDTO, DoctorDTO, HorarioDTO, ClinicaConfigDTO } from '@shared/types'
+import type { BloqueoDTO, CitaDTO, DoctorDTO, HorarioDTO, ClinicaConfigDTO, PacienteDTO } from '@shared/types'
 import { CITA_ESTADOS, ESTADOS_NO_OCUPAN, siguienteEstado } from '@shared/constants/cita-estados'
 import { bloqueosService, citasService, horariosLectura, type CitaLogDTO } from '@/services/clinica.service'
 import { boxesService, type BoxDTO } from '@/services/boxes.service'
@@ -970,6 +970,8 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
   const [enviarCorreo, setEnviarCorreo] = useState(true)
   const [guardando, setGuardando] = useState(false)
   const [err, setErr] = useState<string | null>(null)
+  // Paciente ya existente con el RUT que se está tecleando (para no duplicar).
+  const [dupPaciente, setDupPaciente] = useState<PacienteDTO | null>(null)
 
   // Minutos disponibles desde el inicio del slot hasta la próxima cita/bloqueo o el
   // fin del tramo de atención. Con sobrecupo se ignoran las citas (se permite solapar).
@@ -1001,7 +1003,25 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
   const sinEspacio = maxMin < 15
 
   const rutInvalido = Boolean(nuevo.rut) && !validarDoc(paisMoneda(), nuevo.rut)
-  const pacienteOk = modo === 'existente' ? !!pacienteId : (!!nuevo.nombre && !!nuevo.apellido && !rutInvalido)
+
+  // Al teclear un RUT válido en "paciente nuevo", buscamos si ya existe un paciente
+  // con ese RUT. Si existe, se avisa y NO se permite crear el duplicado (se ofrece
+  // usar el paciente existente). El RUT es único por clínica.
+  const rutDigits = nuevo.rut.replace(/[^0-9kK]/g, '').toLowerCase()
+  useEffect(() => {
+    if (modo !== 'nuevo' || rutInvalido || rutDigits.length < 2) { setDupPaciente(null); return }
+    let vivo = true
+    const t = setTimeout(() => {
+      pacientesService.listar(nuevo.rut).then((ps) => {
+        if (!vivo) return
+        const hit = ps.find((p) => (p.rut ?? '').replace(/[^0-9kK]/g, '').toLowerCase() === rutDigits) ?? null
+        setDupPaciente(hit)
+      }).catch(() => { if (vivo) setDupPaciente(null) })
+    }, 350)
+    return () => { vivo = false; clearTimeout(t) }
+  }, [modo, nuevo.rut, rutInvalido, rutDigits])
+
+  const pacienteOk = modo === 'existente' ? !!pacienteId : (!!nuevo.nombre && !!nuevo.apellido && !rutInvalido && !dupPaciente)
   const puede = pacienteOk && durSel >= 15
 
   async function guardar() {
@@ -1093,6 +1113,14 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
             <input value={nuevo.nombre} onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} placeholder="Nombre *" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
             <input value={nuevo.apellido} onChange={(e) => setNuevo({ ...nuevo, apellido: e.target.value })} placeholder="Apellido *" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
             <div className="col-span-2"><RutField rut={nuevo.rut} otroDoc={nuevo.otroDoc} onChange={(v) => setNuevo({ ...nuevo, ...v })} /></div>
+            {dupPaciente && (
+              <div className="col-span-2 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                Ya existe un paciente con ese RUT: <strong>{dupPaciente.nombre} {dupPaciente.apellido}</strong>{dupPaciente.numero ? ` (ficha N° ${dupPaciente.numero})` : ''}. No se puede crear un paciente duplicado.
+                <button type="button"
+                  onClick={() => { setModo('existente'); setPacienteId(dupPaciente.id); setPacienteEmail(dupPaciente.email ?? null); setDupPaciente(null) }}
+                  className="ml-1 font-semibold text-cyan-700 hover:text-cyan-900 underline">Usar este paciente</button>
+              </div>
+            )}
             <input value={nuevo.telefono} onChange={(e) => setNuevo({ ...nuevo, telefono: e.target.value })} placeholder="Teléfono" className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
             <input value={nuevo.email} onChange={(e) => setNuevo({ ...nuevo, email: e.target.value })} type="email" placeholder="Correo (para enviarle la cita)" className="col-span-2 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
           </div>

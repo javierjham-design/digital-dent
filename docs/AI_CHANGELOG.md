@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-07-29 — Pacientes sin duplicar por RUT · plan pregunta profesional · trazabilidad de acciones realizadas
+
+Tres funcionalidades pedidas por la clínica:
+
+- **No duplicar pacientes por RUT (aviso proactivo).** El backend ya bloqueaba el
+  duplicado en todas las capas (constraint `rut @unique`, chequeo en `crearPaciente`/
+  `actualizarPaciente`, y reutilización por RUT en conversión de lead y reserva
+  online), pero solo avisaba al guardar. Ahora el formulario "Paciente nuevo" de la
+  agenda (`CrearCitaModal` en `frontend/src/pages/Agenda.tsx`) busca en vivo (debounce
+  350 ms) si ya existe un paciente con ese RUT: muestra su nombre + N° de ficha,
+  **deshabilita "Agendar"** y ofrece "Usar este paciente" (cambia a modo existente).
+- **El plan de tratamiento pregunta el profesional a cargo al crearlo.** Antes caía
+  por defecto al primer doctor (Dr Aedo). Nuevo `NuevoPlanModal` en
+  `frontend/src/pages/FichaPaciente.tsx`: el botón "+ Nuevo plan" abre un modal que
+  exige elegir el profesional; el plan se crea ya asignado a ese profesional (sigue
+  editable luego en el detalle).
+- **Trazabilidad al pinchar una acción realizada.** `TRAT_INCLUDE`
+  (`backend/src/services/tratamientos.service.ts`) ahora incluye `evoluciones`
+  (fecha, texto, autor). En la ficha, al pinchar el nombre de una acción COMPLETADA se
+  despliega un panel con **fecha de realización** (`fechaCompletado`), **profesional a
+  cargo** (`doctor`) y la **evolución anotada** (texto + fecha + quién la registró).
+  Antes al pinchar no se veía nada (el ✓ solo servía para desevolucionar, y sin permiso
+  quedaba deshabilitado).
+
+Verde: typecheck backend + frontend, 73/73 tests backend. Cambio de `TRAT_INCLUDE` es
+aditivo y solo lo consume `obtenerPlan` (detalle del plan).
+
+---
+
 ## 2026-07-29 — Planes: finalizar plan + auto-consulta + pestaña "Finalizados"
 
 Backend ya tenía `PlanTratamiento.estado` (default ACTIVO) y `actualizarPlan` lo

@@ -38,6 +38,12 @@ const TRAT_INCLUDE = {
   cobroItems: {
     select: { id: true, monto: true, cobro: { select: { id: true, numero: true, estado: true, fechaPago: true } } },
   },
+  // Evoluciones de la acción: dan la trazabilidad de quién la realizó, cuándo y qué
+  // se anotó (se muestra al pinchar una acción ya realizada).
+  evoluciones: {
+    orderBy: { fecha: 'desc' },
+    select: { id: true, fecha: true, texto: true, autor: { select: { id: true, name: true, email: true } } },
+  },
   // Si tiene ítems de liquidación, la acción ya fue liquidada (pagada al profesional).
   _count: { select: { liquidacionItems: true } },
 } as const
