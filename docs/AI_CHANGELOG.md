@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-07-29 — Permiso "Gestión de agenda": recepción/staff puede gestionar bloqueos de cualquier profesional
+
+La clínica necesita que usuarios NO admin (recepción) puedan gestionar la agenda
+completa. Antes, un no-admin solo podía crear/editar bloqueos de **su propio**
+horario (`bloqueos.service`: "Solo puedes bloquear tu propio horario"), así que un
+recepcionista viendo la agenda de un doctor recibía ese error. (Las **citas** ya no
+tenían restricción de rol en el backend — crear/editar/eliminar estaban abiertas a
+cualquier usuario autenticado; el error que se veía venía de los bloqueos.)
+
+Nuevo permiso **`puedeGestionarAgenda`**:
+- **Schema tenant** (`prisma/tenant/schema.prisma`): `puedeGestionarAgenda Boolean
+  @default(false)` en `User`. Migración aditiva (segura; se aplica con
+  `migrate:tenants` en el deploy).
+- **Backend** (`bloqueos.service.ts`): helper `puedeGestionarAgenda(db, actor)` (admin
+  o el flag; el JWT solo trae el rol, así que el permiso se consulta en la base).
+  `crearBloqueo`/`actualizarBloqueo` ahora permiten gestionar el bloqueo de CUALQUIER
+  profesional si el actor es admin o tiene el permiso; el resto sigue limitado a su
+  propio horario. `eliminarBloqueo` ya estaba abierto a toda la clínica.
+- **Sesión** (`auth.service.ts`): el permiso viaja en `SessionUserDTO.permisos`
+  (admin/plataforma = true).
+- **Usuarios** (`usuarios.service.ts`): el campo se puede asignar al editar
+  (SELECT + CAMPOS_ADMIN).
+- **Frontend** (`Equipo.tsx`): nuevo toggle "Gestión de agenda (bloqueos y citas de
+  cualquier profesional: crear, editar y eliminar)" en la pestaña Permisos.
+- **Shared** (`types/index.ts`): `puedeGestionarAgenda` en permisos y `UsuarioDTO`.
+
+Verde: typecheck backend + frontend, 73/73 unit. Integración: 48/50 (los 2 fallos
+—consentimientos y conversión de lead— son **pre-existentes**, verificado con stash;
+no tocan agenda).
+
+---
+
 ## 2026-07-29 — Pacientes sin duplicar por RUT · plan pregunta profesional · trazabilidad de acciones realizadas
 
 Tres funcionalidades pedidas por la clínica:

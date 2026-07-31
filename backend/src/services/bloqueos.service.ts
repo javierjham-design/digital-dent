@@ -24,6 +24,15 @@ function toDTO(b: BloqueoRow): BloqueoDTO {
 
 const INCLUDE = { doctor: { select: { name: true, titulo: true, email: true } } } as const
 
+// ¿El actor puede gestionar la agenda de CUALQUIER profesional? Admin siempre; el
+// resto, si tiene el permiso "puedeGestionarAgenda" (recepción / gestor de agenda).
+// El JWT solo trae el rol, así que el permiso granular se consulta en la base.
+async function puedeGestionarAgenda(db: TenantClient, actor: JwtPayload): Promise<boolean> {
+  if (actor.role === 'admin' || actor.isPlatformAdmin) return true
+  const u = await db.user.findUnique({ where: { id: actor.sub }, select: { puedeGestionarAgenda: true } })
+  return Boolean(u?.puedeGestionarAgenda)
+}
+
 export async function listarBloqueos(db: TenantClient, _actor: JwtPayload, filtros: { from?: string; to?: string; doctorId?: string }): Promise<BloqueoDTO[]> {
   // Todos los usuarios ven la agenda completa: si se pasa doctorId se filtra por
   // ese profesional, si no, se muestran los bloqueos de todos.
@@ -45,8 +54,10 @@ export async function listarBloqueos(db: TenantClient, _actor: JwtPayload, filtr
 
 export async function crearBloqueo(db: TenantClient, actor: JwtPayload, input: { doctorId: string; inicio: string; fin: string; motivo?: string }): Promise<BloqueoDTO> {
   if (!input.doctorId) throw badRequest('Doctor requerido')
-  const isAdmin = actor.role === 'admin'
-  if (!isAdmin && input.doctorId !== actor.sub) throw forbidden('Solo puedes bloquear tu propio horario.')
+  // Admin o gestor de agenda: bloquea a cualquier profesional. El resto, solo el suyo.
+  if (!(await puedeGestionarAgenda(db, actor)) && input.doctorId !== actor.sub) {
+    throw forbidden('Solo puedes bloquear tu propio horario.')
+  }
 
   const inicio = new Date(input.inicio)
   const fin = new Date(input.fin)
@@ -72,7 +83,10 @@ export async function crearBloqueo(db: TenantClient, actor: JwtPayload, input: {
 export async function actualizarBloqueo(db: TenantClient, actor: JwtPayload, id: string, body: { inicio?: string; fin?: string; motivo?: string }): Promise<BloqueoDTO> {
   const existing = await db.bloqueoAgenda.findUnique({ where: { id }, select: { id: true, doctorId: true } })
   if (!existing) throw notFound('Bloqueo no encontrado')
-  if (actor.role !== 'admin' && existing.doctorId !== actor.sub) throw forbidden('No puedes editar bloqueos de otros usuarios.')
+  // Admin o gestor de agenda: edita bloqueos de cualquiera. El resto, solo los suyos.
+  if (!(await puedeGestionarAgenda(db, actor)) && existing.doctorId !== actor.sub) {
+    throw forbidden('No puedes editar bloqueos de otros usuarios.')
+  }
 
   const data: Record<string, unknown> = {}
   if (body.inicio !== undefined) {

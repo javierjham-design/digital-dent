@@ -38,6 +38,7 @@ const PERMISOS: [keyof UsuarioDTO, string][] = [
   ['puedeGestionarCrm', 'Gestionar CRM (leads y seguimiento)'],
   ['puedeEliminar', 'Eliminar registros (radiografías, consentimientos)'],
   ['puedeGestionarCajas', 'Gestionar cajas (ver todas las cajas y sus movimientos)'],
+  ['puedeGestionarAgenda', 'Gestión de agenda (bloqueos y citas de cualquier profesional: crear, editar y eliminar)'],
   ['puedeConfigurarClinica', 'Configurar la clínica (configuración, agendamiento online, consentimientos)'],
   ['puedeGestionarEquipo', 'Gestionar el equipo (crear/editar usuarios y asignar permisos)'],
   ['puedeGestionarPrestaciones', 'Gestionar prestaciones (editar catálogo y secciones)'],

@@ -141,6 +141,7 @@ model User {
   puedeGestionarEquipo        Boolean @default(false) // ver/crear/editar usuarios y sus permisos
   puedeGestionarPrestaciones  Boolean @default(false) // editar prestaciones y secciones del catálogo
   puedeDesbloquearPlanes      Boolean @default(false) // desbloquear presupuestos bloqueados (al imprimir/enviar quedan bloqueados)
+  puedeGestionarAgenda        Boolean @default(false) // gestionar la agenda de cualquier profesional: bloqueos y citas (crear/editar/eliminar)
 
   // Mapeo a un calendario de Google (dentro de la cuenta de la clínica).
   googleCalendarId String?
