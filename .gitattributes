@@ -1,0 +1,16 @@
+# Normaliza los fines de línea: en el repo SIEMPRE se guarda LF.
+# Evita que el árbol de trabajo en Windows genere diffs fantasma CRLF/LF.
+* text=auto eol=lf
+
+# Binarios: git no debe tocarlos.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.db binary
+*.tar.gz binary
+*.zip binary

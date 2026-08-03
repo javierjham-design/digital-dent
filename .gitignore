@@ -46,3 +46,7 @@ next-env.d.ts
 
 # commit message scratch files
 .commit-msg.txt
+
+# Descarte local de la limpieza del monolito (borrar a mano; no versionar)
+_to_delete/
+monolito-final.tar.gz
