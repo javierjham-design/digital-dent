@@ -23,8 +23,13 @@ export function initSentry(): void {
       return event
     },
     // Los breadcrumbs de consola pueden contener datos de pacientes logueados: fuera.
+    // En los de red (fetch/xhr) se quita el querystring: una búsqueda `?q=<nombre>`
+    // o `?rut=...` filtraría PII a Sentry. Nos quedamos solo con la ruta.
     beforeBreadcrumb(breadcrumb) {
       if (breadcrumb.category === 'console') return null
+      if ((breadcrumb.category === 'fetch' || breadcrumb.category === 'xhr') && breadcrumb.data?.url) {
+        breadcrumb.data.url = String(breadcrumb.data.url).split('?')[0]
+      }
       return breadcrumb
     },
   })

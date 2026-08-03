@@ -21,6 +21,10 @@ export function initSentry(): void {
     },
     beforeBreadcrumb(breadcrumb) {
       if (breadcrumb.category === 'console') return null
+      // fetch/xhr: quitar el querystring (una búsqueda podría llevar PII en ?q=).
+      if ((breadcrumb.category === 'fetch' || breadcrumb.category === 'xhr') && breadcrumb.data?.url) {
+        breadcrumb.data.url = String(breadcrumb.data.url).split('?')[0]
+      }
       return breadcrumb
     },
   })

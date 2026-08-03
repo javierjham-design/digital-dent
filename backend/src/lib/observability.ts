@@ -34,6 +34,14 @@ export function initSentry(): void {
           delete event.request.headers['cookie']
         }
       }
+      // Los errores de Prisma reproducen en su mensaje los ARGUMENTOS de la query
+      // (el PrismaClientValidationError es el peor: vuelca el objeto `data` con
+      // nombres/RUT/montos). Se redacta el mensaje conservando el tipo para agrupar.
+      for (const v of event.exception?.values ?? []) {
+        if (v.type?.startsWith('PrismaClient')) {
+          v.value = `[${v.type}] mensaje omitido para no filtrar datos de pacientes`
+        }
+      }
       return event
     },
   })
