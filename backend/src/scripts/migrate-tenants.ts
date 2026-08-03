@@ -14,8 +14,29 @@
 import { execSync } from 'node:child_process'
 import { control } from '@/db/control'
 import { tenantUrl, tenantClient, disposeTenant } from '@/db/tenant'
+import { horasDesdeUltimoBackupOk } from '@/lib/backup/status'
+
+// Red adicional antes de aplicar DDL sobre bases PRODUCTIVAS: si ya hay backups en
+// uso pero el último OK tiene más de 24 h, se ABORTA (mejor no migrar que migrar sin
+// una copia fresca a la que volver). No bloquea el bootstrap: si todavía no se
+// configuraron los backups (0 corridas), sólo avisa. Override: SKIP_BACKUP_FRESHNESS_CHECK=1.
+// (No se toca el `prisma db push` sin --accept-data-loss: esa decisión sigue igual.)
+async function verificarFrescuraBackups(): Promise<void> {
+  if (process.env.SKIP_BACKUP_FRESHNESS_CHECK === '1') return
+  const totalCorridas = await control.backupRun.count().catch(() => 0)
+  if (totalCorridas === 0) {
+    console.warn('[migrate-tenants] ⚠️ backups aún no configurados (0 corridas). Se continúa; configuralos cuanto antes (docs/BACKUPS.md).')
+    return
+  }
+  const horas = await horasDesdeUltimoBackupOk()
+  if (horas === null || horas > 24) {
+    console.error(`[migrate-tenants] ABORTADO: el último backup OK ${horas === null ? 'no existe' : `fue hace ${Math.floor(horas)} h`} (>24 h). No se aplica DDL a producción sin una copia fresca. Corré \`npm run backup\` o forzá con SKIP_BACKUP_FRESHNESS_CHECK=1.`)
+    process.exit(1)
+  }
+}
 
 async function main() {
+  await verificarFrescuraBackups()
   const ahora = new Date()
   // Saltamos demos ya expirados: su base pudo haber sido eliminada y no debe
   // hacer fallar el deploy.

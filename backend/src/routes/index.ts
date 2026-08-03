@@ -29,6 +29,7 @@ import * as admin from '@/controllers/admin.controller'
 import * as demo from '@/controllers/demo.controller'
 import * as whatsapp from '@/controllers/whatsapp.controller'
 import * as googlec from '@/controllers/google.controller'
+import * as backups from '@/controllers/backups.controller'
 import { getPlanesPublicos } from '@/controllers/public.controller'
 import * as agendaOnline from '@/controllers/agenda-online.controller'
 import * as crm from '@/controllers/crm.controller'
@@ -111,6 +112,8 @@ apiRouter.post('/whatsapp/recordatorios', asyncHandler(whatsapp.postRecordatorio
 // Google: sync acepta cron-secret (sin sesión); callback es redirect público.
 apiRouter.get('/google/callback', asyncHandler(googlec.getCallback))
 apiRouter.post('/google/sync', asyncHandler(googlec.postSync))
+// Backup manual: cron-secret (timingSafeEqual) o super-admin. Sin requireAuth (valida inline).
+apiRouter.post('/admin/backups/run', asyncHandler(backups.postBackupRun))
 
 // ── Google Calendar (sesión de clínica, database-per-tenant) ─────────────────
 apiRouter.get('/google/connect', tenant, asyncHandler(googlec.getConnect))

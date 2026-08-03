@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import { PrismaClient as TenantPrisma } from '../../prisma/generated/tenant/index.js'
 import { env } from '@/config/env'
+import { control } from '@/db/control'
 import { tenantClient, tenantUrl } from '@/db/tenant'
 
 const INIT_SQL_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../prisma/tenant/init.sql')
@@ -45,14 +46,70 @@ export async function createTenantDatabase(dbName: string): Promise<void> {
   })
 }
 
-export async function dropTenantDatabase(dbName: string): Promise<void> {
+// ¿Es una base PRODUCTIVA? Lo es si su clínica en el control-plane NO está marcada
+// esDemo, o si la base tiene filas en Paciente. Una base recién creada (rollback) o
+// sin la tabla todavía cuenta como NO productiva.
+async function esBaseProductiva(dbName: string): Promise<boolean> {
+  const c = await control.clinica.findUnique({ where: { dbName }, select: { esDemo: true } }).catch(() => null)
+  if (c && !c.esDemo) return true
+  try {
+    const rows = await tenantClient(dbName).$queryRawUnsafe<{ n: number }[]>('SELECT count(*)::int AS n FROM "Paciente"')
+    if ((rows[0]?.n ?? 0) > 0) return true
+  } catch { /* la tabla puede no existir en una base a medio crear → no productiva */ }
+  return false
+}
+
+// Borra la base de una clínica. BARRERA propia (no depende solo de quien llame): se
+// NIEGA a borrar una base productiva salvo que se pase confirmarBorradoProductivo Y
+// exista un dump lógico reciente con prefijo pre-drop/. Los call sites actuales
+// (rollback de creación fallida, limpieza de demos) caen por el camino no-productivo
+// y no necesitan la confirmación.
+export async function dropTenantDatabase(dbName: string, opts?: { confirmarBorradoProductivo?: boolean }): Promise<void> {
   assertValidDbName(dbName)
+  if (await esBaseProductiva(dbName)) {
+    if (!opts?.confirmarBorradoProductivo) {
+      throw new Error(`Negado: "${dbName}" es una base productiva (clínica no-demo o con pacientes). Requiere confirmarBorradoProductivo y un dump pre-drop reciente.`)
+    }
+    // Carga diferida: no acoplar el SDK de S3 al camino normal de provisión.
+    const { hayPreDropReciente } = await import('@/lib/backup/predrop')
+    const hay = await hayPreDropReciente(dbName).catch(() => false)
+    if (!hay) throw new Error(`Negado: no hay un backup pre-drop/ reciente de "${dbName}". Hacé un backup antes de borrar.`)
+  }
   await withAdmin(async (admin) => {
     // Cortar conexiones activas antes de borrar.
     await admin.$executeRawUnsafe(
       `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid()`,
     ).catch(() => {})
     await admin.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${dbName}"`)
+  })
+}
+
+// Borra una base EFÍMERA de restore/ensayo, saltando la barrera productiva. Solo
+// acepta nombres con patrón efímero (…_r<12 dígitos> o …_drill_<id>): jamás puede
+// borrar una base viva de clínica (clariva_t_<slug>). Para las bases _pre_restore_
+// —que contienen los datos viejos y su borrado SÍ es irreversible— usá
+// dropTenantDatabase con confirmarBorradoProductivo (exige un pre-drop reciente).
+const EPHEMERAL_RE = /(_r\d{12}|_drill_[a-z0-9]+)$/
+export async function dropEphemeralDatabase(dbName: string): Promise<void> {
+  assertValidDbName(dbName)
+  if (!EPHEMERAL_RE.test(dbName)) throw new Error(`dropEphemeralDatabase solo borra bases efímeras de restore/ensayo, no "${dbName}".`)
+  await withAdmin(async (admin) => {
+    await admin.$executeRawUnsafe(
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${dbName}' AND pid <> pg_backend_pid()`,
+    ).catch(() => {})
+    await admin.$executeRawUnsafe(`DROP DATABASE IF EXISTS "${dbName}"`)
+  })
+}
+
+// Renombra una base (para el switch del restore: la base viva pasa a _pre_restore_).
+export async function renameTenantDatabase(from: string, to: string): Promise<void> {
+  assertValidDbName(from)
+  assertValidDbName(to)
+  await withAdmin(async (admin) => {
+    await admin.$executeRawUnsafe(
+      `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${from}' AND pid <> pg_backend_pid()`,
+    ).catch(() => {})
+    await admin.$executeRawUnsafe(`ALTER DATABASE "${from}" RENAME TO "${to}"`)
   })
 }
 
