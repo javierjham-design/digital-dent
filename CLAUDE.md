@@ -90,8 +90,9 @@ El aislamiento entre clínicas es **físico**, no un `where clinicaId`. No lo de
    falla esa base en vez de destruir en silencio. Es correcto. No lo "optimices".
 2. **Cambio de schema tenant:** editá `prisma/tenant/schema.prisma`, corré
    `npm run tenant:initsql` (regenera el DDL para clínicas **nuevas**) y
-   `npm run migrate:tenants` (sincroniza las **existentes**). Ambos pasos, siempre.
-   Preferí cambios aditivos; un renombre destruye datos.
+   `npm run migrate:tenants -- --strict` (sincroniza las **existentes**; con `--strict`
+   aborta si el último backup OK tiene >24 h — ver `docs/BACKUPS.md`). Ambos pasos,
+   siempre. Preferí cambios aditivos; un renombre destruye datos.
 3. **`dropTenantDatabase()` borra una base de verdad.** Hoy solo la llaman rollbacks de
    creación fallida y la limpieza de demos expiradas. No agregues call sites nuevos.
 4. **No debilites el aislamiento multi-tenant.** Nada de queries que crucen bases, ni de

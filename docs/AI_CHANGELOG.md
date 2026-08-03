@@ -34,9 +34,11 @@ base cifrado y fuera de Railway; (3) restauración quirúrgica por clínica.
   bases efímeras, valida censo, borra; alerta si falla.
 - **Barreras**: `dropTenantDatabase` se niega a borrar una base productiva (clínica no-demo
   o con pacientes) sin `confirmarBorradoProductivo` + un pre-drop reciente (los call sites
-  de demo/rollback no cambian). `migrate-tenants` aborta si el último backup OK tiene >24 h
-  (no bloquea el bootstrap; override `SKIP_BACKUP_FRESHNESS_CHECK=1`). NO se tocó el
-  `prisma db push` sin `--accept-data-loss`.
+  de demo/rollback no cambian). `migrate-tenants` chequea frescura de backups: **solo aborta
+  con `--strict`** (invocación manual deliberada); en el **prestart** (cada deploy/reinicio)
+  NUNCA aborta —solo avisa por log `error` + alerta por email y deja arrancar el server—,
+  para no dejar la plataforma caída por un backup atrasado. Override
+  `SKIP_BACKUP_FRESHNESS_CHECK=1`. NO se tocó el `prisma db push` sin `--accept-data-loss`.
 - **Endpoint** `POST /api/v1/admin/backups/run` (x-cron-secret con `timingSafeEqual`, o
   super-admin) para backup manual antes de algo riesgoso.
 - **Infra**: `BackupRun` en control (aditivo), `postgresql-client-16` (PGDG) en el

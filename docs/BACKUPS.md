@@ -235,7 +235,30 @@ conservar las claves históricas para poder restaurar backups anteriores.
 
 ---
 
-## 10. Entrega de datos a una clínica que se va
+## 10. Cambios de schema y frescura de backups (`migrate-tenants`)
+
+Aplicar un cambio de schema (`prisma/tenant/schema.prisma`) a las clínicas existentes se
+hace **a mano** y con la red de un backup fresco:
+
+```bash
+npm run tenant:initsql                      # DDL para clínicas NUEVAS
+npm run migrate:tenants -- --strict         # sincroniza las EXISTENTES; ABORTA si el
+                                            # último backup OK tiene >24 h
+```
+
+Si aborta por backups atrasados: corré `npm run backup` primero (o
+`POST /admin/backups/run`), y reintentá. Para saltear el chequeo a conciencia:
+`SKIP_BACKUP_FRESHNESS_CHECK=1`.
+
+**Por qué solo `--strict` aborta:** `migrate:tenants` también corre en el `prestart` del
+backend, es decir en **cada deploy y cada reinicio del contenedor**. Si el chequeo abortara
+ahí, un backup atrasado >24 h impediría que el backend arranque, y con `restartPolicy
+ON_FAILURE` eso dejaría a las dos clínicas **sin plataforma por un problema de backups**.
+Por eso el prestart **nunca aborta**: solo avisa fuerte (log `error`) y manda una **alerta
+por email**, pero deja arrancar el server. El hard-abort vive únicamente detrás de
+`--strict` (invocación manual y deliberada). No cambiar esto sin entender el trade-off.
+
+## 11. Entrega de datos a una clínica que se va
 
 `npm run restore -- --slug <clinica> --at latest --keep-temp` deja una base restaurada
 independiente; desde ahí se puede `pg_dump` a un `.sql`/`.csv` para entregar. (Los datos son
