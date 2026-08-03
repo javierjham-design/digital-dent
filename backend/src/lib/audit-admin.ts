@@ -1,4 +1,5 @@
 import { control } from '@/db/control'
+import { log, serializeError } from '@/lib/logger'
 
 // Auditoría de acciones sensibles del super-admin. Versión backend: recibe
 // ip/userAgent ya extraídos (el controller los saca del request de Express).
@@ -37,6 +38,6 @@ export async function auditAdmin(args: {
       },
     })
   } catch (e) {
-    console.error('[audit-admin] failed to persist:', e)
+    log.error('audit-admin: no se pudo persistir', { err: serializeError(e) })
   }
 }

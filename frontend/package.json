@@ -17,6 +17,7 @@
     "@fullcalendar/interaction": "^6.1.20",
     "@fullcalendar/react": "^6.1.20",
     "@fullcalendar/timegrid": "^6.1.20",
+    "@sentry/react": "^10.69.0",
     "express": "^4.22.2",
     "html2pdf.js": "^0.14.0",
     "pdfjs-dist": "^6.0.227",

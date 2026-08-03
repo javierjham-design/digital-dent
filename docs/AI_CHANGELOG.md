@@ -5,6 +5,52 @@
 
 ---
 
+## 2026-08-03 — Observabilidad: healthcheck real, Sentry y logging con request-id
+
+Antes no había forma de enterarse de una falla salvo que una clínica llamara: sin
+Sentry, sin logging estructurado, sin request-id, y `/health` devolvía 200 aunque
+Postgres estuviera caído. Rama `feat/observabilidad`. Doc: `docs/OBSERVABILIDAD.md`.
+
+**1. Healthcheck real** (`backend/src/app.ts`): `/health` ahora hace `SELECT 1`
+contra el control-plane con timeout de 2 s y devuelve **503** si la base no responde
+(antes 200 siempre). Railway y el monitor externo detectan la caída. No se tocó
+`railway.json` (healthcheckTimeout 300 intacto).
+
+**2. Sentry backend** (`instrument.ts`, `lib/observability.ts`, `middlewares/error.ts`,
+`index.ts`): captura **solo 5xx** + excepciones no manejadas (`uncaughtException`
+sale con exit 1 para que Railway reinicie; `unhandledRejection` se loguea/reporta sin
+tumbar el server). Los `AppError` 4xx y `ZodError` NO generan ruido. Cada evento se
+etiqueta con `clinica` (slug), `user_id`, `request_id`, `route`. **Nunca** envía datos
+de pacientes: capturamos sin el body y `beforeSend` limpia body/cookies/query/headers.
+Opcional: sin `SENTRY_DSN` queda apagado.
+
+**3. Sentry frontend + web** (`src/lib/sentry.ts` + `main.tsx` en ambos): init con la
+misma regla de privacidad — **sin Session Replay**, sin cuerpos de request, sin
+breadcrumbs de consola. Opcional vía `VITE_SENTRY_DSN` (build-time).
+
+**4. Logging con request-id** (`lib/logger.ts`, `lib/request-context.ts`,
+`middlewares/request-context.ts`): request-id por request (heredado de `X-Request-Id`
+o generado), propagado por `AsyncLocalStorage` para que TODO log lleve requestId +
+slug de la clínica sin pasar `req` por las capas. Logger propio (JSON en prod, texto
+en dev, `LOG_LEVEL` configurable). Se reemplazaron los `console.*` de
+services/lib/middlewares (crm, meta-leadads, meta.controller, maintenance, audit-admin,
+error). Los `console.*` de `scripts/*` quedan (son CLI). El request-id se devuelve en
+el header `X-Request-Id` y en el cuerpo del 500 (`requestId`).
+
+**Deps nuevas:** `@sentry/node` (backend), `@sentry/react` (frontend, web) — v10.69.
+**Env nuevas** (en `.env.example` de cada servicio; cargar en Railway): `SENTRY_DSN`,
+`SENTRY_ENVIRONMENT`, `LOG_LEVEL` (backend); `VITE_SENTRY_DSN`, `VITE_SENTRY_ENVIRONMENT`
+(frontend/web).
+
+**Verificación:** typecheck backend+frontend+web ✓ · unit 73/73 ✓ (incluye smoke
+ajustado: `/health`→503 sin base, con `CONTROL_DATABASE_URL` a puerto muerto para ser
+determinista) · integración 48/50 (los 2 fallos —consentimientos y conversión de lead—
+son **pre-existentes**, sin relación con este cambio). **Pendiente operativo (fuera del
+repo):** crear los 3 proyectos en Sentry, cargar los DSN en Railway y configurar
+UptimeRobot → `api.clariva.cl/health` (pasos en `docs/OBSERVABILIDAD.md`).
+
+---
+
 ## 2026-08-03 — Limpieza del monolito: verificada, mergeada y desplegada
 
 Cierre de la rama `chore/limpieza-monolito` (auditoría + borrado del código muerto).

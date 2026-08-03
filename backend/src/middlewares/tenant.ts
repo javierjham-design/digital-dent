@@ -4,6 +4,7 @@ import { tenantClient, type TenantClient } from '@/db/tenant'
 import { unauthorized, forbidden } from '@/lib/errors'
 import { parseModulos } from '@shared/constants/modulos'
 import { registrarPresencia, debePersistirAcceso } from '@/lib/presence'
+import { patchRequestContext } from '@/lib/request-context'
 
 // Cache id-de-clínica → { slug, dbName, activo, modulos }. dbName nunca cambia;
 // activo/modulos se revalidan con un TTL corto para reflejar cambios sin reiniciar.
@@ -41,6 +42,8 @@ export async function requireTenant(req: Request, _res: Response, next: NextFunc
     if (!info.activo) throw forbidden('La cuenta de la clínica está suspendida.')
     req.clinica = { id: info.id, slug: info.slug, dbName: info.dbName }
     req.tenant = tenantClient(info.dbName)
+    // Etiqueta el contexto de logging/Sentry con la clínica de esta request.
+    patchRequestContext({ slug: info.slug })
     // Registro de uso (para el super-admin): presencia en memoria + último acceso
     // persistido con throttle. Best-effort: nunca bloquea ni rompe la request.
     if (req.auth && !req.auth.isPlatformAdmin) {

@@ -3,8 +3,20 @@ import cors from 'cors'
 import helmet from 'helmet'
 import cookieParser from 'cookie-parser'
 import { env } from '@/config/env'
+import { control } from '@/db/control'
 import { apiRouter } from '@/routes/index'
 import { errorMiddleware, notFoundMiddleware } from '@/middlewares/error'
+import { requestContext } from '@/middlewares/request-context'
+import { log } from '@/lib/logger'
+
+// Ping a la base con timeout corto: el healthcheck no puede quedarse colgado si
+// Postgres deja de responder (debe fallar rápido para que Railway reinicie).
+function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+  ])
+}
 
 // Permite un origin si está en la lista explícita o si es el dominio de la
 // plataforma o cualquiera de sus subdominios (cada clínica = <slug>.dominio).
@@ -23,6 +35,8 @@ export function createApp() {
   // Detrás del proxy de Railway: confiar en X-Forwarded-* para obtener la IP
   // real del cliente (rate-limit por IP, logs).
   app.set('trust proxy', 1)
+  // Request-id + contexto de logging: lo primero, para trazar TODO (incl. /health).
+  app.use(requestContext)
   app.use(helmet())
 
   // CORS ABIERTO para las rutas públicas (/api/v1/public/*): el intake de leads y
@@ -64,8 +78,19 @@ export function createApp() {
   app.use(express.urlencoded({ extended: false }))
   app.use(cookieParser())
 
-  // Healthcheck para Railway / monitoreo.
-  app.get('/health', (_req, res) => res.json({ ok: true, service: 'clariva-backend', ts: Date.now() }))
+  // Healthcheck REAL para Railway / monitoreo: verifica que el control-plane
+  // responda (SELECT 1) con timeout corto. Si la base no responde, devuelve 503
+  // para que el restartPolicy de Railway y el monitor externo se enteren (antes
+  // devolvía 200 aunque Postgres estuviera caído).
+  app.get('/health', async (_req, res) => {
+    try {
+      await withTimeout(control.$queryRaw`SELECT 1`, 2000)
+      res.json({ ok: true, service: 'clariva-backend', ts: Date.now() })
+    } catch (e) {
+      log.error('healthcheck: control-plane no responde', { err: e instanceof Error ? e.message : String(e) })
+      res.status(503).json({ ok: false, service: 'clariva-backend', error: 'db-unreachable', ts: Date.now() })
+    }
+  })
 
   app.use('/api/v1', apiRouter)
 

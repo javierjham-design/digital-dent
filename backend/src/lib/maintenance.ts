@@ -5,6 +5,7 @@
 import { control } from '@/db/control'
 import { tenantClient } from '@/db/tenant'
 import { dedupePrestaciones } from '@/services/catalogo.service'
+import { log, serializeError } from '@/lib/logger'
 
 export async function dedupePrestacionesTodasLasClinicas(): Promise<void> {
   try {
@@ -15,16 +16,16 @@ export async function dedupePrestacionesTodasLasClinicas(): Promise<void> {
         const r = await dedupePrestaciones(tenantClient(c.dbName))
         if (r.eliminadas > 0) {
           totalEliminadas += r.eliminadas
-          console.log(`[mantenimiento] ${c.slug}: ${r.eliminadas} prestación(es) duplicada(s) fusionada(s) (${r.restantes} quedan)`)
+          log.info('mantenimiento: prestaciones duplicadas fusionadas', { clinica: c.slug, eliminadas: r.eliminadas, restantes: r.restantes })
         }
       } catch (e) {
-        console.error(`[mantenimiento] ${c.slug}: error al deduplicar prestaciones —`, e instanceof Error ? e.message : e)
+        log.error('mantenimiento: error al deduplicar prestaciones', { clinica: c.slug, err: serializeError(e) })
       }
     }
-    console.log(totalEliminadas === 0
-      ? '[mantenimiento] prestaciones: sin duplicados en ninguna clínica'
-      : `[mantenimiento] prestaciones: ${totalEliminadas} duplicada(s) eliminada(s) en total`)
+    log.info(totalEliminadas === 0
+      ? 'mantenimiento: sin prestaciones duplicadas en ninguna clínica'
+      : `mantenimiento: ${totalEliminadas} prestación(es) duplicada(s) eliminada(s) en total`)
   } catch (e) {
-    console.error('[mantenimiento] no se pudo deduplicar prestaciones —', e instanceof Error ? e.message : e)
+    log.error('mantenimiento: no se pudo deduplicar prestaciones', { err: serializeError(e) })
   }
 }

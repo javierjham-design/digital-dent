@@ -2,23 +2,30 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import request from 'supertest'
 import type { Express } from 'express'
 
-// Smoke de arranque SIN base de datos: la app monta, /health responde, las
-// rutas protegidas rechazan sin token y las desconocidas dan 404 con el shape
-// de error estándar. Las queries a Prisma no se ejecutan (auth corta antes).
+// Smoke de arranque SIN base de datos: la app monta, /health hace su readiness
+// check (503 porque la base no responde en este entorno), las rutas protegidas
+// rechazan sin token y las desconocidas dan 404 con el shape de error estándar.
+// Las queries a Prisma de las rutas no se ejecutan (auth corta antes).
 let app: Express
 beforeAll(async () => {
   process.env.JWT_SECRET = 'test-secret'
   process.env.ENCRYPTION_KEY = 'test-encryption-key-1234567890'
   process.env.PLATFORM_DOMAIN = 'clariva.cl'
+  // Control-plane apuntando a un puerto sin nada escuchando: el readiness de
+  // /health falla rápido (ECONNREFUSED) → 503 determinista, sin depender de que
+  // la máquina tenga o no un Postgres local en el puerto por defecto.
+  process.env.CONTROL_DATABASE_URL = 'postgresql://127.0.0.1:59999/nonexistent'
   const { createApp } = await import('@/app')
   app = createApp()
 })
 
 describe('arranque de la app', () => {
-  it('GET /health → 200 ok', async () => {
+  it('GET /health → 503 cuando la base no responde (readiness check)', async () => {
+    // El healthcheck ahora hace SELECT 1 contra el control-plane. Sin base en el
+    // entorno de test, debe reportar 503 (así Railway/monitor detectan la caída).
     const res = await request(app).get('/health')
-    expect(res.status).toBe(200)
-    expect(res.body.ok).toBe(true)
+    expect(res.status).toBe(503)
+    expect(res.body.ok).toBe(false)
     expect(res.body.service).toBe('clariva-backend')
   })
 

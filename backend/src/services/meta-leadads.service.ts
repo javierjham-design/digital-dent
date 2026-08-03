@@ -4,6 +4,7 @@ import { control } from '@/db/control'
 import { tenantClient } from '@/db/tenant'
 import { ingestarLeadMeta, getMetaLeadAdsConfig, registrarLeadAdsRecibido } from '@/services/crm.service'
 import { graphBase } from '@/lib/meta'
+import { log, serializeError } from '@/lib/logger'
 
 // Recepción NATIVA de leads del Formulario Instantáneo de Meta (Lead Ads), sin
 // Make/Zapier. Una sola App de Meta (plataforma) recibe el webhook `leadgen`;
@@ -70,7 +71,7 @@ async function traerLeadDeGraph(leadgenId: string, pageToken: string): Promise<G
   // reintentar UNA vez con el set mínimo y loguear cuál campo lo causó.
   if (!primero.ok && primero.error?.code === 100 && /nonexisting field|accessing/i.test(primero.error.message)) {
     const campo = primero.error.message.match(/\(([^)]+)\)/)?.[1] ?? '¿?'
-    console.warn(`[meta-leadads] Graph rechazó el campo "${campo}"; reintentando con set mínimo (${FIELDS_MINIMO}).`)
+    log.warn('meta-leadads: Graph rechazó un campo; reintentando con set mínimo', { campo, setMinimo: FIELDS_MINIMO })
     return fetchGraph(leadgenId, pageToken, FIELDS_MINIMO)
   }
   return primero
@@ -144,7 +145,7 @@ function mapearFieldData(fd: FieldDatum[] | undefined): MapeoLead {
     if (!apellido && partes.length) apellido = partes.join(' ')
   }
   if (noMapeados.length) {
-    console.warn(`[meta-leadads] Campos sin alias (guardados en camposExtra): ${noMapeados.join(', ')}`)
+    log.warn('meta-leadads: campos sin alias (guardados en camposExtra)', { campos: noMapeados })
   }
   return { nombre: nombre || fullName || 'Lead de Meta', apellido: apellido || undefined, telefono: telefono || undefined, email: email || undefined, rut: rut || undefined, motivo: motivo || undefined, camposExtra }
 }
@@ -160,7 +161,7 @@ export async function procesarWebhookLeadgen(payload: WebhookPayload): Promise<v
       try {
         await procesarUnLead(change.value)
       } catch (e) {
-        console.error(`[meta-leadads] Error procesando leadgen: ${e instanceof Error ? e.message : 'desconocido'}`)
+        log.error('meta-leadads: error procesando leadgen', { err: serializeError(e) })
       }
     }
   }
@@ -213,19 +214,19 @@ async function procesarUnLead(v: LeadgenValue): Promise<void> {
   const leadgenId = v.leadgen_id ? String(v.leadgen_id) : ''
   const pageId = v.page_id ? String(v.page_id) : ''
   // TAREA 7 (logging): dejar rastro de CADA evento recibido con sus IDs.
-  console.log('[meta-leadads] Webhook leadgen recibido', { page_id: pageId || null, leadgen_id: leadgenId || null, form_id: v.form_id ?? null })
-  if (!leadgenId || !pageId) { console.warn('[meta-leadads] Evento sin leadgen_id o page_id; descartado.'); return }
+  log.info('meta-leadads: webhook leadgen recibido', { page_id: pageId || null, leadgen_id: leadgenId || null, form_id: v.form_id ?? null })
+  if (!leadgenId || !pageId) { log.warn('meta-leadads: evento sin leadgen_id o page_id; descartado'); return }
 
   // TAREA 3: enrutar al tenant por page_id (denormalizado en el control-plane).
   const clinica = await control.clinica.findFirst({
     where: { metaPageId: pageId, metaLeadAdsEnabled: true, activo: true },
     select: { dbName: true, slug: true },
   })
-  if (!clinica) { console.warn(`[meta-leadads] Sin clínica activa para page_id ${pageId}; descartado.`); return }
+  if (!clinica) { log.warn('meta-leadads: sin clínica activa para page_id; descartado', { page_id: pageId }); return }
 
   const db = tenantClient(clinica.dbName)
   const cfg = await getMetaLeadAdsConfig(db)
-  if (!cfg.enabled || !cfg.pageToken) { console.warn(`[meta-leadads] Clínica ${clinica.slug} sin token de página; descartado.`); return }
+  if (!cfg.enabled || !cfg.pageToken) { log.warn('meta-leadads: clínica sin token de página; descartado', { tenant: clinica.slug }); return }
 
   // TAREA 4/5: fetch + mapeo + dedup/ingesta (mismo pipeline que el reproceso).
   const res = await ejecutarPipeline(db, { leadgenId, pageToken: cfg.pageToken, pageId, formId: v.form_id, adId: v.ad_id, adsetId: v.adgroup_id, campaignId: v.campaign_id })
@@ -233,11 +234,11 @@ async function procesarUnLead(v: LeadgenValue): Promise<void> {
     // Antes el fallo era silencioso (Meta reportaba éxito y no aparecía nada). Ahora
     // se registra el error de Graph con code/subcode y el tenant resuelto.
     const e = res.graphError
-    console.error('[meta-leadads] Graph fetch FALLÓ', { page_id: pageId, leadgen_id: leadgenId, form_id: v.form_id ?? null, tenant: clinica.slug, graphStatus: res.graphStatus, code: e?.code, subcode: e?.subcode, message: e?.message })
+    log.error('meta-leadads: Graph fetch FALLÓ', { page_id: pageId, leadgen_id: leadgenId, form_id: v.form_id ?? null, tenant: clinica.slug, graphStatus: res.graphStatus, code: e?.code, subcode: e?.subcode, message: e?.message })
     return
   }
   await registrarLeadAdsRecibido(db, { leadgenId, leadId: res.leadId, duplicado: res.resultado === 'duplicado' })
-  console.log('[meta-leadads] Lead procesado', { leadgen_id: leadgenId, tenant: clinica.slug, lead_id: res.leadId ?? null, resultado: res.resultado, noReconocidos: res.mapeo?.noReconocidos ?? [] })
+  log.info('meta-leadads: lead procesado', { leadgen_id: leadgenId, tenant: clinica.slug, lead_id: res.leadId ?? null, resultado: res.resultado, noReconocidos: res.mapeo?.noReconocidos ?? [] })
 }
 
 // ── TAREA 6: "Probar recepción" (valida token+página y devuelve el último) ─────

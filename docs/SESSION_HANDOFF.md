@@ -8,9 +8,31 @@
 ## Última actualización
 
 - **Fecha:** 2026-08-03
-- **Rama:** `arch/split-frontend-backend` (commit `3788f0c`). La limpieza ya está
-  **mergeada** (fast-forward) y **desplegada** en producción.
-- **Foco de esta sesión:** auditoría del proyecto + limpieza del código muerto (merge cerrado).
+- **Rama:** `feat/observabilidad` (sale de `arch/split-frontend-backend` @ `3788f0c`).
+  **Sin mergear/desplegar todavía** — falta configurar Sentry + UptimeRobot antes o
+  después de mergear (ver abajo). La limpieza del monolito sí quedó mergeada y desplegada.
+- **Foco de esta sesión:** observabilidad (healthcheck real, Sentry, logging con request-id).
+
+## Observabilidad — HECHO en código (2026-08-03)
+
+Implementado en `feat/observabilidad` (detalle en `docs/AI_CHANGELOG.md` y
+`docs/OBSERVABILIDAD.md`). Verde: typecheck (backend/frontend/web), unit 73/73,
+integración 48/50 (los 2 fallos son pre-existentes).
+
+- `/health` ahora hace `SELECT 1` al control-plane → **503** si Postgres no responde
+  (antes 200 siempre).
+- **Sentry** backend (solo 5xx + excepciones no manejadas, tags `clinica`/`user_id`/
+  `request_id`, sin datos de pacientes) y frontend/web (sin Session Replay).
+- **Logging** con request-id propagado por AsyncLocalStorage + logger propio; se
+  reemplazaron los `console.*` de services/lib/middlewares.
+
+**Falta para cerrarlo (operativo, fuera del repo):**
+1. Crear 3 proyectos en Sentry (`clariva-backend`, `clariva-frontend`, `clariva-web`).
+2. Cargar los DSN en Railway: `SENTRY_DSN` (backend), `VITE_SENTRY_DSN` (frontend, web
+   — build-time, requieren redeploy). Ver `docs/OBSERVABILIDAD.md`.
+3. Configurar UptimeRobot → `https://api.clariva.cl/health`.
+4. Mergear `feat/observabilidad` → `arch/split-frontend-backend` y pushear (redeploy 3
+   servicios). El código funciona con o sin los DSN cargados (Sentry es opcional).
 
 ---
 

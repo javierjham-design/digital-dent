@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express'
 import { verifyToken } from '@/services/auth.service'
 import { forbidden, unauthorized } from '@/lib/errors'
+import { patchRequestContext } from '@/lib/request-context'
 
 function tokenFromRequest(req: Request): string | null {
   const header = req.headers.authorization
@@ -15,6 +16,8 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction) {
   const token = tokenFromRequest(req)
   if (!token) throw unauthorized('Falta el token de sesión')
   req.auth = verifyToken(token)
+  // Etiqueta el contexto de logging/Sentry con el usuario (no es dato de paciente).
+  patchRequestContext({ userId: req.auth.sub })
   next()
 }
 

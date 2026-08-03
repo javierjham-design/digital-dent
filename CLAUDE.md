@@ -149,10 +149,13 @@ y trabajo en curso que no debés duplicar ni romper.
 
 ## 8. Pendientes conocidos (ver `docs/AUDITORIA_2026-08.md`)
 
-Sin backups lógicos por clínica (prompt listo en `docs/PROMPT_BACKUPS.md`) · sin Sentry
-ni logging estructurado · `/health` no verifica la base · correlativo de cobros calculado
-fuera de la transacción · caché de clientes por tenant sin límite · sin 2FA de super-admin ·
-el stack nuevo no tiene configuración de ESLint.
+Sin backups lógicos por clínica (prompt listo en `docs/PROMPT_BACKUPS.md`) · correlativo
+de cobros calculado fuera de la transacción · caché de clientes por tenant sin límite ·
+sin 2FA de super-admin · el stack nuevo no tiene configuración de ESLint.
+
+Observabilidad (healthcheck real, Sentry, logging con request-id): implementada en la
+rama `feat/observabilidad` — ver `docs/OBSERVABILIDAD.md`. Pendiente operativo: crear los
+proyectos en Sentry, cargar los DSN en Railway y configurar UptimeRobot.
 
 ## 9. Información que NO debes pedir
 

@@ -8,6 +8,7 @@ import { encryptNullable, decryptNullable } from '@/lib/crypto'
 import { control } from '@/db/control'
 import { crearCita } from '@/services/citas.service'
 import { rangoFechasUtc } from '@/lib/tz'
+import { log, serializeError } from '@/lib/logger'
 
 const ESTADOS = ['NUEVO', 'CONTACTADO', 'AGENDADO', 'CONVERTIDO', 'PERDIDO']
 // Etapa del embudo (estado del lead) → nombre del evento de CRM que Meta espera.
@@ -162,7 +163,7 @@ export async function dispararScheduleMeta(db: TenantClient, lead: ScheduleLead,
   if (!metaHabilitado(conf)) return 'sin-config'
   // Sin llaves de match no se emite (no atribuye y ensucia el dataset). Se loguea.
   if (!tieneMatchKeys(lead)) {
-    console.warn(`[meta] Schedule omitido para lead ${lead.id}: sin llaves de match (email/teléfono/leadgen/fbc/fbp).`)
+    log.warn('meta: Schedule omitido, sin llaves de match (email/teléfono/leadgen/fbc/fbp)', { leadId: lead.id })
     return 'sin-match'
   }
   // event_id estable para deduplicar reintentos (y con el Pixel si existiera). Incluye
@@ -255,7 +256,7 @@ export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eve
   // CONVERTIDO. Nunca en AGENDADO u otro estado (evita inflar conversiones). El
   // "Schedule" del embudo lo dispara el agendamiento; nunca cae en "customer".
   if (eventName.toLowerCase() === 'customer' && lead.estado !== 'CONVERTIDO') {
-    console.warn(`[meta-crm] "customer" OMITIDO para lead ${lead.id}: estado ${lead.estado} (solo se emite en CONVERTIDO).`)
+    log.warn('meta-crm: "customer" OMITIDO (solo se emite en CONVERTIDO)', { leadId: lead.id, estado: lead.estado })
     return { estado: 'no-aplica' }
   }
 
@@ -285,11 +286,11 @@ export async function dispararEtapaCrmMeta(db: TenantClient, leadId: string, eve
     // Schedule) el flag dedicado del CRM, separado del landing.
     const data: Record<string, unknown> = { metaCrmEtapas: [...new Set([...enviadas, token])].join(',') }
     if (eventName.toLowerCase() === 'schedule') data.crmScheduleEnviado = true
-    await db.lead.update({ where: { id: lead.id }, data }).catch((e) => console.error(`[meta-crm] No se pudo marcar la etapa "${eventName}" en el lead ${lead.id}: ${e instanceof Error ? e.message : e}`))
+    await db.lead.update({ where: { id: lead.id }, data }).catch((e) => log.error('meta-crm: no se pudo marcar la etapa en el lead', { eventName, leadId: lead.id, err: serializeError(e) }))
     await db.leadNota.create({ data: { leadId: lead.id, tipo: 'SISTEMA', texto: `Meta CRM: evento "${eventName}" enviado al dataset.` } }).catch(() => {})
     return { estado: 'enviado' }
   }
-  console.error(`[meta-crm] Evento "${eventName}" (${eventId}) RECHAZADO por Meta para lead ${lead.id}: ${res.error ?? 'sin detalle'}`)
+  log.error('meta-crm: evento RECHAZADO por Meta', { eventName, eventId, leadId: lead.id, error: res.error ?? 'sin detalle' })
   return { estado: 'error', error: res.error }
 }
 

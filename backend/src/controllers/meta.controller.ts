@@ -1,5 +1,7 @@
 import type { Request, Response } from 'express'
 import * as svc from '@/services/meta-leadads.service'
+import { log, serializeError } from '@/lib/logger'
+import { captureError } from '@/lib/observability'
 
 // Webhook NATIVO de Meta Lead Ads (campo `leadgen` del objeto `page`). Ruta
 // pública y CROSS-TENANT: no lleva slug; el tenant se resuelve por page_id.
@@ -25,6 +27,7 @@ export function postMetaWebhook(req: Request, res: Response) {
   const payload = req.body
   res.status(200).send('EVENT_RECEIVED')
   void svc.procesarWebhookLeadgen(payload).catch((e) => {
-    console.error(`[meta-leadads] Procesamiento async falló: ${e instanceof Error ? e.message : 'desconocido'}`)
+    log.error('meta-leadads: procesamiento async del webhook falló', { err: serializeError(e) })
+    captureError(e, { route: 'webhook meta-leadads' })
   })
 }
