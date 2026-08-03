@@ -5,6 +5,53 @@
 
 ---
 
+## 2026-08-03 — Sistema de backups y restauración quirúrgica por clínica
+
+La brecha operativa más grave: clínicas reales en prod sin forma de recuperar UNA
+clínica sin hacer retroceder a las demás (los snapshots de Railway restauran el volumen
+entero; retención 6 días). Rama `feat/backups`. Doc completa: `docs/BACKUPS.md`.
+
+**Arquitectura de 3 capas:** (1) volumen Railway + PITR — solo doc; (2) dump lógico por
+base cifrado y fuera de Railway; (3) restauración quirúrgica por clínica.
+
+- **Cifrado en streaming** (`lib/backup/crypto-stream.ts`): `pg_dump -Fc` → AES-256-GCM
+  (`IV||ct||authTag`) → subida multipart, sin cargar el dump en memoria ni a disco.
+  Round-trip testeado (buffer grande, vacío, clave/archivo alterados).
+- **Job diario** (`lib/backup/runner.ts`, `scripts/backup.ts`): descubre las bases desde
+  el control-plane (nunca hardcodea) + la base de control, excluye demos salvo
+  `--incluir-demos`, escribe manifiesto (sha256 + **censo de filas** de Paciente/Cita/
+  Cobro/Tratamiento/PlanTratamiento/Liquidacion) y registra `BackupRun`. Alerta por email
+  en PARCIAL/ERROR y **dead-man's switch** (>36 h sin OK).
+- **Restore quirúrgico** (`scripts/restore.ts`): `npm run restore -- --slug X --at latest`.
+  Descarga+descifra (verifica sha256), restaura en base NUEVA, compara censo (aborta si no
+  calza), imprime diff restaurado vs. producción. **Dry-run por defecto**; `--switch`
+  renombra la viva a `_prev<ts>` (se conserva), repunta `Clinica.dbName` e invalida el
+  cache. Rollback = repuntar dbName. `--drop-pre-restore` (con pre-drop previo) para limpiar.
+- **Poda GFS** (`lib/backup/retention.ts`, `scripts/backup-prune.ts`): 14/8/12 por bandas de
+  edad, **servicio separado con credenciales propias** (el backend no puede borrar),
+  dry-run por defecto, se niega si no hay manifiesto válido o si dejaría <N (test incluido).
+- **Ensayo semanal** (`scripts/restore-drill.ts`): restaura control + clínica más chica a
+  bases efímeras, valida censo, borra; alerta si falla.
+- **Barreras**: `dropTenantDatabase` se niega a borrar una base productiva (clínica no-demo
+  o con pacientes) sin `confirmarBorradoProductivo` + un pre-drop reciente (los call sites
+  de demo/rollback no cambian). `migrate-tenants` aborta si el último backup OK tiene >24 h
+  (no bloquea el bootstrap; override `SKIP_BACKUP_FRESHNESS_CHECK=1`). NO se tocó el
+  `prisma db push` sin `--accept-data-loss`.
+- **Endpoint** `POST /api/v1/admin/backups/run` (x-cron-secret con `timingSafeEqual`, o
+  super-admin) para backup manual antes de algo riesgoso.
+- **Infra**: `BackupRun` en control (aditivo), `postgresql-client-16` (PGDG) en el
+  `backend/Dockerfile`, deps `@aws-sdk/client-s3` + `lib-storage`, scripts npm
+  (`backup`, `backup:prune`, `backup:drill`, `restore`), env en `.env.example`.
+
+**Verificación:** typecheck backend ✓ · unit 87/87 (incl. crypto round-trip, poda que no
+borra bajo el piso, parseo de manifiesto). Tests nuevos: `backup-crypto`, `backup-retention`,
+`backup-manifest`. **Pendiente operativo (fuera del repo):** crear bucket R2 con object-lock
+por prefijo (7/30/180 d), cargar env en Railway, crear los servicios cron (backup/prune/
+drill), verificar la versión de Postgres del server, y activar capa 1 (volumen + PITR).
+`docs/SECURITY.md` #3 → resuelto.
+
+---
+
 ## 2026-08-03 — Observabilidad: healthcheck real, Sentry y logging con request-id
 
 Antes no había forma de enterarse de una falla salvo que una clínica llamara: sin

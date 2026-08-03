@@ -8,31 +8,42 @@
 ## Última actualización
 
 - **Fecha:** 2026-08-03
-- **Rama:** `feat/observabilidad` (sale de `arch/split-frontend-backend` @ `3788f0c`).
-  **Sin mergear/desplegar todavía** — falta configurar Sentry + UptimeRobot antes o
-  después de mergear (ver abajo). La limpieza del monolito sí quedó mergeada y desplegada.
-- **Foco de esta sesión:** observabilidad (healthcheck real, Sentry, logging con request-id).
+- **Rama:** `feat/backups` (sale de `arch` con observabilidad ya mergeada). **Sin mergear
+  todavía.** Requiere configuración operativa (bucket R2 + env en Railway) antes de servir.
+- **Foco de esta sesión:** sistema de backups y restauración quirúrgica por clínica.
 
-## Observabilidad — HECHO en código (2026-08-03)
+## Backups — HECHO en código (2026-08-03, rama `feat/backups`)
 
-Implementado en `feat/observabilidad` (detalle en `docs/AI_CHANGELOG.md` y
-`docs/OBSERVABILIDAD.md`). Verde: typecheck (backend/frontend/web), unit 73/73,
-integración 48/50 (los 2 fallos son pre-existentes).
+Detalle en `docs/BACKUPS.md` y `docs/AI_CHANGELOG.md`. Verde: typecheck backend, unit
+87/87 (incl. crypto round-trip, poda con piso, manifiesto). 3 capas: (1) volumen Railway
++ PITR [doc]; (2) dump lógico por base cifrado AES-256-GCM en R2, con manifiesto (sha256 +
+censo de filas); (3) restore quirúrgico por clínica (`npm run restore -- --slug X`,
+dry-run por defecto, `--switch` para el corte, no destruye — la base vieja se conserva).
+Poda GFS con creds separadas; ensayo de restauración semanal; barreras en
+`dropTenantDatabase` y `migrate-tenants`; endpoint `POST /admin/backups/run`.
 
-- `/health` ahora hace `SELECT 1` al control-plane → **503** si Postgres no responde
-  (antes 200 siempre).
-- **Sentry** backend (solo 5xx + excepciones no manejadas, tags `clinica`/`user_id`/
-  `request_id`, sin datos de pacientes) y frontend/web (sin Session Replay).
-- **Logging** con request-id propagado por AsyncLocalStorage + logger propio; se
-  reemplazaron los `console.*` de services/lib/middlewares.
+**Falta para cerrarlo (operativo, fuera del repo — pasos en `docs/BACKUPS.md`):**
+1. Crear bucket **Cloudflare R2** + **object-lock por prefijo** (7 d diarios / 30 d
+   semanales / 180 d mensuales; < retención GFS 14/56/365).
+2. Generar `BACKUP_ENCRYPTION_KEY` (guardarla en gestor de secretos aparte) y cargar las
+   `BACKUP_S3_*` en Railway. Credenciales de **poda separadas** (`BACKUP_S3_PRUNE_*`).
+3. Crear los **servicios cron** en Railway (mismo Dockerfile del backend, distinto start
+   command + schedule): `backup` (diario), `backup-prune` (semanal, con `--apply`),
+   `backup-drill` (semanal).
+4. **Verificar la versión de Postgres** del server (`SELECT version();`) y ajustar
+   `postgresql-client-16` en el Dockerfile si es 17+.
+5. Activar la **capa 1** en Railway (backups de volumen diarios + PITR).
+6. Mergear `feat/backups` → `arch` y pushear (redeploy). El backend arranca aunque los
+   backups no estén configurados (el guard de migrate-tenants no bloquea el bootstrap).
 
-**Falta para cerrarlo (operativo, fuera del repo):**
-1. Crear 3 proyectos en Sentry (`clariva-backend`, `clariva-frontend`, `clariva-web`).
-2. Cargar los DSN en Railway: `SENTRY_DSN` (backend), `VITE_SENTRY_DSN` (frontend, web
-   — build-time, requieren redeploy). Ver `docs/OBSERVABILIDAD.md`.
-3. Configurar UptimeRobot → `https://api.clariva.cl/health`.
-4. Mergear `feat/observabilidad` → `arch/split-frontend-backend` y pushear (redeploy 3
-   servicios). El código funciona con o sin los DSN cargados (Sentry es opcional).
+## Observabilidad — HECHO y DESPLEGADO (2026-08-03)
+
+`feat/observabilidad` fue **mergeada a `arch` y desplegada** (commit `ea3e536`); se
+verificó `api.clariva.cl/health` → 200 con header `X-Request-Id` (deploy nuevo vivo).
+Incluye el scrubber de PII extra (querystring fuera de breadcrumbs; mensajes de Prisma
+redactados). Detalle en `docs/OBSERVABILIDAD.md`. **Falta operativo:** crear los proyectos
+Sentry + cargar `SENTRY_DSN`/`VITE_SENTRY_DSN` en Railway (build-time → redeploy) y
+configurar UptimeRobot → `/health`. El código corre con o sin los DSN.
 
 ---
 

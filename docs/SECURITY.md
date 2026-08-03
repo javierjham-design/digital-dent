@@ -56,8 +56,8 @@ El usuario bloqueado ve cuántos minutos esperar. Un login correcto resetea su c
 ## Pendientes recomendados (no bloqueantes para lanzar)
 
 1. **2FA para super-admin** (TOTP). El super-admin puede ver todas las clínicas: es la cuenta más valiosa.
-2. **Monitoreo de errores** (Sentry o similar) + alertas de caída (UptimeRobot apuntando a `app.clariva.cl`).
-3. **Verificar backups de Postgres en Railway** (los gestiona Railway; confirmar retención y hacer una prueba de restore).
+2. ~~Monitoreo de errores + alertas de caída~~ → **RESUELTO (2026-08-03)**: Sentry (backend + frontend/web, sin datos de pacientes), `/health` con readiness real y logging con request-id. Ver `docs/OBSERVABILIDAD.md`. Falta cargar los DSN y configurar UptimeRobot (operativo).
+3. ~~Verificar backups de Postgres en Railway~~ → **RESUELTO (2026-08-03)**: sistema de backups de 3 capas con **dump lógico por clínica cifrado y fuera de Railway** + **restauración quirúrgica por clínica** (sin tocar a las demás) + ensayo de restauración semanal. Ver `docs/BACKUPS.md`. Los snapshots de volumen de Railway (capa 1) solos no alcanzaban: restaurar una clínica hacía retroceder a todas.
 4. **Rate limit distribuido** (Redis) si algún día se escala a varias réplicas.
 5. **Rotación de NEXTAUTH_SECRET / ENCRYPTION_KEY** documentada (rotar invalida sesiones y tokens Google: planificar ventana).
 6. **Revisión periódica de dependencias**: `npm audit` en cada sprint.
