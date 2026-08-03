@@ -204,6 +204,25 @@ model PlatformAdmin {
   updatedAt         DateTime  @updatedAt
 }
 
+// Registro de cada corrida del job de backup lógico (capa 2). El super-admin lo
+// consulta para el dead-man's switch (alertar si pasaron >36 h sin una corrida OK)
+// y migrate-tenants lo usa para abortar si el último backup OK tiene más de 24 h.
+model BackupRun {
+  id            String    @id @default(cuid())
+  iniciadoAt    DateTime  @default(now())
+  terminadoAt   DateTime?
+  estado        String    @default("ERROR") // OK | PARCIAL | ERROR
+  basesTotal    Int       @default(0)
+  basesOk       Int       @default(0)
+  bytesTotal    BigInt    @default(0)
+  manifiestoKey String?   // ruta del manifiesto en el bucket
+  error         String?
+  disparadoPor  String    @default("cron") // cron | manual | drill
+
+  @@index([iniciadoAt])
+  @@index([estado, iniciadoAt])
+}
+
 // Bitácora de acciones sensibles del super-admin.
 model AuditLogAdmin {
   id         String   @id @default(cuid())
