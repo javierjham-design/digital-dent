@@ -8,8 +8,9 @@
 ## Última actualización
 
 - **Fecha:** 2026-08-03
-- **Rama:** `chore/limpieza-monolito` (sale de `arch/split-frontend-backend`, commit `67b0332`).
-- **Foco de esta sesión:** auditoría del proyecto + limpieza del código muerto.
+- **Rama:** `arch/split-frontend-backend` (commit `3788f0c`). La limpieza ya está
+  **mergeada** (fast-forward) y **desplegada** en producción.
+- **Foco de esta sesión:** auditoría del proyecto + limpieza del código muerto (merge cerrado).
 
 ---
 
@@ -66,17 +67,21 @@ builtins de node, y las prestaciones de una clínica nueva salen de
 > clínicas nuevas con el arancel real:
 > `git show monolito-final:prisma/seed-aranceles.ts > backend/src/data/aranceles-cl.ts`
 
-### Qué falta cerrar de la limpieza
+### Cierre de la limpieza (2026-08-03) — HECHO ✅
 
-- Mergear `chore/limpieza-monolito` → `arch/split-frontend-backend`.
-- **Borrar a mano** la carpeta `_to_delete/` de la raíz (contiene el monolito movido y
-  locks de git; está en `.gitignore`), más `node_modules/`, `.next/` y
-  `monolito-final.tar.gz` de la raíz. No se borraron desde la sesión porque el puente de
-  archivos no permite `rm`.
-- **No se pudo verificar con typecheck ni tests:** `node_modules` está instalado para
-  Windows y no corre en el entorno de la sesión. Antes de mergear, correr en local:
-  `npm --prefix backend run typecheck`, `npm --prefix backend test`,
-  `npm --prefix frontend run typecheck`, `npm --prefix web run typecheck`.
+- **Verificación completa en local (todo verde):** `backend typecheck` ✓ · `backend test`
+  73/73 ✓ · `backend test:integration` 48/50 (los 2 fallos —consentimientos y conversión
+  de lead— son **pre-existentes**; la limpieza no tocó ni un archivo de
+  `backend/frontend/web/shared`, verificado con `git diff --stat 67b0332..limpieza -- backend frontend web shared` = vacío) · `frontend typecheck` ✓ · `web typecheck` ✓.
+- **Merge:** fast-forward de `chore/limpieza-monolito` → `arch/split-frontend-backend`
+  (`67b0332..3788f0c`, 225 archivos, −42.253 líneas) y **pusheado** → redeploy de los 3
+  servicios.
+- **Verificado en producción tras el deploy:** `api.clariva.cl/health` → 200 ·
+  `POST /auth/login` (creds inválidas) → 401 con JSON estructurado (auth vivo) ·
+  `app.clariva.cl` → 200 · `clariva.cl` → 200.
+- **Artefactos locales borrados:** `_to_delete/` (monolito movido + node_modules viejo +
+  locks) y `monolito-final.tar.gz` de la raíz (el código sigue en el tag `monolito-final`
+  = `67b0332`). Ambos estaban gitignoreados y sin trackear.
 
 ## A verificar (fuera del repo, no lo pude comprobar desde la sesión)
 

@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-08-03 — Limpieza del monolito: verificada, mergeada y desplegada
+
+Cierre de la rama `chore/limpieza-monolito` (auditoría + borrado del código muerto).
+
+- **Qué borró la limpieza** (ya estaba muerto desde el cutover del 2026-06-20): el
+  monolito Next.js de la raíz — `app/`, `components/`, `lib/`, `prisma/`, `public/`,
+  `proxy.ts`, configs (`next.config.ts`, `tsconfig.json`, `package*.json`, etc.) y
+  `AGENTS.md`. 219 archivos / ~42.000 líneas. Preservado en el tag `monolito-final`
+  (`67b0332`); recuperar con `git show monolito-final:<ruta>`.
+- **Además:** `.gitattributes` con `eol=lf` + renormalización (los 41 archivos que
+  aparecían "modificados" eran ruido CRLF/LF), y `CLAUDE.md` reescrito para el stack real
+  (antes describía el monolito: base compartida con `clinicaId`, NextAuth, `prisma/` en la
+  raíz — nada de eso existe hoy).
+- **Verificación (todo verde):** backend typecheck · backend test 73/73 · integración
+  48/50 (los 2 fallos —consentimientos y conversión de lead— son **pre-existentes**: la
+  limpieza no tocó `backend/frontend/web/shared`, `git diff --stat 67b0332..limpieza` sobre
+  esas carpetas da vacío) · frontend typecheck · web typecheck.
+- **Merge + deploy:** fast-forward `67b0332..3788f0c` a `arch/split-frontend-backend`,
+  pusheado (redeploy de los 3 servicios). Verificado en prod: `/health` 200, `/auth/login`
+  401 JSON (auth vivo), `app.clariva.cl` 200, `clariva.cl` 200.
+- **Artefactos locales borrados:** `_to_delete/` y `monolito-final.tar.gz` de la raíz
+  (gitignoreados, sin trackear; el código vive en el tag).
+
+Nota: `backend/src/scripts/migrate-tenants.ts` se dejó intacto a propósito (corre
+`prisma db push` sin `--accept-data-loss`).
+
+---
+
 ## 2026-07-29 — Permiso "Gestión de agenda": recepción/staff puede gestionar bloqueos de cualquier profesional
 
 La clínica necesita que usuarios NO admin (recepción) puedan gestionar la agenda
