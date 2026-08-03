@@ -51,6 +51,31 @@ export const env = {
   // Versión ÚNICA de la Graph API para TODAS las llamadas a Meta (CAPI web,
   // emisor de etapas de CRM, webhook de Lead Ads). Configurable por env.
   metaGraphVersion: process.env.META_GRAPH_VERSION ?? 'v25.0',
+
+  // ── Backups lógicos por base (capa 2, ver docs/BACKUPS.md) ─────────────────
+  // La clave de cifrado se lee y valida aparte (loadBackupKey), no acá. Secretos
+  // de S3 se leen donde se usan. Acá va la config no sensible + destino.
+  backup: {
+    includeDemos: process.env.BACKUP_INCLUDE_DEMOS === '1' || process.env.BACKUP_INCLUDE_DEMOS === 'true',
+    // Destino S3-compatible (Cloudflare R2 por defecto recomendado).
+    s3Endpoint: process.env.BACKUP_S3_ENDPOINT ?? '',
+    s3Region: process.env.BACKUP_S3_REGION ?? 'auto',
+    s3Bucket: process.env.BACKUP_S3_BUCKET ?? '',
+    s3Prefix: (process.env.BACKUP_S3_PREFIX ?? 'clariva').replace(/^\/+|\/+$/g, ''),
+    // Retención GFS (poda explícita en el script backup:prune, con creds propias).
+    retainDaily: Number(process.env.BACKUP_RETAIN_DAILY ?? 14),
+    retainWeekly: Number(process.env.BACKUP_RETAIN_WEEKLY ?? 8),
+    retainMonthly: Number(process.env.BACKUP_RETAIN_MONTHLY ?? 12),
+    // Piso de seguridad: la poda se niega si dejaría menos de esto por base.
+    pruneMinKeep: Number(process.env.BACKUP_PRUNE_MIN_KEEP ?? 3),
+    // Dead-man's switch: alerta si pasaron más de estas horas sin una corrida OK.
+    maxAgeHours: Number(process.env.BACKUP_MAX_AGE_HOURS ?? 36),
+    // Destinatarios de alertas (coma). Fallback: los PlatformAdmin activos.
+    alertEmails: (process.env.BACKUP_ALERT_EMAILS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+    // Binarios del cliente Postgres (por si hay que apuntar a una ruta concreta).
+    pgDumpPath: process.env.PG_DUMP_PATH ?? 'pg_dump',
+    pgRestorePath: process.env.PG_RESTORE_PATH ?? 'pg_restore',
+  },
 }
 
 export const isProd = env.nodeEnv === 'production'
