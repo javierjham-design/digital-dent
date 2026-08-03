@@ -1,153 +1,165 @@
-@AGENTS.md
+# Cláriva — Guía de sesión para Claude
 
-# Dental Platform — Guía de sesión para Claude
+> Léeme primero. Soy corta y operativa. Para profundidad: `docs/SESSION_HANDOFF.md`
+> (estado actual), `docs/architecture.md` (arquitectura) y `docs/AI_CHANGELOG.md`
+> (historial, entradas nuevas arriba).
 
-> Léeme primero. Soy una guía corta y operativa. Si necesitas profundidad, ve a `docs/PROJECT_CONTEXT.md`.
+## 1. Qué es
 
-## 1. Objetivo general
+SaaS multi-tenant de gestión para clínicas y centros (dental / médico / estética).
+**En producción, con clínicas reales usándolo a diario.** Cubre agenda, fichas clínicas
+con odontograma, planes de tratamiento, presupuestos, cobros y caja, liquidaciones de
+profesionales, CRM con Meta Lead Ads, agendamiento online, consentimientos, reportes y
+un panel de super-administración con suscripciones y pagos.
 
-Plataforma SaaS interna de gestión para **Clínica Dental Digital-Dent** (Temuco, Chile).
-Cubre: agenda de citas, fichas clínicas con odontograma, presupuestos, prestaciones, cobros, liquidaciones de doctores y configuración de clínica.
+Cliente original: Clínica Dental Digital-Dent (Temuco, Chile). Hoy la plataforma es
+multi-clínica y multi-rubro.
 
-## 2. Arquitectura (resumen)
+## 2. Arquitectura
 
-App **monolítica Next.js 16 App Router** desplegada en **Railway** (auto-deploy desde GitHub `master`).
-Una sola base de código contiene frontend (React Server/Client Components) y backend (API routes en `app/api/*`).
-Persistencia en **PostgreSQL** servido por Railway (servicio gestionado), vía **Prisma 5**.
-Autenticación con **NextAuth (Credentials + JWT)**, protegida por el middleware `proxy.ts` (matcher global, redirige a `/login` si no hay sesión).
-Build de Railway: `prisma db push --accept-data-loss && prisma generate && ts-node --transpile-only prisma/seed-aranceles.ts && next build`.
+Tres servicios independientes + un paquete compartido, desplegados en **Railway**
+(auto-deploy desde GitHub):
 
-## 3. Stack tecnológico real
+| Servicio | Carpeta | Rol | Dominio |
+|---|---|---|---|
+| **backend** | `backend/` | API REST — toda la lógica de negocio, auth, datos | `api.clariva.cl` |
+| **frontend** | `frontend/` | SPA de las clínicas (Vite + React) | `*.clariva.cl` (subdominio por clínica) |
+| **web** | `web/` | Landing público + landings de campaña | `clariva.cl` |
+| **shared** | `shared/` | DTOs y constantes compartidas (contrato tipado FE↔BE) | — |
+| **cron** | `cron/` | Job que hace POST autenticado al backend según `JOB` | — |
+| **mcp-server** | `mcp-server/` | Servidor MCP read-only del CRM (API key por clínica) | — |
 
-| Capa            | Tecnología                                                        |
-| --------------- | ----------------------------------------------------------------- |
-| Framework       | Next.js **16.2.4** (App Router) + React **19.2.4** + TS **5**     |
-| Estilos         | Tailwind CSS **4**, Radix UI primitives, `class-variance-authority`, `clsx`, `tailwind-merge` |
-| Auth            | next-auth **4.24** (Credentials provider, JWT), bcryptjs          |
-| ORM / DB        | Prisma **5.22** + PostgreSQL (prod) / SQLite (dev local opcional) |
-| Calendario      | FullCalendar 6 (`daygrid`, `timegrid`, `interaction`, `react`)    |
-| Formularios     | react-hook-form 7 + zod 4 + @hookform/resolvers                   |
-| Gráficos        | recharts 3                                                        |
-| Fechas          | date-fns 4                                                        |
-| Iconos          | lucide-react                                                      |
-| Hosting         | Railway (auto-deploy desde GitHub `master`)                       |
+**El monolito Next.js ya no existe.** Salió de producción en el cutover del 2026-06-20 y
+su código se eliminó del árbol el 2026-08-03. Si necesitás consultarlo, está en el tag
+`monolito-final` (`git show monolito-final:<ruta>`). No lo revivas.
 
-## 4. Estructura del proyecto
+### Database-per-tenant (esto es lo que más define al sistema)
 
-```
-dental-platform/
-├── app/
-│   ├── (auth)/login/                # Login público
-│   ├── (dashboard)/                 # Layout protegido con TopBar
-│   │   ├── agenda/                  # Calendario FullCalendar
-│   │   ├── pacientes/               # Listado + ficha [id] con odontograma
-│   │   ├── presupuestos/
-│   │   ├── cobros/
-│   │   ├── prestaciones/
-│   │   ├── usuarios/                # "Equipo" en UI
-│   │   ├── liquidaciones/
-│   │   └── configuracion/
-│   ├── api/                         # API routes (backend)
-│   │   ├── auth/[...nextauth]/
-│   │   ├── pacientes/[id?]/
-│   │   ├── citas/[id?]/
-│   │   ├── presupuestos/[id?]/
-│   │   ├── tratamientos/[id?]/
-│   │   ├── prestaciones/[id?]/
-│   │   ├── cobros/[id?]/
-│   │   ├── medios-pago/[id?]/
-│   │   ├── contratos/[id?]/
-│   │   ├── liquidaciones/[id?]/
-│   │   ├── horarios/
-│   │   ├── odontograma/
-│   │   ├── usuarios/[id?]/
-│   │   ├── configuracion/
-│   │   └── dashboard/
-│   ├── print/                       # Vistas imprimibles (presupuesto, plan, liquidación)
-│   ├── layout.tsx                   # Root
-│   └── providers.tsx                # SessionProvider
-├── components/                      # TopBar, Sidebar, Odontograma, PlanTratamiento, etc.
-├── lib/                             # prisma.ts, auth.ts, utils.ts
-├── prisma/
-│   ├── schema.prisma                # 18 modelos
-│   ├── seed.ts                      # Admin + 12 prestaciones base
-│   └── seed-aranceles.ts            # 764 prestaciones idempotente
-├── public/
-├── proxy.ts                         # Middleware NextAuth
-└── docs/                            # Contexto de continuidad (leer al inicio)
-```
+No hay una base compartida con `clinicaId`. **Cada clínica tiene su propia base física
+de Postgres.** Hay dos schemas de Prisma distintos:
 
-## 5. Convenciones de código
+- `backend/prisma/control/schema.prisma` → base `clariva_control` (8 modelos): registro
+  de clínicas, planes de suscripción, leads, pagos, extras, admins de plataforma,
+  auditoría. Cliente singleton en `backend/src/db/control.ts` (`control`).
+- `backend/prisma/tenant/schema.prisma` → una base `clariva_t_<slug>` por clínica
+  (42 modelos): pacientes, citas, cobros, planes, caja, todo lo clínico. Cliente
+  **por request** vía `backend/src/db/tenant.ts` (`tenantClient(dbName)`), cacheado por
+  `dbName`.
 
-- **Server Component por defecto.** Sólo añadir `'use client'` cuando se requiera estado / efectos / hooks de React.
-- **Páginas dinámicas:** todas las páginas del dashboard usan `export const dynamic = 'force-dynamic'` para evitar caché agresiva.
-- **Patrón página → cliente:** `page.tsx` (Server) consulta Prisma → pasa props serializadas → `*-client.tsx` (Client) renderiza UI interactiva.
-- **Imports con alias `@/*`** (configurado en `tsconfig.json`).
-- **Prisma singleton** vía `lib/prisma.ts` (no instanciar `PrismaClient` directo).
-- **Auth en API routes:** validar sesión con `getServerSession(authOptions)`. Para acciones admin chequear `session.user.role === 'admin'`.
-- **Fechas a UI:** serializar con `.toISOString()` en el server, parsear en cliente con `date-fns`.
-- **Dinero:** se almacena como `Float` (CLP enteros). UI formatea como `$1.234.567` (separador miles `.`).
-- **Idioma de la UI y modelos:** español Chile. Mantén nombres de campos consistentes (`pacienteId`, `nombre`, `apellido`, `rut`, etc.).
-- **Comentarios:** mínimos. El código bien nombrado documenta lo que hace.
+El aislamiento entre clínicas es **físico**, no un `where clinicaId`. No lo debilites.
 
-## 6. Reglas para NO romper funcionalidades existentes
+## 3. Stack
 
-1. **No cambiar `schema.prisma` sin documentarlo** en `docs/AI_CHANGELOG.md`. Cada cambio dispara `prisma db push --accept-data-loss` en Railway — un campo mal renombrado **destruye datos en producción**.
-2. **No tocar `proxy.ts`** salvo para añadir rutas públicas. El matcher global es lo único que protege todo el dashboard.
-3. **No introducir nuevas dependencias pesadas** sin necesidad. Antes de instalar `xlsx`, `puppeteer`, etc., revisa si Next o un módulo ya existente lo resuelve.
-4. **El seed `seed-aranceles.ts` corre en cada build.** Mantenlo idempotente (`skipDuplicates: true` o `findFirst` antes de crear).
-5. **`Configuracion` es un singleton** (`id = "singleton"`). Nunca crear segundo registro.
-6. **El campo `numero` en `Presupuesto` y `Cobro` es `@unique` autoincremental manual.** Al crear nuevos registros, calcular `max(numero) + 1`.
-7. **Categorías de prestaciones** vienen del arancel real (24 categorías). No inventar categorías.
-8. **Antes de eliminar un endpoint o componente**, busca usos con Grep en todo `app/` y `components/`.
-9. **Next.js 16 trae breaking changes**: antes de usar APIs avanzadas (cache, headers, params async, etc.) revisa `node_modules/next/dist/docs/` o documentación oficial. **No confíes en patrones de Next 13/14.**
-10. **Windows + PowerShell 5.1**: no usar `&&`, ni redirigir stderr de ejecutables nativos (`2>&1`), ni esperar `npx`/`git` en PATH (rutas completas: `C:\Program Files\nodejs\node.exe`, `C:\Program Files\Git\bin\git.exe`).
+| Capa | Tecnología |
+|---|---|
+| Backend | Node 20 + Express 4 + TypeScript 5 + Prisma 5.22 + Postgres |
+| Frontend / Web | Vite + React 19 + TypeScript + Tailwind |
+| Auth | JWT propio emitido por el backend (`jsonwebtoken`), bcrypt, sesión 12 h |
+| Validación | zod 4 (`backend/src/validators/schemas.ts`) |
+| Integraciones | Google Calendar (`googleapis`), WhatsApp/Twilio, Meta Lead Ads + CAPI, Flow (pagos) |
+| Reportes | `xlsx` |
+| Tests | Vitest — unit + integración con SQLite efímero por tenant |
+| Hosting | Railway (3 servicios + Postgres + cron services) |
 
-## 7. Reglas de continuidad (OBLIGATORIO)
+## 4. Convenciones
 
-### Antes de cambios grandes
+- **Lógica de negocio en `backend/src/services`.** Los controllers son finos: validan con
+  zod, llaman al service, responden. Sin lógica en las rutas.
+- **El frontend nunca toca Prisma.** Solo habla con la API vía `frontend/src/services/*`.
+- **DTOs en `shared/src/types`.** No se exponen modelos Prisma al frontend.
+- **Errores:** los services lanzan `AppError` (`backend/src/lib/errors.ts`:
+  `badRequest`, `notFound`, `forbidden`, `conflict`, `tooMany`); el middleware de errores
+  los traduce a `{ error }` sin filtrar internals.
+- **Protección de rutas** (`backend/src/routes/index.ts`): se componen arrays de
+  middlewares — `requireAuth`, `requireTenant`, `requireAdmin`, `requireSuperAdmin`,
+  `requirePermiso('campo')`, `requireModulo('codigo')`. Hay combinaciones ya armadas
+  (`tenant`, `adminTenant`, `crmTenant`, `agendaTenant`, `configTenant`…). **Reusalas**;
+  no inventes una nueva cadena si ya existe la equivalente.
+- **Acceso a la base del tenant:** `tenantDb(req)` dentro de un handler. Nunca instancies
+  un `PrismaClient` a mano.
+- **Dinero:** `Float` en el schema, enteros CLP. UI `$1.234.567` (separador de miles `.`).
+  Al calcular porcentajes (comisiones, liquidaciones) **redondeá explícitamente**.
+- **Fechas:** helpers en `backend/src/lib/tz.ts`. Chile es UTC−4/−3 según horario de verano.
+- **Idioma:** español de Chile en UI, modelos y comentarios. RUT con DV.
+- **Comentarios:** mínimos, y que expliquen el *por qué*. El código bien nombrado ya dice qué hace.
 
-> **Si la tarea toca más de 1 módulo, modifica el schema, o introduce una nueva dependencia: PRIMERO lee `docs/PROJECT_CONTEXT.md` y `docs/PROJECT_STATUS.md`.**
-> No empieces a editar sin haberlo hecho. Estos documentos contienen decisiones técnicas ya tomadas y trabajo en curso que NO debes duplicar ni romper.
+## 5. Reglas para no romper producción
 
-### Al cerrar una tarea importante
+1. **`backend/src/scripts/migrate-tenants.ts` NO se toca.** Corre `prisma db push` **sin**
+   `--accept-data-loss` a propósito: si un cambio implicara perder datos de una clínica,
+   falla esa base en vez de destruir en silencio. Es correcto. No lo "optimices".
+2. **Cambio de schema tenant:** editá `prisma/tenant/schema.prisma`, corré
+   `npm run tenant:initsql` (regenera el DDL para clínicas **nuevas**) y
+   `npm run migrate:tenants` (sincroniza las **existentes**). Ambos pasos, siempre.
+   Preferí cambios aditivos; un renombre destruye datos.
+3. **`dropTenantDatabase()` borra una base de verdad.** Hoy solo la llaman rollbacks de
+   creación fallida y la limpieza de demos expiradas. No agregues call sites nuevos.
+4. **No debilites el aislamiento multi-tenant.** Nada de queries que crucen bases, ni de
+   cachear datos de una clínica en un lugar compartido entre requests.
+5. **`proxy.ts` ya no existe.** La protección es el middleware de Express, no un matcher
+   de Next. Si necesitás una ruta pública, va bajo `/api/v1/public/*` (tiene CORS abierto
+   a propósito, para landings externas).
+6. **Antes de eliminar un endpoint o componente**, buscá usos con Grep en `backend/src`,
+   `frontend/src`, `web/src` y `shared/src`.
+7. **No agregues dependencias pesadas** sin necesidad. Revisá si algo del stack ya lo resuelve.
+8. **Windows + PowerShell 5.1**: no uses `&&`, ni redirijas stderr de ejecutables nativos
+   (`2>&1`), ni asumas `npx`/`git` en PATH. Rutas completas:
+   `C:\Program Files\nodejs\node.exe`, `C:\Program Files\Git\bin\git.exe`.
 
-> **Después de completar cualquier tarea no trivial, actualiza estos archivos:**
-> - `docs/AI_CHANGELOG.md` → añade una entrada nueva al inicio con fecha, archivos tocados, riesgos y pendientes.
-> - `docs/PROJECT_STATUS.md` → mueve lo que se completó al bloque "Funcionando hoy", ajusta "Próximos pasos".
-> - `docs/SESSION_HANDOFF.md` → sobrescribe con el estado real de fin de sesión, para que la próxima sesión retome sin contexto previo.
-> - `docs/PROJECT_CONTEXT.md` → sólo si cambió la arquitectura, el stack o una decisión técnica de alto nivel.
-
-### Antes de hacer `/compact` o cerrar la sesión
-
-> Actualiza `docs/SESSION_HANDOFF.md` **siempre**. Es el primer archivo que la próxima sesión leerá.
-
-## 8. Comandos útiles
+## 6. Comandos
 
 ```powershell
-# Dev local
-npm run dev                              # next dev (puerto 3000)
+# Desarrollo
+cd backend  ; npm run dev      # API en http://localhost:4000
+cd frontend ; npm run dev      # SPA en http://localhost:5173
+cd web      ; npm run dev      # Landing
+
+# Verificación (correr SIEMPRE antes de commitear)
+npm --prefix backend run typecheck
+npm --prefix backend test                 # unit
+npm --prefix backend run test:integration # SQLite efímero por tenant
+npm --prefix backend run test:contract    # contrato FE↔BE
+npm --prefix frontend run typecheck
+npm --prefix web run typecheck
 
 # Base de datos
-npm run db:push                          # prisma db push (sincroniza schema)
-npm run db:seed                          # corre prisma/seed.ts (admin + 12 prestaciones)
-
-# Build local (replica el de Railway)
-npm run build
+npm --prefix backend run tenant:initsql    # DDL para clínicas nuevas
+npm --prefix backend run migrate:tenants   # sincroniza clínicas existentes
+npm --prefix backend run smoke:deploy      # smoke contra producción
 
 # Git (ruta completa porque no está en PATH)
 & "C:\Program Files\Git\bin\git.exe" status
-& "C:\Program Files\Git\bin\git.exe" add -A
-& "C:\Program Files\Git\bin\git.exe" commit -m "..."
-& "C:\Program Files\Git\bin\git.exe" push
 ```
+
+## 7. Estado y continuidad (OBLIGATORIO)
+
+**Antes de un cambio grande** (más de un módulo, cambio de schema, dependencia nueva):
+leé `docs/SESSION_HANDOFF.md` y `docs/architecture.md`. Contienen decisiones ya tomadas
+y trabajo en curso que no debés duplicar ni romper.
+
+**Al cerrar una tarea no trivial**, actualizá:
+
+- `docs/AI_CHANGELOG.md` → entrada nueva **al inicio**, con fecha, archivos tocados,
+  verificación corrida, riesgos y pendientes.
+- `docs/SESSION_HANDOFF.md` → sobrescribí con el estado real de fin de sesión. Es lo
+  primero que lee la sesión siguiente.
+- `docs/architecture.md` → solo si cambió la arquitectura o una decisión de alto nivel.
+
+**Antes de `/compact` o de cerrar la sesión:** actualizá `docs/SESSION_HANDOFF.md` siempre.
+
+## 8. Pendientes conocidos (ver `docs/AUDITORIA_2026-08.md`)
+
+Sin backups lógicos por clínica (prompt listo en `docs/PROMPT_BACKUPS.md`) · sin Sentry
+ni logging estructurado · `/health` no verifica la base · correlativo de cobros calculado
+fuera de la transacción · caché de clientes por tenant sin límite · sin 2FA de super-admin ·
+el stack nuevo no tiene configuración de ESLint.
 
 ## 9. Información que NO debes pedir
 
-- **Cliente:** Clínica Dental Digital-Dent, Temuco, Chile.
-- **Idioma:** español Chile.
-- **Moneda:** CLP, formato `$1.234.567`.
-- **RUT:** formato chileno (con DV).
-- **Hosting:** Railway (app + Postgres).
-- **Repo:** GitHub, rama `master`, auto-deploy.
-- **Modo de trabajo:** el usuario autorizó operación autónoma; no pedir confirmación para tareas claras.
+- **Producto:** Cláriva. **Rubros:** dental / médico / estética.
+- **Idioma:** español de Chile. **Moneda:** CLP, formato `$1.234.567`. **RUT** con DV.
+- **Hosting:** Railway (app + Postgres). **Repo:** GitHub, auto-deploy.
+- **Rama de trabajo:** `arch/split-frontend-backend` (es la que despliega a producción;
+  `master` quedó congelada con el monolito y está pendiente el merge).
+- **Modo de trabajo:** el usuario autorizó operación autónoma; no pidas confirmación para
+  tareas claras. Sí avisá antes de algo destructivo o irreversible en producción.

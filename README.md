@@ -7,8 +7,9 @@ Calendar.
 
 ## Arquitectura
 
-En migración desde el monolito Next.js a un stack separado (rama
-`arch/split-frontend-backend`). Estado y detalle en [`docs/`](docs/):
+Stack separado, **en producción** (rama `arch/split-frontend-backend`). El monolito
+Next.js original fue retirado en el cutover del 2026-06-20 y eliminado del árbol el
+2026-08-03; queda en el tag `monolito-final`. Estado y detalle en [`docs/`](docs/):
 
 | Servicio | Carpeta | Rol |
 |----------|---------|-----|
@@ -41,3 +42,6 @@ cd web && npm install && npm run dev
 - `docs/cutover.md` — runbook de despliegue en Railway.
 - `docs/parity-matrix.md` · `docs/qa-report.md` — paridad y QA.
 - `docs/AI_CHANGELOG.md` — historial de cambios.
+- `docs/SESSION_HANDOFF.md` — estado actual (leer primero).
+- `docs/AUDITORIA_2026-08.md` — auditoría técnica y prioridades.
+- `docs/PROMPT_BACKUPS.md` — plan de backups por clínica.
