@@ -6,7 +6,7 @@
 //  BloqueoAgenda llamamos acá. Crea/actualiza/borra el evento en el calendario
 //  del doctor y persiste el `googleEventId` para futuras operaciones.
 //
-//  Pull (Google → Cláriva): un cron cada 2 minutos invoca syncCalendar() por
+//  Pull (Google → Cláriva): un cron (cada ~15 min) invoca syncCalendar() por
 //  cada doctor con calendarId asignado. Usa syncToken incremental para traer
 //  solo los cambios. Política de reconciliación:
 //    - Si el evento ya está en Cláriva (matcheamos por googleEventId): Cláriva
@@ -25,11 +25,115 @@
 
 import { google, calendar_v3 } from 'googleapis'
 import { control } from '@/db/control'
-import { tenantClient, type TenantClient } from '@/db/tenant'
+import { tenantClient, disposeTenant, type TenantClient } from '@/db/tenant'
 import { getAuthorizedClient } from '@/lib/google'
+import { log, serializeError } from '@/lib/logger'
+import { captureError } from '@/lib/observability'
 
 const TIMEZONE = 'America/Santiago'
 const PULL_WINDOW_DAYS_FUTURE = 90
+
+// Umbral del "dead-man's switch": si el último sync exitoso de un doctor mapeado
+// es más viejo que esto, la clínica se considera DESACTUALIZADA aunque no haya
+// ningún error registrado. Cubre el modo de falla real (el cron dejó de correr y
+// nadie se enteró), no solo el token revocado. Cron cada 15 min → default 60.
+const STALE_MINUTOS = Number(process.env.GOOGLE_SYNC_STALE_MINUTES) || 60
+
+// ── Estado de la sincronización (visible para la clínica) ────────────────────
+
+// ¿El error viene de credenciales inválidas (token revocado/vencido sin refresh)?
+// Solo esos meritan marcar la conexión como caída; los fallos transitorios de red
+// se reintentan solos en el siguiente ciclo.
+function isAuthError(e: unknown): boolean {
+  const anyE = e as { code?: number; response?: { status?: number } }
+  const code = anyE?.code ?? anyE?.response?.status
+  if (code === 401 || code === 403) return true
+  const msg = (e instanceof Error ? e.message : String(e)).toLowerCase()
+  return msg.includes('invalid_grant') || msg.includes('token has been expired or revoked') ||
+    msg.includes('no devolvió refresh_token') || msg.includes('no refresh token')
+}
+
+async function markGoogleSyncError(db: TenantClient, e: unknown): Promise<void> {
+  const msg = (e instanceof Error ? e.message : String(e)).slice(0, 300)
+  await db.configuracion.update({
+    where: { id: 'singleton' },
+    data: { googleSyncError: msg, googleSyncErrorAt: new Date() },
+  }).catch(() => {})
+}
+
+async function clearGoogleSyncError(db: TenantClient): Promise<void> {
+  // updateMany con condición para no escribir si ya estaba limpio.
+  await db.configuracion.updateMany({
+    where: { id: 'singleton', NOT: { googleSyncError: null } },
+    data: { googleSyncError: null, googleSyncErrorAt: null },
+  }).catch(() => {})
+}
+
+export interface GoogleHealth {
+  connected: boolean
+  problema: 'error' | 'desactualizado' | null
+  desde: string | null       // ISO — cuándo empezó el problema (error o último sync)
+  ultimoSync: string | null  // ISO — último sync exitoso de cualquier doctor mapeado
+  email: string | null
+  doctoresMapeados: number
+  staleMinutos: number
+}
+
+/**
+ * Estado de salud de la integración con Google de UNA clínica, pensado para
+ * mostrarlo en la UI (Configuración + Agenda). Dos formas de problema:
+ *   - 'error': hay un fallo de auth registrado (token revocado/vencido).
+ *   - 'desactualizado': está conectada y con doctores mapeados, pero el último
+ *     sync exitoso es más viejo que STALE_MINUTOS (el cron dejó de correr).
+ * Si no está conectada, o está conectada y al día → problema = null.
+ */
+export async function getGoogleHealth(db: TenantClient): Promise<GoogleHealth> {
+  const cfg = await db.configuracion.findUnique({
+    where: { id: 'singleton' },
+    select: {
+      googleRefreshToken: true, googleAccountEmail: true,
+      googleSyncError: true, googleSyncErrorAt: true,
+    },
+  })
+  if (!cfg?.googleRefreshToken) {
+    return { connected: false, problema: null, desde: null, ultimoSync: null, email: null, doctoresMapeados: 0, staleMinutos: STALE_MINUTOS }
+  }
+
+  const agg = await db.user.aggregate({
+    where: { activo: true, googleCalendarId: { not: null } },
+    _max: { googleSyncedAt: true },
+    _count: { _all: true },
+  })
+  const doctores = agg._count._all
+  const ultimoSync = agg._max.googleSyncedAt
+
+  let problema: GoogleHealth['problema'] = null
+  let desde: Date | null = null
+  if (cfg.googleSyncError) {
+    problema = 'error'; desde = cfg.googleSyncErrorAt ?? null
+  } else if (doctores > 0) {
+    const vencido = !ultimoSync || Date.now() - ultimoSync.getTime() > STALE_MINUTOS * 60 * 1000
+    if (vencido) { problema = 'desactualizado'; desde = ultimoSync ?? null }
+  }
+
+  return {
+    connected: true,
+    problema,
+    desde: desde ? desde.toISOString() : null,
+    ultimoSync: ultimoSync ? ultimoSync.toISOString() : null,
+    email: cfg.googleAccountEmail ?? null,
+    doctoresMapeados: doctores,
+    staleMinutos: STALE_MINUTOS,
+  }
+}
+
+// Backstop para el push/delete disparado en segundo plano desde los services.
+// Esas funciones ya loguean y reportan sus propios errores; esto solo deja
+// registrado un rechazo inesperado de la promesa (en vez de un `.catch(()=>{})`).
+export const swallowGoogle = (op: string) => (e: unknown): void => {
+  log.warn(`google ${op}: rechazo inesperado en segundo plano`, { err: serializeError(e) })
+  captureError(e, { route: `google/${op}` })
+}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -158,6 +262,9 @@ export async function pushCita(db: TenantClient, citaId: string): Promise<void> 
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'push_failed'
+    log.warn('google pushCita falló', { citaId: cita.id, err: serializeError(e) })
+    captureError(e, { route: 'google/pushCita' })
+    if (isAuthError(e)) await markGoogleSyncError(db, e)
     await db.cita.update({
       where: { id: cita.id },
       data: { googleSyncError: msg.slice(0, 500) },
@@ -190,6 +297,9 @@ export async function deleteCitaInGoogle(db: TenantClient, citaId: string): Prom
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'delete_failed'
+    log.warn('google deleteCita falló', { citaId: cita.id, err: serializeError(e) })
+    captureError(e, { route: 'google/deleteCita' })
+    if (isAuthError(e)) await markGoogleSyncError(db, e)
     await db.cita.update({
       where: { id: cita.id },
       data: { googleSyncError: msg.slice(0, 500) },
@@ -236,6 +346,9 @@ export async function pushBloqueo(db: TenantClient, bloqueoId: string): Promise<
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'push_failed'
+    log.warn('google pushBloqueo falló', { bloqueoId: bloqueo.id, err: serializeError(e) })
+    captureError(e, { route: 'google/pushBloqueo' })
+    if (isAuthError(e)) await markGoogleSyncError(db, e)
     await db.bloqueoAgenda.update({
       where: { id: bloqueo.id },
       data: { googleSyncError: msg.slice(0, 500) },
@@ -264,6 +377,9 @@ export async function deleteBloqueoInGoogle(db: TenantClient, bloqueoId: string)
     })
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'delete_failed'
+    log.warn('google deleteBloqueo falló', { bloqueoId: bloqueo.id, err: serializeError(e) })
+    captureError(e, { route: 'google/deleteBloqueo' })
+    if (isAuthError(e)) await markGoogleSyncError(db, e)
     await db.bloqueoAgenda.update({
       where: { id: bloqueo.id },
       data: { googleSyncError: msg.slice(0, 500) },
@@ -316,7 +432,18 @@ export async function syncCalendar(db: TenantClient, userId: string): Promise<Sy
   }
   summary.doctor = user.name ?? user.email ?? user.id
 
-  const calendar = await getCalendarClient(db)
+  // Obtener/refrescar credenciales puede fallar si el token fue revocado o venció
+  // sin refresh. Antes eso reventaba syncCalendar en silencio; ahora lo marcamos.
+  let calendar: calendar_v3.Calendar | null
+  try {
+    calendar = await getCalendarClient(db)
+  } catch (e) {
+    if (isAuthError(e)) await markGoogleSyncError(db, e)
+    log.warn('google sync: no se pudo autenticar', { userId, err: serializeError(e) })
+    captureError(e, { route: 'google/sync' })
+    summary.error = 'auth_failed'
+    return summary
+  }
   if (!calendar) { summary.error = 'no_google_connection'; return summary }
 
   const calendarId = user.googleCalendarId
@@ -359,6 +486,9 @@ export async function syncCalendar(db: TenantClient, userId: string): Promise<Sy
       summary.error = 'sync_token_expired_reset'
       return summary
     }
+    if (isAuthError(e)) await markGoogleSyncError(db, e)
+    log.warn('google sync: fallo al traer eventos', { userId, err: serializeError(e) })
+    captureError(e, { route: 'google/sync' })
     summary.error = e instanceof Error ? e.message.slice(0, 200) : 'pull_failed'
     return summary
   }
@@ -387,6 +517,8 @@ export async function syncCalendar(db: TenantClient, userId: string): Promise<Sy
     })
   }
 
+  // Sync exitoso → la conexión está sana: limpiamos cualquier error previo.
+  await clearGoogleSyncError(db)
   return summary
 }
 
@@ -520,17 +652,23 @@ export async function syncAllMappedUsers(): Promise<SyncSummary[]> {
   const out: SyncSummary[] = []
   for (const cl of clinicas) {
     const db = tenantClient(cl.dbName)
-    const config = await db.configuracion.findUnique({
-      where: { id: 'singleton' },
-      select: { googleRefreshToken: true },
-    })
-    if (!config?.googleRefreshToken) continue
+    try {
+      const config = await db.configuracion.findUnique({
+        where: { id: 'singleton' },
+        select: { googleRefreshToken: true },
+      })
+      if (!config?.googleRefreshToken) continue
 
-    const users = await db.user.findMany({
-      where: { activo: true, googleCalendarId: { not: null } },
-      select: { id: true },
-    })
-    for (const u of users) out.push(await syncCalendar(db, u.id))
+      const users = await db.user.findMany({
+        where: { activo: true, googleCalendarId: { not: null } },
+        select: { id: true },
+      })
+      for (const u of users) out.push(await syncCalendar(db, u.id))
+    } finally {
+      // El cron corre cada ~15 min y el cache de clientes de tenant.ts no expira:
+      // sin descartar el cliente, cada corrida filtraría una conexión por clínica.
+      await disposeTenant(cl.dbName)
+    }
   }
   return out
 }

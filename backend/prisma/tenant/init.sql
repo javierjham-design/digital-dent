@@ -25,6 +25,8 @@ CREATE TABLE "Configuracion" (
     "googleConnectedAt" TIMESTAMP(3),
     "googleConnectedById" TEXT,
     "googleConnectedByName" TEXT,
+    "googleSyncError" TEXT,
+    "googleSyncErrorAt" TIMESTAMP(3),
     "metaEnabled" BOOLEAN NOT NULL DEFAULT false,
     "metaPixelId" TEXT,
     "metaCapiToken" TEXT,
