@@ -4,8 +4,38 @@
 > llame por teléfono. Tres piezas: healthcheck real + monitor externo, Sentry
 > (errores) y logging estructurado con request-id.
 
-Implementado el 2026-08-03 (rama `feat/observabilidad`). Ver también
-`docs/AI_CHANGELOG.md`.
+Implementado el 2026-08-03 (rama `feat/observabilidad`). **Puesto en marcha
+operativamente el 2026-08-04** (proyectos Sentry creados, DSN cargados, UptimeRobot
+activo, fire-drill de PII pasado). Ver también `docs/AI_CHANGELOG.md`.
+
+---
+
+## 0. Estado operativo (2026-08-04) — TODO ENCENDIDO
+
+| Pieza | Estado | Detalle |
+|---|---|---|
+| **Capa 1 backups** (volumen + PITR) | ✅ | Ver `docs/BACKUPS.md` |
+| **Sentry backend** | ✅ | Proyecto `Clariva Backend` (Node). `SENTRY_DSN` + `SENTRY_ENVIRONMENT=production` en el servicio `BACKEND`. |
+| **Sentry frontend** | ✅ | Proyecto `Clariva Front End` (React). `VITE_SENTRY_DSN` + `VITE_SENTRY_ENVIRONMENT=production` en `FRONTEND`. |
+| **Sentry web** | ✅ | Proyecto `Clariva WEB` (React). `VITE_SENTRY_DSN` + `VITE_SENTRY_ENVIRONMENT=production` en `WEB Service`. |
+| **UptimeRobot** | ✅ | Monitor `Cláriva API` → `https://api.clariva.cl/health`, HTTP(s) HEAD, 5 min, alerta a `javier.jham@gmail.com`. |
+| **Fire-drill PII** | ✅ | Errores sintéticos con PII falsa → eventos llegan, RUT/email/monto y mensajes de Prisma redactados, tags de routing OK. |
+
+Plan Sentry = **Developer (gratis)**, alcanza de sobra (costo $0). Plan UptimeRobot =
+**Free** (50 monitores, 5 min).
+
+> ⚠️ **Dos trampas que costaron el fire-drill — no repetir:**
+> 1. **Las `VITE_SENTRY_DSN` no llegan al build si el `Dockerfile` no declara el `ARG`.**
+>    Vite solo ve las `VITE_*` que existen como variable de entorno **al construir**. En
+>    Railway se cargan como env del servicio, pero el `docker build` no las hereda salvo
+>    que el Dockerfile tenga `ARG VITE_SENTRY_DSN` + `ARG VITE_SENTRY_ENVIRONMENT` y las
+>    pase por `ENV` antes del `npm run build`. Ya está en `frontend/Dockerfile` y
+>    `web/Dockerfile` (commit `cfd5067`). Si agregás otra `VITE_*`, sumá su `ARG` también.
+> 2. **El navegador bloquea el envío a Sentry si el CSP no lo permite.** El `connect-src`
+>    de `frontend/server.mjs` y `web/server.mjs` debe incluir `https://*.ingest.us.sentry.io`,
+>    o Chrome corta el `POST` al ingest con un error de *Content Security Policy* y el evento
+>    nunca sale del browser. Ya está (commit `89f50d7`). Si Sentry cambia de región de ingest,
+>    hay que actualizar ese dominio.
 
 ---
 
@@ -46,6 +76,14 @@ son la ventana que Railway espera durante un deploy para que el servicio quede s
 
 Railway reinicia el servicio si `/health` falla, pero **no avisa**. Para eso va un
 monitor externo que pinga `/health` y alerta si deja de responder 200.
+
+**✅ CONFIGURADO (2026-08-04):** monitor `Cláriva API` → `https://api.clariva.cl/health`,
+método **HEAD** (el único del plan free; `/health` responde HEAD igual que GET, verificado),
+intervalo **5 min**, *Up status codes* = `2xx`/`3xx` (default) → un **503** cae fuera y
+dispara alerta, contacto = `javier.jham@gmail.com`. El free no expone umbral de "N checks
+consecutivos", pero UptimeRobot re-confirma una caída antes de alertar y los redeploys
+normales del backend **no** dan 503 (deploy rolling, Postgres sigue arriba), así que no
+spamea.
 
 **Configurar UptimeRobot** (plan gratis alcanza: 50 monitores, chequeo cada 5 min):
 
@@ -114,6 +152,26 @@ montos):
 - Frontend/web: **sin Session Replay** (capturaría el DOM con datos de pacientes),
   sin cuerpos de request y **sin breadcrumbs de consola** (`beforeBreadcrumb` los
   descarta). `sendDefaultPii: false`.
+
+**Scrubber de PII por patrón** (`redactPII` en `backend/src/lib/observability.ts`, y
+duplicado inline en `frontend/src/lib/sentry.ts` y `web/src/lib/sentry.ts`): además de lo
+anterior, `beforeSend` pasa por un reemplazo los valores de excepción, el `message` y los
+breadcrumbs, redactando **RUT** → `[rut-redactado]`, **email** → `[email-redactado]` y
+**montos** `$1.234.567` → `[monto-redactado]`. Los mensajes de Prisma se redactan enteros.
+Test: `backend/test/observability-scrub.test.ts` (5/5).
+
+**Límite conocido (aceptado):** nombres de persona y el campo "otro documento" (pasaporte/
+doc extranjero de agendamiento online) **no** son regexeables sin falsos positivos, así que
+un mensaje de error *genérico* que los interpole podría mostrarlos. Están cubiertos
+**estructuralmente** —no adjuntamos el cuerpo de la request y los errores de Prisma se
+redactan completos—, que es de donde saldrían en la práctica. Se decidió quedarse con el
+filtro actual (2026-08-04).
+
+**Fire-drill del 2026-08-04:** se dispararon errores sintéticos con PII **falsa** (nunca de
+un paciente real) y se verificó en Sentry que (a) los eventos llegan, (b) RUT/email/monto y
+los mensajes de Prisma quedan redactados, y (c) están los tags `clinica` / `request_id` /
+`route` / `user_id`. El script era temporal y se borró; **no** quedó en el repo. Repetir así
+si se vuelve a tocar el pipeline de Sentry.
 
 Si algún día se agrega más contexto a Sentry, respetar esta regla: solo IDs y
 metadatos de routing, jamás contenido clínico.

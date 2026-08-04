@@ -154,9 +154,9 @@ Sin backups lógicos por clínica (prompt listo en `docs/PROMPT_BACKUPS.md`) · 
 de cobros calculado fuera de la transacción · caché de clientes por tenant sin límite ·
 sin 2FA de super-admin · el stack nuevo no tiene configuración de ESLint.
 
-Observabilidad (healthcheck real, Sentry, logging con request-id): implementada en la
-rama `feat/observabilidad` — ver `docs/OBSERVABILIDAD.md`. Pendiente operativo: crear los
-proyectos en Sentry, cargar los DSN en Railway y configurar UptimeRobot.
+Observabilidad (healthcheck real, Sentry, logging con request-id): implementada y
+**encendida en prod (2026-08-04)** — 3 proyectos Sentry + DSN en Railway + UptimeRobot a
+`/health` + scrubber de PII. Ver `docs/OBSERVABILIDAD.md` §0.
 
 ## 9. Información que NO debes pedir
 

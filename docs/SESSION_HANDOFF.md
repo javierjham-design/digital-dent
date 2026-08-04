@@ -10,7 +10,9 @@
 - **Fecha:** 2026-08-04
 - **Rama:** `arch/split-frontend-backend` (backups y observabilidad **mergeadas y
   desplegadas**, commit `d0949e9`).
-- **Foco:** puesta en marcha operativa de los backups (R2 + primer backup real).
+- **Foco:** puesta en marcha operativa **completa** de backups + observabilidad. La
+  infraestructura de resiliencia queda **encendida de punta a punta** (backups 3 capas +
+  capa 1 volumen/PITR + Sentry x3 + UptimeRobot + fire-drill de PII pasado).
 
 ## Backups — CÓDIGO DESPLEGADO + PRIMER BACKUP REAL OK (2026-08-04)
 
@@ -34,20 +36,38 @@ env son **referencias al backend**: `${{BACKEND.…}}`. ⚠️ **El servicio bac
 `BACKEND` en MAYÚSCULAS** — las referencias de Railway son case-sensitive. El `backup-prune`
 además tiene 2 secretos propios (`BACKUP_S3_PRUNE_ACCESS_KEY_ID/SECRET`, token de poda).
 
+**Capa 1 (volumen Railway + PITR) — ✅ ACTIVADA (2026-08-04).** Snapshots de volumen
+(Daily 6d / Weekly 1mo / Monthly 3mo) + Point-in-Time Recovery encendido. El activar PITR
+regeneró credenciales y disparó un redeploy de Postgres (~30s de blip, con clínicas
+cerradas); la cobertura quedó verde ~1h después (esperado). Detalle en `docs/BACKUPS.md`.
+
 **Pendientes (menores, no urgentes):**
-- Activar la **capa 1** en Railway (backups de volumen diarios + PITR) — config dashboard.
 - **Demo huérfana** `clariva_t_demo_ul2uzu` sin `esDemo=true` en el control-plane (se
-   respalda de más). Revisar/limpiar.
-- **Observabilidad**: cargar los DSN de Sentry + UptimeRobot (de la sesión anterior).
+   respalda de más). Revisar/limpiar antes de marcarla (ver `docs/PROMPTS_SIGUIENTES.md`).
+- **Google Calendar**: decidir si se usa o se retira (cron `sync` está muerto) — ver
+   `docs/PROMPTS_SIGUIENTES.md`.
 
-## Observabilidad — HECHO y DESPLEGADO (2026-08-03)
+## Observabilidad — HECHA, DESPLEGADA y ENCENDIDA (2026-08-03 → 2026-08-04)
 
-`feat/observabilidad` fue **mergeada a `arch` y desplegada** (commit `ea3e536`); se
-verificó `api.clariva.cl/health` → 200 con header `X-Request-Id` (deploy nuevo vivo).
-Incluye el scrubber de PII extra (querystring fuera de breadcrumbs; mensajes de Prisma
-redactados). Detalle en `docs/OBSERVABILIDAD.md`. **Falta operativo:** crear los proyectos
-Sentry + cargar `SENTRY_DSN`/`VITE_SENTRY_DSN` en Railway (build-time → redeploy) y
-configurar UptimeRobot → `/health`. El código corre con o sin los DSN.
+`feat/observabilidad` fue **mergeada a `arch` y desplegada** (commit `ea3e536`), y el
+**2026-08-04 se puso en marcha operativamente**: 3 proyectos Sentry creados (plan
+Developer gratis) + DSN cargados en Railway + UptimeRobot activo + fire-drill de PII
+pasado. Detalle completo en `docs/OBSERVABILIDAD.md` §0 y en `docs/AI_CHANGELOG.md`
+(entrada 2026-08-04).
+
+- **Sentry**: `Clariva Backend`/`Clariva Front End`/`Clariva WEB`. `SENTRY_DSN` en `BACKEND`,
+  `VITE_SENTRY_DSN` en `FRONTEND` y `WEB Service` (build-time → van como `ARG` en el
+  Dockerfile). `environment=production`.
+- **UptimeRobot** (free): `Cláriva API` → `https://api.clariva.cl/health` (HEAD, 5 min, un
+  503 alerta a `javier.jham@gmail.com`).
+- **Scrubber PII** `redactPII` (RUT/email/monto) en backend+frontend+web + test 5/5.
+- ⚠️ **Dos trampas ya resueltas, no repetir:** las `VITE_SENTRY_DSN` necesitan `ARG` en el
+  Dockerfile para llegar al build (`cfd5067`); el CSP `connect-src` debe permitir
+  `https://*.ingest.us.sentry.io` o el browser bloquea el ingest (`89f50d7`).
+- **Del error a la clínica:** tag `clinica` (slug) → base `clariva_t_<slug>`; tag
+  `request_id` → buscarlo en los logs de Railway del `BACKEND` para la secuencia completa
+  (también viaja en el header `X-Request-Id` y en el cuerpo del 500).
+- **Opcional pendiente:** borrar los 3 issues `FIREDRILL` de prueba en Sentry.
 
 ---
 

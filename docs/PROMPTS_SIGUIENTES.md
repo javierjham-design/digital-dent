@@ -28,25 +28,16 @@ mitad del prompt 3 original; ya no hace falta.
 **`migrate-tenants` seguro** ✅ — el chequeo de frescura de backups solo aborta con
 `--strict` (invocación manual y deliberada). El `prestart` nunca tumba la plataforma.
 
-**Observabilidad (código)** ✅ desplegado — `/health` con `SELECT 1` real, Sentry con
-filtros de PII (breadcrumbs sin querystring, mensajes de Prisma redactados), logging JSON
-con request-id propagado por `AsyncLocalStorage`. **Pero está inerte:** faltan los DSN.
+**Observabilidad (código + encendido)** ✅ — `/health` con `SELECT 1` real, Sentry con
+filtros de PII (breadcrumbs sin querystring, mensajes de Prisma redactados, scrubber
+`redactPII` de RUT/email/monto), logging JSON con request-id propagado por
+`AsyncLocalStorage`. **Encendido en prod el 2026-08-04:** 3 proyectos Sentry + DSN en
+Railway + UptimeRobot a `/health` + fire-drill de PII pasado. Ver `docs/OBSERVABILIDAD.md`
+§0.
 
----
-
-## Lo primero: dos cosas operativas, sin escribir código
-
-Son las de mejor relación esfuerzo/beneficio que quedan.
-
-**1. Capa 1 en Railway (~5 min).** En el servicio Postgres, activar snapshots de volumen
-diarios **y** Point-in-Time Recovery. Es la red contra la caída total del servidor; las
-capas 2 y 3 cubren la pérdida por clínica, no la del servidor entero.
-
-**2. Encender Sentry y UptimeRobot (~30 min).** Crear los tres proyectos en Sentry,
-cargar `SENTRY_DSN` en el backend y `VITE_SENTRY_DSN` en frontend y web (son build-time:
-requieren redeploy), y apuntar UptimeRobot a `https://api.clariva.cl/health`. Hasta que
-esto esté, los errores los siguen detectando las clínicas por teléfono, y el código para
-evitarlo ya está pago y desplegado.
+**Capa 1 backups (volumen Railway + PITR)** ✅ — activada el 2026-08-04. Snapshots de
+volumen (Daily 6d / Weekly 1mo / Monthly 3mo) + Point-in-Time Recovery. Red contra la
+caída total del servidor; las capas 2 y 3 cubren la pérdida por clínica.
 
 ---
 

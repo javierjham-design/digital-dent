@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-08-04 — Observabilidad ENCENDIDA en prod + endurecimiento de PII
+
+Puesta en marcha operativa de la observabilidad (el código ya estaba desde el 2026-08-03).
+Doc: `docs/OBSERVABILIDAD.md` §0. **En producción, sin cortar servicio** (dos clínicas reales).
+
+- **Capa 1 backups** (volumen Railway + PITR) activada — ver `docs/BACKUPS.md`.
+- **3 proyectos Sentry** creados (plan Developer, gratis): `Clariva Backend` (Node),
+  `Clariva Front End` y `Clariva WEB` (React). DSN cargados en Railway: `SENTRY_DSN` +
+  `SENTRY_ENVIRONMENT=production` en `BACKEND`; `VITE_SENTRY_DSN` + `VITE_SENTRY_ENVIRONMENT=production`
+  en `FRONTEND` y `WEB Service`.
+- **UptimeRobot** (free) → monitor `Cláriva API` a `https://api.clariva.cl/health`, HTTP(s)
+  HEAD, 5 min, `2xx`/`3xx` = up (un 503 alerta), mail a `javier.jham@gmail.com`.
+- **Scrubber de PII por patrón** `redactPII` (RUT/email/monto) en `beforeSend` de backend
+  (`lib/observability.ts`, exportado) y duplicado inline en `frontend/src/lib/sentry.ts` y
+  `web/src/lib/sentry.ts`. Test `backend/test/observability-scrub.test.ts` (5/5). Se aplica a
+  valores de excepción, `message` y breadcrumbs; los mensajes de Prisma se redactan enteros.
+  **Límite aceptado:** nombres y "otro documento" no son regexeables — cubiertos
+  estructuralmente (no se adjunta el cuerpo + Prisma redactado). Commit `547b322`.
+- **Dos gaps que atrapó el fire-drill** (ambos silenciosos: "Sentry configurado pero los
+  errores del navegador nunca llegaban"):
+  1. `frontend/Dockerfile` y `web/Dockerfile` no declaraban `ARG VITE_SENTRY_DSN` /
+     `ARG VITE_SENTRY_ENVIRONMENT`, así que Vite construía **sin** el DSN. Fix `cfd5067`.
+  2. El CSP `connect-src` de `frontend/server.mjs` y `web/server.mjs` no permitía el ingest
+     de Sentry → el browser bloqueaba el `POST`. Agregado `https://*.ingest.us.sentry.io`.
+     Fix `89f50d7`.
+- **Fire-drill**: errores sintéticos con PII **falsa** (nunca de un paciente) → verificado en
+  Sentry que los eventos llegan, la PII queda redactada y están los tags `clinica` /
+  `request_id` / `route` / `user_id`. Script temporal, borrado, **no** commiteado.
+
+**Verificación:** `/health` 200 estable durante todo el proceso · login de clínica 401
+(vivo) · bundles de frontend/web contienen el DSN + el scrubber · header CSP permite el
+ingest de Sentry · fire-drill pasado. **Pendiente operativo (opcional):** borrar los 3
+issues `FIREDRILL` de prueba en Sentry.
+
+---
+
 ## 2026-08-03 — Sistema de backups y restauración quirúrgica por clínica
 
 La brecha operativa más grave: clínicas reales en prod sin forma de recuperar UNA
