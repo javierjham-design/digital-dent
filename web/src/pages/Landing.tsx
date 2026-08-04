@@ -272,7 +272,11 @@ export function Landing() {
             <span className="font-bold">Cláriva</span>
           </div>
           <p className="text-sm text-slate-500">Gestión para clínicas y centros · {new Date().getFullYear()}</p>
-          <a href="mailto:soporte@clariva.cl" className="text-sm text-cyan-600 hover:text-cyan-700 font-medium">soporte@clariva.cl</a>
+          <nav className="flex items-center gap-5 text-sm text-slate-500">
+            <a href="/privacidad" className="hover:text-slate-900">Privacidad</a>
+            <a href="/terminos" className="hover:text-slate-900">Términos</a>
+            <a href="mailto:soporte@clariva.cl" className="text-cyan-600 hover:text-cyan-700 font-medium">soporte@clariva.cl</a>
+          </nav>
         </div>
       </footer>
 
