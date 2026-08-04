@@ -21,28 +21,24 @@ daily R&W + prune R&W) y variables `BACKUP_*` cargadas en el servicio `backend`.
 digital-dent 31,4 MB + montenegro + una demo huérfana). pg_dump/pg_restore fijados a
 **`postgresql-client-18`** (el server de Railway resultó ser Postgres **18.3**).
 
-**Estado de los servicios cron en Railway:**
-- ✅ **`backup` (diario, 07:00 UTC) — CREADO Y FUNCIONANDO.** Corrió `estado=OK` 4/4 el
-   2026-08-04. Usa el Dockerfile del backend (`postgresql-client-18`), Custom Start Command
-   `npm run backup`, sin healthcheck. Sus env son **referencias al backend**:
-   `${{BACKEND.…}}`. ⚠️ **OJO: el servicio del backend se llama `BACKEND` en MAYÚSCULAS** —
-   las referencias de Railway son case-sensitive (`${{backend.…}}` resuelve a vacío). Mismo
-   patrón para prune/drill.
-- ⬜ **`backup-prune`** (semanal `30 8 * * 0`): Start Command `npm run backup:prune -- --apply`.
-   Mismas referencias `${{BACKEND.…}}` **+ pegar** `BACKUP_S3_PRUNE_ACCESS_KEY_ID` y
-   `BACKUP_S3_PRUNE_SECRET_ACCESS_KEY` (token de poda). No borra nada hasta que haya
-   backups de >14 días.
-- ⬜ **`backup-drill`** (semanal `0 8 * * 1`): Start Command `npm run backup:drill`. Mismas
-   referencias `${{BACKEND.…}}`, sin secretos extra. Valida que los backups se RESTAURAN.
+**Los 3 servicios cron en Railway — CREADOS Y VALIDADOS EN PROD (2026-08-04):**
+- ✅ **`backup`** (diario `0 7 * * *`): `npm run backup`. Corrió `estado=OK` 4/4.
+- ✅ **`backup-drill`** (lunes `0 8 * * 1`): `npm run backup:drill`. Restauró control +
+   clínica más chica a bases efímeras, verificó el censo y las borró → **el restore está
+   PROBADO** de punta a punta dentro de Railway.
+- ✅ **`backup-prune`** (domingo `30 8 * * 0`): `npm run backup:prune -- --apply`. Conectó
+   con las creds de poda y el **piso mínimo** (minKeep=3) evitó borrar (hay 2 backups/base).
 
-**Otros pendientes:**
-- Activar la **capa 1** en Railway (backups de volumen diarios + PITR).
+Los tres usan el Dockerfile del backend (`postgresql-client-18`), sin healthcheck, y sus
+env son **referencias al backend**: `${{BACKEND.…}}`. ⚠️ **El servicio backend se llama
+`BACKEND` en MAYÚSCULAS** — las referencias de Railway son case-sensitive. El `backup-prune`
+además tiene 2 secretos propios (`BACKUP_S3_PRUNE_ACCESS_KEY_ID/SECRET`, token de poda).
+
+**Pendientes (menores, no urgentes):**
+- Activar la **capa 1** en Railway (backups de volumen diarios + PITR) — config dashboard.
 - **Demo huérfana** `clariva_t_demo_ul2uzu` sin `esDemo=true` en el control-plane (se
    respalda de más). Revisar/limpiar.
-
-> Nota: aún no se probó un `restore --switch` real (el `railway run` local no alcanza la
-> red interna ni tiene pg_restore). El **ensayo semanal (`backup:drill`)**, cuando esté el
-> servicio cron, prueba el round-trip de restauración dentro de Railway automáticamente.
+- **Observabilidad**: cargar los DSN de Sentry + UptimeRobot (de la sesión anterior).
 
 ## Observabilidad — HECHO y DESPLEGADO (2026-08-03)
 
