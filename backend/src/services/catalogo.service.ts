@@ -100,20 +100,26 @@ export async function dedupePrestaciones(db: TenantClient): Promise<{ duplicados
     const key = prestacionKey(p.nombre, p.categoria)
     const arr = grupos.get(key) ?? []; arr.push(p); grupos.set(key, arr)
   }
-  let duplicados = 0
+  const aFusionar = [...grupos.values()].filter((arr) => arr.length > 1)
+  if (aFusionar.length === 0) return { duplicados: 0, eliminadas: 0, restantes: prestaciones.length }
+
+  // Cada fusión son 3 operaciones (reasignar tratamiento + itemPresupuesto, borrar
+  // duplicadas): DEBEN ir en una transacción para que un corte a mitad —este job
+  // corre en cada arranque, incluso durante un deploy— no deje datos apuntando a una
+  // prestación ya borrada.
   let eliminadas = 0
-  for (const [, arr] of grupos) {
-    if (arr.length <= 1) continue
-    duplicados++
-    arr.sort((a, b) => (b._count.tratamientos + b._count.itemsPresupuesto) - (a._count.tratamientos + a._count.itemsPresupuesto))
-    const keep = arr[0]
-    const dupIds = arr.slice(1).map((d) => d.id)
-    await db.tratamiento.updateMany({ where: { prestacionId: { in: dupIds } }, data: { prestacionId: keep.id } })
-    await db.itemPresupuesto.updateMany({ where: { prestacionId: { in: dupIds } }, data: { prestacionId: keep.id } })
-    await db.prestacion.deleteMany({ where: { id: { in: dupIds } } })
-    eliminadas += dupIds.length
-  }
-  return { duplicados, eliminadas, restantes: prestaciones.length - eliminadas }
+  await db.$transaction(async (tx) => {
+    for (const arr of aFusionar) {
+      arr.sort((a, b) => (b._count.tratamientos + b._count.itemsPresupuesto) - (a._count.tratamientos + a._count.itemsPresupuesto))
+      const keep = arr[0]
+      const dupIds = arr.slice(1).map((d) => d.id)
+      await tx.tratamiento.updateMany({ where: { prestacionId: { in: dupIds } }, data: { prestacionId: keep.id } })
+      await tx.itemPresupuesto.updateMany({ where: { prestacionId: { in: dupIds } }, data: { prestacionId: keep.id } })
+      await tx.prestacion.deleteMany({ where: { id: { in: dupIds } } })
+      eliminadas += dupIds.length
+    }
+  })
+  return { duplicados: aFusionar.length, eliminadas, restantes: prestaciones.length - eliminadas }
 }
 
 export async function crearPrestacion(db: TenantClient, input: { nombre: string; categoria?: string | null; precio: number; descripcion?: string | null; duracion?: number }): Promise<PrestacionDTO> {

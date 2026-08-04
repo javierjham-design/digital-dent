@@ -24,6 +24,14 @@ export const env = {
   // clínica se construye cambiando el nombre de la base por su `dbName`.
   // Debe tener permisos para CREATE DATABASE (provisión de clínicas).
   tenantDbServerUrl: process.env.TENANT_DB_SERVER_URL ?? process.env.DATABASE_URL ?? 'postgresql://localhost:5432/postgres',
+  // Techo de conexiones (ver docs/architecture.md "Techo de conexiones"): el caché
+  // de PrismaClient por clínica es un LRU con tope + expiración por inactividad, y
+  // cada cliente acota su pool. Máx teórico ≈ tenantClientMax×tenantClientPool +
+  // controlDbPool, contra el max_connections del Postgres.
+  tenantClientMax: Number(process.env.TENANT_CLIENT_MAX ?? 20),           // clientes cacheados a la vez
+  tenantClientTtlMs: Number(process.env.TENANT_CLIENT_TTL_MS ?? 300_000), // 5 min de inactividad
+  tenantClientPool: Number(process.env.TENANT_CLIENT_POOL ?? 3),          // connection_limit por clínica
+  controlDbPool: Number(process.env.CONTROL_DB_POOL ?? 10),               // connection_limit del control-plane
   // Fuente de la migración de datos F7: la base COMPARTIDA del monolito (con
   // clinicaId). Solo la usa el script `npm run migrate:data`.
   legacyDatabaseUrl: process.env.LEGACY_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgresql://localhost:5432/clariva',

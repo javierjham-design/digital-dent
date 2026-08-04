@@ -5,6 +5,39 @@
 
 ---
 
+## 2026-08-04 — Techo de conexiones: caché LRU de clientes por tenant + pool acotado
+
+`db/tenant.ts` cacheaba un `PrismaClient` por `dbName` en un `Map` **sin límite ni
+expiración**, y cada cliente abría su pool con el default de Prisma. Con 2 clínicas da
+igual; a decenas se agota el `max_connections` del Postgres y la plataforma entera deja de
+responder — el techo de escalamiento más cercano. Rama `perf/tenant-client-lru`.
+Doc: `docs/architecture.md` "Techo de conexiones".
+
+- **LRU genérico** (`lib/lru.ts`, `AsyncLru`): tope de tamaño (desaloja el **menos usado**
+  y llama a `$disconnect()`) + **expiración por inactividad** (TTL, con barrido periódico).
+  Reloj y `dispose` inyectables para testear. `disposeTenant()` mantiene su semántica
+  (delete + disconnect), que usan provisión/restore/sync.
+- **`tenant.ts`**: el `Map` pasó a `AsyncLru` (`TENANT_CLIENT_MAX`=20, `TENANT_CLIENT_TTL_MS`
+  =5 min). Cada cliente acota su pool con `connection_limit` (`TENANT_CLIENT_POOL`=3) **solo
+  en la URL de Prisma** — `tenantUrl()` cruda (pg_dump/`db push`) queda sin ese parámetro,
+  que libpq no acepta. Timer `unref()` para el barrido (no en tests).
+- **Control-plane** (`db/control.ts`): también acota su pool (`CONTROL_DB_POOL`=10).
+- **Máximo teórico:** `20×3 + 10 = 70` conexiones desde el backend, contra `max_connections`
+  (verificar `SHOW max_connections;`, default ~100; dejar headroom para los crons).
+- **`dedupePrestacionesTodasLasClinicas()`** (corre en cada arranque) ahora hace
+  `disposeTenant()` por clínica (`finally`), para no alimentar el LRU desde el arranque.
+- **`dedupePrestaciones()`** (`catalogo.service.ts`): las 3 operaciones por grupo (reasignar
+  `tratamiento` + `itemPresupuesto`, borrar duplicadas) van ahora en **`$transaction`** —
+  si el proceso muere a mitad (corre en cada deploy) ya no deja datos apuntando a una
+  prestación borrada. Se lee afuera y se transacciona solo si hay duplicados.
+- **Tests** (`test/lru.test.ts`, 6): desaloja el menos usado y lo dispone; TTL expira e
+  crea nuevo; `sweepExpired`; reusar no recrea; `delete()` dispone.
+
+**Verificación:** typecheck backend ✓ · unit 98/98 ✓ · integración 52/54 (los 2 fallos
+—consentimientos y conversión de lead— son preexistentes). No se tocó `migrate-tenants.ts`.
+
+---
+
 ## 2026-08-04 — Correlativos: `Paciente.numero` y `Caja.numero` al mismo helper
 
 Cierre de los dos correlativos que habían quedado con el patrón viejo de carrera (ver la
