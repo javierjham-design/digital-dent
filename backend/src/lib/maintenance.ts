@@ -3,7 +3,7 @@
 // deploy, sin depender de que nadie apriete un botón. Es idempotente: si no hay
 // duplicados no hace nada.
 import { control } from '@/db/control'
-import { tenantClient } from '@/db/tenant'
+import { tenantClient, disposeTenant } from '@/db/tenant'
 import { dedupePrestaciones } from '@/services/catalogo.service'
 import { log, serializeError } from '@/lib/logger'
 
@@ -20,6 +20,11 @@ export async function dedupePrestacionesTodasLasClinicas(): Promise<void> {
         }
       } catch (e) {
         log.error('mantenimiento: error al deduplicar prestaciones', { clinica: c.slug, err: serializeError(e) })
+      } finally {
+        // No dejar el cliente de cada clínica en el caché: este job corre en cada
+        // arranque y recorre TODAS las clínicas; sin esto alimentaría el LRU con
+        // clientes que quizá no se usen después.
+        await disposeTenant(c.dbName)
       }
     }
     log.info(totalEliminadas === 0

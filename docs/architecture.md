@@ -119,6 +119,51 @@ Para resincronizar tras un cambio de schema: `cd backend && npm run prisma:sync`
 > Hasta la etapa 5, **producción sigue en el monolito**. El nuevo stack se
 > desarrolla en paralelo sin afectar a las clínicas en uso.
 
+## Techo de conexiones (database-per-tenant)
+
+Cada clínica tiene su **propia base física** en un **único servidor Postgres**, y el
+backend abre **un `PrismaClient` por clínica**, cada uno con su propio pool. Sin control,
+a decenas de clínicas se agota el `max_connections` del servidor y la plataforma entera
+deja de responder — es el techo de escalamiento más cercano.
+
+**Cómo se acota** (`backend/src/db/tenant.ts` + `backend/src/lib/lru.ts`):
+
+- El caché de clientes por `dbName` es un **LRU** (`AsyncLru`): cuando se supera el tope
+  desaloja el **menos usado** y llama a `$disconnect()`; además **expira por inactividad**
+  (barrido periódico + al pedir un cliente).
+- Cada cliente de tenant **limita su pool** con `connection_limit` en la URL (solo en la
+  URL de Prisma; la `tenantUrl()` cruda que usan pg_dump/`db push` queda sin ese parámetro,
+  que libpq no entiende).
+- El **control-plane** (`db/control.ts`) también acota su pool.
+- El job de arranque `dedupePrestacionesTodasLasClinicas()` hace `disposeTenant()` por
+  clínica para no llenar el caché desde el primer segundo.
+
+**Máximo teórico de conexiones desde el proceso del backend:**
+
+```
+TENANT_CLIENT_MAX × TENANT_CLIENT_POOL  +  CONTROL_DB_POOL
+        20        ×        3            +        10          =  70
+```
+
+| Env | Default | Qué es |
+|---|---|---|
+| `TENANT_CLIENT_MAX` | 20 | clientes de clínica cacheados a la vez |
+| `TENANT_CLIENT_POOL` | 3 | `connection_limit` por clínica |
+| `TENANT_CLIENT_TTL_MS` | 300000 | expiración por inactividad (5 min) |
+| `CONTROL_DB_POOL` | 10 | `connection_limit` del control-plane |
+
+**Cuándo revisarlo:**
+
+- Verificá el `max_connections` real del Postgres de Railway: `SHOW max_connections;`
+  (Postgres 18.3; el default suele ser 100). Dejá **headroom** para los servicios cron
+  (`backup`, `backup-drill`, `backup-prune`, `cron-google-sync`), que abren sus propias
+  conexiones cuando corren, y para conexiones administrativas. Regla práctica: mantené el
+  techo ≤ ~70 % del `max_connections`.
+- Si el N° de clínicas **activas en simultáneo** puede superar `TENANT_CLIENT_MAX`, o el
+  techo se acerca al `max_connections`, las palancas son: subir `max_connections` (plan/
+  config de Railway), bajar `TENANT_CLIENT_POOL`, o poner un **pooler** (PgBouncer) delante
+  del Postgres. Con 2-3 clínicas hoy sobra; el punto a vigilar es al vender ~decenas.
+
 ## Desarrollo local
 
 ```bash

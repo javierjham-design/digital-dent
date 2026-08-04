@@ -1,40 +1,56 @@
-// Conexiones a las bases de datos de los TENANTS (una por clínica). Se cachea
-// un PrismaClient por dbName para no abrir un pool por request. La base se
-// resuelve a partir de TENANT_DB_SERVER_URL cambiando el nombre de la base.
+// Conexiones a las bases de datos de los TENANTS (una por clínica). Se cachea un
+// PrismaClient por dbName en un LRU con tope + expiración por inactividad, para que
+// a escala (decenas de clínicas) no se acumulen pools y se agote el max_connections
+// del Postgres. Ver docs/architecture.md "Techo de conexiones".
 import { PrismaClient } from '../../prisma/generated/tenant/index.js'
 import { env } from '@/config/env'
+import { AsyncLru } from '@/lib/lru'
 
 export type TenantClient = PrismaClient
 
-const cache = new Map<string, PrismaClient>()
-
-// Construye la URL de conexión de una clínica a partir del servidor base,
-// preservando credenciales, host y query params (sslmode, etc.).
+// URL CRUDA de una clínica (sin parámetros de Prisma). La usan pg_dump/pg_restore
+// (backups) y `prisma db push` (migraciones) — libpq NO entiende connection_limit,
+// así que ese parámetro NO va acá.
 export function tenantUrl(dbName: string): string {
   const u = new URL(env.tenantDbServerUrl)
   u.pathname = `/${dbName}`
   return u.toString()
 }
 
-// Devuelve (creando y cacheando si hace falta) el cliente Prisma de una clínica.
-export function tenantClient(dbName: string): PrismaClient {
-  let client = cache.get(dbName)
-  if (!client) {
-    client = new PrismaClient({
-      datasources: { db: { url: tenantUrl(dbName) } },
-      log: process.env.NODE_ENV === 'production' ? ['error'] : ['warn', 'error'],
-    })
-    cache.set(dbName, client)
-  }
-  return client
+// URL para el PrismaClient de la clínica: acota el pool con connection_limit para
+// que N clientes cacheados no agoten el servidor.
+function tenantClientUrl(dbName: string): string {
+  const u = new URL(tenantUrl(dbName))
+  u.searchParams.set('connection_limit', String(env.tenantClientPool))
+  return u.toString()
 }
 
-// Cierra y descarta el cliente cacheado de una clínica (p.ej. tras borrar su
-// base o reasignar conexión). Best-effort.
+// Caché LRU de PrismaClient por dbName: al desalojar (por tope o por inactividad)
+// llama a $disconnect() para liberar el pool.
+const cache = new AsyncLru<PrismaClient>({
+  maxSize: env.tenantClientMax,
+  ttlMs: env.tenantClientTtlMs,
+  dispose: (client) => client.$disconnect(),
+})
+
+// Barrido periódico para cerrar clientes inactivos aunque no llegue tráfico nuevo.
+// unref() para no impedir que el proceso termine. No en tests (usan otro módulo).
+if (!process.env.VITEST && env.tenantClientTtlMs > 0) {
+  const timer = setInterval(() => cache.sweepExpired(), Math.min(env.tenantClientTtlMs, 60_000))
+  timer.unref?.()
+}
+
+// Devuelve (creando y cacheando si hace falta) el cliente Prisma de una clínica.
+export function tenantClient(dbName: string): PrismaClient {
+  return cache.getOrCreate(dbName, () => new PrismaClient({
+    datasources: { db: { url: tenantClientUrl(dbName) } },
+    log: process.env.NODE_ENV === 'production' ? ['error'] : ['warn', 'error'],
+  }))
+}
+
+// Cierra y descarta el cliente cacheado de una clínica (p.ej. tras borrar su base o
+// reasignar conexión, o para no filtrar conexiones en jobs que recorren clínicas).
+// Best-effort. Mantiene la semántica que usan provisión, restore y sync.
 export async function disposeTenant(dbName: string): Promise<void> {
-  const client = cache.get(dbName)
-  if (client) {
-    cache.delete(dbName)
-    await client.$disconnect().catch(() => {})
-  }
+  await cache.delete(dbName)
 }
