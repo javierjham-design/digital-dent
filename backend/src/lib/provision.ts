@@ -9,6 +9,7 @@ import { PrismaClient as TenantPrisma } from '../../prisma/generated/tenant/inde
 import { env } from '@/config/env'
 import { control } from '@/db/control'
 import { tenantClient, tenantUrl } from '@/db/tenant'
+import { splitSqlStatements } from '@/lib/sql-split'
 
 const INIT_SQL_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../prisma/tenant/init.sql')
 
@@ -116,10 +117,8 @@ export async function renameTenantDatabase(from: string, to: string): Promise<vo
 // Aplica el DDL del schema tenant sobre una base recién creada.
 export async function applyTenantSchema(dbName: string): Promise<void> {
   const sql = readFileSync(INIT_SQL_PATH, 'utf8')
-  const statements = sql
-    .split(';')
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0 && !/^(--.*\s*)*$/.test(s))
+  // Split robusto (respeta strings/comentarios/dollar-quotes), no un split(';') a secas.
+  const statements = splitSqlStatements(sql)
   const db = tenantClient(dbName)
   for (const stmt of statements) {
     await db.$executeRawUnsafe(stmt)
