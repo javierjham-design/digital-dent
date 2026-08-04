@@ -41,27 +41,63 @@ caída total del servidor; las capas 2 y 3 cubren la pérdida por clínica.
 
 ---
 
-## Decisión pendiente: ¿Google Calendar se usa o no?
+## Google Calendar — RESUELTO (2026-08-04)
 
-El servicio cron `sync` se eliminó por estar muerto. El endpoint `POST /api/v1/google/sync`
-sigue existiendo en `backend/src/routes/index.ts:114`, junto con toda la integración
-(`lib/google.ts`, `lib/google-sync.ts`, ~30 KB de código, el flujo OAuth y los campos en
-el schema del tenant). Hoy nada lo invoca: **si alguna clínica tiene Google conectado, su
-agenda no se está sincronizando.**
+Diagnóstico: solo `digital-dent` la usa, con 2 doctores mapeados y ~500 eventos espejados.
+Se recreó el cron de sync, se hicieron visibles las fallas de las dos direcciones (push y
+pull) con log + Sentry, se agregó dead-man's switch por frescura —no solo por error, que
+era el modo de falla real— y aviso para la recepción en la propia agenda, no solo en
+Configuración. El reconcile quedó idempotente: un full resync ya no duplica.
 
-Hay que decidir, no dejarlo así:
+**Lección que costó 11 citas duplicadas en producción:** las pruebas de escritura van
+contra una clínica demo, nunca contra una productiva. Quedó como regla 9 en `CLAUDE.md`.
 
-- **Si alguna clínica lo usa** → recrear el servicio cron en Railway con `JOB=sync` y
-  `cronSchedule: */15 * * * *` (ver `docs/deploy-extras.md`), y sacar la app de Google del
-  modo *Testing*: en ese modo los refresh tokens caducan a los 7 días, así que la
-  integración se rompe sola cada semana. La verificación de Google tarda 1–6 semanas.
-- **Si no la usa nadie** → retirar la integración del producto (esconder "Conectar Google"
-  de Configuración, marcar el endpoint como deprecado) o borrarla del todo. Código que
-  nadie ejecuta pero que sigue mantenido y que aparece en la UI como una promesa que no se
-  cumple es peor que no tenerlo.
+---
 
-Para saberlo: mirá en el panel de configuración de cada clínica si figura Google conectado,
-o consultá el campo del token de Google en las bases de tenant.
+## URGENTE — `init.sql` desincronizado: las clínicas nuevas nacen rotas
+
+`backend/prisma/tenant/init.sql` está ~630 líneas atrás de `prisma/tenant/schema.prisma`.
+Ese archivo es el DDL que usa `applyTenantSchema()` en `lib/provision.ts` para crear la
+base de una clínica **nueva** — y también la de cada **demo** que se genera desde la
+landing. Hoy, toda clínica que provisiones nace con columnas faltantes, y el código que
+las lee le falla hasta el siguiente deploy (que es cuando corre `migrate:tenants`).
+
+Es lo más urgente de esta lista: no es deuda técnica, es el camino de onboarding de
+clientes nuevos y el embudo de demos.
+
+```
+Contexto: Cláriva, database-per-tenant. Leé CLAUDE.md y docs/SESSION_HANDOFF.md.
+
+backend/prisma/tenant/init.sql está ~630 líneas atrás de prisma/tenant/schema.prisma.
+Ese archivo es el DDL que usa applyTenantSchema() en lib/provision.ts para crear la base
+de una clínica NUEVA, así que hoy toda clínica que se provisione nace con columnas
+faltantes y el código que las lee le falla hasta el próximo deploy. Lo mismo aplica a las
+demos de la landing, que también pasan por provisionTenant.
+
+1. Regenerá init.sql con `npm run tenant:initsql` y revisá el diff: confirmame que es
+   puramente aditivo respecto del commiteado y que no hay nada raro arrastrado.
+
+2. VERIFICACIÓN REAL, no basta con que el archivo cambie: provisioná una clínica
+   descartable con el init.sql nuevo y compará su schema físico contra el de una base
+   productiva que ya pasó por migrate:tenants (columnas, tipos, nullability, índices y
+   constraints). Tienen que ser idénticos. Si no lo son, el bug está en otro lado y
+   quiero saberlo antes de seguir. Después borrá la base descartable (ojo: la barrera de
+   dropTenantDatabase te va a pedir confirmarBorradoProductivo si tiene pacientes).
+
+3. EL FIX QUE IMPORTA — que no pueda volver a pasar: agregá un test que regenere el DDL
+   a un archivo temporal y falle si difiere del init.sql commiteado. Así, el día que
+   alguien cambie el schema tenant y se olvide de correr tenant:initsql, se entera en la
+   suite y no cuando una clínica nueva nace rota. Es el mismo principio del ensayo de
+   restore: la garantía no es haberlo hecho una vez, es que se compruebe solo.
+
+4. Evaluá si conviene además que provisionTenant verifique el schema resultante después
+   de aplicar el DDL, como red de último momento. Proponémelo antes de implementarlo.
+
+5. Revisá si alguna de las clínicas o demos existentes se creó con un init.sql viejo y
+   quedó con columnas faltantes que migrate:tenants no haya alcanzado a agregar.
+
+Verificá con typecheck + tests. Rama aparte. No toques migrate-tenants.ts.
+```
 
 ---
 

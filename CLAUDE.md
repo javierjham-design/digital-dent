@@ -106,6 +106,16 @@ El aislamiento entre clínicas es **físico**, no un `where clinicaId`. No lo de
 8. **Windows + PowerShell 5.1**: no uses `&&`, ni redirijas stderr de ejecutables nativos
    (`2>&1`), ni asumas `npx`/`git` en PATH. Rutas completas:
    `C:\Program Files\nodejs\node.exe`, `C:\Program Files\Git\bin\git.exe`.
+9. **Nunca pruebes algo que ESCRIBE contra una clínica productiva.** Para probar syncs,
+   importaciones, migraciones de datos o cualquier cosa que cree/modifique registros, usá
+   una clínica **demo** (se generan solas desde la landing y son descartables). El
+   2026-08-04 una prueba de sync bidireccional contra `digital-dent` creó 11 citas
+   duplicadas que hubo que borrar a mano de producción.
+10. **Antes de una operación destructiva deliberada en producción** (borrado de filas,
+    migración de datos, backfill masivo): corré un backup fresco (`npm run backup` o el
+    endpoint manual con `x-cron-secret`) y confirmá que terminó OK. Borrá por lista
+    explícita de ids ya revisada, dentro de una transacción y con aserción de cuántas
+    filas debe afectar. Ver `docs/BACKUPS.md`.
 
 ## 6. Comandos
 
@@ -150,9 +160,18 @@ y trabajo en curso que no debés duplicar ni romper.
 
 ## 8. Pendientes conocidos (ver `docs/AUDITORIA_2026-08.md`)
 
-Sin backups lógicos por clínica (prompt listo en `docs/PROMPT_BACKUPS.md`) · correlativo
-de cobros calculado fuera de la transacción · caché de clientes por tenant sin límite ·
-sin 2FA de super-admin · el stack nuevo no tiene configuración de ESLint.
+**`prisma/tenant/init.sql` está desincronizado del schema (~630 líneas).** Es el DDL que
+usa `provision.ts` para crear la base de una clínica NUEVA, así que hoy toda clínica o demo
+que se provisione nace con columnas faltantes. Es lo más urgente: afecta el onboarding de
+clientes nuevos. Prompt en `docs/PROMPTS_SIGUIENTES.md`.
+
+Además: correlativo de cobros calculado fuera de la transacción · caché de clientes por
+tenant sin límite · sin 2FA de super-admin · el stack nuevo no tiene configuración de
+ESLint · 2 tests de integración en rojo desde hace semanas.
+
+Backups: **resueltos** (3 capas, restore probado, ensayo semanal) — ver `docs/BACKUPS.md`.
+Google Calendar: **resuelto** (2026-08-04) — cron de sync recreado, fallas visibles con
+dead-man's switch y aviso en la agenda.
 
 Observabilidad (healthcheck real, Sentry, logging con request-id): implementada y
 **encendida en prod (2026-08-04)** — 3 proyectos Sentry + DSN en Railway + UptimeRobot a
