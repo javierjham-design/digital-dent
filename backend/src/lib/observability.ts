@@ -6,6 +6,21 @@ import { getRequestContext } from '@/lib/request-context'
 // es un no-op. La app funciona idéntico con o sin Sentry configurado.
 let enabled = false
 
+// Redacta PATRONES de PII de un texto libre (mensaje de error, breadcrumb): RUT
+// chileno, email y montos en pesos. NO detecta nombres ni "otro documento"
+// (pasaporte/DNI extranjero): esos formatos son texto libre y no se pueden regexear
+// sin sobre-redactar. Se protegen ESTRUCTURALMENTE: no se manda el cuerpo del
+// request (donde viven), y el mensaje de los errores Prisma se redacta ENTERO (con
+// el objeto `data` completo, nombre y otroDoc incluidos).
+export function redactPII(s: string): string {
+  return s
+    .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi, '[email-redactado]')
+    // RUT con puntos (12.345.678-9) o con guión (12345678-9), DV dígito o K.
+    .replace(/\b(\d{1,2}\.\d{3}\.\d{3}-?[\dkK]|\d{7,8}-[\dkK])\b/gi, '[rut-redactado]')
+    // Monto en pesos: $1.234.567 / $ 1,234,567.
+    .replace(/\$\s?\d{1,3}(?:[.,]\d{3})+/g, '[monto-redactado]')
+}
+
 export function initSentry(): void {
   const dsn = process.env.SENTRY_DSN?.trim()
   if (!dsn) return
@@ -36,11 +51,18 @@ export function initSentry(): void {
       }
       // Los errores de Prisma reproducen en su mensaje los ARGUMENTOS de la query
       // (el PrismaClientValidationError es el peor: vuelca el objeto `data` con
-      // nombres/RUT/montos). Se redacta el mensaje conservando el tipo para agrupar.
+      // nombres/RUT/montos). Se redacta el mensaje ENTERO conservando el tipo para
+      // agrupar. El resto de los mensajes se pasan por el scrubber de patrones.
       for (const v of event.exception?.values ?? []) {
         if (v.type?.startsWith('PrismaClient')) {
           v.value = `[${v.type}] mensaje omitido para no filtrar datos de pacientes`
+        } else if (v.value) {
+          v.value = redactPII(v.value)
         }
+      }
+      if (typeof event.message === 'string') event.message = redactPII(event.message)
+      for (const b of event.breadcrumbs ?? []) {
+        if (typeof b.message === 'string') b.message = redactPII(b.message)
       }
       return event
     },

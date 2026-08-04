@@ -188,9 +188,16 @@ Esto es la **capa 1** (Railway), no la 2/3.
 4. Si el snapshot es viejo y faltan datos recientes de UNA clínica, completá con la capa 3
    (restore quirúrgico de esa clínica desde R2).
 
-> **Configurar la capa 1 en Railway (una vez):** servicio Postgres → activar **backups de
-> volumen diarios** Y **Point-in-Time Recovery** (pgBackRest). Es la red contra la caída
-> total; no sirve para recuperar una sola clínica.
+> **Capa 1 en Railway — CONFIGURADA (2026-08-04):** servicio Postgres → pestaña **Backups**.
+> - **Volume backups** (schedules activados): **Daily** (retención 6 días) · **Weekly**
+>   (1 mes) · **Monthly** (3 meses). Más un snapshot on-demand inicial. No cortan servicio.
+> - **Point-in-Time Recovery**: **habilitado**. Archivado continuo de WAL → restaurar a
+>   cualquier punto reciente. Habilitarlo regeneró las credenciales de Postgres y reinició
+>   el servicio **una sola vez** (~30 s de corte, verificado 503→200 + login OK); después
+>   corre en segundo plano sin cortes. Nota: tras habilitar, Railway tarda hasta ~1 h en
+>   completar el primer base backup y dejar la cobertura "en verde" (es normal).
+> Es la red contra la caída total del servidor; no sirve para recuperar una sola clínica
+> (para eso están las capas 2 y 3).
 
 ---
 

@@ -1,5 +1,14 @@
 import * as Sentry from '@sentry/react'
 
+// Redacta patrones de PII (RUT chileno, email, monto) de un texto libre. Nombres y
+// "otro documento" no se pueden regexear; se protegen no mandando cuerpos de request.
+function redactPII(s: string): string {
+  return s
+    .replace(/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi, '[email-redactado]')
+    .replace(/\b(\d{1,2}\.\d{3}\.\d{3}-?[\dkK]|\d{7,8}-[\dkK])\b/gi, '[rut-redactado]')
+    .replace(/\$\s?\d{1,3}(?:[.,]\d{3})+/g, '[monto-redactado]')
+}
+
 // Sentry OPCIONAL: sin VITE_SENTRY_DSN no hace nada. Esta SPA muestra datos de
 // pacientes, así que la configuración es DEFENSIVA: nada de Session Replay (que
 // capturaría el DOM), ni cuerpos de request, ni breadcrumbs de consola. Solo el
@@ -20,6 +29,12 @@ export function initSentry(): void {
         delete event.request.query_string
         delete event.request.cookies
       }
+      // Redacta RUT/email/monto de los mensajes de error por si un error de la SPA
+      // los trae en su texto.
+      for (const v of event.exception?.values ?? []) {
+        if (v.value) v.value = redactPII(v.value)
+      }
+      if (typeof event.message === 'string') event.message = redactPII(event.message)
       return event
     },
     // Los breadcrumbs de consola pueden contener datos de pacientes logueados: fuera.
