@@ -9,6 +9,7 @@ import { control } from '@/db/control'
 import { crearCita } from '@/services/citas.service'
 import { rangoFechasUtc } from '@/lib/tz'
 import { log, serializeError } from '@/lib/logger'
+import { siguienteNumero } from '@/lib/correlativo'
 
 const ESTADOS = ['NUEVO', 'CONTACTADO', 'AGENDADO', 'CONVERTIDO', 'PERDIDO']
 // Etapa del embudo (estado del lead) → nombre del evento de CRM que Meta espera.
@@ -782,14 +783,16 @@ async function pacienteDesdeLead(db: TenantClient, lead: LeadPaciente): Promise<
     const hit = cands.find((c) => (c.telefono ?? '').replace(/\D/g, '') === dig)
     if (hit) return { id: hit.id, creado: false }
   }
-  const ultimo = await db.paciente.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-  const p = await db.paciente.create({
-    data: {
-      numero: Math.max(1000, (ultimo?.numero ?? 999) + 1),
-      nombre: lead.nombre, apellido: lead.apellido || '—', telefono: lead.telefono || null,
-      email: lead.email || null, rut: lead.rut || null, observaciones: lead.motivo || null, activo: true,
-    },
-    select: { id: true },
+  const p = await db.$transaction(async (tx) => {
+    const numero = await siguienteNumero(tx, 'paciente')
+    return tx.paciente.create({
+      data: {
+        numero,
+        nombre: lead.nombre, apellido: lead.apellido || '—', telefono: lead.telefono || null,
+        email: lead.email || null, rut: lead.rut || null, observaciones: lead.motivo || null, activo: true,
+      },
+      select: { id: true },
+    })
   })
   return { id: p.id, creado: true }
 }

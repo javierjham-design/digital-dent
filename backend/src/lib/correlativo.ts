@@ -17,11 +17,19 @@ import type { Prisma } from '../../prisma/generated/tenant/index.js'
 // no hace falta, porque SQLite serializa las escrituras (una sola conexión), así
 // que el correlativo sigue siendo único.
 
-type TipoCorrelativo = 'cobro' | 'sesionCaja' | 'presupuesto'
+type TipoCorrelativo = 'cobro' | 'sesionCaja' | 'presupuesto' | 'paciente' | 'caja'
 
 // Claves arbitrarias pero estables, una por tipo (evita que tipos distintos se
 // serialicen entre sí).
-const LOCK_KEY: Record<TipoCorrelativo, number> = { cobro: 840001, sesionCaja: 840002, presupuesto: 840003 }
+const LOCK_KEY: Record<TipoCorrelativo, number> = {
+  cobro: 840001, sesionCaja: 840002, presupuesto: 840003, paciente: 840004, caja: 840005,
+}
+
+// Piso (valor mínimo) del correlativo por tipo. Las fichas de paciente arrancan en
+// 1000 por convención de la clínica; el resto arranca en 1.
+const PISO: Record<TipoCorrelativo, number> = {
+  cobro: 1, sesionCaja: 1, presupuesto: 1, paciente: 1000, caja: 1,
+}
 
 async function leerMaximo(tx: Prisma.TransactionClient, tipo: TipoCorrelativo): Promise<number> {
   switch (tipo) {
@@ -31,12 +39,19 @@ async function leerMaximo(tx: Prisma.TransactionClient, tipo: TipoCorrelativo): 
       return (await tx.sesionCaja.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } }))?.numero ?? 0
     case 'presupuesto':
       return (await tx.presupuesto.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } }))?.numero ?? 0
+    case 'paciente':
+      // numero es Int? (nullable); filtramos los null para tomar el máximo real
+      // (en Postgres, orderBy desc pone los NULL primero y devolvería un null).
+      return (await tx.paciente.findFirst({ where: { numero: { not: null } }, orderBy: { numero: 'desc' }, select: { numero: true } }))?.numero ?? 0
+    case 'caja':
+      return (await tx.caja.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } }))?.numero ?? 0
   }
 }
 
 /**
- * Devuelve el siguiente correlativo (máximo + 1) para `tipo`, serializando la
- * generación entre transacciones concurrentes en Postgres.
+ * Devuelve el siguiente correlativo para `tipo` (máximo + 1, nunca por debajo del
+ * piso del tipo), serializando la generación entre transacciones concurrentes en
+ * Postgres.
  *
  * DEBE llamarse DENTRO de una `$transaction`, y el `create` que usa el número tiene
  * que ir en la MISMA transacción (`tx`), para que el lock cubra read + insert.
@@ -51,5 +66,6 @@ export async function siguienteNumero(tx: Prisma.TransactionClient, tipo: TipoCo
       // Proveedor sin la función (p. ej. SQLite): se omite.
     }
   }
-  return (await leerMaximo(tx, tipo)) + 1
+  const max = await leerMaximo(tx, tipo)
+  return Math.max(PISO[tipo], max + 1)
 }

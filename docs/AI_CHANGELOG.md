@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-08-04 — Correlativos: `Paciente.numero` y `Caja.numero` al mismo helper
+
+Cierre de los dos correlativos que habían quedado con el patrón viejo de carrera (ver la
+entrada "Correlativos seguros ante creación concurrente"). Rama `fix/correlativo-paciente-caja`.
+
+- **Helper extendido** (`lib/correlativo.ts`): tipos `paciente` y `caja` + un **piso por
+  tipo** (`PISO`) — `paciente: 1000` (las fichas arrancan en 1000 por convención de la
+  clínica), el resto `1`. `siguienteNumero` ahora devuelve `Math.max(PISO, max+1)` (el
+  comportamiento previo de cobro/sesión/presupuesto no cambia: piso 1). Para `paciente`,
+  el read del máximo filtra `numero != null` (es `Int?`; en Postgres `orderBy desc`
+  pondría los NULL primero y devolvería null) — corrige un bug latente del cálculo viejo.
+- **`Paciente.numero`** (`@unique`) — los **3** generadores se movieron a `$transaction`
+  con `siguienteNumero(tx, 'paciente')`: `pacientes.service.ts` `crearPaciente`,
+  `agenda-online.service.ts` (reserva online) y `crm.service.ts` (conversión de lead).
+  Antes dos altas simultáneas (recepción + reserva online) chocaban con el `@unique`.
+- **`Caja.numero`** (`Int @default(0)`, SIN unique — la carrera duplicaba en silencio):
+  `crearCaja` y `abrirCajaParaUsuario` ahora generan el número en `$transaction`. Se
+  eliminó `siguienteNumeroCaja`. Los **backfills** `asegurarNumerosCaja` /
+  `asegurarNumerosSesion` (asignan número a filas `numero=0`) corren dentro de una
+  transacción con el advisory lock, para no colisionar con una creación concurrente.
+- **Tests** (`correlativo-concurrente.test.ts`): dos altas de paciente simultáneas →
+  números distintos **y ambos ≥ 1000** (piso); dos cajas simultáneas (usuarios distintos)
+  → números distintos.
+
+**Verificación:** typecheck backend ✓ · unit 92/92 ✓ · integración 52/54 (los 2 fallos
+—consentimientos y conversión de lead— son preexistentes). No se tocó `migrate-tenants.ts`.
+
+> **Propuesta `@unique` en `Caja.numero` (NO aplicada):** conviene como red, pero requiere
+> orden. (1) Correr el backfill en TODAS las clínicas hasta que no queden filas con
+> `numero=0` ni duplicados; (2) verificar por clínica que
+> `SELECT numero, count(*) FROM "Caja" GROUP BY numero HAVING count(*)>1` da vacío;
+> (3) recién ahí agregar `@unique` al schema + `tenant:initsql` + `migrate:tenants`. Si se
+> agrega antes, el `db push` aborta en las bases con duplicados/ceros.
+
+---
+
 ## 2026-08-04 — Google OAuth a producción + páginas legales + verificación enviada
 
 Cierre operativo de Google Calendar (el código ya estaba; ver la entrada de "sync visible").
@@ -59,9 +95,9 @@ Rama `fix/correlativo-cobros`.
   creaciones simultáneas de Presupuesto y de apertura de caja (cajas distintas) obtienen
   números distintos. Sin el fix, una rechaza con P2002. Ambos usan el mismo `siguienteNumero`
   que los 4 sitios de cobro.
-- **Fuera de alcance (mismo patrón, pendiente):** `Paciente.numero` (`pacientes.service.ts`,
-  `agenda-online.service.ts`, `crm.service.ts`) y `Caja.numero` (`caja.service.ts`) siguen
-  calculando el correlativo fuera de la transacción. Aplicarles el mismo helper es directo.
+- **`Paciente.numero` y `Caja.numero`:** quedaron con el patrón viejo en esta tanda; se
+  aplicaron el mismo helper en un follow-up (ver la entrada del 2026-08-04 "Correlativos:
+  `Paciente.numero` y `Caja.numero` al mismo helper").
 
 **Verificación:** typecheck backend ✓ · unit 92/92 ✓ · integración 50/52 (los 2 fallos
 —consentimientos y conversión de lead— son preexistentes, ver `PROMPTS_SIGUIENTES.md`).
