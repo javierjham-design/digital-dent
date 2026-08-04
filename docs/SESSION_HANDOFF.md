@@ -8,11 +8,12 @@
 ## Última actualización
 
 - **Fecha:** 2026-08-04
-- **Rama:** `arch/split-frontend-backend` (backups y observabilidad **mergeadas y
-  desplegadas**, commit `d0949e9`).
-- **Foco:** puesta en marcha operativa **completa** de backups + observabilidad. La
-  infraestructura de resiliencia queda **encendida de punta a punta** (backups 3 capas +
-  capa 1 volumen/PITR + Sentry x3 + UptimeRobot + fire-drill de PII pasado).
+- **Rama:** `arch/split-frontend-backend` (todo lo del día **mergeado y desplegado**).
+- **Foco del día:** (1) resiliencia encendida (backups 3 capas + capa 1 + Sentry x3 +
+  UptimeRobot); (2) **Google Calendar reparado y operativo** (sync visible + dead-man's
+  switch + aviso en agenda + cron cada 15 min + force-full + reconcile idempotente; app
+  Google **en producción**, verificación **en revisión**); (3) **correlativo de cobros**
+  seguro ante concurrencia (advisory lock).
 
 ## Backups — CÓDIGO DESPLEGADO + PRIMER BACKUP REAL OK (2026-08-04)
 
@@ -42,10 +43,40 @@ regeneró credenciales y disparó un redeploy de Postgres (~30s de blip, con cl�
 cerradas); la cobertura quedó verde ~1h después (esperado). Detalle en `docs/BACKUPS.md`.
 
 **Pendientes (menores, no urgentes):**
-- **Demo huérfana** `clariva_t_demo_ul2uzu` sin `esDemo=true` en el control-plane (se
-   respalda de más). Revisar/limpiar antes de marcarla (ver `docs/PROMPTS_SIGUIENTES.md`).
-- **Google Calendar**: decidir si se usa o se retira (cron `sync` está muerto) — ver
-   `docs/PROMPTS_SIGUIENTES.md`.
+- ⚠️ **`clariva_t_demo_ul2uzu` NO es una demo huérfana — es la base productiva de
+   `orodent`** (clínica real, `esDemo=false`). Se descubrió el 2026-08-04 al derivar los
+   dbName reales. **NO marcarla `esDemo=true` ni borrarla**: destruiría una clínica. La
+   nota vieja que la llamaba "demo huérfana para limpiar" era incorrecta y peligrosa.
+- **`Paciente.numero` y `Caja.numero`**: mismo patrón de carrera que se arregló en cobros;
+   aplicarles el helper `siguienteNumero` es directo (ver `docs/AI_CHANGELOG.md` 2026-08-04).
+
+## Google Calendar — REPARADO y OPERATIVO (2026-08-04)
+
+Detalle en `docs/AI_CHANGELOG.md`. Diagnóstico: solo `digital-dent` la usa (2 doctores,
+~500 eventos). Se hizo:
+- **Cron `sync` recreado** en Railway (`cron-google-sync`, `JOB=sync`, `*/15`,
+  `CRON_SECRET=${{BACKEND.CRON_SECRET}}`). El sync corre cada 15 min.
+- **Fallas visibles** en push y pull (log + Sentry), **dead-man's switch** por frescura
+  (no solo por error) y **aviso a recepción en la agenda**. Endpoint `GET /google/health`.
+- **`force full resync`** (`POST /google/sync {full:true}`) como recuperación cuando el
+  token incremental queda "ciego" (Google devuelve 0 aunque haya eventos nuevos).
+- **Reconcile idempotente**: un full resync ya NO duplica citas (chequea por
+  `googleEventId`). Antes sí duplicaba — ver el punto siguiente.
+- **App OAuth de Google: pasada a "En producción"** (en Testing los refresh tokens
+  caducaban a los 7 días — era la causa de que se cayera sola cada semana). digital-dent
+  reconectada → token de larga duración. **Verificación de marca/OAuth ENVIADA, en
+  revisión manual** de Google (semanas). Páginas legales creadas y en prod:
+  `clariva.cl/privacidad` y `/terminos`.
+
+**Pendientes de Google (no urgentes, la app ya funciona):**
+- **Limpiar 11 citas DUPLICADAS en digital-dent** que generó una prueba de full resync
+  contra producción (antes del fix idempotente). Script listo y NO ejecutado:
+  `backend/limpieza-duplicados-google.mjs` (borra por lista explícita de 11 ids, en
+  transacción, sin tocar Google). Hay backup fresco en R2 de red. **Lo corre el usuario.**
+- **Decidir scope** `calendar` → `calendar.calendarlist.readonly` antes del video de
+  verificación (si Google lo pide). Es 1 línea + deploy.
+- Si Google rechaza la home por "no explica el propósito", **prerenderizar** la home
+  completa (hoy tiene un bloque estático de respaldo en `web/index.html`).
 
 ## Observabilidad — HECHA, DESPLEGADA y ENCENDIDA (2026-08-03 → 2026-08-04)
 

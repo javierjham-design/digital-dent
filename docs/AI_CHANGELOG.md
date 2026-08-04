@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-04 — Google OAuth a producción + páginas legales + verificación enviada
+
+Cierre operativo de Google Calendar (el código ya estaba; ver la entrada de "sync visible").
+
+- **App OAuth pasada de "Testing" a "En producción"** en Google Cloud Console (nueva UI
+  "Google Auth Platform" → pestaña "Público" → "Publicar app"). En Testing los refresh
+  tokens caducan a los **7 días** — era la causa raíz de que la sync se cayera sola cada
+  semana. En producción son de larga duración. digital-dent **reconectada** para emitir un
+  token nuevo (el viejo arrastraba la caducidad de Testing).
+- **Páginas legales** creadas y desplegadas (`web/`): `clariva.cl/privacidad` y
+  `clariva.cl/terminos` (+ layout legal compartido, links en el footer). La Política de
+  Privacidad incluye la sección de datos de Google (scopes, uso, tokens cifrados) y la
+  **declaración de Uso Limitado** de la Google API Services User Data Policy. **Borradores:
+  revisar con abogado.**
+- **Home con contenido estático** (`web/index.html`): el `#root` estaba vacío para crawlers
+  sin JS, y la verificación de marca objetaba "la home no explica el propósito" y "el nombre
+  no coincide". Se agregó un bloque estático (nombre "Cláriva" + propósito + links legales)
+  que React reemplaza al montar; ahora es visible sin ejecutar JS.
+- **Verificación de marca/OAuth: ENVIADA a revisión manual** de Google (los scopes de
+  Calendar son *sensibles*, no *restringidos* → sin auditoría de seguridad CASA). Requisitos
+  armados: dominio verificado en Search Console, pantalla de consentimiento (nombre
+  "Cláriva", privacidad, términos, dominio autorizado), justificaciones de scopes. Tarda
+  semanas; la app funciona igual mientras tanto (con aviso de "app no verificada" al conectar).
+
+**Scopes usados** (`backend/src/lib/google.ts`): `calendar`, `calendar.events`,
+`userinfo.email`, `openid`. Pendiente evaluar angostar `calendar` → `calendar.calendarlist.readonly`.
+
+---
+
 ## 2026-08-04 — Correlativos (`numero`) seguros ante creación concurrente
 
 El número de comprobante de cobro (y de apertura de caja y de presupuesto) se calculaba
