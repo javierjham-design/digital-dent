@@ -21,16 +21,24 @@ daily R&W + prune R&W) y variables `BACKUP_*` cargadas en el servicio `backend`.
 digital-dent 31,4 MB + montenegro + una demo huérfana). pg_dump/pg_restore fijados a
 **`postgresql-client-18`** (el server de Railway resultó ser Postgres **18.3**).
 
-**Falta para cerrar la operación (fuera del repo):**
-1. **Crear los 3 servicios cron en Railway** (mismo repo/Dockerfile del backend, Custom
-   Start Command + Cron Schedule, restartPolicy NEVER, sin healthcheck):
-   `backup` = `npm run backup` (diario ~07:00 UTC); `backup-prune` =
-   `npm run backup:prune -- --apply` (semanal, + env `BACKUP_S3_PRUNE_*`); `backup-drill` =
-   `npm run backup:drill` (semanal). Cada uno necesita las mismas env que el backend
-   (DB URLs + `BACKUP_*`); el drill valida que los backups se pueden RESTAURAR.
-2. Activar la **capa 1** en Railway (backups de volumen diarios + PITR).
-3. Pendiente menor: hay una **demo huérfana** `clariva_t_demo_ul2uzu` sin `esDemo=true` en
-   el control-plane (se está respaldando de más). Revisar/limpiar.
+**Estado de los servicios cron en Railway:**
+- ✅ **`backup` (diario, 07:00 UTC) — CREADO Y FUNCIONANDO.** Corrió `estado=OK` 4/4 el
+   2026-08-04. Usa el Dockerfile del backend (`postgresql-client-18`), Custom Start Command
+   `npm run backup`, sin healthcheck. Sus env son **referencias al backend**:
+   `${{BACKEND.…}}`. ⚠️ **OJO: el servicio del backend se llama `BACKEND` en MAYÚSCULAS** —
+   las referencias de Railway son case-sensitive (`${{backend.…}}` resuelve a vacío). Mismo
+   patrón para prune/drill.
+- ⬜ **`backup-prune`** (semanal `30 8 * * 0`): Start Command `npm run backup:prune -- --apply`.
+   Mismas referencias `${{BACKEND.…}}` **+ pegar** `BACKUP_S3_PRUNE_ACCESS_KEY_ID` y
+   `BACKUP_S3_PRUNE_SECRET_ACCESS_KEY` (token de poda). No borra nada hasta que haya
+   backups de >14 días.
+- ⬜ **`backup-drill`** (semanal `0 8 * * 1`): Start Command `npm run backup:drill`. Mismas
+   referencias `${{BACKEND.…}}`, sin secretos extra. Valida que los backups se RESTAURAN.
+
+**Otros pendientes:**
+- Activar la **capa 1** en Railway (backups de volumen diarios + PITR).
+- **Demo huérfana** `clariva_t_demo_ul2uzu` sin `esDemo=true` en el control-plane (se
+   respalda de más). Revisar/limpiar.
 
 > Nota: aún no se probó un `restore --switch` real (el `railway run` local no alcanza la
 > red interna ni tiene pg_restore). El **ensayo semanal (`backup:drill`)**, cuando esté el
