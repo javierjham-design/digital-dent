@@ -99,9 +99,9 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
   ```sql
   SELECT version();
   ```
-  El `backend/Dockerfile` instala `postgresql-client-16` (PGDG). **Si el server de Railway
-  es 17+, cambiá a `postgresql-client-17`** en el Dockerfile, o `pg_dump` falla con
-  "server version mismatch". _Anotar acá la versión verificada:_ `__________ (fecha: ____)`.
+  El `backend/Dockerfile` instala `postgresql-client-18` (PGDG). **Verificado 2026-08-04:
+  el server de Railway es Postgres 18.3**, por eso el cliente 18. Si Railway sube el server
+  a 19+, cambiá el major en el Dockerfile, o `pg_dump` falla con "server version mismatch".
 - **Red interna.** Conectarse por `postgres.railway.internal:5432` (las URLs internas ya lo
   usan), no por el proxy público: más rápido y sin ancho de banda facturado.
 - **Permisos.** `TENANT_DB_SERVER_URL` ya tiene `CREATE DATABASE` (lo usa la provisión), así
