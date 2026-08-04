@@ -493,6 +493,15 @@ export async function syncCalendar(db: TenantClient, userId: string): Promise<Sy
     return summary
   }
 
+  // Diagnóstico: cuántos eventos crudos devolvió el pull y si fue incremental.
+  // Distingue "Google no devolvió el evento" (token/ventana) de "lo devolvió pero
+  // el reconcile lo descartó".
+  log.info('google sync: pull', {
+    userId, doctor: summary.doctor, rawEvents: events.length,
+    incremental: !!tokenOnEntry,
+    titulos: events.map((e) => e.summary ?? '(sin título)').slice(0, 20),
+  })
+
   for (const ev of events) {
     try {
       const result = await reconcileEvent(db, user.id, calendarId, ev, calendar)
@@ -500,8 +509,11 @@ export async function syncCalendar(db: TenantClient, userId: string): Promise<Sy
       if (result === 'bloqueo_created') summary.newBloqueos++
       if (result === 'cita_imported') summary.newCitas++
       if (result === 're_asserted') summary.reAsserted++
-    } catch {
+    } catch (e) {
       // No abortar todo el sync por un evento; el siguiente ciclo lo reintenta.
+      // Pero NO en silencio: un reconcile que falla siempre era invisible.
+      log.warn('google sync: reconcile de evento falló', { userId, eventId: ev.id, err: serializeError(e) })
+      captureError(e, { route: 'google/reconcile' })
     }
   }
 
