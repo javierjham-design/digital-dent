@@ -5,6 +5,7 @@ import { getSesionAbierta } from '@/lib/caja'
 import { audit } from '@/lib/audit'
 import { crearLinkParaCobro, type ResultadoLinkPago } from '@/services/pagos-online.service'
 import { aplicarAbonoLibreAAccion } from '@/services/tratamientos.service'
+import { siguienteNumero } from '@/lib/correlativo'
 
 const ESTADOS = ['PENDIENTE', 'PAGADO', 'PARCIAL', 'ANULADO']
 const fmtMoney = (n: number) => '$' + new Intl.NumberFormat('es-CL').format(Math.round(n))
@@ -182,14 +183,15 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
   montoNeto = monto - comisionMonto
 
   const concepto = items.map((i) => i.descripcion).join(', ')
-  const last = await db.cobro.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-  const numero = (last?.numero ?? 0) + 1
   const fechaPago = input.fechaPago ? new Date(input.fechaPago) : new Date()
 
   const sesion = await getSesionAbierta(db, caja.id)
   if (!sesion) throw conflict('La caja seleccionada no tiene una sesión abierta. Abre la caja antes de recibir pagos.')
 
   const nuevo = await db.$transaction(async (tx) => {
+    // El correlativo se genera DENTRO de la transacción (advisory lock) para que
+    // dos cobros simultáneos no lean el mismo máximo y choquen con el @unique.
+    const numero = await siguienteNumero(tx, 'cobro')
     const creado = await tx.cobro.create({
       data: {
         pacienteId: input.pacienteId, numero, concepto, monto, montoNeto, comisionMonto,
@@ -219,7 +221,7 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
   // Queda registrado en el Historial de la ficha del paciente (trazabilidad).
   await audit(db, actor.sub, {
     accion: 'CREAR', entidad: 'Cobro', entidadId: nuevo.id, pacienteId: input.pacienteId,
-    resumen: `Recibió un pago #${numero} por ${fmtMoney(monto)}${medioNombre ? ` · ${medioNombre}` : ' · Efectivo'}`,
+    resumen: `Recibió un pago #${nuevo.numero} por ${fmtMoney(monto)}${medioNombre ? ` · ${medioNombre}` : ' · Efectivo'}`,
   })
   return nuevo
 }
@@ -239,16 +241,17 @@ export async function crearCobroLinkPago(db: TenantClient, actor: JwtPayload, in
 
   const monto = await validarItemsCobro(db, input.pacienteId, input.items)
   const concepto = input.items.map((i) => i.descripcion).join(', ')
-  const last = await db.cobro.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-  const numero = (last?.numero ?? 0) + 1
 
-  const cobro = await db.cobro.create({
-    data: {
-      pacienteId: input.pacienteId, numero, concepto, monto, montoNeto: monto, comisionMonto: 0,
-      estado: 'PENDIENTE', reciboUsuarioId: actor.sub,
-      items: { create: input.items.map((i) => ({ tratamientoId: i.tratamientoId || null, planId: i.planId || null, descripcion: i.descripcion, monto: Number(i.monto) })) },
-    },
-    select: { id: true },
+  const cobro = await db.$transaction(async (tx) => {
+    const numero = await siguienteNumero(tx, 'cobro')
+    return tx.cobro.create({
+      data: {
+        pacienteId: input.pacienteId, numero, concepto, monto, montoNeto: monto, comisionMonto: 0,
+        estado: 'PENDIENTE', reciboUsuarioId: actor.sub,
+        items: { create: input.items.map((i) => ({ tratamientoId: i.tratamientoId || null, planId: i.planId || null, descripcion: i.descripcion, monto: Number(i.monto) })) },
+      },
+      select: { id: true, numero: true },
+    })
   })
   const res = await crearLinkParaCobro(db, cobro.id, { apiBase: input.apiBase, appBase: input.appBase, slug: input.slug, creadoPorId: actor.sub })
   if (res.estado !== 'ok') {
@@ -257,8 +260,8 @@ export async function crearCobroLinkPago(db: TenantClient, actor: JwtPayload, in
       ? 'Aún no tienes habilitado el pago online (Flow). Actívalo en Configuración → Pagos online.'
       : res.mensaje)
   }
-  await audit(db, actor.sub, { accion: 'CREAR', entidad: 'Cobro', entidadId: cobro.id, pacienteId: input.pacienteId, resumen: `Generó un link de pago #${numero} por ${fmtMoney(monto)}` })
-  return { estado: 'ok' as const, url: res.url, cobroId: cobro.id, numero }
+  await audit(db, actor.sub, { accion: 'CREAR', entidad: 'Cobro', entidadId: cobro.id, pacienteId: input.pacienteId, resumen: `Generó un link de pago #${cobro.numero} por ${fmtMoney(monto)}` })
+  return { estado: 'ok' as const, url: res.url, cobroId: cobro.id, numero: cobro.numero }
 }
 
 // Crea un cobro PENDIENTE "libre" (por un monto, sin acciones de plan) y su link
@@ -273,13 +276,15 @@ export async function crearCobroLibreConLink(db: TenantClient, actor: JwtPayload
   const monto = Math.round(Number(input.monto))
   if (!Number.isFinite(monto) || monto <= 0) throw badRequest('El monto del pago debe ser mayor a 0.')
 
-  const last = await db.cobro.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-  const cobro = await db.cobro.create({
-    data: {
-      pacienteId: input.pacienteId, numero: (last?.numero ?? 0) + 1, concepto: input.concepto || 'Pago de saldo pendiente',
-      monto, montoNeto: monto, comisionMonto: 0, estado: 'PENDIENTE', reciboUsuarioId: actor.sub,
-    },
-    select: { id: true },
+  const cobro = await db.$transaction(async (tx) => {
+    const numero = await siguienteNumero(tx, 'cobro')
+    return tx.cobro.create({
+      data: {
+        pacienteId: input.pacienteId, numero, concepto: input.concepto || 'Pago de saldo pendiente',
+        monto, montoNeto: monto, comisionMonto: 0, estado: 'PENDIENTE', reciboUsuarioId: actor.sub,
+      },
+      select: { id: true },
+    })
   })
   const res = await crearLinkParaCobro(db, cobro.id, {
     apiBase: input.apiBase, appBase: input.appBase, slug: input.slug, creadoPorId: actor.sub,
