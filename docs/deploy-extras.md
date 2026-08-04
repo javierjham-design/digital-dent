@@ -33,16 +33,22 @@ Variables de cada servicio cron:
 | `CRON_SECRET` | el mismo `CRON_SECRET` del backend |
 | `JOB` | `cleanup` · `recordatorios` · `sync` |
 
-Schedules sugeridos (Settings → Cron Schedule, o `cronSchedule` en railway.json):
+Schedules (Settings → Cron Schedule de cada servicio — es **por servicio**, no en
+railway.json):
 | JOB | Qué hace | Schedule |
 |-----|----------|----------|
 | `cleanup` | borra clínicas demo expiradas | `0 6 * * *` (diario 06:00) |
 | `recordatorios` | recordatorios de cita por WhatsApp | `*/20 * * * *` (cada 20 min) |
 | `sync` | sincroniza Google Calendar | `*/15 * * * *` (cada 15 min) |
 
-`cron/railway.json` trae `restartPolicyType: NEVER` (un job corre y termina) y un
-schedule por defecto (`cleanup` diario). Si hoy no usas WhatsApp ni Google, con el
-servicio `cleanup` basta; agrega los otros al activar esas integraciones.
+`cron/railway.json` trae `restartPolicyType: NEVER` (un job corre y termina) pero **no**
+fija un `cronSchedule`: como `run.mjs` despacha varios jobs con horarios distintos, el
+schedule se define en cada servicio (Settings → Cron Schedule). Si lo pusiera en
+railway.json, ese valor pisaría el del dashboard en cada deploy.
+
+> `sync` YA está creado y activo en producción (servicio `cron-google-sync`,
+> `JOB=sync`, `*/15 * * * *`, `CRON_SECRET=${{BACKEND.CRON_SECRET}}`). Ver
+> `docs/integraciones-google-whatsapp.md`.
 
 Probar un job manualmente:
 ```
