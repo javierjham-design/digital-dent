@@ -591,6 +591,21 @@ async function reconcileEvent(
     }
   }
 
+  // 2.b) Idempotencia: si el evento YA está importado como cita (con o sin la marca
+  //      clarivaKind), no crear otra en un re-pull. Reflejamos el horario si cambió.
+  //      Sin esto, un full resync duplica cada cita importada por título (paso 4).
+  const existingCita = await db.cita.findFirst({ where: { googleEventId: ev.id } })
+  if (existingCita) {
+    if (existingCita.fecha.getTime() !== startDate.getTime()) {
+      await db.cita.update({
+        where: { id: existingCita.id },
+        data: { fecha: startDate, googleSyncedAt: new Date() },
+      })
+      return 'updated'
+    }
+    return 'ignored'
+  }
+
   // 3) Evento ajeno: ¿ya lo materializamos como bloqueo en pulls anteriores?
   const existingBloqueo = await db.bloqueoAgenda.findFirst({ where: { googleEventId: ev.id } })
   if (existingBloqueo) {
