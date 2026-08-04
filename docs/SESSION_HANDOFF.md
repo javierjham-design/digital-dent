@@ -7,34 +7,34 @@
 
 ## Última actualización
 
-- **Fecha:** 2026-08-03
-- **Rama:** `feat/backups` (sale de `arch` con observabilidad ya mergeada). **Sin mergear
-  todavía.** Requiere configuración operativa (bucket R2 + env en Railway) antes de servir.
-- **Foco de esta sesión:** sistema de backups y restauración quirúrgica por clínica.
+- **Fecha:** 2026-08-04
+- **Rama:** `arch/split-frontend-backend` (backups y observabilidad **mergeadas y
+  desplegadas**, commit `d0949e9`).
+- **Foco:** puesta en marcha operativa de los backups (R2 + primer backup real).
 
-## Backups — HECHO en código (2026-08-03, rama `feat/backups`)
+## Backups — CÓDIGO DESPLEGADO + PRIMER BACKUP REAL OK (2026-08-04)
 
-Detalle en `docs/BACKUPS.md` y `docs/AI_CHANGELOG.md`. Verde: typecheck backend, unit
-87/87 (incl. crypto round-trip, poda con piso, manifiesto). 3 capas: (1) volumen Railway
-+ PITR [doc]; (2) dump lógico por base cifrado AES-256-GCM en R2, con manifiesto (sha256 +
-censo de filas); (3) restore quirúrgico por clínica (`npm run restore -- --slug X`,
-dry-run por defecto, `--switch` para el corte, no destruye — la base vieja se conserva).
-Poda GFS con creds separadas; ensayo de restauración semanal; barreras en
-`dropTenantDatabase` y `migrate-tenants`; endpoint `POST /admin/backups/run`.
+Detalle en `docs/BACKUPS.md` y `docs/AI_CHANGELOG.md`. Código mergeado a `arch` y en prod.
+**Cloudflare R2 configurado** (bucket `clariva-backups`, bucket-lock 7 días, 2 tokens:
+daily R&W + prune R&W) y variables `BACKUP_*` cargadas en el servicio `backend`.
+**Primer backup manual (`POST /admin/backups/run`) = OK: 4/4 bases, 31,6 MB** (control +
+digital-dent 31,4 MB + montenegro + una demo huérfana). pg_dump/pg_restore fijados a
+**`postgresql-client-18`** (el server de Railway resultó ser Postgres **18.3**).
 
-**Falta para cerrarlo (operativo, fuera del repo — pasos en `docs/BACKUPS.md`):**
-1. Crear bucket **Cloudflare R2** + **object-lock por prefijo** (7 d diarios / 30 d
-   semanales / 180 d mensuales; < retención GFS 14/56/365).
-2. Generar `BACKUP_ENCRYPTION_KEY` (guardarla en gestor de secretos aparte) y cargar las
-   `BACKUP_S3_*` en Railway. Credenciales de **poda separadas** (`BACKUP_S3_PRUNE_*`).
-3. Crear los **servicios cron** en Railway (mismo Dockerfile del backend, distinto start
-   command + schedule): `backup` (diario), `backup-prune` (semanal, con `--apply`),
-   `backup-drill` (semanal).
-4. **Verificar la versión de Postgres** del server (`SELECT version();`) y ajustar
-   `postgresql-client-16` en el Dockerfile si es 17+.
-5. Activar la **capa 1** en Railway (backups de volumen diarios + PITR).
-6. Mergear `feat/backups` → `arch` y pushear (redeploy). El backend arranca aunque los
-   backups no estén configurados (el guard de migrate-tenants no bloquea el bootstrap).
+**Falta para cerrar la operación (fuera del repo):**
+1. **Crear los 3 servicios cron en Railway** (mismo repo/Dockerfile del backend, Custom
+   Start Command + Cron Schedule, restartPolicy NEVER, sin healthcheck):
+   `backup` = `npm run backup` (diario ~07:00 UTC); `backup-prune` =
+   `npm run backup:prune -- --apply` (semanal, + env `BACKUP_S3_PRUNE_*`); `backup-drill` =
+   `npm run backup:drill` (semanal). Cada uno necesita las mismas env que el backend
+   (DB URLs + `BACKUP_*`); el drill valida que los backups se pueden RESTAURAR.
+2. Activar la **capa 1** en Railway (backups de volumen diarios + PITR).
+3. Pendiente menor: hay una **demo huérfana** `clariva_t_demo_ul2uzu` sin `esDemo=true` en
+   el control-plane (se está respaldando de más). Revisar/limpiar.
+
+> Nota: aún no se probó un `restore --switch` real (el `railway run` local no alcanza la
+> red interna ni tiene pg_restore). El **ensayo semanal (`backup:drill`)**, cuando esté el
+> servicio cron, prueba el round-trip de restauración dentro de Railway automáticamente.
 
 ## Observabilidad — HECHO y DESPLEGADO (2026-08-03)
 
