@@ -6,6 +6,7 @@ import {
   getUltimaSesionCerrada,
 } from '@/lib/caja'
 import { rangoFechasUtc } from '@/lib/tz'
+import { siguienteNumero } from '@/lib/correlativo'
 
 const CATEGORIAS_EGRESO = ['ARRIENDO', 'INSUMOS', 'SUELDO', 'SERVICIOS', 'RETIRO', 'OTRO']
 
@@ -38,25 +39,25 @@ async function cajaAccesoLectura(db: TenantClient, cajaId: string, actor: JwtPay
   throw forbidden('No tienes acceso a esta caja.')
 }
 
-// Correlativo siguiente para una caja nueva.
-async function siguienteNumeroCaja(db: TenantClient): Promise<number> {
-  const last = await db.caja.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-  return (last?.numero ?? 0) + 1
-}
-// Asigna correlativo a cajas antiguas sin número (numero = 0), por antigüedad.
+// Asigna correlativo a cajas antiguas sin número (numero = 0), por antigüedad. El
+// backfill corre dentro de una transacción con el advisory lock (via siguienteNumero)
+// para no colisionar con una creación de caja concurrente.
 async function asegurarNumerosCaja(db: TenantClient): Promise<void> {
   const sinNumero = await db.caja.findMany({ where: { numero: 0 }, orderBy: { createdAt: 'asc' }, select: { id: true } })
   if (sinNumero.length === 0) return
-  let n = await siguienteNumeroCaja(db)
-  for (const c of sinNumero) { await db.caja.update({ where: { id: c.id }, data: { numero: n } }).catch(() => {}); n++ }
+  await db.$transaction(async (tx) => {
+    let n = await siguienteNumero(tx, 'caja')
+    for (const c of sinNumero) { await tx.caja.update({ where: { id: c.id }, data: { numero: n } }); n++ }
+  })
 }
 // Asigna correlativo de apertura a sesiones antiguas sin número (numero = 0).
 async function asegurarNumerosSesion(db: TenantClient): Promise<void> {
   const sinNumero = await db.sesionCaja.findMany({ where: { numero: 0 }, orderBy: { abiertaAt: 'asc' }, select: { id: true } })
   if (sinNumero.length === 0) return
-  const last = await db.sesionCaja.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-  let n = (last?.numero ?? 0) + 1
-  for (const s of sinNumero) { await db.sesionCaja.update({ where: { id: s.id }, data: { numero: n } }).catch(() => {}); n++ }
+  await db.$transaction(async (tx) => {
+    let n = await siguienteNumero(tx, 'sesionCaja')
+    for (const s of sinNumero) { await tx.sesionCaja.update({ where: { id: s.id }, data: { numero: n } }); n++ }
+  })
 }
 
 // ── Cajas ────────────────────────────────────────────────────────────────────
@@ -120,14 +121,16 @@ export async function crearCaja(db: TenantClient, actor: JwtPayload, body: { sal
   })
   if (existente) return existente
 
-  const numero = await siguienteNumeroCaja(db)
-  return db.caja.create({
-    data: {
-      numero, nombre: `Caja ${numero}`, // nombre interno (no se muestra); único por correlativo
-      saldoInicial: Number(body?.saldoInicial) || 0,
-      usuarios: { create: [{ userId: actor.sub }] },
-    },
-    include: CAJA_INCLUDE,
+  return db.$transaction(async (tx) => {
+    const numero = await siguienteNumero(tx, 'caja')
+    return tx.caja.create({
+      data: {
+        numero, nombre: `Caja ${numero}`, // nombre interno (no se muestra); único por correlativo
+        saldoInicial: Number(body?.saldoInicial) || 0,
+        usuarios: { create: [{ userId: actor.sub }] },
+      },
+      include: CAJA_INCLUDE,
+    })
   })
 }
 
@@ -205,8 +208,10 @@ export async function abrirCajaParaUsuario(db: TenantClient, actor: JwtPayload, 
 
   let caja = await db.caja.findFirst({ where: { activo: true, usuarios: { some: { userId: target.id } } }, select: { id: true } })
   if (!caja) {
-    const numero = await siguienteNumeroCaja(db)
-    caja = await db.caja.create({ data: { numero, nombre: `Caja ${numero}`, usuarios: { create: [{ userId: target.id }] } }, select: { id: true } })
+    caja = await db.$transaction(async (tx) => {
+      const numero = await siguienteNumero(tx, 'caja')
+      return tx.caja.create({ data: { numero, nombre: `Caja ${numero}`, usuarios: { create: [{ userId: target.id }] } }, select: { id: true } })
+    })
   }
   if (await getSesionAbierta(db, caja.id)) throw conflict('Ese usuario ya tiene una caja abierta.')
 

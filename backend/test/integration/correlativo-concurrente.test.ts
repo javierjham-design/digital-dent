@@ -3,6 +3,11 @@ import { seedDosClinicas, type TenantFixture } from './seed'
 import { tenantClient } from './tenant-test'
 import { crearPresupuesto } from '@/services/presupuestos.service'
 import { abrirSesion } from '@/lib/caja'
+import { crearPaciente } from '@/services/pacientes.service'
+import { crearCaja } from '@/services/caja.service'
+import type { JwtPayload } from '@/services/auth.service'
+
+const actor = (sub: string): JwtPayload => ({ sub, clinicaId: null, slug: null, role: 'admin', isPlatformAdmin: false, name: 'test', email: null })
 
 // Regresión del correlativo concurrente: dos creaciones simultáneas en la misma
 // clínica NO deben obtener el mismo `numero`. Antes del fix el número se calculaba
@@ -50,5 +55,34 @@ describe('correlativos bajo creación concurrente', () => {
 
     expect(s1.numero).not.toBe(s2.numero)
     expect(new Set([s1.numero, s2.numero]).size).toBe(2)
+  })
+
+  it('dos pacientes simultáneos: números distintos y ambos ≥ 1000 (piso de ficha)', async () => {
+    const db = tenantClient(A.dbName)
+    // Sin el fix, una de las dos rechaza con violación de unique (Paciente.numero @unique).
+    const [p1, p2] = await Promise.all([
+      crearPaciente(db, { nombre: 'Concurrente', apellido: 'Uno' }),
+      crearPaciente(db, { nombre: 'Concurrente', apellido: 'Dos' }),
+    ])
+
+    expect(p1.numero).not.toBe(p2.numero)
+    expect(new Set([p1.numero, p2.numero]).size).toBe(2)
+    // El piso 1000 se respeta aunque el seed tenga un paciente con numero < 1000.
+    expect(p1.numero!).toBeGreaterThanOrEqual(1000)
+    expect(p2.numero!).toBeGreaterThanOrEqual(1000)
+  })
+
+  it('dos cajas simultáneas (usuarios distintos) obtienen números distintos (Caja.numero)', async () => {
+    const db = tenantClient(A.dbName)
+    const doc = await db.user.findFirst({ where: { username: 'doc' }, select: { id: true } })
+    // Usuarios distintos: crearCaja es idempotente por usuario, así evitamos que
+    // devuelva la misma caja. Cada uno crea la suya; los números deben diferir.
+    const [c1, c2] = await Promise.all([
+      crearCaja(db, actor(A.adminId), {}),
+      crearCaja(db, actor(doc!.id), {}),
+    ])
+
+    expect(c1.numero).not.toBe(c2.numero)
+    expect(new Set([c1.numero, c2.numero]).size).toBe(2)
   })
 })

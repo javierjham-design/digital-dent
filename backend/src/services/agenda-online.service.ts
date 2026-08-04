@@ -312,14 +312,16 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     if (hit) paciente = { id: hit.id }
   }
   if (!paciente) {
-    const ultimo = await db.paciente.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-    paciente = await db.paciente.create({
-      data: {
-        numero: Math.max(1000, (ultimo?.numero ?? 999) + 1),
-        nombre, apellido, telefono, rut,
-        email: emailForm || null, activo: true,
-      },
-      select: { id: true },
+    paciente = await db.$transaction(async (tx) => {
+      const numero = await siguienteNumero(tx, 'paciente')
+      return tx.paciente.create({
+        data: {
+          numero,
+          nombre, apellido, telefono, rut,
+          email: emailForm || null, activo: true,
+        },
+        select: { id: true },
+      })
     })
   } else if (emailForm) {
     // Paciente existente sin email: lo completamos (necesario para el pago del abono).

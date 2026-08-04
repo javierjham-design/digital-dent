@@ -3,6 +3,7 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { buildXlsx, formatRUT, isoDate } from '@/lib/excel'
 import { audit } from '@/lib/audit'
+import { siguienteNumero } from '@/lib/correlativo'
 import { validarDoc, formatDoc, getPais } from '@shared/constants/paises'
 import type { PacienteDTO, PacientesPagina, PacientesRecallPagina } from '@shared/types'
 
@@ -218,20 +219,24 @@ export async function crearPaciente(db: TenantClient, input: CrearPacienteInput)
     const dup = await db.paciente.findFirst({ where: { rut }, select: { id: true } })
     if (dup) throw badRequest('Ya existe un paciente con ese RUT en la clínica')
   }
-  // La ficha clínica de cada paciente se numera desde 1000 (correlativo).
-  const ultimo = await db.paciente.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-  const p = await db.paciente.create({
-    data: {
-      numero: Math.max(1000, (ultimo?.numero ?? 999) + 1),
-      nombre: input.nombre.trim(),
-      apellido: input.apellido.trim(),
-      rut,
-      otroDocId: typeof input.otroDocId === 'string' && input.otroDocId.trim() ? input.otroDocId.trim() : null,
-      telefono: input.telefono || null,
-      email: input.email || null,
-      prevision: input.prevision || null,
-      activo: true,
-    },
+  // La ficha clínica se numera desde 1000 (correlativo). El número se genera dentro
+  // de la transacción (advisory lock) para que dos altas simultáneas no choquen con
+  // el @unique de Paciente.numero.
+  const p = await db.$transaction(async (tx) => {
+    const numero = await siguienteNumero(tx, 'paciente')
+    return tx.paciente.create({
+      data: {
+        numero,
+        nombre: input.nombre.trim(),
+        apellido: input.apellido.trim(),
+        rut,
+        otroDocId: typeof input.otroDocId === 'string' && input.otroDocId.trim() ? input.otroDocId.trim() : null,
+        telefono: input.telefono || null,
+        email: input.email || null,
+        prevision: input.prevision || null,
+        activo: true,
+      },
+    })
   })
   return toDTO(p)
 }
