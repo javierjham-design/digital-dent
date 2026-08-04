@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ClinicaConfigDTO, UsuarioDTO } from '@shared/types'
 import { clinicaService, mediosPagoService, type MedioPagoDTO } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
-import { googleService, type GoogleCalendar } from '@/services/google.service'
+import { googleService, type GoogleCalendar, type GoogleHealth } from '@/services/google.service'
 import { pagosOnlineService, type PagoOnlineConfig } from '@/services/pagos-online.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
@@ -186,6 +186,7 @@ function GoogleCalendarSection() {
   const [estado, setEstado] = useState<'cargando' | 'conectado' | 'desconectado'>('cargando')
   const [calendars, setCalendars] = useState<GoogleCalendar[]>([])
   const [doctores, setDoctores] = useState<UsuarioDTO[]>([])
+  const [health, setHealth] = useState<GoogleHealth | null>(null)
   const [msg, setMsg] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -199,6 +200,7 @@ function GoogleCalendarSection() {
     else if (g === 'error') setMsg('No se pudo conectar Google: ' + (params.get('reason') ?? 'error'))
     if (g) window.history.replaceState({}, '', '/configuracion')
     googleService.calendarios().then((cs) => { setCalendars(cs); setEstado('conectado') }).catch(() => setEstado('desconectado'))
+    googleService.estado().then(setHealth).catch(() => {})
     cargarDoctores()
   }, [])
 
@@ -237,6 +239,20 @@ function GoogleCalendarSection() {
           : <span className="text-xs text-slate-400">Verificando…</span>}
       </div>
       <p className="text-slate-500 text-sm mt-1 mb-4">Sincroniza la agenda de cada profesional con un calendario de Google.</p>
+
+      {health?.problema && (
+        <div className="mb-4 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+          {health.problema === 'error' ? (
+            <p><span className="font-semibold">⚠️ Google se desconectó.</span>{' '}
+              La agenda de tus profesionales dejó de sincronizarse{health.desde ? ` (desde el ${new Date(health.desde).toLocaleString('es-CL', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })})` : ''}.
+              Las citas que se creen o muevan en Google no van a bajar a Cláriva. Volvé a conectar la cuenta abajo.</p>
+          ) : (
+            <p><span className="font-semibold">⚠️ La sincronización con Google está atrasada.</span>{' '}
+              El último sincronismo exitoso fue {health.ultimoSync ? `el ${new Date(health.ultimoSync).toLocaleString('es-CL', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', hour12: false })}` : 'hace mucho'} (esperado: cada {health.staleMinutos} min como máximo).
+              Si recién conectaste la cuenta, dale unos minutos; si persiste, probá reconectar.</p>
+          )}
+        </div>
+      )}
 
       {estado === 'desconectado' && (
         <button onClick={conectar} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Conectar Google Calendar</button>

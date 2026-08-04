@@ -8,6 +8,7 @@ import { pacientesService } from '@/services/clinica.service'
 import { clinicaService } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
 import { agendaOnlineService, type ReservaOnline } from '@/services/agenda-online.service'
+import { googleService } from '@/services/google.service'
 import { ApiError } from '@/services/api'
 import { PacienteBuscador } from '@/components/PacienteBuscador'
 import { RutField } from '@/components/RutField'
@@ -70,6 +71,9 @@ export function Agenda() {
   const [horarios, setHorarios] = useState<HorarioDTO[]>([])
   const [horariosTodos, setHorariosTodos] = useState<HorarioDTO[]>([])
   const [clinica, setClinica] = useState<ClinicaConfigDTO | null>(null)
+  // Aviso a recepción cuando la agenda puede estar incompleta por un problema de
+  // sincronización con Google (desconexión o sync atrasado). null = sin problema.
+  const [googleProblema, setGoogleProblema] = useState<null | 'error' | 'desactualizado'>(null)
 
   const [vista, setVista] = useState<Vista>(() => {
     const v = localStorage.getItem('agenda-vista')
@@ -142,13 +146,19 @@ export function Agenda() {
   }, [])
   useEffect(() => { cargarPendientes() }, [cargarPendientes])
 
+  // Estado de la sincronización con Google (para el aviso a recepción).
+  const cargarGoogle = useCallback(() => {
+    googleService.estado().then((h) => setGoogleProblema(h.problema)).catch(() => {})
+  }, [])
+  useEffect(() => { cargarGoogle() }, [cargarGoogle])
+
   // Auto-actualización cada 30 s: refleja los cambios que hacen otros usuarios sin
   // recargar la página ni cambiar la vista/fecha/profesional actual (recargar sólo
   // vuelve a consultar citas/bloqueos del rango visible).
   useEffect(() => {
-    const id = setInterval(() => { if (!document.hidden) { recargar(); cargarPendientes() } }, 30000)
+    const id = setInterval(() => { if (!document.hidden) { recargar(); cargarPendientes(); cargarGoogle() } }, 30000)
     return () => clearInterval(id)
-  }, [recargar, cargarPendientes])
+  }, [recargar, cargarPendientes, cargarGoogle])
 
   async function confirmarReserva(id: string) {
     // Aceptar la reserva la deja AGENDADA (naranjo). Desde ahí se notifica por
@@ -375,6 +385,16 @@ export function Agenda() {
 
       {/* Calendario */}
       <div className="flex-1 min-w-0">
+        {/* Aviso a recepción: la agenda puede estar incompleta por Google */}
+        {googleProblema && (
+          <div className="w-full mb-3 flex items-start gap-2.5 px-4 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800">
+            <span className="text-base leading-5">⚠️</span>
+            <p className="text-sm">
+              <span className="font-semibold">La agenda puede estar incompleta:</span>{' '}
+              las citas creadas desde Google no están bajando. Avisá al administrador.
+            </p>
+          </div>
+        )}
         {/* Aviso de reservas online por confirmar */}
         {pendientes.length > 0 && (
           <button onClick={() => setVerPendientes(true)}

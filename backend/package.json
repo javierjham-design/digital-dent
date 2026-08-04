@@ -25,6 +25,7 @@
     "prisma:generate:legacy": "node prisma/legacy/build-schema.mjs && prisma generate --schema prisma/legacy/schema.prisma",
     "migrate:data": "tsx src/scripts/migrate-data.ts",
     "dedupe:prestaciones": "tsx src/scripts/dedupe-prestaciones.ts",
+    "diag:google": "tsx src/scripts/diag-google.ts",
     "backup": "tsx src/scripts/backup.ts",
     "backup:prune": "tsx src/scripts/backup-prune.ts",
     "backup:drill": "tsx src/scripts/restore-drill.ts",

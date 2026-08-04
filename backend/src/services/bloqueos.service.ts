@@ -2,7 +2,7 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import type { BloqueoDTO } from '@shared/types'
-import { pushBloqueo, deleteBloqueoInGoogle } from '@/lib/google-sync'
+import { pushBloqueo, deleteBloqueoInGoogle, swallowGoogle } from '@/lib/google-sync'
 import { assertDentroDeAtencion } from '@/lib/atencion'
 import { conTitulo } from '@shared/utils/nombre'
 
@@ -76,7 +76,7 @@ export async function crearBloqueo(db: TenantClient, actor: JwtPayload, input: {
     data: { doctorId: input.doctorId, inicio, fin, motivo, createdById: actor.sub, createdByName: actorName(actor) },
     include: INCLUDE,
   })
-  void pushBloqueo(db, bloqueo.id).catch(() => {})
+  void pushBloqueo(db, bloqueo.id).catch(swallowGoogle('pushBloqueo'))
   return toDTO(bloqueo)
 }
 
@@ -102,7 +102,7 @@ export async function actualizarBloqueo(db: TenantClient, actor: JwtPayload, id:
   if (body.motivo !== undefined) data.motivo = body.motivo?.trim() || null
 
   const bloqueo = await db.bloqueoAgenda.update({ where: { id }, data, include: INCLUDE })
-  void pushBloqueo(db, bloqueo.id).catch(() => {})
+  void pushBloqueo(db, bloqueo.id).catch(swallowGoogle('pushBloqueo'))
   return toDTO(bloqueo)
 }
 
@@ -111,6 +111,6 @@ export async function eliminarBloqueo(db: TenantClient, _actor: JwtPayload, id: 
   if (!existing) throw notFound('Bloqueo no encontrado')
   // Cualquier usuario de la clínica puede eliminar bloqueos de la agenda.
   // Borramos el evento en Google ANTES de eliminar la fila (necesita su googleEventId).
-  await deleteBloqueoInGoogle(db, id).catch(() => {})
+  await deleteBloqueoInGoogle(db, id).catch(swallowGoogle('deleteBloqueo'))
   await db.bloqueoAgenda.delete({ where: { id } })
 }

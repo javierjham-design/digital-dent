@@ -51,6 +51,12 @@ model Configuracion {
   googleConnectedAt     DateTime?
   googleConnectedById   String?
   googleConnectedByName String?
+  // Estado de la sincronización (Google → Cláriva). googleSyncError guarda el
+  // último fallo de autenticación (token revocado/vencido); null = sano. La
+  // "desactualización" (el sync dejó de correr) NO se guarda acá: se deriva del
+  // último googleSyncedAt de los doctores (ver getGoogleHealth).
+  googleSyncError       String?
+  googleSyncErrorAt     DateTime?
 
   // Marketing / Meta (CRM). Pixel ID es público (se inyecta en el navegador);
   // el token de Conversions API es secreto (server-side). crmToken autentica el

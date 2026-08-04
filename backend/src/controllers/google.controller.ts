@@ -9,7 +9,7 @@ import {
   buildAuthUrl, disconnectClinica, exchangeCodeForTokens, listCalendars,
   saveTokensForClinica, signOAuthState, verifyOAuthState,
 } from '@/lib/google'
-import { findMatchingPaciente, syncAllMappedUsers, syncCalendar } from '@/lib/google-sync'
+import { findMatchingPaciente, getGoogleHealth, syncAllMappedUsers, syncCalendar } from '@/lib/google-sync'
 
 const FRONTEND_URL = (env.corsOrigins[0] ?? 'https://app.clariva.cl').replace(/\/$/, '')
 
@@ -69,6 +69,13 @@ export async function getCallback(req: Request, res: Response) {
     return res.redirect(dest('error', `&reason=${encodeURIComponent(msg)}`))
   }
   res.redirect(dest('connected'))
+}
+
+// GET /api/v1/google/health → estado de la sincronización (conectado / error /
+// desactualizado). Accesible a cualquier usuario de la clínica: la agenda lo usa
+// para avisar a recepción, no solo al admin en Configuración.
+export async function getHealth(req: Request, res: Response) {
+  res.json(await getGoogleHealth(tenantDb(req)))
 }
 
 // POST /api/v1/google/disconnect → admin.

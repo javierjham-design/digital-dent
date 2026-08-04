@@ -116,6 +116,7 @@ apiRouter.post('/google/sync', asyncHandler(googlec.postSync))
 apiRouter.post('/admin/backups/run', asyncHandler(backups.postBackupRun))
 
 // ── Google Calendar (sesión de clínica, database-per-tenant) ─────────────────
+apiRouter.get('/google/health', tenant, asyncHandler(googlec.getHealth))
 apiRouter.get('/google/connect', tenant, asyncHandler(googlec.getConnect))
 apiRouter.post('/google/disconnect', tenant, asyncHandler(googlec.postDisconnect))
 apiRouter.get('/google/calendars', tenant, asyncHandler(googlec.getCalendars))
