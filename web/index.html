@@ -12,7 +12,25 @@
     <meta name="description" content="Agenda, fichas, presupuestos, cobros y liquidaciones en una sola plataforma, con confirmaciones por WhatsApp. Pruébala gratis." />
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Contenido estático de respaldo (SEO / verificación de marca): describe el
+         nombre y el propósito de la app aunque el crawler no ejecute JavaScript.
+         React lo reemplaza al montar la SPA. -->
+    <div id="root">
+      <main style="max-width:680px;margin:0 auto;padding:56px 20px;font-family:Inter,system-ui,-apple-system,sans-serif;color:#0f172a;line-height:1.6">
+        <h1 style="font-size:28px;margin:0 0 12px">Cláriva</h1>
+        <p style="color:#475569;margin:0 0 16px">
+          Cláriva es un software de gestión para clínicas y centros de salud (dental, médico y
+          estética). Permite administrar la agenda, las fichas clínicas de pacientes, los
+          presupuestos, los cobros y las liquidaciones de profesionales en una sola plataforma,
+          con confirmaciones por WhatsApp y sincronización opcional de la agenda con Google Calendar.
+        </p>
+        <p style="color:#475569;margin:0">
+          <a href="/privacidad" style="color:#0891b2">Política de Privacidad</a> ·
+          <a href="/terminos" style="color:#0891b2">Términos de Servicio</a> ·
+          <a href="mailto:soporte@clariva.cl" style="color:#0891b2">soporte@clariva.cl</a>
+        </p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
