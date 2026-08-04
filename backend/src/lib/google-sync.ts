@@ -414,7 +414,7 @@ export interface SyncSummary {
  *   3. Sin marca de Cláriva → evento "ajeno", lo materializamos como
  *      BloqueoAgenda (los pacientes solo se crean en Cláriva).
  */
-export async function syncCalendar(db: TenantClient, userId: string): Promise<SyncSummary> {
+export async function syncCalendar(db: TenantClient, userId: string, forceFull = false): Promise<SyncSummary> {
   const summary: SyncSummary = {
     userId, doctor: '—', changed: 0, newBloqueos: 0, newCitas: 0, reAsserted: 0, fullResync: false, error: null,
   }
@@ -452,7 +452,10 @@ export async function syncCalendar(db: TenantClient, userId: string): Promise<Sy
   const events: calendar_v3.Schema$Event[] = []
   let pageToken: string | undefined
   let nextSyncToken: string | undefined
-  const tokenOnEntry = user.googleSyncToken
+  // forceFull ignora el token incremental y rehace un snapshot completo de la
+  // ventana futura. Mecanismo de recuperación cuando el syncToken quedó "ciego"
+  // a cambios (Google devuelve 0 aunque haya eventos nuevos).
+  const tokenOnEntry = forceFull ? null : user.googleSyncToken
   const initialPullStart = !tokenOnEntry ? new Date() : null
   const initialPullEnd = !tokenOnEntry
     ? new Date(Date.now() + PULL_WINDOW_DAYS_FUTURE * 24 * 60 * 60 * 1000)
@@ -655,7 +658,7 @@ async function reconcileEvent(
 // Recorre el control-plane y, por cada clínica activa con Google conectado,
 // abre su base y sincroniza los doctores con calendario asignado.
 
-export async function syncAllMappedUsers(): Promise<SyncSummary[]> {
+export async function syncAllMappedUsers(forceFull = false): Promise<SyncSummary[]> {
   const clinicas = await control.clinica.findMany({
     where: { activo: true, esDemo: false },
     select: { dbName: true },
@@ -675,7 +678,7 @@ export async function syncAllMappedUsers(): Promise<SyncSummary[]> {
         where: { activo: true, googleCalendarId: { not: null } },
         select: { id: true },
       })
-      for (const u of users) out.push(await syncCalendar(db, u.id))
+      for (const u of users) out.push(await syncCalendar(db, u.id, forceFull))
     } finally {
       // El cron corre cada ~15 min y el cache de clientes de tenant.ts no expira:
       // sin descartar el cliente, cada corrida filtraría una conexión por clínica.

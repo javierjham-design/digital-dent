@@ -97,12 +97,15 @@ export async function postSync(req: Request, res: Response) {
   const headerSecret = req.headers['x-cron-secret']
   const isCron = Boolean(env.cronSecret && headerSecret === env.cronSecret)
   const targetUserId = typeof req.body?.userId === 'string' ? req.body.userId : null
+  // full: ignora el token incremental y rehace un snapshot completo (recuperación
+  // cuando el syncToken quedó ciego a los cambios del calendario).
+  const forceFull = req.body?.full === true
 
   if (isCron) {
     // Cron sin objetivo: recorre todas las clínicas con Google conectado.
     // Cron con userId: no podemos resolver su base sin saber la clínica, así que
     // ese caso solo se soporta vía trigger manual (con sesión de clínica).
-    if (!targetUserId) return void res.json({ summaries: await syncAllMappedUsers() })
+    if (!targetUserId) return void res.json({ summaries: await syncAllMappedUsers(forceFull) })
   }
 
   // Trigger manual desde la UI (o cron con userId): requiere admin de una clínica.
@@ -120,11 +123,11 @@ export async function postSync(req: Request, res: Response) {
   if (targetUserId) {
     const ok = await db.user.findFirst({ where: { id: targetUserId }, select: { id: true } })
     if (!ok) throw badRequest('User not in clinic')
-    return void res.json({ summaries: [await syncCalendar(db, targetUserId)] })
+    return void res.json({ summaries: [await syncCalendar(db, targetUserId, forceFull)] })
   }
   const users = await db.user.findMany({ where: { activo: true, googleCalendarId: { not: null } }, select: { id: true } })
   const summaries = []
-  for (const u of users) summaries.push(await syncCalendar(db, u.id))
+  for (const u of users) summaries.push(await syncCalendar(db, u.id, forceFull))
   res.json({ summaries })
 }
 
