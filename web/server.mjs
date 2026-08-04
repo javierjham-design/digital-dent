@@ -21,7 +21,7 @@ const CSP = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: https:",
   "font-src 'self' data: https://fonts.gstatic.com",
-  "connect-src 'self' https://api.clariva.cl https://*.up.railway.app",
+  "connect-src 'self' https://api.clariva.cl https://*.up.railway.app https://*.ingest.us.sentry.io",
 ].join('; ')
 
 app.use((_req, res, next) => {

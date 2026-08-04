@@ -25,7 +25,7 @@ const CSP = [
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https://fonts.gstatic.com",
   "worker-src 'self' blob:",
-  "connect-src 'self' https://api.clariva.cl https://*.up.railway.app",
+  "connect-src 'self' https://api.clariva.cl https://*.up.railway.app https://*.ingest.us.sentry.io",
 ].join('; ')
 
 app.use((_req, res, next) => {
