@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-08-04 — Correlativos (`numero`) seguros ante creación concurrente
+
+El número de comprobante de cobro (y de apertura de caja y de presupuesto) se calculaba
+con `findFirst({ orderBy: { numero: 'desc' } }) + 1` **fuera** de la transacción. Dos
+operaciones simultáneas en la misma clínica (recepción y box cobrando a la vez) leían el
+mismo máximo; como `Cobro.numero`/`Presupuesto.numero` son `@unique`, la segunda fallaba
+con error de constraint — para la recepcionista, "el sistema se cayó justo al cobrar".
+Rama `fix/correlativo-cobros`.
+
+- **Helper `siguienteNumero(tx, tipo)`** (`backend/src/lib/correlativo.ts`): genera el
+  correlativo **dentro** de la transacción, serializando con un **advisory lock
+  transaccional de Postgres** (`pg_advisory_xact_lock`, una clave por tipo para que
+  cobros/sesiones/presupuestos no se bloqueen entre sí). El lock se libera al cerrar la
+  transacción, así que read del máximo + insert quedan atómicos frente a otra transacción
+  del mismo tipo. En los tests (SQLite) la función no existe → se omite; SQLite ya
+  serializa las escrituras.
+- **Sitios corregidos** (el read del número se movió adentro del `$transaction` con el
+  create): `cobros.service.ts` `crearCobro` (185), `crearCobroLinkPago` (242),
+  `crearCobroLibreConLink` (276); `agenda-online.service.ts` (abono de reserva online, 4º
+  sitio de `Cobro.numero`); `lib/caja.ts` `abrirSesion` (`SesionCaja.numero`);
+  `presupuestos.service.ts` `crearPresupuesto` (`Presupuesto.numero`).
+- **Test de concurrencia** (`test/integration/correlativo-concurrente.test.ts`): dos
+  creaciones simultáneas de Presupuesto y de apertura de caja (cajas distintas) obtienen
+  números distintos. Sin el fix, una rechaza con P2002. Ambos usan el mismo `siguienteNumero`
+  que los 4 sitios de cobro.
+- **Fuera de alcance (mismo patrón, pendiente):** `Paciente.numero` (`pacientes.service.ts`,
+  `agenda-online.service.ts`, `crm.service.ts`) y `Caja.numero` (`caja.service.ts`) siguen
+  calculando el correlativo fuera de la transacción. Aplicarles el mismo helper es directo.
+
+**Verificación:** typecheck backend ✓ · unit 92/92 ✓ · integración 50/52 (los 2 fallos
+—consentimientos y conversión de lead— son preexistentes, ver `PROMPTS_SIGUIENTES.md`).
+No se tocó `migrate-tenants.ts`.
+
+---
+
 ## 2026-08-04 — Observabilidad ENCENDIDA en prod + endurecimiento de PII
 
 Puesta en marcha operativa de la observabilidad (el código ya estaba desde el 2026-08-03).

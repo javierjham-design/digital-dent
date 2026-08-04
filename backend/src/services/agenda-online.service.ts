@@ -4,6 +4,7 @@ import { badRequest, conflict, notFound } from '@/lib/errors'
 import { listarHorarios } from '@/services/horarios.service'
 import { getMetaConfig, buscarLeadParaReserva, registrarEnvioMeta, dispararEtapaCrmMeta } from '@/services/crm.service'
 import { crearLinkParaCobro } from '@/services/pagos-online.service'
+import { siguienteNumero } from '@/lib/correlativo'
 import { enviarConfirmacionHora } from '@/services/email.service'
 import { enviarEventoMeta, metaHabilitado } from '@/lib/meta'
 import { ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
@@ -358,13 +359,15 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
   if (requiereAbono) {
     const revertir = async () => { await db.cita.delete({ where: { id: cita.id } }).catch(() => {}) }
     if (!opts?.slug) { await revertir(); throw badRequest('No se pudo iniciar el pago del abono. Intenta más tarde.') }
-    const ultimoCobro = await db.cobro.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-    const cobro = await db.cobro.create({
-      data: {
-        pacienteId: paciente.id, numero: (ultimoCobro?.numero ?? 0) + 1,
-        concepto: `Abono reserva online · ${link.nombre}`, monto: link.montoAbono, estado: 'PENDIENTE',
-      },
-      select: { id: true },
+    const cobro = await db.$transaction(async (tx) => {
+      const numero = await siguienteNumero(tx, 'cobro')
+      return tx.cobro.create({
+        data: {
+          pacienteId: paciente.id, numero,
+          concepto: `Abono reserva online · ${link.nombre}`, monto: link.montoAbono, estado: 'PENDIENTE',
+        },
+        select: { id: true },
+      })
     })
     const res = await crearLinkParaCobro(db, cobro.id, {
       apiBase: opts.apiBase, appBase: opts.appBase, slug: opts.slug, email: emailForm,

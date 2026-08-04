@@ -1,5 +1,6 @@
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
+import { siguienteNumero } from '@/lib/correlativo'
 
 const ESTADOS = ['PENDIENTE', 'APROBADO', 'RECHAZADO', 'COMPLETADO']
 
@@ -32,23 +33,25 @@ export async function crearPresupuesto(db: TenantClient, body: { pacienteId: str
   if (!paciente) throw notFound('Paciente no encontrado')
   if (!Array.isArray(body.items) || body.items.length === 0) throw badRequest('Agrega al menos un ítem al presupuesto')
 
-  const last = await db.presupuesto.findFirst({ orderBy: { numero: 'desc' }, select: { numero: true } })
-  const numero = (last?.numero ?? 0) + 1
-
-  return db.presupuesto.create({
-    data: {
-      pacienteId: body.pacienteId, numero, total: Number(body.total),
-      items: {
-        create: body.items.map((it) => ({
-          prestacionId: it.prestacionId,
-          cantidad: it.cantidad,
-          precioUnitario: it.precioUnitario,
-          descuento: it.descuento ?? 0,
-          subtotal: it.subtotal,
-        })),
+  // Correlativo dentro de la transacción (advisory lock) para que dos presupuestos
+  // simultáneos no obtengan el mismo número (numero es @unique).
+  return db.$transaction(async (tx) => {
+    const numero = await siguienteNumero(tx, 'presupuesto')
+    return tx.presupuesto.create({
+      data: {
+        pacienteId: body.pacienteId, numero, total: Number(body.total),
+        items: {
+          create: body.items.map((it) => ({
+            prestacionId: it.prestacionId,
+            cantidad: it.cantidad,
+            precioUnitario: it.precioUnitario,
+            descuento: it.descuento ?? 0,
+            subtotal: it.subtotal,
+          })),
+        },
       },
-    },
-    include: { items: true },
+      include: { items: true },
+    })
   })
 }
 
