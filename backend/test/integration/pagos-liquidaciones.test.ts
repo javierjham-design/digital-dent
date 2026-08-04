@@ -399,7 +399,11 @@ describe('CRM: captación de leads + conversión a paciente', () => {
     expect(conv.body.pacienteId).toBeTruthy()
     const db = tenantClient(A.dbName)
     const lead = await db.lead.findUnique({ where: { id: leadId }, select: { estado: true, pacienteId: true } })
-    expect(lead?.estado).toBe('CONVERTIDO')
+    // "Solo crear paciente" (convertir) es administrativo POR DISEÑO (2026-07-27): vincula
+    // el paciente al lead pero CONSERVA su estado — NO lo marca CONVERTIDO ni dispara el
+    // evento "customer" de Meta (crear la ficha ≠ conversión del embudo). Ver
+    // crm.service.convertirEnPaciente. La conversión del embudo es un cambio de estado aparte.
+    expect(lead?.estado).toBe('NUEVO')
     expect(lead?.pacienteId).toBe(conv.body.pacienteId)
   })
 
@@ -560,16 +564,24 @@ describe('consentimientos informados', () => {
     expect(pl.body.length).toBeGreaterThan(0)
     const plantillaId = pl.body[0].id as string
 
+    // Generar un consentimiento exige un profesional responsable (con agenda) y, para las
+    // plantillas de categoría CONSENTIMIENTO, un plan de tratamiento asociado. Creamos el
+    // plan y usamos un doctor como responsable.
+    const plan = await post('/planes-tratamiento', { pacienteId, doctorTitularId: doctorId })
+    expect(plan.status).toBe(201)
+    const planId = plan.body.id as string
+    const genBody = { pacienteId, plantillaId, responsableId: doctorId, planId }
+
     // Falta la fecha de nacimiento → previsualizar lo reporta y generar se bloquea
     const prev = await post('/consentimientos/previsualizar', { pacienteId, plantillaId })
     expect(prev.status).toBe(200)
     expect(prev.body.faltantes.length).toBeGreaterThan(0)
-    const g1 = await post('/consentimientos/generar', { pacienteId, plantillaId })
-    expect(g1.status).toBe(400)
+    const g1 = await post('/consentimientos/generar', genBody)
+    expect(g1.status).toBe(400) // bloqueado por el dato faltante (fecha de nacimiento)
 
     // Completar la ficha y generar
     await request(app).patch(`/api/v1/pacientes/${pacienteId}`).set(auth()).send({ fechaNacimiento: '1990-05-10' })
-    const g2 = await post('/consentimientos/generar', { pacienteId, plantillaId })
+    const g2 = await post('/consentimientos/generar', genBody)
     expect(g2.status).toBe(201)
     expect(g2.body.estado).toBe('BORRADOR')
     const cid = g2.body.id as string

@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-08-04 — Los 2 tests de integración en rojo: arreglados (eran tests desactualizados)
+
+`test:integration` daba 48/50 desde hacía semanas (consentimientos + conversión de lead).
+Diagnóstico: **ambos eran tests viejos que asumían un contrato que el código cambió a
+propósito** — el código estaba bien, no había bug. No se tocó código de producción; se
+actualizaron los tests. Rama `fix/tests-integracion-rojos`.
+
+- **Conversión de lead** (`pagos-liquidaciones.test.ts` "capta un lead… y lo convierte"):
+  el test esperaba `lead.estado === 'CONVERTIDO'` tras `POST /crm/leads/:id/convertir`. Pero
+  el 2026-07-27 `convertirEnPaciente` ("Solo crear paciente") pasó a ser **administrativo por
+  diseño**: vincula el paciente y **CONSERVA** el estado (no marca CONVERTIDO ni dispara el
+  evento "customer" de Meta antes de tiempo). Fix: el test ahora asegura que el estado se
+  **conserva** (`NUEVO`) y que `lead.pacienteId` queda vinculado.
+- **Consentimientos** (`pagos-liquidaciones.test.ts` "valida datos faltantes, genera…"):
+  el test mandaba `generar` con solo `{pacienteId, plantillaId}`. Pero `generar` hoy **exige
+  un profesional responsable** (`responsableId`, con agenda) y, para plantillas de categoría
+  CONSENTIMIENTO, **un plan de tratamiento asociado** (`planId`) — requisitos de producto con
+  mensajes de usuario claros. Fix: el test crea un plan y pasa `responsableId` (un doctor) +
+  `planId`; así prueba de verdad el gate de datos faltantes (400) y luego el 201.
+
+**Verificación:** typecheck ✓ · unit 98/98 ✓ · **integración 54/54** (antes 52/54). La suite
+de integración queda **100% verde**. No se tocó código de producción ni `migrate-tenants.ts`.
+
+---
+
 ## 2026-08-04 — Techo de conexiones: caché LRU de clientes por tenant + pool acotado
 
 `db/tenant.ts` cacheaba un `PrismaClient` por `dbName` en un `Map` **sin límite ni
