@@ -42,7 +42,7 @@ async function cajaAccesoLectura(db: TenantClient, cajaId: string, actor: JwtPay
 // Asigna correlativo a cajas antiguas sin número (numero = 0), por antigüedad. El
 // backfill corre dentro de una transacción con el advisory lock (via siguienteNumero)
 // para no colisionar con una creación de caja concurrente.
-async function asegurarNumerosCaja(db: TenantClient): Promise<void> {
+export async function asegurarNumerosCaja(db: TenantClient): Promise<void> {
   const sinNumero = await db.caja.findMany({ where: { numero: 0 }, orderBy: { createdAt: 'asc' }, select: { id: true } })
   if (sinNumero.length === 0) return
   await db.$transaction(async (tx) => {
@@ -51,7 +51,7 @@ async function asegurarNumerosCaja(db: TenantClient): Promise<void> {
   })
 }
 // Asigna correlativo de apertura a sesiones antiguas sin número (numero = 0).
-async function asegurarNumerosSesion(db: TenantClient): Promise<void> {
+export async function asegurarNumerosSesion(db: TenantClient): Promise<void> {
   const sinNumero = await db.sesionCaja.findMany({ where: { numero: 0 }, orderBy: { abiertaAt: 'asc' }, select: { id: true } })
   if (sinNumero.length === 0) return
   await db.$transaction(async (tx) => {

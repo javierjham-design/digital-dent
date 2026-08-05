@@ -45,8 +45,10 @@ describe('correlativos bajo creación concurrente', () => {
 
   it('dos aperturas de caja simultáneas (cajas distintas) obtienen números distintos (SesionCaja.numero)', async () => {
     const db = tenantClient(A.dbName)
-    const caja1 = await db.caja.create({ data: { nombre: 'Caja concurrencia 1' } })
-    const caja2 = await db.caja.create({ data: { nombre: 'Caja concurrencia 2' } })
+    // numero explícito (Caja.numero es @unique, sin default): en prod lo asigna
+    // siguienteNumero; acá son fixtures, basta con dos valores distintos.
+    const caja1 = await db.caja.create({ data: { numero: 8001, nombre: 'Caja concurrencia 1' } })
+    const caja2 = await db.caja.create({ data: { numero: 8002, nombre: 'Caja concurrencia 2' } })
 
     const [s1, s2] = await Promise.all([
       abrirSesion(db, { cajaId: caja1.id, userId: A.adminId, userNombre: 'admin', saldoApertura: 0 }),

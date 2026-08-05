@@ -887,7 +887,13 @@ CREATE UNIQUE INDEX "Presupuesto_numero_key" ON "Presupuesto"("numero");
 CREATE UNIQUE INDEX "Cobro_numero_key" ON "Cobro"("numero");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "Caja_numero_key" ON "Caja"("numero");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "Caja_nombre_key" ON "Caja"("nombre");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SesionCaja_numero_key" ON "SesionCaja"("numero");
 
 -- CreateIndex
 CREATE INDEX "SesionCaja_cajaId_estado_idx" ON "SesionCaja"("cajaId", "estado");

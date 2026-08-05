@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-08-05 — @unique en Caja.numero y SesionCaja.numero (red del correlativo)
+
+El correlativo de caja/sesión ya era race-safe (helper `siguienteNumero` con advisory
+lock), pero el campo era `Int @default(0)` sin restricción: un duplicado por otro camino
+pasaría en silencio. Se agrega la red del constraint. Rama `defense/caja-unique-provision-selfcheck`.
+
+- **Schema** (`prisma/tenant/schema.prisma`): `Caja.numero` y `SesionCaja.numero` → `Int @unique @default(0)`.
+  Se **conserva** el `@default(0)` (con comentario que explica por qué): quitarlo obligaría a un
+  `db push --accept-data-loss` sobre bases productivas, y `migrate-tenants` nunca usa ese flag
+  (regla 1). El default quedó **inerte** (los 3 paths de inserción setean numero explícito; ningún
+  seed crea cajas), y el `@unique` lo auto-protege: un segundo `0` rebota contra el índice.
+- **Precondición verificada**: script `src/scripts/caja-numeros.ts` recorrió las 3 clínicas →
+  **0 filas con numero=0** en Caja y SesionCaja (nada que backfillear). El backfill perezoso
+  (`asegurarNumerosCaja`/`asegurarNumerosSesion`, ahora exportados) ya había corrido.
+- **Aplicación del índice**: `prisma db push` marca el `@unique` sobre columna poblada como
+  "data loss" (falso positivo), así que NO pasa por `migrate-tenants`. Se aplicó con
+  `CREATE UNIQUE INDEX` explícito (aditivo, no destructivo) vía `src/scripts/aplicar-caja-unique.ts`,
+  **todo-o-nada** con pre-chequeo de duplicados + rollback: las **3 bases** quedaron con
+  `Caja_numero_key` y `SesionCaja_numero_key` (nombres que Prisma espera). Backup fresco antes
+  (regla 10). Verificado: `migrate-tenants` da **diff vacío** en las 3 (bases existentes + init.sql
+  de nuevas alineados).
+- **init.sql** regenerado (`tenant:initsql`) con los 2 índices → clínicas/demos nuevas nacen con
+  la restricción. Guarda anti-drift (`init-sql-sync.test.ts`) verde.
+- **`asegurarNumerosCaja`/`asegurarNumerosSesion`**: siguen alcanzables (el default existe); quedan
+  como **defensa histórica** (backfill de filas viejas en 0), ya sin trabajo pendiente.
+- **Test**: `correlativo-concurrente.test.ts` ahora pasa `numero` explícito a las cajas-fixture
+  (con `@unique`, dos creates sin numero colisionarían en 0 — que es la protección buscada).
+- **Verificación**: typecheck ✓ · unit **114/114** · integración **60/60** · contrato ✓.
+
+---
+
 ## 2026-08-05 — 2FA TOTP obligatorio para super-admin
 
 El super-admin (schema de CONTROL) ve todas las clínicas: era la cuenta sin segundo factor.

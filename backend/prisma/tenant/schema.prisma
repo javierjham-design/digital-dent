@@ -513,7 +513,14 @@ model Cobro {
 
 model Caja {
   id           String       @id @default(cuid())
-  numero       Int          @default(0) // correlativo para ordenar/identificar (se asigna al crear)
+  // @unique es la red de seguridad del correlativo (lo asigna siguienteNumero con
+  // advisory lock; un duplicado ahora falla ruidoso en vez de pasar en silencio).
+  // El @default(0) quedó INERTE a propósito: los 3 paths de inserción (crearCaja,
+  // abrirCajaParaUsuario, abrirSesionCore) setean numero explícito, y ningún seed crea
+  // cajas. NO se quita porque sacarlo obliga a un `db push --accept-data-loss` sobre
+  // bases productivas (regla 1 de CLAUDE.md: migrate-tenants nunca usa ese flag). Con el
+  // @unique, aunque algo insertara sin numero, el segundo 0 rebotaría contra el constraint.
+  numero       Int          @unique @default(0)
   nombre       String       @unique
   descripcion  String?
   saldoInicial Float        @default(0)
@@ -528,7 +535,10 @@ model Caja {
 
 model SesionCaja {
   id               String    @id @default(cuid())
-  numero           Int       @default(0) // correlativo de aperturas de caja (no se repite; se asigna al abrir)
+  // @unique como red del correlativo de aperturas (mismo criterio que Caja.numero de
+  // arriba). @default(0) inerte: abrirSesionCore setea numero explícito y ningún seed crea
+  // sesiones; se conserva para no forzar un push --accept-data-loss sobre bases productivas.
+  numero           Int       @unique @default(0)
   cajaId           String
   estado           String    @default("ABIERTA")
   saldoApertura    Float     @default(0)
