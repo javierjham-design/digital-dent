@@ -5,7 +5,7 @@
 import bcrypt from 'bcryptjs'
 import { randomBytes } from 'crypto'
 import { control } from '@/db/control'
-import { badRequest } from '@/lib/errors'
+import { badRequest, serviceUnavailable } from '@/lib/errors'
 import { provisionTenant, dropTenantDatabase, dbNameForSlug } from '@/lib/provision'
 import { seedTenantBasics } from '@/lib/tenant-seed'
 
@@ -74,8 +74,13 @@ export async function crearClinicaConProvision(body: CrearClinicaInput): Promise
   const contrasena = generarPassword()
   const passwordHash = await bcrypt.hash(contrasena, 10)
 
-  // 1) provisionar base física + schema, 2) sembrar, 3) registrar en control.
-  await provisionTenant(dbName)
+  // 1) provisionar base física + schema (con self-check), 2) sembrar, 3) registrar en control.
+  try {
+    await provisionTenant(dbName)
+  } catch {
+    // provisionTenant ya borró la base a medio crear y reportó a Sentry: no se creó nada.
+    throw serviceUnavailable('No se pudo aprovisionar la base de la clínica. No se creó nada; reintentá en unos minutos.')
+  }
   try {
     await seedTenantBasics(dbName, {
       nombre: body.clinicaNombre.trim(),

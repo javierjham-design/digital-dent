@@ -5,11 +5,12 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import { PrismaClient as TenantPrisma } from '../../prisma/generated/tenant/index.js'
+import { PrismaClient as TenantPrisma, Prisma } from '../../prisma/generated/tenant/index.js'
 import { env } from '@/config/env'
 import { control } from '@/db/control'
 import { tenantClient, tenantUrl } from '@/db/tenant'
 import { splitSqlStatements } from '@/lib/sql-split'
+import { captureError } from '@/lib/observability'
 
 const INIT_SQL_PATH = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../prisma/tenant/init.sql')
 
@@ -138,11 +139,61 @@ export async function applyTenantSchema(dbName: string): Promise<void> {
   }
 }
 
-// Provisión completa: crea la base y aplica el schema. Idempotente en la
-// creación; el schema se asume sobre una base nueva (vacía).
+// Error de provisión incompleta: el DDL se aplicó a medias y la base NO tiene todas
+// las tablas/columnas que el schema declara. Lleva la lista de lo que faltó.
+export class ProvisionIncompletaError extends Error {
+  constructor(public dbName: string, public faltantes: string[]) {
+    const muestra = faltantes.slice(0, 12).join(', ')
+    super(`Provisión incompleta de "${dbName}": faltan ${faltantes.length} columna(s)/tabla(s) [${muestra}${faltantes.length > 12 ? ', …' : ''}]`)
+    this.name = 'ProvisionIncompletaError'
+  }
+}
+
+// PURA (testeable sin base): dado el set de "Tabla.columna" que EXISTEN en la base,
+// devuelve las que el schema tenant DECLARA (vía DMMF del cliente generado — misma fuente
+// que usa el código) y NO están. Las relaciones (kind 'object') no son columnas y se saltan.
+// El nombre real respeta @map/@@map (dbName ?? name).
+export function columnasFaltantes(existentes: Set<string>): string[] {
+  const faltantes: string[] = []
+  for (const model of Prisma.dmmf.datamodel.models) {
+    const tabla = model.dbName ?? model.name
+    for (const f of model.fields) {
+      if (f.kind === 'object') continue // relación: no es una columna
+      const col = f.dbName ?? f.name
+      if (!existentes.has(`${tabla}.${col}`)) faltantes.push(`${tabla}.${col}`)
+    }
+  }
+  return faltantes
+}
+
+// Self-check post-DDL: compara lo que el schema declara contra lo que REALMENTE existe en
+// la base recién creada. Devuelve las faltantes ("Tabla.columna"); vacío = base completa.
+// Cubre el modo de falla que la guarda anti-drift NO ve: que el DDL se aplique a medias en
+// runtime (así nació la demo con 491 columnas en vez de 588).
+export async function verificarSchemaTenant(dbName: string): Promise<string[]> {
+  const db = tenantClient(dbName)
+  const cols = await db.$queryRawUnsafe<{ table_name: string; column_name: string }[]>(
+    `SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'`,
+  )
+  return columnasFaltantes(new Set(cols.map((c) => `${c.table_name}.${c.column_name}`)))
+}
+
+// Provisión completa: crea la base, aplica el schema y VERIFICA que quedó completa.
+// Atómica: si el DDL falla o el self-check encuentra faltantes, borra la base que acababa
+// de crear (mejor no crear la clínica que crearla rota) y relanza. La base recién creada
+// (sin registro ni pacientes) cae por el camino no-productivo de dropTenantDatabase.
+// Idempotente en la creación.
 export async function provisionTenant(dbName: string): Promise<void> {
   await createTenantDatabase(dbName)
-  await applyTenantSchema(dbName)
+  try {
+    await applyTenantSchema(dbName)
+    const faltantes = await verificarSchemaTenant(dbName)
+    if (faltantes.length > 0) throw new ProvisionIncompletaError(dbName, faltantes)
+  } catch (e) {
+    captureError(e instanceof Error ? e : new Error(String(e)), { route: 'provisionTenant', dbName })
+    await dropTenantDatabase(dbName).catch(() => {}) // no dejar una base huérfana a medio crear
+    throw e
+  }
 }
 
 // Verifica conectividad/credenciales del servidor de tenants (para diagnóstico).

@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs'
 import { control } from '@/db/control'
 import { tenantClient } from '@/db/tenant'
-import { badRequest, tooMany } from '@/lib/errors'
+import { badRequest, tooMany, serviceUnavailable } from '@/lib/errors'
 import { rateLimit } from '@/lib/rate-limit'
 import { getVertical } from '@/lib/verticales'
 import { provisionTenant, dropTenantDatabase, dbNameForSlug } from '@/lib/provision'
@@ -89,8 +89,14 @@ export async function crearDemo(input: CrearDemoInput, ip: string): Promise<Demo
   const password = 'Demo' + Math.random().toString(36).slice(2, 8) + Math.floor(10 + Math.random() * 89)
   const passwordHash = await bcrypt.hash(password, 10)
 
-  // 1) base física + schema, 2) seed (admin + datos del rubro), 3) registro.
-  await provisionTenant(dbName)
+  // 1) base física + schema (con self-check), 2) seed (admin + datos del rubro), 3) registro.
+  try {
+    await provisionTenant(dbName)
+  } catch {
+    // provisionTenant ya borró la base a medio crear y reportó a Sentry. El lead ve un
+    // error limpio (503), no un 500 crudo con "Error interno del servidor".
+    throw serviceUnavailable('No pudimos preparar tu demo en este momento. Probá de nuevo en unos minutos.')
+  }
   try {
     const { adminId } = await seedTenantBasics(dbName, { nombre: nombreClinica, telefono, email }, {
       name: nombre, username: 'Administrador', passwordHash, forcePasswordChange: false,

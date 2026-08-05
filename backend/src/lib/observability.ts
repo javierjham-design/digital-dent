@@ -77,7 +77,7 @@ export function sentryEnabled(): boolean {
 // Reporta un error a Sentry etiquetado con la clínica (slug), el usuario y el
 // request-id que vienen del contexto de la request. NO envía datos de pacientes:
 // solo el error y estos tags de routing/diagnóstico.
-export function captureError(err: unknown, extra?: { route?: string }): void {
+export function captureError(err: unknown, extra?: { route?: string; dbName?: string }): void {
   if (!enabled) return
   const ctx = getRequestContext()
   Sentry.withScope((scope) => {
@@ -85,6 +85,7 @@ export function captureError(err: unknown, extra?: { route?: string }): void {
     if (ctx?.userId) scope.setTag('user_id', ctx.userId)
     if (ctx?.requestId) scope.setTag('request_id', ctx.requestId)
     if (extra?.route) scope.setTag('route', extra.route)
+    if (extra?.dbName) scope.setTag('db', extra.dbName)
     Sentry.captureException(err)
   })
 }

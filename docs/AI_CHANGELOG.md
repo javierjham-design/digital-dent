@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-05 — Self-check de schema en provisionTenant()
+
+`provisionTenant()` hacía `createTenantDatabase` + `applyTenantSchema` y nada más. La guarda
+anti-drift cubre el init.sql desactualizado en el repo, pero NO que el DDL se aplique a
+medias en runtime — así nació una demo con **491 columnas en vez de 588**. Rama
+`defense/caja-unique-provision-selfcheck`.
+
+- **`verificarSchemaTenant(dbName)`** (`lib/provision.ts`): tras aplicar el DDL, compara las
+  columnas que el schema **declara** (vía `Prisma.dmmf` del cliente generado — misma fuente que
+  usa el código, respeta `@map/@@map`, saltea relaciones) contra las que **existen** de verdad
+  (`information_schema.columns`). Devuelve las faltantes (`Tabla.columna`). La lógica de
+  comparación se extrajo a **`columnasFaltantes(existentes)`** (pura, testeable sin base).
+- **`provisionTenant()` ahora es ATÓMICO**: si el DDL falla o el self-check encuentra faltantes,
+  **borra la base que acababa de crear** (mejor no crear la clínica que crearla rota — la base
+  recién creada, sin registro ni pacientes, cae por el camino no-productivo de
+  `dropTenantDatabase`) y relanza `ProvisionIncompletaError` (con la lista de lo que faltó).
+  Reporta a **Sentry** con tag `db=<dbName>` (nuevo parámetro `dbName` en `captureError`).
+- **Error limpio al lead**: `crearDemo` (y el alta admin en `clinicas-registry`) envuelven
+  `provisionTenant` y, ante un fallo de provisión, lanzan `serviceUnavailable` (**503**, nuevo
+  helper en `lib/errors`) — el lead ve "probá de nuevo en unos minutos", no un **500** crudo.
+- **Sin falsos positivos**: verificado read-only que `verificarSchemaTenant` da **0 faltantes**
+  en las 3 bases reales (completas) → el self-check no rompe el alta de clínicas/demos correctas.
+- **Test**: `provision.test.ts` cubre `columnasFaltantes` (base vacía → cientos de faltantes;
+  completa → 0; falta puntual detectada; tabla entera ausente).
+- **Verificación**: typecheck ✓ · unit **118/118** · integración **60/60** · contrato ✓. Falta
+  la prueba end-to-end desde la landing (requiere deploy).
+
+---
+
 ## 2026-08-05 — @unique en Caja.numero y SesionCaja.numero (red del correlativo)
 
 El correlativo de caja/sesión ya era race-safe (helper `siguienteNumero` con advisory
