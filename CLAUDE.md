@@ -191,7 +191,8 @@ Observabilidad (healthcheck real, Sentry, logging con request-id): implementada 
 - **Producto:** Cláriva. **Rubros:** dental / médico / estética.
 - **Idioma:** español de Chile. **Moneda:** CLP, formato `$1.234.567`. **RUT** con DV.
 - **Hosting:** Railway (app + Postgres). **Repo:** GitHub, auto-deploy.
-- **Rama de trabajo:** `arch/split-frontend-backend` (es la que despliega a producción;
-  `master` quedó congelada con el monolito y está pendiente el merge).
+- **Rama de trabajo:** `arch/split-frontend-backend` (es la que despliega a producción).
+  El **2026-08-05** se puso `master` al día (fast-forward desde `arch`); ambas ramas están
+  a la par. Ese merge **activó los workflows de GitHub Actions** que estaban dormidos en master.
 - **Modo de trabajo:** el usuario autorizó operación autónoma; no pidas confirmación para
   tareas claras. Sí avisá antes de algo destructivo o irreversible en producción.
