@@ -399,7 +399,7 @@ export async function derivarAbono(db: TenantClient, actor: JwtPayload, fromPlan
   const disponible = itemsLibres.reduce((s, i) => s + i.monto, 0)
   if (disponible <= 0) throw badRequest('Este plan no tiene abono libre disponible para derivar.')
 
-  let monto = body.monto != null && Number.isFinite(Number(body.monto)) ? Math.round(Number(body.monto)) : Math.round(disponible)
+  const monto = body.monto != null && Number.isFinite(Number(body.monto)) ? Math.round(Number(body.monto)) : Math.round(disponible)
   if (monto <= 0) throw badRequest('El monto a derivar debe ser mayor a 0.')
   if (monto > Math.round(disponible)) throw badRequest('El monto supera el abono libre disponible.')
 

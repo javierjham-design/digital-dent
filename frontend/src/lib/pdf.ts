@@ -22,7 +22,7 @@ export async function elementoAPdfBase64(el: HTMLElement): Promise<string> {
     jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' },
     pagebreak: { mode: ['css', 'legacy'] },
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const dataUri: string = await html2pdf().set(opts as any).from(el).outputPdf('datauristring')
   const base64 = dataUri.replace(/^data:.*;base64,/, '')
   if (!base64 || base64.length < 800) {
