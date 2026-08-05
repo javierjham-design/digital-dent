@@ -3,7 +3,7 @@ import multer from 'multer'
 import { asyncHandler } from '@/middlewares/async-handler'
 import { requireAuth, requireAdmin } from '@/middlewares/auth'
 import { requireTenant } from '@/middlewares/tenant'
-import { getMe, postLogin, postCambiarPassword } from '@/controllers/auth.controller'
+import { getMe, postLogin, postCambiarPassword, post2FASetup, post2FAVerify } from '@/controllers/auth.controller'
 import {
   getPacientes, getPaciente, postPaciente, patchPaciente, getFicha, putFicha,
   getComentarios, postComentario, getMensajes, postMensaje, getResumen,
@@ -76,6 +76,10 @@ const uploadDoc = multer({ storage: multer.memoryStorage(), limits: { fileSize: 
 
 // ── Auth ───────────────────────────────────────────────────────────────────
 apiRouter.post('/auth/login', asyncHandler(postLogin))
+// 2FA del super-admin (segundo paso tras la contraseña). Públicas: las gatea el
+// desafío firmado que devuelve /auth/login, no una sesión.
+apiRouter.post('/auth/2fa/setup', asyncHandler(post2FASetup))
+apiRouter.post('/auth/2fa/verify', asyncHandler(post2FAVerify))
 apiRouter.get('/auth/me', requireAuth, asyncHandler(getMe))
 apiRouter.post('/auth/cambiar-password', requireAuth, asyncHandler(postCambiarPassword))
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import request from 'supertest'
 import type { Express } from 'express'
+import { authenticator } from 'otplib'
 import { seedDosClinicas, PASSWORD, type TenantFixture } from './seed'
 
 // Aislamiento FÍSICO (database-per-tenant): cada clínica vive en su propia base
@@ -10,10 +11,24 @@ let app: Express
 let A: TenantFixture, B: TenantFixture
 let superAdmin: { email: string }
 let tokenA = '', tokenB = '', tokenSuper = ''
+let superSecret = '' // secreto TOTP del super-admin (capturado en el alta)
 
 async function login(body: object) {
   const res = await request(app).post('/api/v1/auth/login').send(body)
   return { status: res.status, token: res.body?.token as string | undefined, user: res.body?.user }
+}
+
+// El super-admin tiene 2FA obligatorio: completa el segundo paso (dándolo de alta la
+// primera vez) y devuelve la sesión.
+async function loginSuper(): Promise<string> {
+  const l = await request(app).post('/api/v1/auth/login').send({ email: superAdmin.email, password: PASSWORD })
+  const desafio = l.body.desafio as string
+  if (l.body.modo === 'alta') {
+    const setup = await request(app).post('/api/v1/auth/2fa/setup').send({ desafio })
+    superSecret = setup.body.secret
+  }
+  const v = await request(app).post('/api/v1/auth/2fa/verify').send({ desafio, codigo: authenticator.generate(superSecret) })
+  return v.body.token as string
 }
 
 beforeAll(async () => {
@@ -23,7 +38,7 @@ beforeAll(async () => {
   app = createApp()
   tokenA = (await login({ slug: A.slug, username: 'admin', password: PASSWORD })).token!
   tokenB = (await login({ slug: B.slug, username: 'admin', password: PASSWORD })).token!
-  tokenSuper = (await login({ email: superAdmin.email, password: PASSWORD })).token!
+  tokenSuper = await loginSuper()
 })
 
 describe('login dual (control-plane + tenant)', () => {
@@ -33,11 +48,19 @@ describe('login dual (control-plane + tenant)', () => {
     expect(r.user.clinicaId).toBe(A.clinicaId)
     expect(r.user.isPlatformAdmin).toBe(false)
   })
-  it('plataforma: email contra el control-plane → super-admin', async () => {
-    const r = await login({ email: superAdmin.email, password: PASSWORD })
-    expect(r.status).toBe(200)
-    expect(r.user.isPlatformAdmin).toBe(true)
-    expect(r.user.clinicaId).toBeNull()
+  it('plataforma: email → 2FA obligatorio (devuelve desafío, NO sesión)', async () => {
+    const res = await request(app).post('/api/v1/auth/login').send({ email: superAdmin.email, password: PASSWORD })
+    expect(res.status).toBe(200)
+    expect(res.body.requiere2FA).toBe(true)
+    expect(res.body.desafio).toBeTruthy()
+    expect(res.body.token).toBeUndefined() // sin 2FA no hay sesión
+  })
+  it('plataforma: tras el 2FA → sesión de super-admin', async () => {
+    const token = await loginSuper()
+    const me = await request(app).get('/api/v1/auth/me').set('Authorization', `Bearer ${token}`)
+    expect(me.status).toBe(200)
+    expect(me.body.user.isPlatformAdmin).toBe(true)
+    expect(me.body.user.clinicaId).toBeNull()
   })
   it('contraseña incorrecta → 401', async () => {
     expect((await login({ slug: A.slug, username: 'admin', password: 'mala' })).status).toBe(401)

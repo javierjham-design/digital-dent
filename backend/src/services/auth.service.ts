@@ -5,11 +5,14 @@ import { tenantClient } from '@/db/tenant'
 import { env } from '@/config/env'
 import { badRequest, notFound, tooMany, unauthorized } from '@/lib/errors'
 import { peekLimit, rateLimit, registerFailure, resetLimit } from '@/lib/rate-limit'
-import type { LoginRequest, LoginResponse, SessionUserDTO } from '@shared/types'
+import { encrypt, decrypt } from '@/lib/crypto'
+import { generarSecretoTotp, otpauthUri, qrDataUrl, verificarTotp, generarCodigosRespaldo, hashCodigosRespaldo, normalizarCodigoRespaldo } from '@/lib/totp'
+import type { LoginRequest, LoginResponse, LoginResult, SessionUserDTO, Setup2FAResponse } from '@shared/types'
 import { parseModulos, MODULOS_CODES } from '@shared/constants/modulos'
 
 const LOGIN_LIMIT = { limit: 5, windowMs: 15 * 60_000 }
 const LOGIN_IP_LIMIT = { limit: 30, windowMs: 15 * 60_000 }
+const TOTP_LIMIT = { limit: 5, windowMs: 15 * 60_000 } // rate limit propio del 2do factor
 
 // clinicaId = id de la clínica en el CONTROL-PLANE (null para super-admins).
 // slug = subdominio de la clínica. sub = id del usuario (tenant) o del admin
@@ -34,11 +37,33 @@ export function actorName(p: JwtPayload): string {
 }
 
 export function verifyToken(token: string): JwtPayload {
+  let decoded: unknown
   try {
-    return jwt.verify(token, env.jwtSecret) as JwtPayload
+    decoded = jwt.verify(token, env.jwtSecret)
   } catch {
     throw unauthorized('Sesión inválida o expirada')
   }
+  // Un desafío 2FA (stage) NO es una sesión: no puede usarse como Bearer.
+  if (decoded && typeof decoded === 'object' && 'stage' in decoded) throw unauthorized('Sesión inválida o expirada')
+  return decoded as JwtPayload
+}
+
+// ── Desafío del 2do factor (prueba que el paso de contraseña pasó) ────────────
+type Modo2FA = 'alta' | 'codigo'
+interface Challenge2FA { sub: string; stage: '2fa'; modo: Modo2FA }
+const CHALLENGE_TTL = '10m'
+
+function signChallenge(sub: string, modo: Modo2FA): string {
+  return jwt.sign({ sub, stage: '2fa', modo }, env.jwtSecret, { expiresIn: CHALLENGE_TTL })
+}
+
+function verifyChallenge(token: string): Challenge2FA {
+  let d: unknown
+  try { d = jwt.verify(token, env.jwtSecret) } catch { throw unauthorized('Desafío 2FA inválido o expirado') }
+  if (!d || typeof d !== 'object' || (d as { stage?: string }).stage !== '2fa') throw unauthorized('Desafío 2FA inválido')
+  const { sub, modo } = d as { sub?: string; modo?: string }
+  if (!sub || (modo !== 'alta' && modo !== 'codigo')) throw unauthorized('Desafío 2FA inválido')
+  return { sub, stage: '2fa', modo }
 }
 
 // DTO de un usuario de clínica (vive en la base del tenant).
@@ -106,7 +131,7 @@ export async function getSessionUser(payload: JwtPayload): Promise<SessionUserDT
 
 // Login dual: clínica (slug+username contra su tenant) o plataforma (email
 // contra el control-plane). Anti fuerza bruta: solo los fallos consumen cupo.
-export async function login(body: LoginRequest, ip: string): Promise<LoginResponse> {
+export async function login(body: LoginRequest, ip: string): Promise<LoginResult> {
   if (!body?.password) throw badRequest('Falta la contraseña')
 
   const ipKey = `login:ip:${ip}`
@@ -147,11 +172,77 @@ export async function login(body: LoginRequest, ip: string): Promise<LoginRespon
     const valid = await bcrypt.compare(body.password, admin.password)
     if (!valid) return fail()
     resetLimit(idKey)
-    const payload: JwtPayload = { sub: admin.id, clinicaId: null, slug: null, role: 'admin', isPlatformAdmin: true, name: admin.name, email: admin.email }
-    return { token: sign(payload), user: platformAdminDTO(admin) }
+    // 2FA OBLIGATORIO para super-admin: acá NO se emite sesión, se devuelve un
+    // desafío. La sesión sale del segundo paso (/auth/2fa/verify). modo 'alta' =
+    // todavía no configuró 2FA (debe escanear el QR); 'codigo' = ya lo tiene.
+    const modo: Modo2FA = admin.totpEnabled ? 'codigo' : 'alta'
+    return { requiere2FA: true, desafio: signChallenge(admin.id, modo), modo }
   }
 
   throw badRequest('Credenciales incompletas')
+}
+
+// ── Alta del 2FA (paso 1): genera el secreto (cifrado), el QR y los códigos de
+// respaldo. Se muestra UNA sola vez. totpEnabled sigue en false hasta confirmar un
+// código en verify2FA. Gateado por el desafío (la contraseña ya pasó).
+export async function setup2FA(desafio: string): Promise<Setup2FAResponse> {
+  const ch = verifyChallenge(desafio)
+  if (ch.modo !== 'alta') throw badRequest('El 2FA ya está configurado para esta cuenta.')
+  const admin = await control.platformAdmin.findUnique({ where: { id: ch.sub } })
+  if (!admin || !admin.activo) throw unauthorized()
+  if (admin.totpEnabled) throw badRequest('El 2FA ya está habilitado.')
+
+  const secret = generarSecretoTotp()
+  const codigos = generarCodigosRespaldo()
+  await control.platformAdmin.update({
+    where: { id: admin.id },
+    data: { totpSecret: encrypt(secret), totpBackupCodes: JSON.stringify(await hashCodigosRespaldo(codigos)) },
+  })
+  return { qrDataUrl: await qrDataUrl(otpauthUri(admin.email, secret)), secret, backupCodes: codigos }
+}
+
+// ── Segundo factor (paso 2): verifica el código TOTP (o, en login, un código de
+// respaldo de un solo uso) y emite la sesión. En 'alta' habilita el 2FA. Rate limit
+// propio por admin: solo los fallos consumen cupo.
+export async function verify2FA(desafio: string, codigo: string, ip: string): Promise<LoginResponse> {
+  const ch = verifyChallenge(desafio)
+  const rlKey = `2fa:${ch.sub}`
+  const ipKey = `2fa:ip:${ip}`
+  const check = peekLimit(rlKey, TOTP_LIMIT)
+  const ipCheck = peekLimit(ipKey, LOGIN_IP_LIMIT)
+  if (!check.ok || !ipCheck.ok) {
+    const retry = Math.max(check.retryAfterSec, ipCheck.retryAfterSec)
+    throw tooMany(`Demasiados intentos. Espera ${Math.ceil(retry / 60)} minutos.`)
+  }
+  const fail = (): never => { registerFailure(rlKey); registerFailure(ipKey); throw unauthorized('Código de verificación incorrecto') }
+
+  const admin = await control.platformAdmin.findUnique({ where: { id: ch.sub } })
+  if (!admin || !admin.activo || !admin.totpSecret) return fail()
+
+  const secret = decrypt(admin.totpSecret)
+  let backupConsumido: string | null = null
+  let ok = verificarTotp(codigo, secret)
+  if (!ok && ch.modo === 'codigo' && admin.totpBackupCodes) {
+    // Código de respaldo (solo en login, no en el alta). Uso único.
+    const hashes = JSON.parse(admin.totpBackupCodes) as string[]
+    const objetivo = normalizarCodigoRespaldo(codigo)
+    for (const h of hashes) {
+      if (await bcrypt.compare(objetivo, h)) { ok = true; backupConsumido = h; break }
+    }
+  }
+  if (!ok) return fail()
+
+  resetLimit(rlKey)
+  const data: { totpEnabled?: boolean; totpEnrolledAt?: Date; totpBackupCodes?: string } = {}
+  if (ch.modo === 'alta') { data.totpEnabled = true; data.totpEnrolledAt = new Date() }
+  if (backupConsumido && admin.totpBackupCodes) {
+    const hashes = JSON.parse(admin.totpBackupCodes) as string[]
+    data.totpBackupCodes = JSON.stringify(hashes.filter((h) => h !== backupConsumido))
+  }
+  if (Object.keys(data).length) await control.platformAdmin.update({ where: { id: admin.id }, data })
+
+  const payload: JwtPayload = { sub: admin.id, clinicaId: null, slug: null, role: 'admin', isPlatformAdmin: true, name: admin.name, email: admin.email }
+  return { token: sign(payload), user: platformAdminDTO(admin) }
 }
 
 // Emite un token para un usuario de una clínica recién creada (flujo demo:

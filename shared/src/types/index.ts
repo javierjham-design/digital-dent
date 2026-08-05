@@ -44,6 +44,25 @@ export interface LoginResponse {
   user: SessionUserDTO
 }
 
+// El super-admin (login por email) tiene 2FA TOTP obligatorio: el login NO devuelve
+// una sesión, sino un DESAFÍO. `modo='alta'` = todavía no configuró 2FA (debe escanear
+// el QR); `modo='codigo'` = ya lo tiene, debe ingresar el código. El login de clínica
+// (slug+username) sigue devolviendo LoginResponse directo.
+export interface Login2FAChallenge {
+  requiere2FA: true
+  desafio: string
+  modo: 'alta' | 'codigo'
+}
+
+export type LoginResult = LoginResponse | Login2FAChallenge
+
+// Respuesta del alta de 2FA: se muestra UNA sola vez (QR + secreto + códigos de respaldo).
+export interface Setup2FAResponse {
+  qrDataUrl: string
+  secret: string
+  backupCodes: string[]
+}
+
 export interface PacienteDTO {
   id: string
   numero: number | null

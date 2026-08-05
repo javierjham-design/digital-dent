@@ -1,12 +1,15 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { LoginRequest, SessionUserDTO } from '@shared/types'
+import type { LoginRequest, LoginResult, SessionUserDTO, Setup2FAResponse } from '@shared/types'
 import { authService } from '@/services/auth.service'
 import { tokenStore } from '@/services/api'
 
 interface AuthContextValue {
   user: SessionUserDTO | null
   cargando: boolean
-  login: (body: LoginRequest) => Promise<SessionUserDTO>
+  // Clínica → sesión (setea user). Super-admin → desafío 2FA (no setea user todavía).
+  login: (body: LoginRequest) => Promise<LoginResult>
+  setup2FA: (desafio: string) => Promise<Setup2FAResponse>
+  verify2FA: (desafio: string, codigo: string) => Promise<SessionUserDTO>
   logout: () => void
   refrescar: () => Promise<void>
 }
@@ -58,7 +61,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user])
 
   const login = async (body: LoginRequest) => {
-    const u = await authService.login(body)
+    const res = await authService.login(body)
+    if ('token' in res) setUser(res.user) // sesión directa (clínica); super-admin va por 2FA
+    return res
+  }
+
+  const setup2FA = (desafio: string) => authService.setup2FA(desafio)
+
+  const verify2FA = async (desafio: string, codigo: string) => {
+    const u = await authService.verify2FA(desafio, codigo)
     setUser(u)
     return u
   }
@@ -74,7 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, cargando, login, logout, refrescar }}>
+    <AuthContext.Provider value={{ user, cargando, login, setup2FA, verify2FA, logout, refrescar }}>
       {children}
     </AuthContext.Provider>
   )

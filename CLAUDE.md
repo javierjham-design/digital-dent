@@ -167,7 +167,7 @@ y trabajo en curso que no debés duplicar ni romper.
 
 ## 8. Pendientes conocidos (ver `docs/AUDITORIA_2026-08.md`)
 
-Sin 2FA de super-admin · `@unique` en `Caja.numero` pendiente (requiere backfill previo,
+`@unique` en `Caja.numero` pendiente (requiere backfill previo,
 ver `docs/AI_CHANGELOG.md`) · endurecer reglas de ESLint diferidas (`exhaustive-deps` y
 algún `no-unused-vars` quedaron en `warn`).
 

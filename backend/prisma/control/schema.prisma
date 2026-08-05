@@ -200,6 +200,13 @@ model PlatformAdmin {
   password          String
   activo            Boolean   @default(true)
   passwordChangedAt DateTime?
+  // 2FA TOTP (obligatorio para super-admin). El secreto va CIFRADO (AES-256-GCM,
+  // lib/crypto). totpEnabled=false hasta que el admin confirma un código del QR.
+  // totpBackupCodes = JSON de hashes bcrypt de códigos de respaldo de un solo uso.
+  totpSecret        String?
+  totpEnabled       Boolean   @default(false)
+  totpBackupCodes   String?
+  totpEnrolledAt    DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 }

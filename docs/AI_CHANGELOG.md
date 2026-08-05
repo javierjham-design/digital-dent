@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-08-05 — 2FA TOTP obligatorio para super-admin
+
+El super-admin (schema de CONTROL) ve todas las clínicas: era la cuenta sin segundo factor.
+Ahora su login es en dos pasos. **El login de las clínicas (slug+usuario) NO se toca.**
+Rama `feat/2fa-superadmin`.
+
+- **Schema (aditivo)** — `prisma/control/schema.prisma`, modelo `PlatformAdmin`: `totpSecret`
+  (cifrado), `totpEnabled`, `totpBackupCodes` (JSON de hashes bcrypt), `totpEnrolledAt`. Se
+  aplica en deploy con `control:push` (prestart); no requiere `migrate:tenants`.
+- **Helpers** — `lib/totp.ts` (NUEVO): `otplib@^12` (API `authenticator`; v13 rompía el
+  import) + `qrcode`. Genera secreto, `otpauth://` URI, QR data-URL, verifica TOTP (ventana ±1)
+  y genera/normaliza/hashea (bcrypt) los códigos de respaldo.
+- **auth.service.ts** — el login por email **no emite sesión**: firma un **desafío** JWT
+  (`stage:'2fa'`, TTL 10 min, `modo: 'alta'|'codigo'`) que `verifyToken` **rechaza como Bearer**.
+  `setup2FA(desafio)` (solo modo alta) devuelve QR+secreto+10 códigos una vez y persiste el
+  secreto **cifrado AES-256-GCM** (mismo `lib/crypto` que Google) + los hashes. `verify2FA`
+  valida TOTP **o** un código de respaldo de un solo uso (lo consume), con **rate limit propio**
+  (`lib/rate-limit`, 5/15 min por `sub` y por IP; solo fallos gastan cupo) y emite la sesión;
+  en el alta, además habilita el 2FA.
+- **Rutas/controllers** — `POST /auth/2fa/setup` y `POST /auth/2fa/verify`.
+- **Shared** — `Login2FAChallenge`, `LoginResult = LoginResponse | Login2FAChallenge`, `Setup2FAResponse`.
+- **Frontend** — `authService.login` devuelve `LoginResult` (setea token solo si viene `token`);
+  `setup2FA`/`verify2FA`; `useAuth` expuesto; `Login.tsx` con sub-vista de segundo paso (QR +
+  códigos en el alta, input de código en logins siguientes). Login de clínica intacto.
+- **Docs** — `docs/SECURITY.md` §7 + procedimiento de recuperación si se pierden authenticator
+  Y todos los códigos (reset manual del 2FA vía acceso directo a `clariva_control`).
+- **Verificación** — typecheck (backend/frontend/web) ✓ · unit **114/114** · integración
+  **60/60** (5 tests nuevos del flujo completo: alta, login válido/inválido, respaldo de un solo
+  uso; `multitenant.test.ts` adaptado con helper `loginSuper()`) · contrato ✓ · lint backend 0.
+- **Riesgos/pendientes** — al desplegarse, el primer login del super-admin cae en **alta**: hay
+  que escanear el QR y **guardar los códigos** en ese momento. No hay reset self-service por
+  diseño (ver SECURITY.md).
+
+---
+
 ## 2026-08-04 — ESLint 9 (flat config) para el monorepo
 
 El único ESLint que había era el del monolito Next.js (borrado). Ninguno de los 3 servicios
