@@ -88,11 +88,18 @@ El aislamiento entre clínicas es **físico**, no un `where clinicaId`. No lo de
 1. **`backend/src/scripts/migrate-tenants.ts` NO se toca.** Corre `prisma db push` **sin**
    `--accept-data-loss` a propósito: si un cambio implicara perder datos de una clínica,
    falla esa base en vez de destruir en silencio. Es correcto. No lo "optimices".
-2. **Cambio de schema tenant:** editá `prisma/tenant/schema.prisma`, corré
-   `npm run tenant:initsql` (regenera el DDL para clínicas **nuevas**) y
-   `npm run migrate:tenants -- --strict` (sincroniza las **existentes**; con `--strict`
-   aborta si el último backup OK tiene >24 h — ver `docs/BACKUPS.md`). Ambos pasos,
-   siempre. Preferí cambios aditivos; un renombre destruye datos.
+2. **Cambio de schema tenant → `tenant:initsql` NO es opcional.** Editá
+   `prisma/tenant/schema.prisma` y **siempre** corré los DOS pasos:
+   - `npm run tenant:initsql` — regenera `prisma/tenant/init.sql`, el DDL con el que
+     `applyTenantSchema()` (`lib/provision.ts`) crea la base de una clínica **NUEVA** y de
+     cada **demo** de la landing. Si te lo saltás, `init.sql` queda atrás del schema y toda
+     clínica/demo nueva **nace con columnas faltantes** (el código que las lee falla hasta
+     el próximo deploy). Commiteá el `init.sql` regenerado. **Hay una guarda:** el test
+     `backend/test/init-sql-sync.test.ts` falla si `init.sql` no coincide con el schema.
+   - `npm run migrate:tenants -- --strict` — sincroniza las clínicas **existentes** (con
+     `--strict` aborta si el último backup OK tiene >24 h — ver `docs/BACKUPS.md`). Nota:
+     migrate-tenants **salta demos expirados** a propósito (su base puede ya no existir).
+   Preferí cambios aditivos; un renombre destruye datos.
 3. **`dropTenantDatabase()` borra una base de verdad.** Hoy solo la llaman rollbacks de
    creación fallida y la limpieza de demos expiradas. No agregues call sites nuevos.
 4. **No debilites el aislamiento multi-tenant.** Nada de queries que crucen bases, ni de
@@ -160,14 +167,12 @@ y trabajo en curso que no debés duplicar ni romper.
 
 ## 8. Pendientes conocidos (ver `docs/AUDITORIA_2026-08.md`)
 
-**`prisma/tenant/init.sql` está desincronizado del schema (~630 líneas).** Es el DDL que
-usa `provision.ts` para crear la base de una clínica NUEVA, así que hoy toda clínica o demo
-que se provisione nace con columnas faltantes. Es lo más urgente: afecta el onboarding de
-clientes nuevos. Prompt en `docs/PROMPTS_SIGUIENTES.md`.
+Sin 2FA de super-admin · el stack nuevo no tiene configuración de ESLint · `@unique` en
+`Caja.numero` pendiente (requiere backfill previo, ver `docs/AI_CHANGELOG.md`).
 
-Además: correlativo de cobros calculado fuera de la transacción · caché de clientes por
-tenant sin límite · sin 2FA de super-admin · el stack nuevo no tiene configuración de
-ESLint · 2 tests de integración en rojo desde hace semanas.
+Resueltos en la tanda 2026-08-04: `init.sql` resincronizado + guarda anti-drift · correlativos
+(cobro/presupuesto/sesión/paciente/caja) seguros ante concurrencia · caché de clientes por
+tenant con LRU + pool acotado · los 2 tests de integración en rojo (eran desactualizados).
 
 Backups: **resueltos** (3 capas, restore probado, ensayo semanal) — ver `docs/BACKUPS.md`.
 Google Calendar: **resuelto** (2026-08-04) — cron de sync recreado, fallas visibles con

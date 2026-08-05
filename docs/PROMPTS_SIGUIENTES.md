@@ -54,16 +54,17 @@ contra una clínica demo, nunca contra una productiva. Quedó como regla 9 en `C
 
 ---
 
-## URGENTE — `init.sql` desincronizado: las clínicas nuevas nacen rotas
+## ✅ RESUELTO (2026-08-04) — `init.sql` resincronizado con el schema tenant
 
-`backend/prisma/tenant/init.sql` está ~630 líneas atrás de `prisma/tenant/schema.prisma`.
-Ese archivo es el DDL que usa `applyTenantSchema()` en `lib/provision.ts` para crear la
-base de una clínica **nueva** — y también la de cada **demo** que se genera desde la
-landing. Hoy, toda clínica que provisiones nace con columnas faltantes, y el código que
-las lee le falla hasta el siguiente deploy (que es cuando corre `migrate:tenants`).
-
-Es lo más urgente de esta lista: no es deuda técnica, es el camino de onboarding de
-clientes nuevos y el embudo de demos.
+`init.sql` se regeneró (`tenant:initsql`), el diff resultó puramente aditivo (+2 tablas:
+`AuditLog`, `LiquidacionAdjunto`), y se **verificó** provisionando una base descartable
+cuyo schema físico salió idéntico a digital-dent (588 col / 85 idx / 54 FK). Se endureció
+el parser (`lib/sql-split.ts`) y se agregó una **guarda** (`test/init-sql-sync.test.ts`)
+que falla si alguien cambia el schema tenant y no corre `tenant:initsql`. Las 3 clínicas
+reales están completas; solo un demo expirado (`demo-dv20mz`) quedó incompleto y
+`migrate:tenants` lo salta a propósito (descartable). Ver `docs/AI_CHANGELOG.md`
+(2026-08-04) y `CLAUDE.md` regla 2. **Pendiente opcional:** self-check de schema en
+`provisionTenant()` (propuesta en el changelog).
 
 ```
 Contexto: Cláriva, database-per-tenant. Leé CLAUDE.md y docs/SESSION_HANDOFF.md.

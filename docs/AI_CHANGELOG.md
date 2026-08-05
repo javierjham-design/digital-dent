@@ -5,6 +5,50 @@
 
 ---
 
+## 2026-08-04 — `init.sql` resincronizado con el schema tenant + guarda anti-drift
+
+`prisma/tenant/init.sql` estaba ~630 líneas atrás del schema (el último cambio fue meter 2
+columnas a mano en `364b674`). Ese archivo es el DDL con el que `applyTenantSchema()`
+(`lib/provision.ts`) crea la base de una clínica **nueva** y de cada **demo** de la landing,
+así que toda clínica/demo nueva nacía con columnas faltantes. NO afecta a las clínicas
+existentes (sincronizadas por `migrate:tenants`). Rama `fix/init-sql-sincronizado`.
+
+- **Regenerado** con `npm run tenant:initsql`. El diff es **puramente aditivo**: 0 tablas y
+  0 columnas removidas; **+2 tablas** (`AuditLog`, `LiquidacionAdjunto`) + columnas/índices.
+  Los "borrados" del diff textual eran reordenamiento de Prisma.
+- **Parser endurecido** (`lib/sql-split.ts`): `applyTenantSchema()` hacía `sql.split(';')` a
+  secas — se rompería si el DDL trajera un `;` dentro de un string, comentario o cuerpo de
+  función. El DDL de hoy no tiene esos casos, pero el split ahora respeta strings (con
+  escape `''`), dollar-quotes y comentarios. Test `test/sql-split.test.ts` (7).
+- **Verificación real:** se provisionó una base **descartable** con el init.sql nuevo (server
+  de prod) y su schema físico resultó **IDÉNTICO** a digital-dent (clínica productiva):
+  588 columnas, 85 índices, 54 FKs — 0 diferencias. Base descartable borrada.
+- **Guarda anti-drift** (`test/init-sql-sync.test.ts`): regenera el DDL desde el schema y
+  falla si difiere del `init.sql` commiteado. Así, olvidarse de `tenant:initsql` al cambiar
+  el schema tenant se detecta en la suite (que quedó 100% verde).
+- **Auditoría de las bases existentes** (paso 6): las 3 clínicas reales (montenegro,
+  digital-dent, orodent) están completas (588/85/54). El único con schema incompleto es la
+  demo **`demo-dv20mz`** (491/588) — un **demo expirado** que `migrate:tenants` **salta a
+  propósito** (los demos son descartables y su base puede ya no existir). Con el init.sql
+  sincronizado, los demos nuevos nacen completos.
+- **Doc:** `CLAUDE.md` regla 2 reforzada (`tenant:initsql` no es opcional + la guarda).
+
+**Propuesta pendiente (paso 5, NO implementada):** que `provisionTenant()` verifique el
+schema resultante tras aplicar el DDL, como red de último momento. Ver la propuesta al final.
+
+**Verificación:** typecheck ✓ · unit 106/106 ✓ · integración 54/54 ✓. No se tocó
+`migrate-tenants.ts`.
+
+> **Propuesta — self-check en `provisionTenant()`:** tras `applyTenantSchema()`, contar
+> columnas/tablas contra un valor esperado (o comparar contra el DDL) y **fallar la
+> provisión** si no coincide, en vez de dejar una base a medio crear. Pro: atrapa un
+> init.sql corrupto/incompleto en el acto (la clínica no se crea rota). Contra: acopla un
+> "número esperado" que hay que mantener (o una introspección más cara en cada alta). Con la
+> guarda de test + el init.sql ya sincronizado, el riesgo es bajo; lo dejo propuesto para
+> decidir si vale el costo.
+
+---
+
 ## 2026-08-04 — Los 2 tests de integración en rojo: arreglados (eran tests desactualizados)
 
 `test:integration` daba 48/50 desde hacía semanas (consentimientos + conversión de lead).

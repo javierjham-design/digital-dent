@@ -53,7 +53,7 @@ CREATE TABLE "Configuracion" (
     CONSTRAINT "Configuracion_pkey" PRIMARY KEY ("id")
 );
 
--- Historial de correos enviados por la clínica.
+-- CreateTable
 CREATE TABLE "EmailEnviado" (
     "id" TEXT NOT NULL,
     "para" TEXT NOT NULL,
@@ -69,34 +69,6 @@ CREATE TABLE "EmailEnviado" (
 
     CONSTRAINT "EmailEnviado_pkey" PRIMARY KEY ("id")
 );
-CREATE INDEX "EmailEnviado_pacienteId_createdAt_idx" ON "EmailEnviado"("pacienteId", "createdAt");
-CREATE INDEX "EmailEnviado_tipo_createdAt_idx" ON "EmailEnviado"("tipo", "createdAt");
-
--- Pago online (link de pago) de cobros de paciente vía Flow.
-CREATE TABLE "PagoOnline" (
-    "id" TEXT NOT NULL,
-    "cobroId" TEXT,
-    "citaId" TEXT,
-    "pacienteId" TEXT,
-    "proveedor" TEXT NOT NULL DEFAULT 'FLOW',
-    "concepto" TEXT NOT NULL,
-    "monto" DOUBLE PRECISION NOT NULL,
-    "estado" TEXT NOT NULL DEFAULT 'CREADO',
-    "commerceOrder" TEXT,
-    "flowToken" TEXT,
-    "url" TEXT,
-    "email" TEXT,
-    "pagadoAt" TIMESTAMP(3),
-    "creadoPorId" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "PagoOnline_pkey" PRIMARY KEY ("id")
-);
-CREATE UNIQUE INDEX "PagoOnline_commerceOrder_key" ON "PagoOnline"("commerceOrder");
-CREATE INDEX "PagoOnline_cobroId_idx" ON "PagoOnline"("cobroId");
-CREATE INDEX "PagoOnline_estado_createdAt_idx" ON "PagoOnline"("estado", "createdAt");
-ALTER TABLE "PagoOnline" ADD CONSTRAINT "PagoOnline_cobroId_fkey" FOREIGN KEY ("cobroId") REFERENCES "Cobro"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- CreateTable
 CREATE TABLE "User" (
@@ -127,6 +99,7 @@ CREATE TABLE "User" (
     "puedeGestionarEquipo" BOOLEAN NOT NULL DEFAULT false,
     "puedeGestionarPrestaciones" BOOLEAN NOT NULL DEFAULT false,
     "puedeDesbloquearPlanes" BOOLEAN NOT NULL DEFAULT false,
+    "puedeGestionarAgenda" BOOLEAN NOT NULL DEFAULT false,
     "googleCalendarId" TEXT,
     "googleSyncToken" TEXT,
     "googleSyncedAt" TIMESTAMP(3),
@@ -303,7 +276,6 @@ CREATE TABLE "CategoriaPrestacion" (
 
     CONSTRAINT "CategoriaPrestacion_pkey" PRIMARY KEY ("id")
 );
-CREATE UNIQUE INDEX "CategoriaPrestacion_nombre_key" ON "CategoriaPrestacion"("nombre");
 
 -- CreateTable
 CREATE TABLE "Tratamiento" (
@@ -333,6 +305,7 @@ CREATE TABLE "PlanTratamiento" (
     "doctorTitularId" TEXT,
     "nombre" TEXT NOT NULL DEFAULT 'Plan de tratamiento',
     "estado" TEXT NOT NULL DEFAULT 'ACTIVO',
+    "bloqueado" BOOLEAN NOT NULL DEFAULT false,
     "notas" TEXT,
     "fechaInicio" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -362,9 +335,26 @@ CREATE TABLE "Evolucion" (
     "tratamientoId" TEXT,
     "autorId" TEXT,
     "texto" TEXT NOT NULL,
+    "fecha" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Evolucion_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AuditLog" (
+    "id" TEXT NOT NULL,
+    "fecha" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "userId" TEXT,
+    "userNombre" TEXT,
+    "accion" TEXT NOT NULL,
+    "entidad" TEXT NOT NULL,
+    "entidadId" TEXT,
+    "pacienteId" TEXT,
+    "resumen" TEXT NOT NULL,
+    "datosPrevios" TEXT,
+
+    CONSTRAINT "AuditLog_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -418,10 +408,10 @@ CREATE TABLE "Cobro" (
     "comisionMonto" DOUBLE PRECISION,
     "estado" TEXT NOT NULL DEFAULT 'PENDIENTE',
     "medioPagoId" TEXT,
+    "metodoPago" TEXT,
     "medioPago2Id" TEXT,
     "monto2" DOUBLE PRECISION,
     "numeroReferencia2" TEXT,
-    "metodoPago" TEXT,
     "reciboUsuarioId" TEXT,
     "cajaId" TEXT,
     "fechaPago" TIMESTAMP(3),
@@ -510,10 +500,33 @@ CREATE TABLE "MovimientoCaja" (
 );
 
 -- CreateTable
+CREATE TABLE "PagoOnline" (
+    "id" TEXT NOT NULL,
+    "cobroId" TEXT,
+    "citaId" TEXT,
+    "pacienteId" TEXT,
+    "proveedor" TEXT NOT NULL DEFAULT 'FLOW',
+    "concepto" TEXT NOT NULL,
+    "monto" DOUBLE PRECISION NOT NULL,
+    "estado" TEXT NOT NULL DEFAULT 'CREADO',
+    "commerceOrder" TEXT,
+    "flowToken" TEXT,
+    "url" TEXT,
+    "email" TEXT,
+    "pagadoAt" TIMESTAMP(3),
+    "creadoPorId" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "PagoOnline_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "CobroItem" (
     "id" TEXT NOT NULL,
     "cobroId" TEXT NOT NULL,
     "tratamientoId" TEXT,
+    "planId" TEXT,
     "descripcion" TEXT NOT NULL,
     "monto" DOUBLE PRECISION NOT NULL,
 
@@ -555,6 +568,22 @@ CREATE TABLE "Liquidacion" (
 );
 
 -- CreateTable
+CREATE TABLE "LiquidacionAdjunto" (
+    "id" TEXT NOT NULL,
+    "liquidacionId" TEXT NOT NULL,
+    "tipo" TEXT NOT NULL,
+    "nombre" TEXT NOT NULL,
+    "mime" TEXT NOT NULL,
+    "size" INTEGER NOT NULL,
+    "data" BYTEA NOT NULL,
+    "subidoPorId" TEXT,
+    "subidoPorNombre" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "LiquidacionAdjunto_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "LiquidacionItem" (
     "id" TEXT NOT NULL,
     "liquidacionId" TEXT NOT NULL,
@@ -566,6 +595,9 @@ CREATE TABLE "LiquidacionItem" (
     "precioTratamiento" DOUBLE PRECISION NOT NULL,
     "porcentajeAplicado" DOUBLE PRECISION,
     "montoFijoAplicado" DOUBLE PRECISION,
+    "montoPagado" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "comisionAplicada" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "medioPago" TEXT,
     "montoLiquidado" DOUBLE PRECISION NOT NULL,
 
     CONSTRAINT "LiquidacionItem_pkey" PRIMARY KEY ("id")
@@ -602,9 +634,6 @@ CREATE TABLE "Box" (
 
     CONSTRAINT "Box_pkey" PRIMARY KEY ("id")
 );
-CREATE INDEX "Box_activo_orden_idx" ON "Box"("activo", "orden");
-ALTER TABLE "Cita" ADD CONSTRAINT "Cita_boxId_fkey" FOREIGN KEY ("boxId") REFERENCES "Box"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "HorarioDoctor" ADD CONSTRAINT "HorarioDoctor_boxId_fkey" FOREIGN KEY ("boxId") REFERENCES "Box"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- CreateTable
 CREATE TABLE "BloqueoAgenda" (
@@ -623,193 +652,6 @@ CREATE TABLE "BloqueoAgenda" (
 
     CONSTRAINT "BloqueoAgenda_pkey" PRIMARY KEY ("id")
 );
-
--- CreateIndex
-CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
-
--- CreateIndex
-CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
-
--- CreateIndex
-CREATE UNIQUE INDEX "User_rut_key" ON "User"("rut");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Paciente_numero_key" ON "Paciente"("numero");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Paciente_rut_key" ON "Paciente"("rut");
-
--- CreateIndex
-CREATE INDEX "Cita_googleEventId_idx" ON "Cita"("googleEventId");
-
--- CreateIndex
-CREATE INDEX "Cita_waMessageSid_idx" ON "Cita"("waMessageSid");
-
--- CreateIndex
-CREATE INDEX "Cita_doctorId_fecha_idx" ON "Cita"("doctorId", "fecha");
-
--- CreateIndex
-CREATE UNIQUE INDEX "FichaClinica_pacienteId_key" ON "FichaClinica"("pacienteId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Diente_fichaId_numero_cara_key" ON "Diente"("fichaId", "numero", "cara");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Presupuesto_numero_key" ON "Presupuesto"("numero");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Cobro_numero_key" ON "Cobro"("numero");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Caja_nombre_key" ON "Caja"("nombre");
-
--- CreateIndex
-CREATE INDEX "SesionCaja_cajaId_estado_idx" ON "SesionCaja"("cajaId", "estado");
-
--- CreateIndex
-CREATE INDEX "SesionCaja_cajaId_abiertaAt_idx" ON "SesionCaja"("cajaId", "abiertaAt");
-
--- CreateIndex
-CREATE INDEX "MovimientoCaja_cajaId_fecha_idx" ON "MovimientoCaja"("cajaId", "fecha");
-
--- CreateIndex
-CREATE INDEX "MovimientoCaja_sesionCajaId_idx" ON "MovimientoCaja"("sesionCajaId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "HorarioDoctor_doctorId_diaSemana_key" ON "HorarioDoctor"("doctorId", "diaSemana");
-
--- CreateIndex
-CREATE INDEX "BloqueoAgenda_doctorId_inicio_idx" ON "BloqueoAgenda"("doctorId", "inicio");
-
--- CreateIndex
-CREATE INDEX "BloqueoAgenda_googleEventId_idx" ON "BloqueoAgenda"("googleEventId");
-
--- AddForeignKey
-ALTER TABLE "ComentarioAdministrativo" ADD CONSTRAINT "ComentarioAdministrativo_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "MensajePaciente" ADD CONSTRAINT "MensajePaciente_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "MensajePaciente" ADD CONSTRAINT "MensajePaciente_citaId_fkey" FOREIGN KEY ("citaId") REFERENCES "Cita"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Cita" ADD CONSTRAINT "Cita_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Cita" ADD CONSTRAINT "Cita_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CitaLog" ADD CONSTRAINT "CitaLog_citaId_fkey" FOREIGN KEY ("citaId") REFERENCES "Cita"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "FichaClinica" ADD CONSTRAINT "FichaClinica_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Diente" ADD CONSTRAINT "Diente_fichaId_fkey" FOREIGN KEY ("fichaId") REFERENCES "FichaClinica"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_fichaId_fkey" FOREIGN KEY ("fichaId") REFERENCES "FichaClinica"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_planId_fkey" FOREIGN KEY ("planId") REFERENCES "PlanTratamiento"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_seccionId_fkey" FOREIGN KEY ("seccionId") REFERENCES "SeccionPlan"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_prestacionId_fkey" FOREIGN KEY ("prestacionId") REFERENCES "Prestacion"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "PlanTratamiento" ADD CONSTRAINT "PlanTratamiento_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "PlanTratamiento" ADD CONSTRAINT "PlanTratamiento_doctorTitularId_fkey" FOREIGN KEY ("doctorTitularId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "SeccionPlan" ADD CONSTRAINT "SeccionPlan_planId_fkey" FOREIGN KEY ("planId") REFERENCES "PlanTratamiento"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Evolucion" ADD CONSTRAINT "Evolucion_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Evolucion" ADD CONSTRAINT "Evolucion_tratamientoId_fkey" FOREIGN KEY ("tratamientoId") REFERENCES "Tratamiento"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Evolucion" ADD CONSTRAINT "Evolucion_autorId_fkey" FOREIGN KEY ("autorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Presupuesto" ADD CONSTRAINT "Presupuesto_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ItemPresupuesto" ADD CONSTRAINT "ItemPresupuesto_presupuestoId_fkey" FOREIGN KEY ("presupuestoId") REFERENCES "Presupuesto"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "ItemPresupuesto" ADD CONSTRAINT "ItemPresupuesto_prestacionId_fkey" FOREIGN KEY ("prestacionId") REFERENCES "Prestacion"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_medioPagoId_fkey" FOREIGN KEY ("medioPagoId") REFERENCES "MedioPago"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_medioPago2Id_fkey" FOREIGN KEY ("medioPago2Id") REFERENCES "MedioPago"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_reciboUsuarioId_fkey" FOREIGN KEY ("reciboUsuarioId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_cajaId_fkey" FOREIGN KEY ("cajaId") REFERENCES "Caja"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "SesionCaja" ADD CONSTRAINT "SesionCaja_cajaId_fkey" FOREIGN KEY ("cajaId") REFERENCES "Caja"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CajaUsuario" ADD CONSTRAINT "CajaUsuario_cajaId_fkey" FOREIGN KEY ("cajaId") REFERENCES "Caja"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CajaUsuario" ADD CONSTRAINT "CajaUsuario_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "MovimientoCaja" ADD CONSTRAINT "MovimientoCaja_cajaId_fkey" FOREIGN KEY ("cajaId") REFERENCES "Caja"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "MovimientoCaja" ADD CONSTRAINT "MovimientoCaja_cobroId_fkey" FOREIGN KEY ("cobroId") REFERENCES "Cobro"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "MovimientoCaja" ADD CONSTRAINT "MovimientoCaja_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "MovimientoCaja" ADD CONSTRAINT "MovimientoCaja_sesionCajaId_fkey" FOREIGN KEY ("sesionCajaId") REFERENCES "SesionCaja"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CobroItem" ADD CONSTRAINT "CobroItem_cobroId_fkey" FOREIGN KEY ("cobroId") REFERENCES "Cobro"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "CobroItem" ADD CONSTRAINT "CobroItem_tratamientoId_fkey" FOREIGN KEY ("tratamientoId") REFERENCES "Tratamiento"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Contrato" ADD CONSTRAINT "Contrato_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Liquidacion" ADD CONSTRAINT "Liquidacion_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Liquidacion" ADD CONSTRAINT "Liquidacion_contratoId_fkey" FOREIGN KEY ("contratoId") REFERENCES "Contrato"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "LiquidacionItem" ADD CONSTRAINT "LiquidacionItem_liquidacionId_fkey" FOREIGN KEY ("liquidacionId") REFERENCES "Liquidacion"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "LiquidacionItem" ADD CONSTRAINT "LiquidacionItem_tratamientoId_fkey" FOREIGN KEY ("tratamientoId") REFERENCES "Tratamiento"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "HorarioDoctor" ADD CONSTRAINT "HorarioDoctor_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "BloqueoAgenda" ADD CONSTRAINT "BloqueoAgenda_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- CreateTable
 CREATE TABLE "LinkAgenda" (
@@ -835,9 +677,13 @@ CREATE TABLE "LinkAgenda" (
     CONSTRAINT "LinkAgenda_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE UNIQUE INDEX "LinkAgenda_token_key" ON "LinkAgenda"("token");
-CREATE INDEX "LinkAgenda_doctorId_idx" ON "LinkAgenda"("doctorId");
+-- CreateTable
+CREATE TABLE "LinkAgendaProfesional" (
+    "linkId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+
+    CONSTRAINT "LinkAgendaProfesional_pkey" PRIMARY KEY ("linkId","userId")
+);
 
 -- CreateTable
 CREATE TABLE "LinkAgendaVentana" (
@@ -849,26 +695,6 @@ CREATE TABLE "LinkAgendaVentana" (
 
     CONSTRAINT "LinkAgendaVentana_pkey" PRIMARY KEY ("id")
 );
-
--- CreateIndex
-CREATE INDEX "LinkAgendaVentana_linkId_idx" ON "LinkAgendaVentana"("linkId");
-
--- CreateTable
-CREATE TABLE "LinkAgendaProfesional" (
-    "linkId" TEXT NOT NULL,
-    "userId" TEXT NOT NULL,
-
-    CONSTRAINT "LinkAgendaProfesional_pkey" PRIMARY KEY ("linkId", "userId")
-);
-
--- CreateIndex
-CREATE INDEX "LinkAgendaProfesional_userId_idx" ON "LinkAgendaProfesional"("userId");
-
--- AddForeignKey
-ALTER TABLE "LinkAgenda" ADD CONSTRAINT "LinkAgenda_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-ALTER TABLE "LinkAgendaVentana" ADD CONSTRAINT "LinkAgendaVentana_linkId_fkey" FOREIGN KEY ("linkId") REFERENCES "LinkAgenda"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "LinkAgendaProfesional" ADD CONSTRAINT "LinkAgendaProfesional_linkId_fkey" FOREIGN KEY ("linkId") REFERENCES "LinkAgenda"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-ALTER TABLE "LinkAgendaProfesional" ADD CONSTRAINT "LinkAgendaProfesional_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- CreateTable
 CREATE TABLE "Lead" (
@@ -938,11 +764,6 @@ CREATE TABLE "Lead" (
     CONSTRAINT "Lead_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE INDEX "Lead_estado_createdAt_idx" ON "Lead"("estado", "createdAt");
-CREATE INDEX "Lead_estado_ultimaGestionAt_idx" ON "Lead"("estado", "ultimaGestionAt");
-CREATE INDEX "Lead_origen_idx" ON "Lead"("origen");
-
 -- CreateTable
 CREATE TABLE "LeadNota" (
     "id" TEXT NOT NULL,
@@ -956,14 +777,7 @@ CREATE TABLE "LeadNota" (
     CONSTRAINT "LeadNota_pkey" PRIMARY KEY ("id")
 );
 
--- CreateIndex
-CREATE INDEX "LeadNota_leadId_createdAt_idx" ON "LeadNota"("leadId", "createdAt");
-
--- AddForeignKey
-ALTER TABLE "LeadNota" ADD CONSTRAINT "LeadNota_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
-
--- Consentimientos informados
+-- CreateTable
 CREATE TABLE "PlantillaConsentimiento" (
     "id" TEXT NOT NULL,
     "categoria" TEXT NOT NULL DEFAULT 'CONSENTIMIENTO',
@@ -976,11 +790,11 @@ CREATE TABLE "PlantillaConsentimiento" (
     "version" INTEGER NOT NULL DEFAULT 1,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+
     CONSTRAINT "PlantillaConsentimiento_pkey" PRIMARY KEY ("id")
 );
-CREATE INDEX "PlantillaConsentimiento_activo_orden_idx" ON "PlantillaConsentimiento"("activo", "orden");
-CREATE INDEX "PlantillaConsentimiento_categoria_activo_idx" ON "PlantillaConsentimiento"("categoria", "activo");
 
+-- CreateTable
 CREATE TABLE "Consentimiento" (
     "id" TEXT NOT NULL,
     "pacienteId" TEXT NOT NULL,
@@ -1002,13 +816,11 @@ CREATE TABLE "Consentimiento" (
     "planId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+
     CONSTRAINT "Consentimiento_pkey" PRIMARY KEY ("id")
 );
-CREATE INDEX "Consentimiento_pacienteId_createdAt_idx" ON "Consentimiento"("pacienteId", "createdAt");
-CREATE INDEX "Consentimiento_estado_idx" ON "Consentimiento"("estado");
-ALTER TABLE "Consentimiento" ADD CONSTRAINT "Consentimiento_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
--- Radiografías y documentos del paciente
+-- CreateTable
 CREATE TABLE "DocumentoPaciente" (
     "id" TEXT NOT NULL,
     "pacienteId" TEXT NOT NULL,
@@ -1022,7 +834,298 @@ CREATE TABLE "DocumentoPaciente" (
     "subidoPorId" TEXT,
     "subidoPorNombre" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
     CONSTRAINT "DocumentoPaciente_pkey" PRIMARY KEY ("id")
 );
+
+-- CreateIndex
+CREATE INDEX "EmailEnviado_pacienteId_createdAt_idx" ON "EmailEnviado"("pacienteId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "EmailEnviado_tipo_createdAt_idx" ON "EmailEnviado"("tipo", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_username_key" ON "User"("username");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "User_rut_key" ON "User"("rut");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Paciente_numero_key" ON "Paciente"("numero");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Paciente_rut_key" ON "Paciente"("rut");
+
+-- CreateIndex
+CREATE INDEX "Cita_googleEventId_idx" ON "Cita"("googleEventId");
+
+-- CreateIndex
+CREATE INDEX "Cita_waMessageSid_idx" ON "Cita"("waMessageSid");
+
+-- CreateIndex
+CREATE INDEX "Cita_doctorId_fecha_idx" ON "Cita"("doctorId", "fecha");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "FichaClinica_pacienteId_key" ON "FichaClinica"("pacienteId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Diente_fichaId_numero_cara_key" ON "Diente"("fichaId", "numero", "cara");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "CategoriaPrestacion_nombre_key" ON "CategoriaPrestacion"("nombre");
+
+-- CreateIndex
+CREATE INDEX "AuditLog_pacienteId_fecha_idx" ON "AuditLog"("pacienteId", "fecha");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Presupuesto_numero_key" ON "Presupuesto"("numero");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Cobro_numero_key" ON "Cobro"("numero");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Caja_nombre_key" ON "Caja"("nombre");
+
+-- CreateIndex
+CREATE INDEX "SesionCaja_cajaId_estado_idx" ON "SesionCaja"("cajaId", "estado");
+
+-- CreateIndex
+CREATE INDEX "SesionCaja_cajaId_abiertaAt_idx" ON "SesionCaja"("cajaId", "abiertaAt");
+
+-- CreateIndex
+CREATE INDEX "MovimientoCaja_cajaId_fecha_idx" ON "MovimientoCaja"("cajaId", "fecha");
+
+-- CreateIndex
+CREATE INDEX "MovimientoCaja_sesionCajaId_idx" ON "MovimientoCaja"("sesionCajaId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PagoOnline_commerceOrder_key" ON "PagoOnline"("commerceOrder");
+
+-- CreateIndex
+CREATE INDEX "PagoOnline_cobroId_idx" ON "PagoOnline"("cobroId");
+
+-- CreateIndex
+CREATE INDEX "PagoOnline_estado_createdAt_idx" ON "PagoOnline"("estado", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "CobroItem_planId_idx" ON "CobroItem"("planId");
+
+-- CreateIndex
+CREATE INDEX "LiquidacionAdjunto_liquidacionId_idx" ON "LiquidacionAdjunto"("liquidacionId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "HorarioDoctor_doctorId_diaSemana_key" ON "HorarioDoctor"("doctorId", "diaSemana");
+
+-- CreateIndex
+CREATE INDEX "Box_activo_orden_idx" ON "Box"("activo", "orden");
+
+-- CreateIndex
+CREATE INDEX "BloqueoAgenda_doctorId_inicio_idx" ON "BloqueoAgenda"("doctorId", "inicio");
+
+-- CreateIndex
+CREATE INDEX "BloqueoAgenda_googleEventId_idx" ON "BloqueoAgenda"("googleEventId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "LinkAgenda_token_key" ON "LinkAgenda"("token");
+
+-- CreateIndex
+CREATE INDEX "LinkAgenda_doctorId_idx" ON "LinkAgenda"("doctorId");
+
+-- CreateIndex
+CREATE INDEX "LinkAgendaProfesional_userId_idx" ON "LinkAgendaProfesional"("userId");
+
+-- CreateIndex
+CREATE INDEX "LinkAgendaVentana_linkId_idx" ON "LinkAgendaVentana"("linkId");
+
+-- CreateIndex
+CREATE INDEX "Lead_estado_createdAt_idx" ON "Lead"("estado", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "Lead_estado_ultimaGestionAt_idx" ON "Lead"("estado", "ultimaGestionAt");
+
+-- CreateIndex
+CREATE INDEX "Lead_origen_idx" ON "Lead"("origen");
+
+-- CreateIndex
+CREATE INDEX "LeadNota_leadId_createdAt_idx" ON "LeadNota"("leadId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "PlantillaConsentimiento_activo_orden_idx" ON "PlantillaConsentimiento"("activo", "orden");
+
+-- CreateIndex
+CREATE INDEX "PlantillaConsentimiento_categoria_activo_idx" ON "PlantillaConsentimiento"("categoria", "activo");
+
+-- CreateIndex
+CREATE INDEX "Consentimiento_pacienteId_createdAt_idx" ON "Consentimiento"("pacienteId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "Consentimiento_estado_idx" ON "Consentimiento"("estado");
+
+-- CreateIndex
 CREATE INDEX "DocumentoPaciente_pacienteId_createdAt_idx" ON "DocumentoPaciente"("pacienteId", "createdAt");
+
+-- AddForeignKey
+ALTER TABLE "ComentarioAdministrativo" ADD CONSTRAINT "ComentarioAdministrativo_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MensajePaciente" ADD CONSTRAINT "MensajePaciente_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MensajePaciente" ADD CONSTRAINT "MensajePaciente_citaId_fkey" FOREIGN KEY ("citaId") REFERENCES "Cita"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Cita" ADD CONSTRAINT "Cita_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Cita" ADD CONSTRAINT "Cita_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Cita" ADD CONSTRAINT "Cita_boxId_fkey" FOREIGN KEY ("boxId") REFERENCES "Box"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CitaLog" ADD CONSTRAINT "CitaLog_citaId_fkey" FOREIGN KEY ("citaId") REFERENCES "Cita"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "FichaClinica" ADD CONSTRAINT "FichaClinica_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Diente" ADD CONSTRAINT "Diente_fichaId_fkey" FOREIGN KEY ("fichaId") REFERENCES "FichaClinica"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_fichaId_fkey" FOREIGN KEY ("fichaId") REFERENCES "FichaClinica"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_planId_fkey" FOREIGN KEY ("planId") REFERENCES "PlanTratamiento"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_seccionId_fkey" FOREIGN KEY ("seccionId") REFERENCES "SeccionPlan"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_prestacionId_fkey" FOREIGN KEY ("prestacionId") REFERENCES "Prestacion"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PlanTratamiento" ADD CONSTRAINT "PlanTratamiento_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PlanTratamiento" ADD CONSTRAINT "PlanTratamiento_doctorTitularId_fkey" FOREIGN KEY ("doctorTitularId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SeccionPlan" ADD CONSTRAINT "SeccionPlan_planId_fkey" FOREIGN KEY ("planId") REFERENCES "PlanTratamiento"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Evolucion" ADD CONSTRAINT "Evolucion_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Evolucion" ADD CONSTRAINT "Evolucion_tratamientoId_fkey" FOREIGN KEY ("tratamientoId") REFERENCES "Tratamiento"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Evolucion" ADD CONSTRAINT "Evolucion_autorId_fkey" FOREIGN KEY ("autorId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Presupuesto" ADD CONSTRAINT "Presupuesto_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ItemPresupuesto" ADD CONSTRAINT "ItemPresupuesto_presupuestoId_fkey" FOREIGN KEY ("presupuestoId") REFERENCES "Presupuesto"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ItemPresupuesto" ADD CONSTRAINT "ItemPresupuesto_prestacionId_fkey" FOREIGN KEY ("prestacionId") REFERENCES "Prestacion"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_medioPagoId_fkey" FOREIGN KEY ("medioPagoId") REFERENCES "MedioPago"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_medioPago2Id_fkey" FOREIGN KEY ("medioPago2Id") REFERENCES "MedioPago"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_reciboUsuarioId_fkey" FOREIGN KEY ("reciboUsuarioId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Cobro" ADD CONSTRAINT "Cobro_cajaId_fkey" FOREIGN KEY ("cajaId") REFERENCES "Caja"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SesionCaja" ADD CONSTRAINT "SesionCaja_cajaId_fkey" FOREIGN KEY ("cajaId") REFERENCES "Caja"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CajaUsuario" ADD CONSTRAINT "CajaUsuario_cajaId_fkey" FOREIGN KEY ("cajaId") REFERENCES "Caja"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CajaUsuario" ADD CONSTRAINT "CajaUsuario_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MovimientoCaja" ADD CONSTRAINT "MovimientoCaja_cajaId_fkey" FOREIGN KEY ("cajaId") REFERENCES "Caja"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MovimientoCaja" ADD CONSTRAINT "MovimientoCaja_cobroId_fkey" FOREIGN KEY ("cobroId") REFERENCES "Cobro"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MovimientoCaja" ADD CONSTRAINT "MovimientoCaja_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MovimientoCaja" ADD CONSTRAINT "MovimientoCaja_sesionCajaId_fkey" FOREIGN KEY ("sesionCajaId") REFERENCES "SesionCaja"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PagoOnline" ADD CONSTRAINT "PagoOnline_cobroId_fkey" FOREIGN KEY ("cobroId") REFERENCES "Cobro"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CobroItem" ADD CONSTRAINT "CobroItem_cobroId_fkey" FOREIGN KEY ("cobroId") REFERENCES "Cobro"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "CobroItem" ADD CONSTRAINT "CobroItem_tratamientoId_fkey" FOREIGN KEY ("tratamientoId") REFERENCES "Tratamiento"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Contrato" ADD CONSTRAINT "Contrato_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Liquidacion" ADD CONSTRAINT "Liquidacion_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Liquidacion" ADD CONSTRAINT "Liquidacion_contratoId_fkey" FOREIGN KEY ("contratoId") REFERENCES "Contrato"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LiquidacionAdjunto" ADD CONSTRAINT "LiquidacionAdjunto_liquidacionId_fkey" FOREIGN KEY ("liquidacionId") REFERENCES "Liquidacion"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LiquidacionItem" ADD CONSTRAINT "LiquidacionItem_liquidacionId_fkey" FOREIGN KEY ("liquidacionId") REFERENCES "Liquidacion"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LiquidacionItem" ADD CONSTRAINT "LiquidacionItem_tratamientoId_fkey" FOREIGN KEY ("tratamientoId") REFERENCES "Tratamiento"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "HorarioDoctor" ADD CONSTRAINT "HorarioDoctor_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "HorarioDoctor" ADD CONSTRAINT "HorarioDoctor_boxId_fkey" FOREIGN KEY ("boxId") REFERENCES "Box"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "BloqueoAgenda" ADD CONSTRAINT "BloqueoAgenda_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LinkAgenda" ADD CONSTRAINT "LinkAgenda_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LinkAgendaProfesional" ADD CONSTRAINT "LinkAgendaProfesional_linkId_fkey" FOREIGN KEY ("linkId") REFERENCES "LinkAgenda"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LinkAgendaProfesional" ADD CONSTRAINT "LinkAgendaProfesional_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LinkAgendaVentana" ADD CONSTRAINT "LinkAgendaVentana_linkId_fkey" FOREIGN KEY ("linkId") REFERENCES "LinkAgenda"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeadNota" ADD CONSTRAINT "LeadNota_leadId_fkey" FOREIGN KEY ("leadId") REFERENCES "Lead"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Consentimiento" ADD CONSTRAINT "Consentimiento_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "DocumentoPaciente" ADD CONSTRAINT "DocumentoPaciente_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
