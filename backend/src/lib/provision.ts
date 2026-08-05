@@ -47,17 +47,30 @@ export async function createTenantDatabase(dbName: string): Promise<void> {
   })
 }
 
-// ¿Es una base PRODUCTIVA? Lo es si su clínica en el control-plane NO está marcada
-// esDemo, o si la base tiene filas en Paciente. Una base recién creada (rollback) o
-// sin la tabla todavía cuenta como NO productiva.
+// Criterio PURO de "base productiva" (testeable sin una base real). El FLAG del
+// control-plane MANDA: si hay registro, `esDemo` decide (una demo NO es productiva —
+// sus pacientes son del seed, es irrelevante cuántos tenga). Solo una base HUÉRFANA
+// (sin registro) cae a la heurística de conteo de pacientes.
+//
+// (No mezclar con la heurística de pacientes cuando SÍ hay registro: eso rompía la
+// limpieza de demos, porque una demo se siembra con pacientes por diseño.)
+export function evaluarProductiva(args: { registro: { esDemo: boolean } | null; pacientes: number }): boolean {
+  if (args.registro) return !args.registro.esDemo   // demo → false; clínica real → true
+  return args.pacientes > 0                          // huérfana: si tiene pacientes, tratarla como productiva
+}
+
+// ¿Es una base PRODUCTIVA? Resuelve los datos y aplica `evaluarProductiva`. Solo cuenta
+// pacientes cuando NO hay registro en el control-plane (base huérfana).
 async function esBaseProductiva(dbName: string): Promise<boolean> {
-  const c = await control.clinica.findUnique({ where: { dbName }, select: { esDemo: true } }).catch(() => null)
-  if (c && !c.esDemo) return true
-  try {
-    const rows = await tenantClient(dbName).$queryRawUnsafe<{ n: number }[]>('SELECT count(*)::int AS n FROM "Paciente"')
-    if ((rows[0]?.n ?? 0) > 0) return true
-  } catch { /* la tabla puede no existir en una base a medio crear → no productiva */ }
-  return false
+  const registro = await control.clinica.findUnique({ where: { dbName }, select: { esDemo: true } }).catch(() => null)
+  let pacientes = 0
+  if (!registro) {
+    try {
+      const rows = await tenantClient(dbName).$queryRawUnsafe<{ n: number }[]>('SELECT count(*)::int AS n FROM "Paciente"')
+      pacientes = rows[0]?.n ?? 0
+    } catch { /* base a medio crear / sin la tabla → 0 pacientes */ }
+  }
+  return evaluarProductiva({ registro, pacientes })
 }
 
 // Borra la base de una clínica. BARRERA propia (no depende solo de quien llame): se
