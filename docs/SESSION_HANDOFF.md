@@ -7,13 +7,25 @@
 
 ## Última actualización
 
-- **Fecha:** 2026-08-04
-- **Rama:** `arch/split-frontend-backend` (todo lo del día **mergeado y desplegado**).
-- **Foco del día:** (1) resiliencia encendida (backups 3 capas + capa 1 + Sentry x3 +
-  UptimeRobot); (2) **Google Calendar reparado y operativo** (sync visible + dead-man's
-  switch + aviso en agenda + cron cada 15 min + force-full + reconcile idempotente; app
-  Google **en producción**, verificación **en revisión**); (3) **correlativo de cobros**
-  seguro ante concurrencia (advisory lock).
+- **Fecha:** 2026-08-05
+- **Rama:** `arch/split-frontend-backend` (**mergeado y desplegado** a prod). **`master`
+  quedó al día**: fast-forward `arch` → `master` (era ancestro limpio, 341 commits detrás),
+  pusheado. Ojo: eso **activa los workflows de GitHub Actions** que dormían en master.
+- **Foco del día:** **2FA TOTP obligatorio para super-admin** (schema de CONTROL). Login en
+  dos pasos: la contraseña emite un **desafío** (JWT `stage:2fa`, TTL 10m) en vez de sesión;
+  la sesión sale de `/auth/2fa/verify`. Alta = QR una sola vez + 10 códigos de respaldo de un
+  solo uso (bcrypt). Secreto TOTP **cifrado AES-256-GCM**. Rate limit propio (5/15m por sub e
+  IP, solo fallos). **El login de las clínicas NO se tocó.** Deploy verificado: `/auth/2fa/setup`
+  responde 400 (existe) y `/health` OK → el `control:push` del prestart aplicó las columnas.
+  Ver `docs/SECURITY.md` §7 (incl. **recuperación** si se pierden authenticator + todos los códigos).
+
+  ⚠️ **Acción para el super-admin en el primer login tras este deploy:** la primera vez cae en
+  el flujo de **alta** → hay que escanear el QR con Google Authenticator/Authy y **guardar los
+  10 códigos de respaldo** (se muestran una sola vez). Sin eso, recuperar el acceso implica tocar
+  la base de control a mano (SECURITY.md §incidentes).
+
+  _Historial previo (2026-08-04) más abajo: resiliencia (backups 3 capas + Sentry + UptimeRobot),
+  Google Calendar reparado, correlativos seguros, LRU de clientes, init.sql resync, ESLint 9._
 
 ## Backups — CÓDIGO DESPLEGADO + PRIMER BACKUP REAL OK (2026-08-04)
 
