@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-04 — Limpieza de demos: arreglado el criterio de la barrera + red de seguridad
+
+La barrera de `dropTenantDatabase` (2026-08-03) rompió la limpieza de demos: `esBaseProductiva()`
+consideraba productiva a cualquier base "no-demo **O con pacientes**", y una demo se siembra
+con 5 pacientes por diseño. Así `limpiarDemosExpiradas()` lanzaba y **ninguna demo expirada se
+borraba** — cada demo de la landing quedaba como una base Postgres permanente. Rama `fix/limpieza-demos`.
+
+- **Fix del CRITERIO** (`lib/provision.ts`, función pura `evaluarProductiva`): si hay registro
+  en el control-plane, **el flag `esDemo` manda** (demo → NO productiva, sus pacientes son del
+  seed; clínica real → productiva, requiere el flag). Solo una base **huérfana** (sin registro)
+  cae a la heurística de conteo de pacientes. NO se resolvió pasando `confirmarBorradoProductivo:
+  true` a la limpieza (eso le daría a un job diario permiso para borrar bases productivas, justo
+  lo que la barrera evita, y el flag `esDemo` puede estar mal).
+- **Red contra el flag mal puesto** (`demo.service.ts`, función pura `pareceDemo`): la limpieza
+  se **niega** a borrar una base que no parezca un demo aunque esté marcada como tal —
+  `> 50 pacientes` (seed=5, margen 10×; una clínica real nunca pasa) o vida útil que no condice
+  con un demo (`demoExpiraEn − createdAt` fuera de ~30 d, o sin `demoExpiraEn`). Al rechazar,
+  **loguea (`log.error`) y reporta a Sentry** (`captureError`) en vez de fallar en silencio — así
+  una base rara sale a la superficie. `limpiarDemosExpiradas()` ahora devuelve `rechazadas[]`.
+- **Tests** (`test/limpieza-demos.test.ts`, 8): demo (con pacientes de seed) se puede borrar ·
+  clínica real no · base marcada demo con volumen de clínica real → rechazada · huérfana con
+  pacientes → requiere flag · + los rechazos de `pareceDemo` (volumen, sin expiry, vida útil).
+
+**Verificación:** typecheck ✓ · unit 114/114 ✓ · integración 54/54 ✓. No se tocó `migrate-tenants.ts`.
+**Pendiente (tras deploy):** correr la limpieza en prod y reportar cuántas demos colgadas se
+borraron + auditar bases huérfanas de demos viejas sin registro en el control-plane.
+
+---
+
 ## 2026-08-04 — `init.sql` resincronizado con el schema tenant + guarda anti-drift
 
 `prisma/tenant/init.sql` estaba ~630 líneas atrás del schema (el último cambio fue meter 2

@@ -1,14 +1,47 @@
 import bcrypt from 'bcryptjs'
 import { control } from '@/db/control'
+import { tenantClient } from '@/db/tenant'
 import { badRequest, tooMany } from '@/lib/errors'
 import { rateLimit } from '@/lib/rate-limit'
 import { getVertical } from '@/lib/verticales'
 import { provisionTenant, dropTenantDatabase, dbNameForSlug } from '@/lib/provision'
 import { seedTenantBasics, seedDemoTenant } from '@/lib/tenant-seed'
 import { issueTokenForTenantUser } from '@/services/auth.service'
+import { log } from '@/lib/logger'
+import { captureError } from '@/lib/observability'
 import type { LoginResponse } from '@shared/types'
 
 const DEMO_DIAS = 7
+
+// ── Red de seguridad de la limpieza de demos ─────────────────────────────────
+// El job diario borra demos EXPIRADAS. Como el flag `esDemo` puede estar mal (p. ej.
+// demo-dv20mz nació con esDemo=false por un error de datos; el error inverso marcaría
+// una clínica real como demo), la limpieza se NIEGA a borrar una base que no PAREZCA
+// una demo, aunque esté marcada como tal. Una clínica real jamás pasa este filtro.
+const MAX_PACIENTES_DEMO = 50 // seedDemoTenant siembra 5; margen 10× (una clínica real tiene cientos/miles)
+const MAX_VIDA_DEMO_MS = 30 * 24 * 60 * 60 * 1000 // un demo vive ~DEMO_DIAS; 30 d de margen
+
+// Criterio PURO (testeable): ¿esta base marcada como demo parece de verdad un demo?
+export function pareceDemo(a: { pacientes: number; createdAt: Date; demoExpiraEn: Date | null }): { ok: boolean; motivo?: string } {
+  if (a.pacientes > MAX_PACIENTES_DEMO) {
+    return { ok: false, motivo: `tiene ${a.pacientes} pacientes (> ${MAX_PACIENTES_DEMO}): parece una clínica real, no un demo` }
+  }
+  if (!a.demoExpiraEn) {
+    return { ok: false, motivo: 'no tiene demoExpiraEn: no fue creada por el flujo de demo' }
+  }
+  const vidaMs = a.demoExpiraEn.getTime() - a.createdAt.getTime()
+  if (vidaMs <= 0 || vidaMs > MAX_VIDA_DEMO_MS) {
+    return { ok: false, motivo: `vida útil de ${Math.round(vidaMs / 86_400_000)} d no condice con un demo (~${DEMO_DIAS} d)` }
+  }
+  return { ok: true }
+}
+
+async function contarPacientes(dbName: string): Promise<number> {
+  try {
+    const rows = await tenantClient(dbName).$queryRawUnsafe<{ n: number }[]>('SELECT count(*)::int AS n FROM "Paciente"')
+    return rows[0]?.n ?? 0
+  } catch { return 0 }
+}
 
 function slugDemo(): string {
   return `demo-${Math.random().toString(36).slice(2, 8)}`
@@ -90,15 +123,34 @@ export async function crearDemo(input: CrearDemoInput, ip: string): Promise<Demo
 }
 
 // Borra las clínicas demo expiradas: elimina su base física y su registro.
-export async function limpiarDemosExpiradas(): Promise<{ revisadas: number; borradas: number; errores: { slug: string; error: string }[] }> {
+export async function limpiarDemosExpiradas(): Promise<{
+  revisadas: number; borradas: number
+  rechazadas: { slug: string; motivo: string }[]
+  errores: { slug: string; error: string }[]
+}> {
   const expiradas = await control.clinica.findMany({
     where: { esDemo: true, demoExpiraEn: { lt: new Date() } },
-    select: { id: true, slug: true, dbName: true },
+    select: { id: true, slug: true, dbName: true, createdAt: true, demoExpiraEn: true },
   })
   let borradas = 0
+  const rechazadas: { slug: string; motivo: string }[] = []
   const errores: { slug: string; error: string }[] = []
   for (const c of expiradas) {
     try {
+      // Red contra el flag mal puesto: NO borrar una base que no parezca un demo,
+      // aunque esté marcada como tal. Si se rechaza, se loguea y reporta a Sentry —
+      // así una base rara (mal marcada, o una clínica real) sale a la superficie en
+      // vez de que un job automático la borre de madrugada o la ignore en silencio.
+      const pacientes = await contarPacientes(c.dbName)
+      const chequeo = pareceDemo({ pacientes, createdAt: c.createdAt, demoExpiraEn: c.demoExpiraEn })
+      if (!chequeo.ok) {
+        log.error('limpieza de demos: base marcada demo pero NO parece un demo, se rechaza', {
+          slug: c.slug, dbName: c.dbName, pacientes, motivo: chequeo.motivo,
+        })
+        captureError(new Error(`Limpieza de demos rechazó "${c.slug}" (${c.dbName}): ${chequeo.motivo}`), { route: 'demo/cleanup' })
+        rechazadas.push({ slug: c.slug, motivo: chequeo.motivo! })
+        continue
+      }
       await dropTenantDatabase(c.dbName)
       await control.clinica.delete({ where: { id: c.id } })
       borradas++
@@ -106,5 +158,5 @@ export async function limpiarDemosExpiradas(): Promise<{ revisadas: number; borr
       errores.push({ slug: c.slug, error: e instanceof Error ? e.message : String(e) })
     }
   }
-  return { revisadas: expiradas.length, borradas, errores }
+  return { revisadas: expiradas.length, borradas, rechazadas, errores }
 }
