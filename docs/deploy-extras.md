@@ -46,11 +46,42 @@ fija un `cronSchedule`: como `run.mjs` despacha varios jobs con horarios distint
 schedule se define en cada servicio (Settings → Cron Schedule). Si lo pusiera en
 railway.json, ese valor pisaría el del dashboard en cada deploy.
 
-> `sync` YA está creado y activo en producción (servicio `cron-google-sync`,
-> `JOB=sync`, `*/15 * * * *`, `CRON_SECRET=${{BACKEND.CRON_SECRET}}`). Ver
-> `docs/integraciones-google-whatsapp.md`.
-
 Probar un job manualmente:
 ```
 curl -X POST https://api.clariva.cl/api/v1/demo/cleanup -H "x-cron-secret: $CRON_SECRET"
 ```
+
+## C. Los crons viven en Railway, NO en GitHub Actions (no revivir el workflow)
+
+**Los cinco servicios cron están en Railway** (proyecto `amused-recreation`, env
+`production`), todos con `restartPolicyType: NEVER`, Root Directory = `cron/` (salvo los de
+backup, que corren scripts del backend), branch `arch/split-frontend-backend` y
+`CRON_SECRET=${{BACKEND.CRON_SECRET}}` (⚠️ **`BACKEND` en MAYÚSCULAS**, la referencia es
+case-sensitive):
+
+| Servicio Railway | Qué hace | Schedule (UTC) |
+|------------------|----------|----------------|
+| `cron-google-sync` | `JOB=sync` → `POST /google/sync` | `*/15 * * * *` |
+| `cron-demo-cleanup` | `JOB=cleanup` → `POST /demo/cleanup` | `0 6 * * *` |
+| `backup` | `npm run backup` (dump lógico por clínica) | `0 7 * * *` |
+| `backup-drill` | `npm run backup:drill` (ensayo de restore) | `0 8 * * 1` |
+| `backup-prune` | `npm run backup:prune -- --apply` | `30 8 * * 0` |
+
+**Por qué NO usamos GitHub Actions para esto.** Existió `.github/workflows/clariva-cron.yml`
+que hacía los mismos `POST` de `sync` y `cleanup` por schedule. Se **retiró (2026-08-05)** y
+NO debe revivirse:
+
+- Las Actions programadas **solo corren en la rama default** del repo. El workflow estuvo
+  dormido mientras `master` era el monolito; al mergear `arch → master` (2026-08-05) se
+  activó de golpe y quedó **duplicando** el `sync` que ya hacía `cron-google-sync`.
+- **Railway es la única fuente de verdad de los crons**: ahí se ven `nextCronRunAt`, los logs
+  de cada corrida y conviven con los tres de backup. Partir los crons entre dos plataformas
+  hace más difícil saber si algo corrió.
+- El mínimo de Railway entre ejecuciones de cron es **5 minutos** (por eso no hay schedules
+  sub-5m). Para forzar una corrida de prueba: fijar temporalmente un horario puntual cercano
+  (`MM HH * * *`) y restaurar después; o `POST` manual al endpoint con `x-cron-secret`.
+
+> Nota histórica: el `sync` siempre lo cubrió `cron-google-sync`. El `cleanup` **no tenía**
+> servicio en Railway (solo lo cubría el workflow, que además no corría por el tema de la rama
+> default), así que al retirar el workflow se creó `cron-demo-cleanup` para no quedarse sin
+> limpieza de demos. Ver `docs/integraciones-google-whatsapp.md`.
