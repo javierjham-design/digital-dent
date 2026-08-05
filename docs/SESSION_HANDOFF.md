@@ -24,6 +24,18 @@
   10 códigos de respaldo** (se muestran una sola vez). Sin eso, recuperar el acceso implica tocar
   la base de control a mano (SECURITY.md §incidentes).
 
+- **Crons consolidados en Railway (2026-08-05).** El merge a master activó
+  `.github/workflows/clariva-cron.yml`, que duplicaba el `sync` y disparaba el `cleanup`.
+  Se **retiró el workflow** (ya no hay ninguno en `.github/workflows/`). Antes de borrarlo se
+  verificó Railway: `sync` estaba (`cron-google-sync`) pero **`cleanup` no tenía servicio** →
+  se creó **`cron-demo-cleanup`** (JOB=cleanup, `0 6 * * *`, rootDir=cron, branch arch,
+  `CRON_SECRET=${{BACKEND.CRON_SECRET}}`). Build SUCCESS y **disparo verificado** (corrida de
+  prueba forzada + secreto resuelto = al del BACKEND). **Los 5 crons viven en Railway**
+  (`cron-google-sync`, `cron-demo-cleanup`, `backup`, `backup-drill`, `backup-prune`); ver
+  `docs/deploy-extras.md` §C. **No revivir el workflow.** Estado de demos: 0 expiradas, 0 bases
+  huérfanas (censo corrido). Script de un solo uso `backend/limpieza-duplicados-google.mjs`
+  borrado (ya se había corrido).
+
   _Historial previo (2026-08-04) más abajo: resiliencia (backups 3 capas + Sentry + UptimeRobot),
   Google Calendar reparado, correlativos seguros, LRU de clientes, init.sql resync, ESLint 9._
 
