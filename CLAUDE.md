@@ -167,8 +167,12 @@ y trabajo en curso que no debés duplicar ni romper.
 
 ## 8. Pendientes conocidos (ver `docs/AUDITORIA_2026-08.md`)
 
-Sin 2FA de super-admin · el stack nuevo no tiene configuración de ESLint · `@unique` en
-`Caja.numero` pendiente (requiere backfill previo, ver `docs/AI_CHANGELOG.md`).
+Sin 2FA de super-admin · `@unique` en `Caja.numero` pendiente (requiere backfill previo,
+ver `docs/AI_CHANGELOG.md`) · endurecer reglas de ESLint diferidas (`exhaustive-deps` y
+algún `no-unused-vars` quedaron en `warn`).
+
+ESLint 9 (flat config) configurado por servicio: `npm run lint` en backend/frontend/web/
+shared. Base compartida en `eslint.base.mjs`.
 
 Resueltos en la tanda 2026-08-04: `init.sql` resincronizado + guarda anti-drift · correlativos
 (cobro/presupuesto/sesión/paciente/caja) seguros ante concurrencia · caché de clientes por

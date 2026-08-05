@@ -544,7 +544,7 @@ async function reconcileEvent(
   doctorId: string,
   calendarId: string,
   ev: calendar_v3.Schema$Event,
-  calendar: calendar_v3.Calendar,
+  _calendar: calendar_v3.Calendar,
 ): Promise<ReconcileResult> {
   if (!ev.id) return 'ignored'
 

@@ -55,6 +55,6 @@ export async function descargarConsentimientoPDF(el: HTMLElement, filename: stri
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
     pagebreak: { mode: ['css', 'legacy'] },
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   await html2pdf().set(opts as any).from(el).save()
 }

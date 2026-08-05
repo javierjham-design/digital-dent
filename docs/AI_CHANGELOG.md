@@ -5,6 +5,38 @@
 
 ---
 
+## 2026-08-04 — ESLint 9 (flat config) para el monorepo
+
+El único ESLint que había era el del monolito Next.js (borrado). Ninguno de los 3 servicios
+vivos tenía linter. Rama `chore/eslint-flat-config`.
+
+- **Base compartida** (`eslint.base.mjs`, en la raíz): NO importa dependencias (cada servicio
+  tiene su propio `node_modules`); exporta bloques comunes (ignores + ajustes de reglas) que
+  cada servicio compone con su `typescript-eslint`. Reglas comunes: `no-unused-vars` warn
+  (ignora `_`-prefijados), `no-explicit-any` off (el código lo usa a propósito),
+  `no-unused-expressions` con `allowShortCircuit/allowTernary` (patrones `a && f()` / `a ? f() : g()`).
+- **Por servicio** (`eslint.config.mjs` + script `lint` en cada `package.json`, ESLint `^9`):
+  - **backend/**: `recommended` + globals de Node + **`no-floating-promises` como ERROR**
+    (type-aware vía `projectService`) — en un backend con Prisma, una promesa sin await/void es
+    fuente real de bugs. Resultado: **0 promesas flotantes** (el código ya estaba limpio).
+  - **frontend/** y **web/**: `recommended` + reglas de React (`eslint-plugin-react`) y de hooks
+    (`react-hooks/rules-of-hooks` error, `exhaustive-deps` warn), apagando lo que no aplica al
+    stack (JSX runtime automático, prop-types de TS, `no-unescaped-entities` en UI en español).
+  - **shared/**: config mínima (solo tipos), `recommended`.
+- **Arreglos evidentes** (sin cambiar runtime): `let`→`const` (1), quitar directivas
+  `eslint-disable` muertas del viejo config (no-console/no-explicit-any), prefijar `_` un param
+  sin usar, e `eslint-disable` inline en el snippet oficial del Meta Pixel (`prefer-spread`).
+- **Estado final del lint:** backend/web/shared **0 problemas**; frontend **0 errores, 6
+  warnings** — 5 `react-hooks/exhaustive-deps` (intencionales; arreglarlas a mano puede cambiar
+  runtime) + 1 `no-unused-vars`. Bien por debajo de 30, así que quedan como **warnings** (no se
+  forzó un commit gigante de auto-fixes). **Diferido:** endurecer `exhaustive-deps` (revisar caso
+  por caso) y el `no-unused-vars` restante.
+
+**Verificación:** typecheck backend/frontend/web ✓ · unit 114/114 ✓ · integración 54/54 ✓.
+No se cambió comportamiento de runtime. No se tocó `migrate-tenants.ts`.
+
+---
+
 ## 2026-08-04 — Limpieza de demos: arreglado el criterio de la barrera + red de seguridad
 
 La barrera de `dropTenantDatabase` (2026-08-03) rompió la limpieza de demos: `esBaseProductiva()`

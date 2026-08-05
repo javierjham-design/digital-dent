@@ -9,13 +9,13 @@ import { dedupePrestaciones } from '@/services/catalogo.service'
 
 async function main() {
   const clinicas = await control.clinica.findMany({ select: { slug: true, dbName: true }, orderBy: { createdAt: 'asc' } })
-  console.log(`[dedupe-prestaciones] ${clinicas.length} clínica(s)`) // eslint-disable-line no-console
+  console.log(`[dedupe-prestaciones] ${clinicas.length} clínica(s)`)  
   for (const c of clinicas) {
     try {
       const r = await dedupePrestaciones(tenantClient(c.dbName))
-      console.log(`  · ${c.slug}: ${r.eliminadas} eliminadas (${r.restantes} quedan)`) // eslint-disable-line no-console
+      console.log(`  · ${c.slug}: ${r.eliminadas} eliminadas (${r.restantes} quedan)`)  
     } catch (e) {
-      console.error(`  · ${c.slug}: ERROR`, e instanceof Error ? e.message : e) // eslint-disable-line no-console
+      console.error(`  · ${c.slug}: ERROR`, e instanceof Error ? e.message : e)  
     }
   }
   await control.$disconnect()

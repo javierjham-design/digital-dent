@@ -4,7 +4,7 @@
 // click-ids de todas las plataformas) en localStorage, para no perder la
 // atribución si el usuario navega antes de enviar el formulario / reservar.
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 declare global { interface Window { fbq?: any; _fbq?: any } }
 
 let inicializado = ''
@@ -14,6 +14,7 @@ export function initPixel(pixelId: string) {
   inicializado = pixelId
   const w = window as any
   if (!w.fbq) {
+    // eslint-disable-next-line prefer-spread -- snippet oficial del Meta Pixel, verbatim
     const n: any = (w.fbq = function (...args: any[]) { n.callMethod ? n.callMethod.apply(n, args) : n.queue.push(args) })
     if (!w._fbq) w._fbq = n
     n.push = n; n.loaded = true; n.version = '2.0'; n.queue = []

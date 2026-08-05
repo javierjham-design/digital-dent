@@ -127,7 +127,7 @@ async function crearCheckoutLemon(args: EnlacePagoArgs): Promise<ResultadoEnlace
       },
       body: JSON.stringify(body),
     })
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const json = (await res.json().catch(() => ({}))) as any
     if (!res.ok) {
       const msg = json?.errors?.[0]?.detail ?? `Error ${res.status} al crear el checkout`

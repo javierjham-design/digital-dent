@@ -24,7 +24,7 @@ async function main() {
     select: { slug: true, dbName: true, activo: true, esDemo: true },
     orderBy: { createdAt: 'asc' },
   })
-  // eslint-disable-next-line no-console
+   
   console.log(`\n[diag-google] ${clinicas.length} clínica(s) en el control-plane\n`)
 
   let totalConectadas = 0
@@ -67,13 +67,13 @@ async function main() {
       totalCitasEspejadas += citasEspejo
       totalErrores += citasError + bloqError
 
-      // eslint-disable-next-line no-console
+       
       console.log(`━━ ${marca}`)
       if (!conectada) {
-        // eslint-disable-next-line no-console
+         
         console.log('   Google: NO conectado (sin refresh token)')
       } else {
-        // eslint-disable-next-line no-console
+         
         console.log(
           `   Google: conectado como ${cfg?.googleAccountEmail ?? '(sin email)'}` +
           ` · desde ${fmt(cfg?.googleConnectedAt)} por ${cfg?.googleConnectedByName ?? '—'}` +
@@ -81,13 +81,13 @@ async function main() {
         )
       }
       if (users.length === 0) {
-        // eslint-disable-next-line no-console
+         
         console.log('   Doctores mapeados: ninguno')
       } else {
-        // eslint-disable-next-line no-console
+         
         console.log(`   Doctores mapeados: ${users.length}`)
         for (const u of users) {
-          // eslint-disable-next-line no-console
+           
           console.log(
             `     · ${(u.name ?? u.email ?? '—').padEnd(28)}` +
             ` cal=${(u.googleCalendarId ?? '—').slice(0, 30).padEnd(30)}` +
@@ -97,29 +97,29 @@ async function main() {
           )
         }
       }
-      // eslint-disable-next-line no-console
+       
       console.log(
         `   Citas con googleEventId: ${citasEspejo} · Bloqueos: ${bloqEspejo}` +
         ` · con googleSyncError → citas ${citasError}, bloqueos ${bloqError}\n`,
       )
     } catch (e) {
-      // eslint-disable-next-line no-console
+       
       console.error(`━━ ${marca}: ERROR`, e instanceof Error ? e.message : e, '\n')
     } finally {
       await disposeTenant(c.dbName)
     }
   }
 
-  // eslint-disable-next-line no-console
+   
   console.log('──────────────────────────────────────────────────────────────')
-  // eslint-disable-next-line no-console
+   
   console.log(
     `RESUMEN: ${totalConectadas}/${clinicas.length} clínicas conectadas · ` +
     `${totalUsuariosMapeados} doctor(es) con calendario mapeado · ` +
     `${totalCitasEspejadas} cita(s) espejadas en Google · ` +
     `${totalErrores} registro(s) con googleSyncError`,
   )
-  // eslint-disable-next-line no-console
+   
   console.log('──────────────────────────────────────────────────────────────\n')
 
   await control.$disconnect()

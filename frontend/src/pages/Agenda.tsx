@@ -1339,7 +1339,7 @@ function ReagendarModal({ cita, doctores, horarios, onReagendar, onClose }: {
   useEffect(() => {
     const from = new Date(semana)
     const to = new Date(semana); to.setDate(to.getDate() + 6); to.setHours(23, 59, 59, 999)
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- indicador de carga al cambiar de semana
+     
     setCargando(true)
     Promise.all([
       citasService.listar(from.toISOString(), to.toISOString()),
