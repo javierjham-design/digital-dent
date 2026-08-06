@@ -167,9 +167,8 @@ y trabajo en curso que no debés duplicar ni romper.
 
 ## 8. Pendientes conocidos (ver `docs/AUDITORIA_2026-08.md`)
 
-`@unique` en `Caja.numero` pendiente (requiere backfill previo,
-ver `docs/AI_CHANGELOG.md`) · endurecer reglas de ESLint diferidas (`exhaustive-deps` y
-algún `no-unused-vars` quedaron en `warn`).
+Endurecer reglas de ESLint diferidas (`exhaustive-deps` y algún `no-unused-vars` quedaron
+en `warn`).
 
 ESLint 9 (flat config) configurado por servicio: `npm run lint` en backend/frontend/web/
 shared. Base compartida en `eslint.base.mjs`.
@@ -177,6 +176,12 @@ shared. Base compartida en `eslint.base.mjs`.
 Resueltos en la tanda 2026-08-04: `init.sql` resincronizado + guarda anti-drift · correlativos
 (cobro/presupuesto/sesión/paciente/caja) seguros ante concurrencia · caché de clientes por
 tenant con LRU + pool acotado · los 2 tests de integración en rojo (eran desactualizados).
+
+Resueltos 2026-08-05/06: **`@unique` en `Caja.numero` y `SesionCaja.numero`** (aplicado a las 3
+bases con `CREATE UNIQUE INDEX` directo — el `@unique` sobre columna poblada no pasa por
+migrate-tenants; se conserva `@default(0)` inerte, ver comentario en el schema) · **self-check de
+schema en `provisionTenant()`** (verifica columnas vía DMMF tras el DDL; atómico con rollback;
+error 503 limpio al lead). Ambos desplegados + validados con demo real desde la landing.
 
 Backups: **resueltos** (3 capas, restore probado, ensayo semanal) — ver `docs/BACKUPS.md`.
 Google Calendar: **resuelto** (2026-08-04) — cron de sync recreado, fallas visibles con

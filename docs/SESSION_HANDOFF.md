@@ -7,7 +7,26 @@
 
 ## Última actualización
 
-- **Fecha:** 2026-08-05
+- **Fecha:** 2026-08-06
+- **Defensa en profundidad de cajas + provisión (DESPLEGADO 2026-08-06).** Dos tareas, commits
+  separados en `arch`:
+  - **`@unique` en `Caja.numero` y `SesionCaja.numero`**: red del correlativo (ya era race-safe por
+    advisory lock, pero un duplicado por otro camino pasaba en silencio). Se **conserva `@default(0)`**
+    (inerte; ver comentario en el schema): quitarlo obligaría a `db push --accept-data-loss` (regla 1).
+    El `@unique` sobre columna poblada **no pasa por migrate-tenants** (Prisma lo marca data-loss), así
+    que se aplicó con **`CREATE UNIQUE INDEX` directo** (todo-o-nada, pre-chequeo + rollback,
+    `src/scripts/aplicar-caja-unique.ts`) a las 3 bases, con backup fresco antes. init.sql regenerado.
+  - **Self-check en `provisionTenant()`**: tras el DDL verifica que la base tenga todas las columnas
+    del schema (DMMF vs `information_schema`); si falta algo o el DDL falló, **borra la base y aborta**
+    (Sentry con `db=<dbName>`). Demo/alta muestran **503 limpio**, no un 500 crudo. Cubre el "DDL a
+    medias" (la demo con 491 de 588 columnas).
+  - **Validado end-to-end**: prestart `migrate:tenants` **3/3 OK**, `/health` 200, **demo real creada
+    desde la landing** → su base nació con **ambos índices** + self-check 0 faltantes + navegable (5
+    pacientes por la API); demo **borrada** por el flujo real de `/demo/cleanup` (registro + base
+    físicos eliminados). Scripts útiles quedaron: `src/scripts/caja-numeros.ts` (reporte/backfill),
+    `aplicar-caja-unique.ts` (migración del índice).
+
+- **Fecha previa:** 2026-08-05
 - **Rama:** `arch/split-frontend-backend` (**mergeado y desplegado** a prod). **`master`
   quedó al día**: fast-forward `arch` → `master` (era ancestro limpio, 341 commits detrás),
   pusheado. Ojo: eso **activa los workflows de GitHub Actions** que dormían en master.
