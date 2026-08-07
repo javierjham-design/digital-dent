@@ -20,7 +20,7 @@ const linkCls = ({ isActive }: { isActive: boolean }) =>
 // Menú "Gestión": agrupa la configuración y el back-office en secciones (Clínica,
 // Documentos, Captación, Dinero, Análisis, Cuenta), respetando el permiso de cada ítem.
 // Una sección sin ningún ítem visible no muestra su título.
-function GestionMenu({ esAdmin, puedeConfig, puedeEquipo, puedePrestaciones, puedeCajas, puedeGestionarLiq, puedeVerReportes, modAgenda }: { esAdmin: boolean; puedeConfig: boolean; puedeEquipo: boolean; puedePrestaciones: boolean; puedeCajas: boolean; puedeGestionarLiq: boolean; puedeVerReportes: boolean; modAgenda: boolean }) {
+function GestionMenu({ esAdmin, puedeConfig, puedeEquipo, puedePrestaciones, puedeCajas, puedeVerReportes, modAgenda }: { esAdmin: boolean; puedeConfig: boolean; puedeEquipo: boolean; puedePrestaciones: boolean; puedeCajas: boolean; puedeVerReportes: boolean; modAgenda: boolean }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
@@ -51,8 +51,8 @@ function GestionMenu({ esAdmin, puedeConfig, puedeEquipo, puedePrestaciones, pue
     ].filter((x): x is [string, string] => x !== null) },
     { titulo: 'Dinero', items: [
       it(esAdmin || puedeCajas, '/gestion-cajas', 'Gestión de cajas'),
-      it(puedeGestionarLiq, '/liquidaciones', 'Gestión de liquidaciones'),
-      it(true, '/mis-liquidaciones', 'Mis liquidaciones'),
+      // Una sola entrada: la ruta muestra la vista de gestión o la propia según el permiso.
+      it(true, '/liquidaciones', 'Liquidaciones'),
     ].filter((x): x is [string, string] => x !== null) },
     { titulo: 'Análisis', items: [
       it(esAdmin || puedeVerReportes, '/reportes', 'Reportes'),
@@ -149,7 +149,6 @@ export function DashboardLayout() {
   useEffect(() => { if (forzado) setCambiarPass(true) }, [forzado])
 
   if (user?.isPlatformAdmin) return <Navigate to="/plataforma" replace />
-  const puedeGestionarLiq = Boolean(user?.permisos?.puedeGestionarLiquidaciones)
   const puedeCrm = Boolean(user?.permisos?.puedeGestionarCrm)
   const puedeCajas = Boolean(user?.permisos?.puedeGestionarCajas)
   const puedeConfig = Boolean(user?.permisos?.puedeConfigurarClinica)
@@ -182,7 +181,7 @@ export function DashboardLayout() {
           {/* CRM es trabajo diario (leads sin gestionar): va anclado en el header, no
               escondido en el desplegable. Misma condición de visibilidad que antes. */}
           {modCrm && (esAdmin || puedeCrm) && <NavLink to="/crm" className={linkCls}>CRM · Leads</NavLink>}
-          <GestionMenu esAdmin={esAdmin} puedeConfig={puedeConfig} puedeEquipo={puedeEquipo} puedePrestaciones={puedePrestaciones} puedeCajas={puedeCajas} puedeGestionarLiq={puedeGestionarLiq} puedeVerReportes={puedeVerReportes} modAgenda={modAgenda} />
+          <GestionMenu esAdmin={esAdmin} puedeConfig={puedeConfig} puedeEquipo={puedeEquipo} puedePrestaciones={puedePrestaciones} puedeCajas={puedeCajas} puedeVerReportes={puedeVerReportes} modAgenda={modAgenda} />
           <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
         </nav>
       </header>

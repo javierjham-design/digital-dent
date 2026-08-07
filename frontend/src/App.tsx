@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { AuthProvider } from '@/hooks/useAuth'
+import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { DashboardLayout } from '@/layouts/DashboardLayout'
 import { SuperAdminLayout } from '@/layouts/SuperAdminLayout'
@@ -38,6 +38,13 @@ import { AdminPlanes } from '@/pages/admin/PlanesSuscripcion'
 import { AdminPagos } from '@/pages/admin/Pagos'
 import { AdminConfiguracion } from '@/pages/admin/Configuracion'
 
+// Una sola entrada "Liquidaciones": el gestor (o admin) ve la vista de todo el equipo;
+// el resto, su propia liquidación. Misma URL para poder linkearla sin depender del rol.
+function LiquidacionesEntrada() {
+  const { user } = useAuth()
+  return user?.permisos?.puedeGestionarLiquidaciones ? <Liquidaciones /> : <MisLiquidaciones />
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -68,8 +75,8 @@ export default function App() {
             <Route path="/recetas-documentos" element={<Consentimientos grupoInicial="DOCUMENTO" />} />
             <Route path="/suscripcion" element={<Suscripcion />} />
             <Route path="/reportes" element={<Reportes />} />
-            <Route path="/liquidaciones" element={<Liquidaciones />} />
-            <Route path="/mis-liquidaciones" element={<MisLiquidaciones />} />
+            <Route path="/liquidaciones" element={<LiquidacionesEntrada />} />
+            <Route path="/mis-liquidaciones" element={<Navigate to="/liquidaciones" replace />} />
             <Route path="/prestaciones" element={<Prestaciones />} />
             <Route path="/equipo" element={<Equipo />} />
             <Route path="/configuracion" element={<Configuracion />} />
