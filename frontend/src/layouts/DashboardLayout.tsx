@@ -19,7 +19,7 @@ const linkCls = ({ isActive }: { isActive: boolean }) =>
 
 // Menú "Administración": agrupa todo lo de gestión (config, equipo, prestaciones,
 // reportes, liquidaciones) para no saturar el header.
-function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, puedeCajas, puedeConfig, puedeEquipo, puedePrestaciones, modCrm, modAgenda }: { puedeGestionar: boolean; esAdmin: boolean; puedeCrm: boolean; puedeCajas: boolean; puedeConfig: boolean; puedeEquipo: boolean; puedePrestaciones: boolean; modCrm: boolean; modAgenda: boolean }) {
+function AdministracionMenu({ puedeGestionar, esAdmin, puedeCajas, puedeConfig, puedeEquipo, puedePrestaciones, modAgenda }: { puedeGestionar: boolean; esAdmin: boolean; puedeCajas: boolean; puedeConfig: boolean; puedeEquipo: boolean; puedePrestaciones: boolean; modAgenda: boolean }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
@@ -49,7 +49,6 @@ function AdministracionMenu({ puedeGestionar, esAdmin, puedeCrm, puedeCajas, pue
             {(esAdmin || puedeEquipo) && item('/equipo', 'Equipo')}
             {(esAdmin || puedeConfig) && modAgenda && item('/agendamiento-online', 'Agendamiento online')}
             {(esAdmin || puedeConfig) && item('/boxes', 'Boxes / Salas de atención')}
-            {modCrm && (esAdmin || puedeCrm) && item('/crm', 'CRM · Leads')}
             {(esAdmin || puedeConfig) && item('/consentimientos', 'Consentimientos')}
             {(esAdmin || puedeConfig) && item('/recetas-documentos', 'Recetas y documentos')}
             {esAdmin && item('/suscripcion', 'Suscripción y pagos')}
@@ -156,7 +155,10 @@ export function DashboardLayout() {
         </div>
         <nav className="flex flex-wrap items-center gap-1 w-full order-4 sm:order-3 sm:w-auto sm:flex-1">
           {NAV_PRE.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
-          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} puedeCrm={puedeCrm} puedeCajas={puedeCajas} puedeConfig={puedeConfig} puedeEquipo={puedeEquipo} puedePrestaciones={puedePrestaciones} modCrm={modCrm} modAgenda={modAgenda} />
+          {/* CRM es trabajo diario (leads sin gestionar): va anclado en el header, no
+              escondido en el desplegable. Misma condición de visibilidad que antes. */}
+          {modCrm && (esAdmin || puedeCrm) && <NavLink to="/crm" className={linkCls}>CRM · Leads</NavLink>}
+          <AdministracionMenu puedeGestionar={puedeGestionarLiq} esAdmin={esAdmin} puedeCajas={puedeCajas} puedeConfig={puedeConfig} puedeEquipo={puedeEquipo} puedePrestaciones={puedePrestaciones} modAgenda={modAgenda} />
           <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
         </nav>
       </header>
