@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
-import type { DoctorDTO, LiquidacionActivaDetalle, LiquidacionActivaResumen, LiquidacionAccion } from '@shared/types'
-import { liquidacionesService, contratosService } from '@/services/caja.service'
+import type { DoctorDTO, LiquidacionActivaDetalle, LiquidacionActivaResumen, LiquidacionAccion, MontoFijoPrestacionDTO, PrestacionDTO } from '@shared/types'
+import { liquidacionesService, contratosService, montosFijosService } from '@/services/caja.service'
+import { prestacionesService } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
@@ -110,6 +111,16 @@ function ActivasTab({ notify }: { notify: (t: string, ok?: boolean) => void }) {
 }
 
 function explicacion(it: LiquidacionAccion, contrato: LiquidacionActivaDetalle['contrato']): string {
+  // Monto fijo por prestación (override): se paga min(fijo, lo cobrado) − retención. Si lo
+  // cobrado es menor al fijo, se otorga el máximo disponible (lo cobrado) − retención.
+  if (it.origenCalculo === 'MONTO_FIJO_PRESTACION') {
+    const fijo = it.montoFijoPrestacion ?? 0
+    if (!it.pagada) return `Monto fijo por prestación (${fmt(fijo)}). Acción aún NO pagada → no suma a "A pagar". Potencial: ${fmt(it.total)}.`
+    const tope = it.montoPagado < fijo
+    return tope
+      ? `Monto fijo por prestación: el fijo (${fmt(fijo)}) supera lo cobrado (${fmt(it.montoPagado)}). Se otorga el máximo disponible ${fmt(it.montoPagado)} − retención ${fmt(it.comision)} = ${fmt(it.total)}.`
+      : `Monto fijo por prestación ${fmt(fijo)} − retención ${fmt(it.comision)} = ${fmt(it.total)}.`
+  }
   const pct = contrato?.tipo === 'PORCENTAJE'
   if (!it.pagada) {
     return pct
@@ -169,7 +180,12 @@ function DetalleActivaModal({ detalle, onClose, onFinalizado, notify }: {
               <Fragment key={it.tratamientoId}>
                 <tr className={it.pagada ? '' : 'bg-rose-50/40'}>
                   <td className="px-3 py-2 text-slate-800">{it.pacienteNombre}</td>
-                  <td className="px-3 py-2 text-slate-700">{it.accion}{it.pieza ? <span className="text-xs text-slate-400"> · {it.pieza}</span> : ''}</td>
+                  <td className="px-3 py-2 text-slate-700">
+                    {it.accion}{it.pieza ? <span className="text-xs text-slate-400"> · {it.pieza}</span> : ''}
+                    {it.origenCalculo === 'MONTO_FIJO_PRESTACION' && (
+                      <span className="ml-1.5 inline-block px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[10px] font-semibold align-middle" title={`Monto fijo por prestación${it.montoFijoPrestacion != null ? `: ${fmt(it.montoFijoPrestacion)}` : ''}`}>Monto fijo</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{fmtFecha(it.fecha)}</td>
                   <td className="px-3 py-2 text-right font-mono text-slate-600">{fmt(it.monto)}</td>
                   <td className="px-3 py-2 text-slate-500">{it.medioPago}</td>
@@ -284,17 +300,34 @@ function ContratosModal({ doctores, onClose, notify }: { doctores: DoctorDTO[]; 
   const [doctorId, setDoctorId] = useState(doctores[0]?.id ?? '')
   const [tipo, setTipo] = useState<'PORCENTAJE' | 'MONTO_FIJO'>('PORCENTAJE')
   const [valor, setValor] = useState('')
+  // Montos fijos por prestación (override) del profesional seleccionado.
+  const [prestaciones, setPrestaciones] = useState<PrestacionDTO[]>([])
+  const [montosFijos, setMontosFijos] = useState<MontoFijoPrestacionDTO[]>([])
+  const [mfPrestacionId, setMfPrestacionId] = useState('')
+  const [mfValor, setMfValor] = useState('')
   const cargar = () => contratosService.listar().then((c) => setContratos(c as Contrato[])).catch(() => {})
-  useEffect(() => { cargar() }, [])
+  const cargarMontos = (dId: string) => { if (dId) montosFijosService.listar(dId).then(setMontosFijos).catch(() => setMontosFijos([])) }
+  useEffect(() => { cargar(); prestacionesService.listar().then(setPrestaciones).catch(() => {}) }, [])
+  useEffect(() => { cargarMontos(doctorId) }, [doctorId])
   async function crear() {
     try {
       await contratosService.crear({ doctorId, tipo, ...(tipo === 'PORCENTAJE' ? { porcentaje: Number(valor) } : { montoFijo: Number(valor) }) })
       setValor(''); notify('Contrato creado'); cargar()
     } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
+  async function agregarMonto() {
+    try {
+      await montosFijosService.crear({ doctorId, prestacionId: mfPrestacionId, montoFijo: Number(mfValor) })
+      setMfPrestacionId(''); setMfValor(''); notify('Monto fijo guardado'); cargarMontos(doctorId)
+    } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
+  }
+  async function quitarMonto(id: string) {
+    try { await montosFijosService.eliminar(id); notify('Monto fijo eliminado'); cargarMontos(doctorId) }
+    catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
+  }
   return (
     <Modal title="Contratos de profesionales" onClose={onClose}>
-      <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
+      <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
         {contratos.filter((c) => c.activo).map((c) => (
           <div key={c.id} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg px-3 py-2">
             <span className="text-slate-800">{c.doctor?.name ?? '—'}</span>
@@ -304,10 +337,11 @@ function ContratosModal({ doctores, onClose, notify }: { doctores: DoctorDTO[]; 
         {contratos.filter((c) => c.activo).length === 0 && <p className="text-sm text-slate-500">Sin contratos activos.</p>}
       </div>
       <div className="border-t border-slate-100 pt-3 space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Nuevo contrato</p>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Profesional</p>
         <select value={doctorId} onChange={(e) => setDoctorId(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
           {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
         </select>
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 pt-1">Contrato base</p>
         <div className="flex gap-2">
           <select value={tipo} onChange={(e) => setTipo(e.target.value as 'PORCENTAJE' | 'MONTO_FIJO')} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
             <option value="PORCENTAJE">Porcentaje</option><option value="MONTO_FIJO">Monto fijo</option>
@@ -316,6 +350,32 @@ function ContratosModal({ doctores, onClose, notify }: { doctores: DoctorDTO[]; 
           <button onClick={crear} disabled={!doctorId || !valor} className="px-3 py-2 bg-cyan-600 disabled:opacity-50 text-white text-sm rounded-lg">Crear</button>
         </div>
         <p className="text-[11px] text-slate-400">Crear un contrato desactiva el anterior del profesional.</p>
+      </div>
+
+      {/* Montos fijos por prestación: override del contrato base para prestaciones puntuales. */}
+      <div className="border-t border-slate-100 pt-3 mt-3 space-y-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Montos fijos por prestación</p>
+        <p className="text-[11px] text-slate-400">Se paga ese fijo por la prestación. Si lo cobrado es menor al fijo, se paga el máximo disponible − retención del medio de pago.</p>
+        <div className="space-y-1.5 max-h-40 overflow-y-auto">
+          {montosFijos.map((m) => (
+            <div key={m.id} className="flex items-center justify-between text-sm bg-violet-50/60 rounded-lg px-3 py-2">
+              <span className="text-slate-800 truncate">{m.prestacion.nombre}</span>
+              <span className="flex items-center gap-2">
+                <span className="text-slate-700 font-mono">{fmt(m.montoFijo)}</span>
+                <button onClick={() => quitarMonto(m.id)} className="text-slate-300 hover:text-rose-600" title="Quitar">🗑</button>
+              </span>
+            </div>
+          ))}
+          {montosFijos.length === 0 && <p className="text-sm text-slate-500">Sin montos fijos para este profesional.</p>}
+        </div>
+        <div className="flex gap-2">
+          <select value={mfPrestacionId} onChange={(e) => setMfPrestacionId(e.target.value)} className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm">
+            <option value="">Prestación…</option>
+            {prestaciones.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+          </select>
+          <input value={mfValor} onChange={(e) => setMfValor(e.target.value)} placeholder="$" inputMode="numeric" className="w-24 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
+          <button onClick={agregarMonto} disabled={!doctorId || !mfPrestacionId || !mfValor} className="px-3 py-2 bg-violet-600 disabled:opacity-50 text-white text-sm rounded-lg">Agregar</button>
+        </div>
       </div>
     </Modal>
   )

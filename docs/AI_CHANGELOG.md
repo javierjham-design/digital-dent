@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-08-06 — Montos fijos por prestación en liquidaciones (override del contrato)
+
+Nuevo item de liquidación: un profesional puede cobrar un **monto fijo por una prestación
+específica**, configurado en la sección de contratos. Rama `feat/montos-fijos-prestacion`.
+
+- **Regla de cálculo** (confirmada con el usuario): al liquidar un tratamiento de una
+  prestación con monto fijo `F` configurado, se paga **min(F, lo cobrado) − retención del
+  medio de pago**. Si lo cobrado ≥ F → `F − retención`; si lo cobrado < F → `lo cobrado −
+  retención` (el máximo disponible). Es una **capa de override sobre el contrato base**: las
+  prestaciones sin fijo siguen el % / monto fijo general.
+- **Modelo** (`MontoFijoPrestacion`, aditivo): `doctorId + prestacionId + montoFijo`, único por
+  `(doctorId, prestacionId)`. Se ata al **profesional** (no al Contrato) para sobrevivir a la
+  recreación del contrato al editar el % base. `LiquidacionItem.origenCalculo` (nullable) guarda
+  qué regla aplicó (`PORCENTAJE | MONTO_FIJO | MONTO_FIJO_PRESTACION`) en el snapshot.
+- **Cálculo** en `liquidaciones.service.ts` (`calcAccion` recibe el mapa prestacionId→fijo del
+  doctor); el override manda sobre el contrato base cuando aplica. Endpoints `GET/POST/DELETE
+  /montos-fijos` (upsert por doctor+prestación; guardados con el permiso de liquidaciones).
+- **Frontend**: en `ContratosModal` se configura la lista de montos fijos por prestación del
+  profesional; en la liquidación activa el item se marca con un badge "Monto fijo" y su
+  explicación detalla min(fijo, cobrado) − retención.
+- **FK-seguro**: el seed de tests, `eliminarPrestacion` y el `dedupe` de prestaciones limpian los
+  montos fijos antes de borrar la prestación (config, no dato clínico; los tratamientos siguen
+  bloqueando el borrado como antes).
+- **Migración aditiva** (tabla + columna nullable): la aplica `migrate:tenants` por el flujo
+  normal (no es el caso del `@unique` sobre columna poblada). init.sql regenerado.
+- **Verificación**: typecheck (be/fe/web) ✓ · unit **118/118** · integración **64/64** (+4:
+  fijo ≤ cobrado, fijo > cobrado, upsert, borrado→vuelve al %) · contrato ✓ · lint backend 0.
+  Falta prueba manual en la UI desplegada.
+
+---
+
 ## 2026-08-05 — Self-check de schema en provisionTenant()
 
 `provisionTenant()` hacía `createTenantDatabase` + `applyTenantSchema` y nada más. La guarda

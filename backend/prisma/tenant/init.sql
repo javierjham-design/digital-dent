@@ -551,6 +551,19 @@ CREATE TABLE "Contrato" (
 );
 
 -- CreateTable
+CREATE TABLE "MontoFijoPrestacion" (
+    "id" TEXT NOT NULL,
+    "doctorId" TEXT NOT NULL,
+    "prestacionId" TEXT NOT NULL,
+    "montoFijo" DOUBLE PRECISION NOT NULL,
+    "activo" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "MontoFijoPrestacion_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Liquidacion" (
     "id" TEXT NOT NULL,
     "doctorId" TEXT NOT NULL,
@@ -599,6 +612,7 @@ CREATE TABLE "LiquidacionItem" (
     "comisionAplicada" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "medioPago" TEXT,
     "montoLiquidado" DOUBLE PRECISION NOT NULL,
+    "origenCalculo" TEXT,
 
     CONSTRAINT "LiquidacionItem_pkey" PRIMARY KEY ("id")
 );
@@ -920,6 +934,9 @@ CREATE INDEX "PagoOnline_estado_createdAt_idx" ON "PagoOnline"("estado", "create
 CREATE INDEX "CobroItem_planId_idx" ON "CobroItem"("planId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "MontoFijoPrestacion_doctorId_prestacionId_key" ON "MontoFijoPrestacion"("doctorId", "prestacionId");
+
+-- CreateIndex
 CREATE INDEX "LiquidacionAdjunto_liquidacionId_idx" ON "LiquidacionAdjunto"("liquidacionId");
 
 -- CreateIndex
@@ -1089,6 +1106,12 @@ ALTER TABLE "CobroItem" ADD CONSTRAINT "CobroItem_tratamientoId_fkey" FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE "Contrato" ADD CONSTRAINT "Contrato_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MontoFijoPrestacion" ADD CONSTRAINT "MontoFijoPrestacion_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "MontoFijoPrestacion" ADD CONSTRAINT "MontoFijoPrestacion_prestacionId_fkey" FOREIGN KEY ("prestacionId") REFERENCES "Prestacion"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Liquidacion" ADD CONSTRAINT "Liquidacion_doctorId_fkey" FOREIGN KEY ("doctorId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

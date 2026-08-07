@@ -358,6 +358,11 @@ apiRouter.post('/contratos', tenant, asyncHandler(liq.postContrato))
 apiRouter.patch('/contratos/:id', tenant, asyncHandler(liq.patchContrato))
 apiRouter.delete('/contratos/:id', tenant, asyncHandler(liq.deleteContrato))
 
+// Montos fijos por prestación (override del contrato base, por profesional).
+apiRouter.get('/montos-fijos/:doctorId', tenant, asyncHandler(liq.getMontosFijos))
+apiRouter.post('/montos-fijos', tenant, asyncHandler(liq.postMontoFijo))
+apiRouter.delete('/montos-fijos/:id', tenant, asyncHandler(liq.deleteMontoFijo))
+
 // ── Liquidaciones ────────────────────────────────────────────────────────────
 // Activas (saldo corriente por profesional) + finalizar.
 apiRouter.get('/liquidaciones-activas', tenant, asyncHandler(liq.getLiquidacionesActivas))

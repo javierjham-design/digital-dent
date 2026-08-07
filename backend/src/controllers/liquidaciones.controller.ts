@@ -2,7 +2,7 @@ import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
 import { badRequest } from '@/lib/errors'
 import * as svc from '@/services/liquidaciones.service'
-import { crearContratoSchema } from '@/validators/schemas'
+import { crearContratoSchema, crearMontoFijoSchema } from '@/validators/schemas'
 
 // ── Contratos ──
 export async function getContratos(req: Request, res: Response) {
@@ -17,6 +17,19 @@ export async function patchContrato(req: Request, res: Response) {
 }
 export async function deleteContrato(req: Request, res: Response) {
   await svc.eliminarContrato(tenantDb(req), req.params.id)
+  res.json({ ok: true })
+}
+
+// ── Montos fijos por prestación (override del contrato) ──
+export async function getMontosFijos(req: Request, res: Response) {
+  res.json(await svc.listarMontosFijos(tenantDb(req), req.auth!, req.params.doctorId))
+}
+export async function postMontoFijo(req: Request, res: Response) {
+  const input = crearMontoFijoSchema.parse(req.body)
+  res.status(201).json(await svc.crearMontoFijo(tenantDb(req), req.auth!, input))
+}
+export async function deleteMontoFijo(req: Request, res: Response) {
+  await svc.eliminarMontoFijo(tenantDb(req), req.auth!, req.params.id)
   res.json({ ok: true })
 }
 

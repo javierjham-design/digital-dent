@@ -45,6 +45,7 @@ async function resetYSeedTenant(dbName: string, n: number) {
   await db.sesionCaja.deleteMany()
   await db.cajaUsuario.deleteMany()
   await db.caja.deleteMany()
+  await db.montoFijoPrestacion.deleteMany() // FK a User y Prestacion: antes de borrarlos
   await db.contrato.deleteMany()
   await db.evolucion.deleteMany()
   await db.itemPresupuesto.deleteMany()

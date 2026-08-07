@@ -107,6 +107,80 @@ describe('flujo de pagos → liquidación (medios de pago, retención, caja, cob
   })
 })
 
+describe('montos fijos por prestación (override del contrato base)', () => {
+  let medioPagoId = ''
+  let cajaId = ''
+  beforeAll(async () => {
+    const medio = await post('/medios-pago', { nombre: 'Débito MF', comision: 3 }) // 3% de retención
+    medioPagoId = medio.body.id
+    // El override requiere un contrato base activo para que el doctor se procese.
+    await post('/contratos', { doctorId, tipo: 'PORCENTAJE', porcentaje: 50 })
+    const caja = await post('/cajas', { nombre: 'Caja MF', usuarioIds: [A.adminId] })
+    cajaId = caja.body.id
+    await post(`/cajas/${cajaId}/abrir`, { saldoApertura: 0 })
+  })
+
+  // Crea una prestación, la evoluciona el doctor y la cobra completa; devuelve ids.
+  async function accionPagada(precio: number, montoCobro: number) {
+    const suf = Math.random().toString(36).slice(2, 7)
+    const prest = await post('/prestaciones', { nombre: `MF ${precio} ${suf}`, precio })
+    const prestacionId = prest.body.id
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })
+    const trat = await post('/tratamientos', { pacienteId: A.pacienteId, prestacionId, planId: plan.body.id, precio })
+    const tratId = trat.body[0].id
+    await post(`/tratamientos/${tratId}/evolucionar`, { texto: 'Hecho', profesionalId: doctorId })
+    const cobro = await post('/cobros', { pacienteId: A.pacienteId, cajaId, medioPagoId, items: [{ tratamientoId: tratId, descripcion: 'MF', monto: montoCobro }] })
+    expect(cobro.status).toBe(201)
+    return { prestacionId, tratId }
+  }
+  const itemDe = async (tratId: string) => {
+    const liq = await get(`/liquidaciones-activas/${doctorId}`)
+    return liq.body.items.find((i: { tratamientoId: string }) => i.tratamientoId === tratId)
+  }
+
+  it('fijo ≤ lo cobrado → paga (fijo − retención), NO el % del contrato base', async () => {
+    const { prestacionId, tratId } = await accionPagada(100000, 100000)
+    const mf = await post('/montos-fijos', { doctorId, prestacionId, montoFijo: 40000 })
+    expect(mf.status).toBe(201)
+    const item = await itemDe(tratId)
+    expect(item.origenCalculo).toBe('MONTO_FIJO_PRESTACION')
+    expect(item.montoFijoPrestacion).toBe(40000)
+    expect(item.comision).toBe(3000)   // 3% de 100.000
+    expect(item.total).toBe(37000)     // 40.000 − 3.000 (no 50%)
+  })
+
+  it('fijo > lo cobrado → paga el máximo disponible (lo cobrado − retención)', async () => {
+    const { prestacionId, tratId } = await accionPagada(30000, 30000)
+    await post('/montos-fijos', { doctorId, prestacionId, montoFijo: 50000 })
+    const item = await itemDe(tratId)
+    expect(item.origenCalculo).toBe('MONTO_FIJO_PRESTACION')
+    expect(item.comision).toBe(900)    // 3% de 30.000
+    expect(item.total).toBe(29100)     // 30.000 − 900 (el fijo 50.000 no alcanza)
+  })
+
+  it('reconfigurar el fijo (upsert) actualiza el monto sin duplicar', async () => {
+    const { prestacionId, tratId } = await accionPagada(80000, 80000)
+    await post('/montos-fijos', { doctorId, prestacionId, montoFijo: 20000 })
+    await post('/montos-fijos', { doctorId, prestacionId, montoFijo: 50000 }) // upsert
+    const lista = await get(`/montos-fijos/${doctorId}`)
+    expect(lista.body.filter((m: { prestacionId: string }) => m.prestacionId === prestacionId).length).toBe(1)
+    const item = await itemDe(tratId)
+    expect(item.total).toBe(50000 - 2400) // 50.000 − 3% de 80.000
+  })
+
+  it('lista y elimina el monto fijo; al eliminarlo, la acción vuelve al contrato base (%)', async () => {
+    const { prestacionId, tratId } = await accionPagada(60000, 60000)
+    const mf = await post('/montos-fijos', { doctorId, prestacionId, montoFijo: 45000 })
+    expect((await itemDe(tratId)).origenCalculo).toBe('MONTO_FIJO_PRESTACION')
+
+    const del = await request(app).delete(`/api/v1/montos-fijos/${mf.body.id}`).set(auth())
+    expect(del.status).toBe(200)
+    const item = await itemDe(tratId)
+    expect(item.origenCalculo).toBe('PORCENTAJE')     // vuelve al 50% base
+    expect(item.total).toBe(60000 * 0.5 - 1800)        // 30.000 − 3% de 60.000
+  })
+})
+
 describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, gastos en caja', () => {
   let cajaId = ''
   beforeAll(async () => {

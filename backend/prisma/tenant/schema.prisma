@@ -157,6 +157,7 @@ model User {
   citas              Cita[]            @relation("DoctorCitas")
   tratamientos       Tratamiento[]     @relation("DoctorTratamientos")
   contratos          Contrato[]
+  montosFijos        MontoFijoPrestacion[]
   liquidaciones      Liquidacion[]
   horarios           HorarioDoctor[]
   cobrosRecibidos    Cobro[]           @relation("CobroUsuario")
@@ -335,6 +336,7 @@ model Prestacion {
   activo           Boolean           @default(true)
   tratamientos     Tratamiento[]
   itemsPresupuesto ItemPresupuesto[]
+  montosFijos      MontoFijoPrestacion[]
 }
 
 // Metadata de las secciones/categorías del catálogo de prestaciones. Se enlazan
@@ -653,6 +655,25 @@ model Contrato {
   liquidaciones Liquidacion[]
 }
 
+// Monto fijo que un profesional cobra por una PRESTACIÓN específica (capa de override
+// sobre su contrato base). Al liquidar un tratamiento de esa prestación se paga
+// min(montoFijo, montoPagado) − retención del medio de pago; si lo cobrado es menor al
+// fijo, se otorga el máximo disponible (lo cobrado) − retención. Se ata al PROFESIONAL
+// (no al Contrato) para que sobreviva a la recreación del contrato al editar el % base.
+model MontoFijoPrestacion {
+  id           String     @id @default(cuid())
+  doctorId     String
+  prestacionId String
+  montoFijo    Float
+  activo       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  doctor       User       @relation(fields: [doctorId], references: [id])
+  prestacion   Prestacion @relation(fields: [prestacionId], references: [id])
+
+  @@unique([doctorId, prestacionId])
+}
+
 model Liquidacion {
   id             String            @id @default(cuid())
   doctorId       String
@@ -704,6 +725,7 @@ model LiquidacionItem {
   comisionAplicada   Float       @default(0)  // comisión del medio de pago descontada
   medioPago          String?                  // medio(s) de pago de la acción
   montoLiquidado     Float                    // total pagado al profesional (neto)
+  origenCalculo      String?                  // PORCENTAJE | MONTO_FIJO | MONTO_FIJO_PRESTACION
   liquidacion        Liquidacion @relation(fields: [liquidacionId], references: [id])
   tratamiento        Tratamiento @relation(fields: [tratamientoId], references: [id])
 }

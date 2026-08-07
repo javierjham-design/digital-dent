@@ -70,6 +70,45 @@ export async function eliminarContrato(db: TenantClient, id: string) {
   await db.contrato.update({ where: { id }, data: { activo: false } })
 }
 
+// ── Montos fijos por prestación (override del contrato base) ───────────────────
+// Configurados por profesional. Al liquidar un tratamiento de una prestación con monto
+// fijo, se paga min(montoFijo, lo cobrado) − retención (ver calcAccion).
+
+const MF_PRESTACION_SELECT = { id: true, nombre: true, precio: true, categoria: true } as const
+
+export async function listarMontosFijos(db: TenantClient, actor: JwtPayload, doctorId: string) {
+  if (!(await puedeGestionar(db, actor)) && actor.sub !== doctorId) throw forbidden('No puedes ver los montos fijos de otro profesional.')
+  return db.montoFijoPrestacion.findMany({
+    where: { doctorId, activo: true },
+    include: { prestacion: { select: MF_PRESTACION_SELECT } },
+    orderBy: { prestacion: { nombre: 'asc' } },
+  })
+}
+
+export async function crearMontoFijo(db: TenantClient, actor: JwtPayload, body: { doctorId: string; prestacionId: string; montoFijo: number }) {
+  if (!(await puedeGestionar(db, actor))) throw forbidden('No tienes permiso para gestionar liquidaciones.')
+  const monto = Number(body.montoFijo)
+  if (!Number.isFinite(monto) || monto < 0) throw badRequest('montoFijo inválido')
+  const doctor = await db.user.findUnique({ where: { id: body.doctorId }, select: { id: true } })
+  if (!doctor) throw notFound('Profesional no encontrado')
+  const prestacion = await db.prestacion.findUnique({ where: { id: body.prestacionId }, select: { id: true } })
+  if (!prestacion) throw notFound('Prestación no encontrada')
+  // Upsert por (doctor, prestación): si ya existía, actualiza el monto y lo reactiva.
+  return db.montoFijoPrestacion.upsert({
+    where: { doctorId_prestacionId: { doctorId: body.doctorId, prestacionId: body.prestacionId } },
+    create: { doctorId: body.doctorId, prestacionId: body.prestacionId, montoFijo: monto, activo: true },
+    update: { montoFijo: monto, activo: true },
+    include: { prestacion: { select: MF_PRESTACION_SELECT } },
+  })
+}
+
+export async function eliminarMontoFijo(db: TenantClient, actor: JwtPayload, id: string) {
+  if (!(await puedeGestionar(db, actor))) throw forbidden('No tienes permiso para gestionar liquidaciones.')
+  const existing = await db.montoFijoPrestacion.findUnique({ where: { id }, select: { id: true } })
+  if (!existing) throw notFound('Monto fijo no encontrado')
+  await db.montoFijoPrestacion.delete({ where: { id } })
+}
+
 // ── Liquidaciones ────────────────────────────────────────────────────────────
 //
 //  Modelo "saldo corriente" (estilo Dentalink):
@@ -104,9 +143,12 @@ const TRAT_ACTIVA_INCLUDE = {
 type ContratoCalc = { tipo: string; porcentaje: number | null; montoFijo: number | null }
 
 // Cálculo del pago de UNA acción a partir de sus cobros y el contrato.
+// `montosFijos` mapea prestacionId → monto fijo configurado para ESTE profesional
+// (capa de override): si la prestación de la acción tiene uno, manda sobre el contrato base.
 function calcAccion(
-  t: { precio: number; descuento: number; cobroItems: { monto: number; cobro: { monto: number; comisionMonto: number | null; estado: string; anulado: boolean; medioPago: { nombre: string } | null } | null }[] },
+  t: { prestacionId: string; precio: number; descuento: number; cobroItems: { monto: number; cobro: { monto: number; comisionMonto: number | null; estado: string; anulado: boolean; medioPago: { nombre: string } | null } | null }[] },
   contrato: ContratoCalc,
+  montosFijos: Map<string, number>,
 ) {
   // El descuento se guarda como porcentaje (0–100), igual que en el plan.
   const precio = Math.max(0, Math.round(t.precio * (1 - (t.descuento ?? 0) / 100)))
@@ -120,22 +162,50 @@ function calcAccion(
   }, 0)
   const medios = [...new Set(pagados.map((ci) => ci.cobro!.medioPago?.nombre).filter((x): x is string => Boolean(x)))]
   const pagada = montoPagado >= precio - 0.5 // completamente pagada (tolerancia de redondeo)
-  const base = pagada ? montoPagado : precio
-  const bruto = contrato.tipo === 'PORCENTAJE' ? base * ((contrato.porcentaje ?? 0) / 100) : (contrato.montoFijo ?? 0)
+  // "Disponible" (máximo que se puede pagar por esta acción): lo cobrado si ya está
+  // pagada; si aún no, el precio (potencial).
+  const disponible = pagada ? montoPagado : precio
+
+  const overrideFijo = montosFijos.get(t.prestacionId)
+  let bruto: number
+  let origenCalculo: 'PORCENTAJE' | 'MONTO_FIJO' | 'MONTO_FIJO_PRESTACION'
+  if (overrideFijo != null) {
+    // Monto fijo por prestación: se paga el fijo, PERO nunca más que lo disponible. Si lo
+    // cobrado es menor al fijo, se otorga el máximo disponible (lo cobrado). La retención
+    // se descuenta abajo (igual que los otros contratos), sólo cuando ya está pagada.
+    origenCalculo = 'MONTO_FIJO_PRESTACION'
+    bruto = Math.min(overrideFijo, disponible)
+  } else if (contrato.tipo === 'PORCENTAJE') {
+    origenCalculo = 'PORCENTAJE'
+    bruto = disponible * ((contrato.porcentaje ?? 0) / 100)
+  } else {
+    origenCalculo = 'MONTO_FIJO'
+    bruto = contrato.montoFijo ?? 0
+  }
   // La comisión solo se descuenta cuando ya está pagada (si no, aún no hay comisión real).
   const total = Math.max(0, Math.round(pagada ? bruto - comision : bruto))
-  return { precio: Math.round(precio), montoPagado: Math.round(montoPagado), comision: Math.round(comision), medios, pagada, total }
+  return {
+    precio: Math.round(precio), montoPagado: Math.round(montoPagado), comision: Math.round(comision),
+    medios, pagada, total, origenCalculo, montoFijoPrestacion: overrideFijo ?? null,
+  }
+}
+
+// Montos fijos por prestación configurados para un profesional (prestacionId → monto).
+async function montosFijosDeDoctor(db: TenantClient, doctorId: string): Promise<Map<string, number>> {
+  const rows = await db.montoFijoPrestacion.findMany({ where: { doctorId, activo: true }, select: { prestacionId: true, montoFijo: true } })
+  return new Map(rows.map((r) => [r.prestacionId, r.montoFijo]))
 }
 
 async function accionesActivas(db: TenantClient, doctorId: string, contrato: ContratoCalc) {
   const noLiq = await categoriasNoLiquidables(db)
+  const montosFijos = await montosFijosDeDoctor(db, doctorId)
   const trats = (await db.tratamiento.findMany({
     where: { doctorId, estado: 'COMPLETADO', liquidacionItems: { none: {} } },
     include: TRAT_ACTIVA_INCLUDE,
     orderBy: { fechaCompletado: 'desc' },
   })).filter((t) => !(t.prestacion.categoria && noLiq.has(t.prestacion.categoria))) // excluye laboratorios/insumos no liquidables
   return trats.map((t) => {
-    const c = calcAccion(t, contrato)
+    const c = calcAccion(t, contrato, montosFijos)
     return {
       tratamientoId: t.id,
       pacienteNombre: `${t.ficha.paciente.nombre} ${t.ficha.paciente.apellido}`,
@@ -148,6 +218,8 @@ async function accionesActivas(db: TenantClient, doctorId: string, contrato: Con
       medioPago: c.medios.join(', ') || '—',
       total: c.total,
       pagada: c.pagada,
+      origenCalculo: c.origenCalculo,
+      montoFijoPrestacion: c.montoFijoPrestacion,
     }
   })
 }
@@ -202,13 +274,14 @@ export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, 
   if (!contrato) throw badRequest('El profesional no tiene contrato activo')
 
   const noLiq = await categoriasNoLiquidables(db)
+  const montosFijos = await montosFijosDeDoctor(db, doctorId)
   const trats = (await db.tratamiento.findMany({
     where: { doctorId, estado: 'COMPLETADO', liquidacionItems: { none: {} } },
     include: TRAT_ACTIVA_INCLUDE,
   })).filter((t) => !(t.prestacion.categoria && noLiq.has(t.prestacion.categoria)))
 
   const itemsData = trats.flatMap((t) => {
-    const c = calcAccion(t, contrato)
+    const c = calcAccion(t, contrato, montosFijos)
     if (!c.pagada) return [] // solo se finalizan las acciones completamente pagadas
     return [{
       tratamientoId: t.id,
@@ -217,8 +290,11 @@ export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, 
       diente: t.diente ? `Pieza ${t.diente}` : (t.cara ?? null),
       fechaCompletado: t.fechaCompletado ?? t.fecha,
       precioTratamiento: t.precio,
-      porcentajeAplicado: contrato.tipo === 'PORCENTAJE' ? contrato.porcentaje : null,
-      montoFijoAplicado: contrato.tipo === 'MONTO_FIJO' ? contrato.montoFijo : null,
+      // El monto fijo por prestación (override) manda sobre el contrato base cuando aplica.
+      porcentajeAplicado: c.origenCalculo === 'PORCENTAJE' ? contrato.porcentaje : null,
+      montoFijoAplicado: c.origenCalculo === 'MONTO_FIJO_PRESTACION' ? c.montoFijoPrestacion
+        : (c.origenCalculo === 'MONTO_FIJO' ? contrato.montoFijo : null),
+      origenCalculo: c.origenCalculo,
       montoPagado: c.montoPagado,
       comisionAplicada: c.comision,
       medioPago: c.medios.join(', ') || null,

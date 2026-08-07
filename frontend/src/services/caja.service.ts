@@ -1,5 +1,5 @@
 import { api, tokenStore, ApiError } from './api'
-import type { LiquidacionActivaDetalle, LiquidacionActivaResumen, LiquidacionAdjuntoMeta } from '@shared/types'
+import type { LiquidacionActivaDetalle, LiquidacionActivaResumen, LiquidacionAdjuntoMeta, MontoFijoPrestacionDTO } from '@shared/types'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
 const authHeader = (): Record<string, string> => { const t = tokenStore.get(); return t ? { Authorization: `Bearer ${t}` } : {} }
@@ -87,4 +87,11 @@ export const contratosService = {
   crear: (input: Record<string, unknown>) => api.post<unknown>('/contratos', input),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/contratos/${id}`, patch),
   eliminar: (id: string) => api.del<{ ok: true }>(`/contratos/${id}`),
+}
+
+// Montos fijos por prestación (override del contrato base, por profesional).
+export const montosFijosService = {
+  listar: (doctorId: string) => api.get<MontoFijoPrestacionDTO[]>(`/montos-fijos/${doctorId}`),
+  crear: (input: { doctorId: string; prestacionId: string; montoFijo: number }) => api.post<MontoFijoPrestacionDTO>('/montos-fijos', input),
+  eliminar: (id: string) => api.del<{ ok: true }>(`/montos-fijos/${id}`),
 }

@@ -115,6 +115,9 @@ export async function dedupePrestaciones(db: TenantClient): Promise<{ duplicados
       const dupIds = arr.slice(1).map((d) => d.id)
       await tx.tratamiento.updateMany({ where: { prestacionId: { in: dupIds } }, data: { prestacionId: keep.id } })
       await tx.itemPresupuesto.updateMany({ where: { prestacionId: { in: dupIds } }, data: { prestacionId: keep.id } })
+      // Los montos fijos de las duplicadas se descartan (config; la canónica conserva los
+      // suyos). No se repuntan para no chocar con el unique (doctorId, prestacionId).
+      await tx.montoFijoPrestacion.deleteMany({ where: { prestacionId: { in: dupIds } } })
       await tx.prestacion.deleteMany({ where: { id: { in: dupIds } } })
       eliminadas += dupIds.length
     }
@@ -161,6 +164,9 @@ export async function actualizarPrestacion(db: TenantClient, id: string, body: R
 export async function eliminarPrestacion(db: TenantClient, id: string): Promise<void> {
   const existing = await db.prestacion.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Prestación no encontrada')
+  // Los montos fijos por prestación son config (no datos clínicos): se limpian para no
+  // bloquear el borrado por la FK. Los tratamientos SÍ bloquean (RESTRICT), como antes.
+  await db.montoFijoPrestacion.deleteMany({ where: { prestacionId: id } })
   await db.prestacion.delete({ where: { id } })
 }
 

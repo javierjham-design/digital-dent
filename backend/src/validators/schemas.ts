@@ -230,6 +230,12 @@ export const crearContratoSchema = z.object({
   fechaFin: z.string().nullish(),
 })
 
+export const crearMontoFijoSchema = z.object({
+  doctorId: z.string().min(1),
+  prestacionId: z.string().min(1),
+  montoFijo: z.number().min(0),
+})
+
 export const crearLinkSchema = z.object({
   nombre: z.string().min(1, 'Falta el nombre'),
   descripcion: z.string().nullish(),

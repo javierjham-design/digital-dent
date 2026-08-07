@@ -121,6 +121,15 @@ export interface LiquidacionAccion {
   medioPago: string
   total: number          // pago al profesional por esta acción
   pagada: boolean        // true = verde (suma a "A pagar"); false = rojo (pendiente)
+  origenCalculo: 'PORCENTAJE' | 'MONTO_FIJO' | 'MONTO_FIJO_PRESTACION'
+  montoFijoPrestacion: number | null // monto fijo configurado para la prestación (si aplica el override)
+}
+export interface MontoFijoPrestacionDTO {
+  id: string
+  doctorId: string
+  prestacionId: string
+  montoFijo: number
+  prestacion: { id: string; nombre: string; precio: number; categoria: string | null }
 }
 export interface LiquidacionActivaDetalle {
   doctor: { id: string; name: string | null; email: string | null; rut: string | null; especialidad: string | null }
