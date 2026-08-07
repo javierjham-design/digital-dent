@@ -8,6 +8,15 @@
 ## Última actualización
 
 - **Fecha:** 2026-08-06
+- **Montos fijos por prestación en liquidaciones (DESPLEGADO 2026-08-06).** Nuevo item: un
+  profesional puede cobrar un monto fijo por una prestación específica (config en la sección de
+  contratos). Al liquidar, se paga **min(fijo, lo cobrado) − retención**; si lo cobrado < fijo, se
+  otorga el máximo disponible − retención. Es una **capa de override** sobre el contrato base
+  (modelo `MontoFijoPrestacion` atado al profesional; `LiquidacionItem.origenCalculo` en el
+  snapshot). Endpoints `/montos-fijos`. Migración **aditiva** (tabla + columna nullable) → aplicada
+  por `migrate:tenants` normal (prestart **3/3 OK**, `/health` 200, ruta viva). Ver
+  `docs/AI_CHANGELOG.md`. **Pendiente del usuario:** probar el cálculo en la UI (idealmente en una
+  demo). Rama `feat/montos-fijos-prestacion` mergeada a `arch` + `master`.
 - **Defensa en profundidad de cajas + provisión (DESPLEGADO 2026-08-06).** Dos tareas, commits
   separados en `arch`:
   - **`@unique` en `Caja.numero` y `SesionCaja.numero`**: red del correlativo (ya era race-safe por
