@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { UsuarioDTO, HorarioDTO, MontoFijoPrestacionDTO, PrestacionDTO } from '@shared/types'
 import { conTitulo, TITULOS_PROFESIONAL } from '@shared/utils/nombre'
 import { usuariosService, horariosService, type CupoProfesionales } from '@/services/equipo.service'
@@ -436,13 +436,23 @@ function MontosFijosSection({ doctorId }: { doctorId: string }) {
   const [prestaciones, setPrestaciones] = useState<PrestacionDTO[]>([])
   const [montos, setMontos] = useState<MontoFijoPrestacionDTO[]>([])
   const [prestacionId, setPrestacionId] = useState('')
+  const [query, setQuery] = useState('')   // texto del buscador de prestaciones
+  const [abierto, setAbierto] = useState(false)
   const [valor, setValor] = useState('')
   const [msg, setMsg] = useState('')
+  const boxRef = useRef<HTMLDivElement>(null)
   const cargar = () => { montosFijosService.listar(doctorId).then(setMontos).catch(() => setMontos([])) }
   useEffect(() => { prestacionesService.listar().then(setPrestaciones).catch(() => {}) }, [])
   useEffect(cargar, [doctorId])
+  useEffect(() => {
+    const onDoc = (e: MouseEvent) => { if (boxRef.current && !boxRef.current.contains(e.target as Node)) setAbierto(false) }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [])
+  const q = query.trim().toLowerCase()
+  const filtradas = (q ? prestaciones.filter((p) => p.nombre.toLowerCase().includes(q)) : prestaciones).slice(0, 50)
   async function agregar() {
-    try { await montosFijosService.crear({ doctorId, prestacionId, montoFijo: Number(valor) }); setPrestacionId(''); setValor(''); setMsg('Monto fijo guardado'); cargar() }
+    try { await montosFijosService.crear({ doctorId, prestacionId, montoFijo: Number(valor) }); setPrestacionId(''); setQuery(''); setValor(''); setMsg('Monto fijo guardado'); cargar() }
     catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error') }
   }
   async function quitar(id: string) {
@@ -464,11 +474,29 @@ function MontosFijosSection({ doctorId }: { doctorId: string }) {
         ))}
         {montos.length === 0 && <p className="text-sm text-slate-500">Sin montos fijos para este profesional.</p>}
       </div>
-      <div className="flex gap-2">
-        <select value={prestacionId} onChange={(e) => setPrestacionId(e.target.value)} className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm">
-          <option value="">Prestación…</option>
-          {prestaciones.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-        </select>
+      <div className="flex gap-2 items-start">
+        {/* Buscador de prestaciones: filtra por nombre a medida que se escribe. */}
+        <div className="relative flex-1 min-w-0" ref={boxRef}>
+          <input
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setPrestacionId(''); setAbierto(true) }}
+            onFocus={() => setAbierto(true)}
+            placeholder="Buscar prestación…"
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+          {abierto && (
+            <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto z-10">
+              {filtradas.length === 0
+                ? <p className="px-3 py-2 text-sm text-slate-500">Sin resultados</p>
+                : filtradas.map((p) => (
+                  <button key={p.id} type="button"
+                    onClick={() => { setPrestacionId(p.id); setQuery(p.nombre); setAbierto(false) }}
+                    className={`block w-full text-left px-3 py-2 text-sm hover:bg-slate-50 ${p.id === prestacionId ? 'bg-cyan-50 text-cyan-700' : 'text-slate-700'}`}>
+                    {p.nombre}{p.categoria ? <span className="text-xs text-slate-400"> · {p.categoria}</span> : null}
+                  </button>
+                ))}
+            </div>
+          )}
+        </div>
         <input value={valor} onChange={(e) => setValor(e.target.value)} placeholder="$" inputMode="numeric" className="w-24 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
         <button onClick={agregar} disabled={!prestacionId || !valor} className="px-3 py-2 bg-violet-600 disabled:opacity-50 text-white text-sm rounded-lg">Agregar</button>
       </div>
