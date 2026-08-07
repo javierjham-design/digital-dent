@@ -5,6 +5,39 @@
 
 ---
 
+## 2026-08-06 — Ordenamiento de la navegación del panel (+ permiso de Reportes)
+
+Reorganización de la navegación de las clínicas (mismos componentes/colores; cambia dónde
+vive cada cosa y quién la ve). Rama `chore/nav-reorg`, commits separados A–E.
+
+- **A) Permiso `puedeVerReportes` (seguridad, no cosmético).** Los 7 endpoints `/reportes/*`
+  usaban solo la cadena `tenant`: **cualquier** usuario con login de la clínica podía descargar
+  la nómina de pacientes (con teléfono/previsión), cobros y morosos. Se creó el permiso (patrón
+  de `puedeGestionarAgenda`: schema, permiso.ts union+select, auth.service, usuarios.service,
+  shared/types, Equipo.tsx) y la cadena `reportesTenant = [requireAuth, requireTenant,
+  requirePermiso('puedeVerReportes')]` aplicada a las 7 rutas. Default false; admin siempre true.
+  Test de integración: staff sin permiso → **403**; admin y staff habilitado → no 403.
+- **B) CRM al header.** `CRM · Leads` salió del desplegable y quedó anclado en el header (trabajo
+  diario: 495 leads). Misma condición `modCrm && (esAdmin || puedeCrm)`.
+- **C) Menú agrupado + rename a "Gestión".** El desplegable (antes "Administración", 13 ítems
+  planos) se agrupó en secciones con título+separador: Clínica · Documentos · Captación · Dinero
+  · Análisis · Cuenta. Sección sin ítems visibles no muestra el título. Reportes gateado por el
+  permiso nuevo.
+- **D) Configuración en pestañas.** `Configuracion.tsx` (scroll largo, 4 bloques) → pestañas
+  Datos y mensajes · Medios de pago · Pagos online · Google Calendar, con la activa en `?tab=`.
+  Sin cambios de lógica/endpoints: solo se reordenó el render.
+- **E) Liquidaciones unificadas.** Una sola entrada "Liquidaciones"; `/liquidaciones` renderiza
+  la vista de gestión (todo el equipo) si `puedeGestionarLiquidaciones`, si no la propia.
+  `/mis-liquidaciones` redirige. Componentes intactos.
+- **Habilitación inicial de Reportes (decisión):** en el deploy se pre-habilita `puedeVerReportes`
+  a los operadores que hoy lo usan — **orodent: José Andrés Araya** (opera la clínica, role doctor,
+  sin admin), **digital-dent: Katherine Beltran + Javier Aedo**. El resto queda en false (los
+  admins siempre ven). montenegro no tiene usuarios no-admin.
+- **Verificación:** typecheck be/fe/web ✓ · unit **118/118** · integración **68/68** (+4 del 403)
+  · contrato ✓ · lint backend 0 / frontend 0 errores.
+
+---
+
 ## 2026-08-06 — Montos fijos por prestación en liquidaciones (override del contrato)
 
 Nuevo item de liquidación: un profesional puede cobrar un **monto fijo por una prestación

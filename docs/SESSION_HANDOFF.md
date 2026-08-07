@@ -8,6 +8,16 @@
 ## Última actualización
 
 - **Fecha:** 2026-08-06
+- **Ordenamiento de la navegación del panel — rama `chore/nav-reorg`, LISTA, SIN DESPLEGAR.**
+  Commits A–E: (A) **permiso `puedeVerReportes`** — los 7 `/reportes/*` estaban SIN permiso
+  (cualquier usuario de la clínica bajaba la nómina de pacientes/cobros/morosos); ahora cadena
+  `reportesTenant`, default false, admin true; test 403 verde. (B) CRM al header. (C) menú
+  agrupado por secciones + rename "Administración"→**"Gestión"**. (D) `Configuracion.tsx` en
+  pestañas (`?tab=`). (E) liquidaciones unificadas (una entrada, ruta según permiso;
+  `/mis-liquidaciones` redirige). Verificación: typecheck be/fe/web, unit 118, integración 68,
+  contrato, lint. **Al desplegar:** la migración es aditiva (1 columna, `migrate:tenants` normal);
+  **pre-habilitar `puedeVerReportes`** a orodent→José Araya, digital-dent→Katherine Beltran +
+  Javier Aedo (operadores que hoy lo usan; el resto queda en false). Ver `docs/AI_CHANGELOG.md`.
 - **Montos fijos por prestación en liquidaciones (DESPLEGADO 2026-08-06).** Nuevo item: un
   profesional puede cobrar un monto fijo por una prestación específica (config en la sección de
   contratos). Al liquidar, se paga **min(fijo, lo cobrado) − retención**; si lo cobrado < fijo, se
