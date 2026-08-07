@@ -7,7 +7,15 @@
 
 ## Última actualización
 
-- **Fecha:** 2026-08-06
+- **Fecha:** 2026-08-07
+- **Editar username + contratos robustos por profesional — DESPLEGADO 2026-08-07** (frontend-only).
+  (1) El editor de usuario (Equipo → Datos) ahora deja **editar/agregar el `username`** (el backend
+  ya lo validaba). (2) Los **montos fijos por prestación** se movieron del modal "Contratos" de
+  Liquidaciones a **Equipo → (profesional) → Editar → pestaña Contrato** (único lugar: contrato base
+  + montos fijos, por profesional); se quitó el modal de Liquidaciones. **Ojo permiso:** configurar
+  contratos pasó a `puedeGestionarEquipo` (antes `puedeGestionarLiquidaciones`); José/orodent ya no
+  configura contratos, pero **orodent está inactiva** y cuando se reactive se le crea un admin. Ver
+  `docs/AI_CHANGELOG.md`. Deploy FE+BE SUCCESS, `/health` 200, sin migración.
 - **Ordenamiento de la navegación del panel — DESPLEGADO 2026-08-06.**
   Commits A–E: (A) **permiso `puedeVerReportes`** — los 7 `/reportes/*` estaban SIN permiso
   (cualquier usuario de la clínica bajaba la nómina de pacientes/cobros/morosos); ahora cadena

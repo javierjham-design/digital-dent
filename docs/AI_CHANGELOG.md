@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-08-07 — Editar username + contratos robustos por profesional (Equipo)
+
+Dos ajustes de organización (frontend-only, sin cambios de backend/endpoints). Rama
+`feat/equipo-contratos-robustos`, desplegado.
+
+- **Editar el usuario (login).** El editor de usuario (Equipo → Editar → pestaña Datos) no
+  exponía el `username`: no se podía agregar (a quien lo tenía vacío) ni cambiar. Se agregó el
+  campo; se envía solo si tiene contenido (no se puede vaciar por error). El backend ya validaba
+  formato + unicidad en `actualizarUsuario` — solo faltaba el campo en la UI.
+- **Montos fijos por prestación → pestaña Contrato del profesional.** La config de montos fijos
+  vivía en el modal "Contratos" de Liquidaciones, donde no corresponde (y duplicaba la pestaña
+  "Contrato" que ya existía en Equipo). Se movió a **Equipo → (profesional) → Editar → Contrato**,
+  que ahora es el único lugar de configuración: **contrato base (%/fijo) + montos fijos por
+  prestación**, por profesional. Se quitó el botón/modal "Contratos" de Liquidaciones (queda solo
+  Activas/Finalizadas).
+  - **Implicación de permisos:** configurar contratos pasó de `puedeGestionarLiquidaciones` (el
+    modal viejo) a `puedeGestionarEquipo` (la pestaña de Equipo). En las 3 clínicas los admin lo
+    tienen. Caso puntual: **José Araya (orodent)** tiene liquidaciones pero no equipo → ya no
+    configura contratos; **orodent está inactiva**, y cuando se reactive se le creará un usuario
+    admin (decisión del usuario, no se pre-habilitó nada).
+- **Verificación:** typecheck be/fe/web ✓ · integración 68/68 · contrato ✓ · lint 0 errores.
+  Deploy FE+BE SUCCESS, `/health` 200. Sin migración (frontend-only).
+
+---
+
 ## 2026-08-06 — Ordenamiento de la navegación del panel (+ permiso de Reportes)
 
 Reorganización de la navegación de las clínicas (mismos componentes/colores; cambia dónde
