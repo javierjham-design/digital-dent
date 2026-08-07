@@ -203,15 +203,18 @@ function UsuarioEditor({ user, onClose, onSaved }: { user: UsuarioDTO; onClose: 
 }
 
 function DatosForm({ user, onSaved }: { user: UsuarioDTO; onSaved: () => void }) {
-  const [f, setF] = useState({ name: user.name ?? '', titulo: user.titulo ?? '', role: user.role, especialidad: user.especialidad ?? '', telefono: user.telefono ?? '', rut: user.rut ?? '', activo: user.activo })
+  const [f, setF] = useState({ name: user.name ?? '', titulo: user.titulo ?? '', username: user.username ?? '', role: user.role, especialidad: user.especialidad ?? '', telefono: user.telefono ?? '', rut: user.rut ?? '', activo: user.activo })
   const [pwd, setPwd] = useState('')
   const [cambiarPwd, setCambiarPwd] = useState(false) // el campo sólo aparece si se pide (evita autofill/reseteos por error)
   const [msg, setMsg] = useState(''); const [saving, setSaving] = useState(false)
   async function guardar() {
     setSaving(true); setMsg('')
     try {
-      // Sólo cambia la contraseña si el usuario abrió explícitamente el campo y escribió algo.
-      await usuariosService.actualizar(user.id, { ...f, ...(cambiarPwd && pwd ? { password: pwd } : {}) })
+      const uname = f.username.trim()
+      // username: se envía sólo si tiene contenido (así se puede AGREGAR a quien no lo tiene
+      // o cambiarlo, sin poder vaciarlo por error). El backend valida formato y unicidad.
+      const { username: _u, ...rest } = f
+      await usuariosService.actualizar(user.id, { ...rest, ...(uname ? { username: uname } : {}), ...(cambiarPwd && pwd ? { password: pwd } : {}) })
       setPwd(''); setCambiarPwd(false); setMsg('Cambios guardados'); onSaved()
     } catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error') } finally { setSaving(false) }
   }
@@ -220,6 +223,7 @@ function DatosForm({ user, onSaved }: { user: UsuarioDTO; onSaved: () => void })
       <div className="grid sm:grid-cols-2 gap-3">
         <TituloSelect value={f.titulo} onChange={(v) => setF({ ...f, titulo: v })} />
         <Field label="Nombre" value={f.name} onChange={(v) => setF({ ...f, name: v })} />
+        <Field label="Usuario (login)" value={f.username} onChange={(v) => setF({ ...f, username: v.toLowerCase() })} autoComplete="off" name="usuario-edit" placeholder="ej. jperez" />
         <label className="block">
           <span className="block text-sm font-medium text-slate-700 mb-1">Rol</span>
           <select value={f.role} onChange={(e) => setF({ ...f, role: e.target.value })} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
