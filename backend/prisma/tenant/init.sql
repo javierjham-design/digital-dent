@@ -100,6 +100,7 @@ CREATE TABLE "User" (
     "puedeGestionarPrestaciones" BOOLEAN NOT NULL DEFAULT false,
     "puedeDesbloquearPlanes" BOOLEAN NOT NULL DEFAULT false,
     "puedeGestionarAgenda" BOOLEAN NOT NULL DEFAULT false,
+    "puedeVerReportes" BOOLEAN NOT NULL DEFAULT false,
     "googleCalendarId" TEXT,
     "googleSyncToken" TEXT,
     "googleSyncedAt" TIMESTAMP(3),

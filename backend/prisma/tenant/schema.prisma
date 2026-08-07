@@ -148,6 +148,7 @@ model User {
   puedeGestionarPrestaciones  Boolean @default(false) // editar prestaciones y secciones del catálogo
   puedeDesbloquearPlanes      Boolean @default(false) // desbloquear presupuestos bloqueados (al imprimir/enviar quedan bloqueados)
   puedeGestionarAgenda        Boolean @default(false) // gestionar la agenda de cualquier profesional: bloqueos y citas (crear/editar/eliminar)
+  puedeVerReportes            Boolean @default(false) // descargar los reportes XLSX (nómina de pacientes, cobros, morosos, etc.)
 
   // Mapeo a un calendario de Google (dentro de la cuenta de la clínica).
   googleCalendarId String?

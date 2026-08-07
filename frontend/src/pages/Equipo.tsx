@@ -42,6 +42,7 @@ const PERMISOS: [keyof UsuarioDTO, string][] = [
   ['puedeConfigurarClinica', 'Configurar la clínica (configuración, agendamiento online, consentimientos)'],
   ['puedeGestionarEquipo', 'Gestionar el equipo (crear/editar usuarios y asignar permisos)'],
   ['puedeGestionarPrestaciones', 'Gestionar prestaciones (editar catálogo y secciones)'],
+  ['puedeVerReportes', 'Ver y descargar reportes (nómina de pacientes, cobros, morosos)'],
   ['puedeDesbloquearPlanes', 'Desbloquear presupuestos (reabrir un plan bloqueado al imprimir/enviar)'],
 ]
 const DIAS: [number, string][] = [[1, 'Lunes'], [2, 'Martes'], [3, 'Miércoles'], [4, 'Jueves'], [5, 'Viernes'], [6, 'Sábado'], [0, 'Domingo']]

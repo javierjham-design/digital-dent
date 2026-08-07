@@ -28,6 +28,7 @@ export interface SessionUserDTO {
     puedeGestionarPrestaciones: boolean
     puedeDesbloquearPlanes: boolean
     puedeGestionarAgenda: boolean
+    puedeVerReportes: boolean
   }
 }
 
@@ -208,6 +209,7 @@ export interface UsuarioDTO {
   puedeGestionarPrestaciones?: boolean
   puedeDesbloquearPlanes?: boolean
   puedeGestionarAgenda?: boolean
+  puedeVerReportes?: boolean
   googleCalendarId?: string | null
   createdAt: string
 }

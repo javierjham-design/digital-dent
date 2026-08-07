@@ -68,6 +68,9 @@ const agendaConfig = [requireAuth, requireTenant, requireModulo('agendamiento_on
 const equipoTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarEquipo')]
 // Gestión del catálogo de prestaciones y sus secciones: admin o "puedeGestionarPrestaciones".
 const prestacionesTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarPrestaciones')]
+// Reportes (descargas XLSX con datos sensibles: nómina de pacientes, cobros, morosos):
+// admin o usuario con el permiso "puedeVerReportes".
+const reportesTenant = [requireAuth, requireTenant, requirePermiso('puedeVerReportes')]
 
 // Subida de archivos en memoria (import de pacientes XLSX, máx 5MB).
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
@@ -420,11 +423,11 @@ apiRouter.post('/admin/planes-suscripcion', sa, asyncHandler(admin.postPlan))
 apiRouter.patch('/admin/planes-suscripcion/:id', sa, asyncHandler(admin.patchPlan))
 apiRouter.delete('/admin/planes-suscripcion/:id', sa, asyncHandler(admin.deletePlan))
 
-// ── Reportes (descargas XLSX) ────────────────────────────────────────────────
-apiRouter.get('/reportes/pacientes', tenant, asyncHandler(reportes.getPacientes))
-apiRouter.get('/reportes/citas', tenant, asyncHandler(reportes.getCitas))
-apiRouter.get('/reportes/cobros', tenant, asyncHandler(reportes.getCobros))
-apiRouter.get('/reportes/tratamientos', tenant, asyncHandler(reportes.getTratamientos))
-apiRouter.get('/reportes/liquidaciones', tenant, asyncHandler(reportes.getLiquidaciones))
-apiRouter.get('/reportes/caja', tenant, asyncHandler(reportes.getCaja))
-apiRouter.get('/reportes/morosos', tenant, asyncHandler(reportes.getMorosos))
+// ── Reportes (descargas XLSX con datos sensibles) — permiso puedeVerReportes ──
+apiRouter.get('/reportes/pacientes', reportesTenant, asyncHandler(reportes.getPacientes))
+apiRouter.get('/reportes/citas', reportesTenant, asyncHandler(reportes.getCitas))
+apiRouter.get('/reportes/cobros', reportesTenant, asyncHandler(reportes.getCobros))
+apiRouter.get('/reportes/tratamientos', reportesTenant, asyncHandler(reportes.getTratamientos))
+apiRouter.get('/reportes/liquidaciones', reportesTenant, asyncHandler(reportes.getLiquidaciones))
+apiRouter.get('/reportes/caja', reportesTenant, asyncHandler(reportes.getCaja))
+apiRouter.get('/reportes/morosos', reportesTenant, asyncHandler(reportes.getMorosos))

@@ -137,6 +137,38 @@ describe('permiso CRM: habilitar el módulo a otros usuarios', () => {
   })
 })
 
+describe('permiso Reportes: la nómina de pacientes ya no es libre para cualquier usuario', () => {
+  let staffToken = ''
+  let staffId = ''
+  it('crea un staff SIN permiso; su sesión reporta puedeVerReportes=false', async () => {
+    const r = await request(app).post('/api/v1/usuarios').set('Authorization', `Bearer ${tokenA}`)
+      .send({ name: 'Recepción Rep', username: 'recep-rep', password: 'Password123', role: 'staff' })
+    expect(r.status).toBe(201)
+    staffId = r.body.id
+    const l = await login({ slug: A.slug, username: 'recep-rep', password: 'Password123' })
+    expect(l.status).toBe(200)
+    staffToken = l.token!
+    expect(l.user.permisos.puedeVerReportes).toBe(false)
+  })
+  it('sin permiso → 403 en /reportes/pacientes (y en /reportes/morosos y /reportes/cobros)', async () => {
+    for (const url of ['/reportes/pacientes', '/reportes/morosos', '/reportes/cobros']) {
+      const r = await request(app).get(`/api/v1${url}`).set('Authorization', `Bearer ${staffToken}`)
+      expect(r.status).toBe(403)
+    }
+  })
+  it('el admin SÍ accede (no 403)', async () => {
+    const r = await request(app).get('/api/v1/reportes/pacientes').set('Authorization', `Bearer ${tokenA}`)
+    expect(r.status).not.toBe(403)
+  })
+  it('el admin habilita puedeVerReportes → el staff ahora accede (no 403)', async () => {
+    const g = await request(app).patch(`/api/v1/usuarios/${staffId}`).set('Authorization', `Bearer ${tokenA}`).send({ puedeVerReportes: true })
+    expect(g.status).toBe(200)
+    expect(g.body.puedeVerReportes).toBe(true)
+    const r = await request(app).get('/api/v1/reportes/pacientes').set('Authorization', `Bearer ${staffToken}`)
+    expect(r.status).not.toBe(403)
+  })
+})
+
 describe('catálogo público de planes', () => {
   it('GET /planes sin token → 200', async () => {
     const r = await request(app).get('/api/v1/planes')
