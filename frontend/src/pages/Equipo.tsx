@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import type { UsuarioDTO, HorarioDTO } from '@shared/types'
+import type { UsuarioDTO, HorarioDTO, MontoFijoPrestacionDTO, PrestacionDTO } from '@shared/types'
 import { conTitulo, TITULOS_PROFESIONAL } from '@shared/utils/nombre'
 import { usuariosService, horariosService, type CupoProfesionales } from '@/services/equipo.service'
-import { contratosService } from '@/services/caja.service'
+import { contratosService, montosFijosService } from '@/services/caja.service'
+import { prestacionesService } from '@/services/catalogo.service'
 import { ApiError } from '@/services/api'
 import { fmtMonto } from '@/lib/money'
 import { useAuth } from '@/hooks/useAuth'
@@ -422,6 +423,56 @@ function ContratoForm({ doctorId }: { doctorId: string }) {
         {contrato && <button onClick={eliminar} className="px-3 py-2 border border-slate-200 text-slate-600 hover:text-rose-600 text-sm rounded-xl">Desactivar</button>}
         {msg && <span className={`text-sm ${msg === 'Contrato guardado' ? 'text-emerald-600' : 'text-rose-600'}`}>{msg}</span>}
       </div>
+
+      <MontosFijosSection doctorId={doctorId} />
+    </div>
+  )
+}
+
+// Montos fijos por prestación (override del contrato base) de UN profesional. Se paga ese
+// fijo por la prestación; si lo cobrado es menor al fijo, se paga el máximo disponible −
+// retención del medio de pago. Antes vivía en Liquidaciones; su lugar es el contrato.
+function MontosFijosSection({ doctorId }: { doctorId: string }) {
+  const [prestaciones, setPrestaciones] = useState<PrestacionDTO[]>([])
+  const [montos, setMontos] = useState<MontoFijoPrestacionDTO[]>([])
+  const [prestacionId, setPrestacionId] = useState('')
+  const [valor, setValor] = useState('')
+  const [msg, setMsg] = useState('')
+  const cargar = () => { montosFijosService.listar(doctorId).then(setMontos).catch(() => setMontos([])) }
+  useEffect(() => { prestacionesService.listar().then(setPrestaciones).catch(() => {}) }, [])
+  useEffect(cargar, [doctorId])
+  async function agregar() {
+    try { await montosFijosService.crear({ doctorId, prestacionId, montoFijo: Number(valor) }); setPrestacionId(''); setValor(''); setMsg('Monto fijo guardado'); cargar() }
+    catch (e) { setMsg(e instanceof ApiError ? e.message : 'Error') }
+  }
+  async function quitar(id: string) {
+    try { await montosFijosService.eliminar(id); setMsg(''); cargar() } catch { /* noop */ }
+  }
+  return (
+    <div className="border-t border-slate-100 pt-4 mt-1 space-y-2">
+      <p className="text-sm font-semibold text-slate-700">Montos fijos por prestación</p>
+      <p className="text-xs text-slate-500">Override del contrato base para prestaciones puntuales. Se paga ese fijo por la prestación; si lo cobrado es menor al fijo, se paga el máximo disponible − retención del medio de pago.</p>
+      <div className="space-y-1.5">
+        {montos.map((m) => (
+          <div key={m.id} className="flex items-center justify-between text-sm bg-violet-50/60 rounded-lg px-3 py-2">
+            <span className="text-slate-800 truncate">{m.prestacion.nombre}</span>
+            <span className="flex items-center gap-2">
+              <span className="text-slate-700 font-mono">{fmtCLP(m.montoFijo)}</span>
+              <button onClick={() => quitar(m.id)} className="text-slate-300 hover:text-rose-600" title="Quitar">🗑</button>
+            </span>
+          </div>
+        ))}
+        {montos.length === 0 && <p className="text-sm text-slate-500">Sin montos fijos para este profesional.</p>}
+      </div>
+      <div className="flex gap-2">
+        <select value={prestacionId} onChange={(e) => setPrestacionId(e.target.value)} className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm">
+          <option value="">Prestación…</option>
+          {prestaciones.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+        </select>
+        <input value={valor} onChange={(e) => setValor(e.target.value)} placeholder="$" inputMode="numeric" className="w-24 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
+        <button onClick={agregar} disabled={!prestacionId || !valor} className="px-3 py-2 bg-violet-600 disabled:opacity-50 text-white text-sm rounded-lg">Agregar</button>
+      </div>
+      {msg && <span className="text-xs text-emerald-600">{msg}</span>}
     </div>
   )
 }

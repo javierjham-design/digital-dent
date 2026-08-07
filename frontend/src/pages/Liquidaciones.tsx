@@ -1,9 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
-import type { DoctorDTO, LiquidacionActivaDetalle, LiquidacionActivaResumen, LiquidacionAccion, MontoFijoPrestacionDTO, PrestacionDTO } from '@shared/types'
-import { liquidacionesService, contratosService, montosFijosService } from '@/services/caja.service'
-import { prestacionesService } from '@/services/catalogo.service'
-import { usuariosService } from '@/services/equipo.service'
+import type { LiquidacionActivaDetalle, LiquidacionActivaResumen, LiquidacionAccion } from '@shared/types'
+import { liquidacionesService } from '@/services/caja.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 import { AdjuntosLiquidacion } from '@/components/AdjuntosLiquidacion'
@@ -11,7 +9,6 @@ import { AdjuntosLiquidacion } from '@/components/AdjuntosLiquidacion'
 interface LiqFin { id: string; periodo: string; totalBruto: number; totalLiquidado: number; estado: string; doctor?: { name: string | null; especialidad: string | null }; _count?: { items: number } }
 interface LiqFinItem { id: string; prestacionNombre: string; pacienteNombre: string; diente: string | null; medioPago: string | null; montoPagado: number; comisionAplicada: number; montoLiquidado: number; fechaCompletado: string }
 interface LiqFinDetalle extends LiqFin { items: LiqFinItem[] }
-interface Contrato { id: string; tipo: string; porcentaje: number | null; montoFijo: number | null; activo: boolean; doctor?: { name: string | null } }
 
 import { fmtMonto } from '@/lib/money'
 const fmt = fmtMonto
@@ -23,21 +20,14 @@ export function Liquidaciones() {
   const { user } = useAuth()
   const [tab, setTab] = useState<'activas' | 'finalizadas'>('activas')
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
-  const [modal, setModal] = useState<null | 'contratos'>(null)
-  const [doctores, setDoctores] = useState<DoctorDTO[]>([])
   const notify = (t: string, ok = true) => { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
-
-  useEffect(() => { usuariosService.doctores().then(setDoctores).catch(() => {}) }, [])
 
   // Solo quien puede gestionar liquidaciones ve esta vista; el resto va a "Mis liquidaciones".
   if (!user?.permisos?.puedeGestionarLiquidaciones) return <Navigate to="/mis-liquidaciones" replace />
 
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
-        <h1 className="text-2xl font-bold text-slate-900">Liquidaciones</h1>
-        <button onClick={() => setModal('contratos')} className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl">Contratos</button>
-      </div>
+      <h1 className="text-2xl font-bold text-slate-900 mb-5">Liquidaciones</h1>
 
       <div className="flex gap-1 mb-4 border-b border-slate-200">
         {([['activas', 'Activas'], ['finalizadas', 'Finalizadas']] as const).map(([k, label]) => (
@@ -51,8 +41,6 @@ export function Liquidaciones() {
       {aviso && <div className={`mb-4 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>}
 
       {tab === 'activas' ? <ActivasTab notify={notify} /> : <FinalizadasTab notify={notify} />}
-
-      {modal === 'contratos' && <ContratosModal doctores={doctores} onClose={() => setModal(null)} notify={notify} />}
     </div>
   )
 }
@@ -289,94 +277,6 @@ function DetalleFinalizadaModal({ liq, onClose }: { liq: LiqFinDetalle; onClose:
         </table>
       </div>
       <AdjuntosLiquidacion liqId={liq.id} />
-    </Modal>
-  )
-}
-
-// ── Contratos ────────────────────────────────────────────────────────────────
-
-function ContratosModal({ doctores, onClose, notify }: { doctores: DoctorDTO[]; onClose: () => void; notify: (t: string, ok?: boolean) => void }) {
-  const [contratos, setContratos] = useState<Contrato[]>([])
-  const [doctorId, setDoctorId] = useState(doctores[0]?.id ?? '')
-  const [tipo, setTipo] = useState<'PORCENTAJE' | 'MONTO_FIJO'>('PORCENTAJE')
-  const [valor, setValor] = useState('')
-  // Montos fijos por prestación (override) del profesional seleccionado.
-  const [prestaciones, setPrestaciones] = useState<PrestacionDTO[]>([])
-  const [montosFijos, setMontosFijos] = useState<MontoFijoPrestacionDTO[]>([])
-  const [mfPrestacionId, setMfPrestacionId] = useState('')
-  const [mfValor, setMfValor] = useState('')
-  const cargar = () => contratosService.listar().then((c) => setContratos(c as Contrato[])).catch(() => {})
-  const cargarMontos = (dId: string) => { if (dId) montosFijosService.listar(dId).then(setMontosFijos).catch(() => setMontosFijos([])) }
-  useEffect(() => { cargar(); prestacionesService.listar().then(setPrestaciones).catch(() => {}) }, [])
-  useEffect(() => { cargarMontos(doctorId) }, [doctorId])
-  async function crear() {
-    try {
-      await contratosService.crear({ doctorId, tipo, ...(tipo === 'PORCENTAJE' ? { porcentaje: Number(valor) } : { montoFijo: Number(valor) }) })
-      setValor(''); notify('Contrato creado'); cargar()
-    } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
-  }
-  async function agregarMonto() {
-    try {
-      await montosFijosService.crear({ doctorId, prestacionId: mfPrestacionId, montoFijo: Number(mfValor) })
-      setMfPrestacionId(''); setMfValor(''); notify('Monto fijo guardado'); cargarMontos(doctorId)
-    } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
-  }
-  async function quitarMonto(id: string) {
-    try { await montosFijosService.eliminar(id); notify('Monto fijo eliminado'); cargarMontos(doctorId) }
-    catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
-  }
-  return (
-    <Modal title="Contratos de profesionales" onClose={onClose}>
-      <div className="space-y-2 mb-4 max-h-40 overflow-y-auto">
-        {contratos.filter((c) => c.activo).map((c) => (
-          <div key={c.id} className="flex items-center justify-between text-sm bg-slate-50 rounded-lg px-3 py-2">
-            <span className="text-slate-800">{c.doctor?.name ?? '—'}</span>
-            <span className="text-slate-600">{c.tipo === 'PORCENTAJE' ? `${c.porcentaje}%` : fmt(c.montoFijo ?? 0)}</span>
-          </div>
-        ))}
-        {contratos.filter((c) => c.activo).length === 0 && <p className="text-sm text-slate-500">Sin contratos activos.</p>}
-      </div>
-      <div className="border-t border-slate-100 pt-3 space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Profesional</p>
-        <select value={doctorId} onChange={(e) => setDoctorId(e.target.value)} className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-          {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
-        </select>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 pt-1">Contrato base</p>
-        <div className="flex gap-2">
-          <select value={tipo} onChange={(e) => setTipo(e.target.value as 'PORCENTAJE' | 'MONTO_FIJO')} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
-            <option value="PORCENTAJE">Porcentaje</option><option value="MONTO_FIJO">Monto fijo</option>
-          </select>
-          <input value={valor} onChange={(e) => setValor(e.target.value)} placeholder={tipo === 'PORCENTAJE' ? '%' : '$'} inputMode="numeric" className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
-          <button onClick={crear} disabled={!doctorId || !valor} className="px-3 py-2 bg-cyan-600 disabled:opacity-50 text-white text-sm rounded-lg">Crear</button>
-        </div>
-        <p className="text-[11px] text-slate-400">Crear un contrato desactiva el anterior del profesional.</p>
-      </div>
-
-      {/* Montos fijos por prestación: override del contrato base para prestaciones puntuales. */}
-      <div className="border-t border-slate-100 pt-3 mt-3 space-y-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Montos fijos por prestación</p>
-        <p className="text-[11px] text-slate-400">Se paga ese fijo por la prestación. Si lo cobrado es menor al fijo, se paga el máximo disponible − retención del medio de pago.</p>
-        <div className="space-y-1.5 max-h-40 overflow-y-auto">
-          {montosFijos.map((m) => (
-            <div key={m.id} className="flex items-center justify-between text-sm bg-violet-50/60 rounded-lg px-3 py-2">
-              <span className="text-slate-800 truncate">{m.prestacion.nombre}</span>
-              <span className="flex items-center gap-2">
-                <span className="text-slate-700 font-mono">{fmt(m.montoFijo)}</span>
-                <button onClick={() => quitarMonto(m.id)} className="text-slate-300 hover:text-rose-600" title="Quitar">🗑</button>
-              </span>
-            </div>
-          ))}
-          {montosFijos.length === 0 && <p className="text-sm text-slate-500">Sin montos fijos para este profesional.</p>}
-        </div>
-        <div className="flex gap-2">
-          <select value={mfPrestacionId} onChange={(e) => setMfPrestacionId(e.target.value)} className="flex-1 min-w-0 px-3 py-2 border border-slate-200 rounded-lg text-sm">
-            <option value="">Prestación…</option>
-            {prestaciones.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-          </select>
-          <input value={mfValor} onChange={(e) => setMfValor(e.target.value)} placeholder="$" inputMode="numeric" className="w-24 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
-          <button onClick={agregarMonto} disabled={!doctorId || !mfPrestacionId || !mfValor} className="px-3 py-2 bg-violet-600 disabled:opacity-50 text-white text-sm rounded-lg">Agregar</button>
-        </div>
-      </div>
     </Modal>
   )
 }
