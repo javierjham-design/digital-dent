@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import type { ClinicaConfigDTO, UsuarioDTO } from '@shared/types'
 import { clinicaService, mediosPagoService, type MedioPagoDTO } from '@/services/catalogo.service'
 import { usuariosService } from '@/services/equipo.service'
@@ -11,6 +12,7 @@ export function Configuracion() {
   const { user } = useAuth()
   const esAdmin = user?.role === 'admin'
   const puedeConfig = esAdmin || Boolean(user?.permisos?.puedeConfigurarClinica)
+  const [searchParams, setSearchParams] = useSearchParams()
   const [data, setData] = useState<ClinicaConfigDTO | null>(null)
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
@@ -46,9 +48,30 @@ export function Configuracion() {
   if (cargando) return <p className="text-slate-500 text-sm">Cargando…</p>
   if (!data) return <p className="text-rose-600 text-sm">{error || 'No se pudo cargar la configuración'}</p>
 
+  // Pestañas (la activa vive en ?tab= para poder linkear directo). Pagos online y Google
+  // solo para admin (igual que antes, cuando eran bloques con `esAdmin &&`).
+  const tabs: { key: string; label: string }[] = [
+    { key: 'datos', label: 'Datos y mensajes' },
+    { key: 'medios', label: 'Medios de pago' },
+    ...(esAdmin ? [{ key: 'pagos', label: 'Pagos online' }, { key: 'google', label: 'Google Calendar' }] : []),
+  ]
+  const tabParam = searchParams.get('tab') ?? 'datos'
+  const tab = tabs.some((t) => t.key === tabParam) ? tabParam : 'datos'
+  const setTab = (k: string) => setSearchParams({ tab: k }, { replace: true })
+
   return (
     <div className="max-w-2xl">
-      <h1 className="text-2xl font-bold text-slate-900 mb-6">Configuración de la clínica</h1>
+      <h1 className="text-2xl font-bold text-slate-900 mb-4">Configuración de la clínica</h1>
+      <div className="flex gap-1 mb-6 border-b border-slate-200 flex-wrap">
+        {tabs.map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.key ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'datos' && (
       <form onSubmit={guardar} className="bg-white rounded-2xl border border-slate-200 p-6 space-y-4">
         <div>
           <span className="block text-sm font-medium text-slate-700 mb-1">Logo de la clínica</span>
@@ -118,10 +141,11 @@ export function Configuracion() {
           {guardando ? 'Guardando…' : 'Guardar cambios'}
         </button>
       </form>
+      )}
 
-      <MediosPago />
-      {esAdmin && <PagosOnlineSection />}
-      {esAdmin && <GoogleCalendarSection />}
+      {tab === 'medios' && <MediosPago />}
+      {tab === 'pagos' && esAdmin && <PagosOnlineSection />}
+      {tab === 'google' && esAdmin && <GoogleCalendarSection />}
     </div>
   )
 }
