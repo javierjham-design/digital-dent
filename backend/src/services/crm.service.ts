@@ -9,6 +9,7 @@ import { control } from '@/db/control'
 import { crearCita } from '@/services/citas.service'
 import { rangoFechasUtc } from '@/lib/tz'
 import { log, serializeError } from '@/lib/logger'
+import { captureError } from '@/lib/observability'
 import { siguienteNumero } from '@/lib/correlativo'
 
 const ESTADOS = ['NUEVO', 'CONTACTADO', 'AGENDADO', 'CONVERTIDO', 'PERDIDO']
@@ -752,6 +753,57 @@ export async function actualizarLead(db: TenantClient, actor: JwtPayload, id: st
   const eventoCrm = cambioEstado ? CRM_ETAPA_EVENTO[cambioEstado] : null
   if (eventoCrm) void dispararEtapaCrmMeta(db, id, eventoCrm)
   return lead
+}
+
+// Conversión AUTOMÁTICA del embudo: marca un lead CONVERTIDO porque su paciente registró un
+// cobro pagado — el momento comercialmente real de la conversión. Va por EL MISMO camino que
+// el cambio manual de estado (`actualizarLead`, arriba): escribe estado=CONVERTIDO + nota
+// ESTADO y dispara "customer" a Meta vía `dispararEtapaCrmMeta`, que CONSERVA su guard
+// (customer solo si el lead está CONVERTIDO, solo leads de Meta Form con leadgenId, idempotente
+// por ciclo). NO es un camino paralelo que saltee guards.
+//
+// Best-effort: NUNCA lanza (el cobro ya se registró) ni bloquea la operación del cobro;
+// loguea + Sentry si algo falla (no un catch vacío) — mismo criterio que aprendimos con Google.
+//
+// ANULACIÓN posterior del cobro: NO revierte el lead. La conversión es un HITO comercial (fue
+// cliente al menos una vez), no un estado que siga el saldo; revertir emitiría ruido a Meta y
+// no existe evento de "des-conversión". Decisión deliberada — no automatizar la vuelta atrás.
+export async function marcarConvertidoPorCobro(db: TenantClient, pacienteId: string | null | undefined, actorNombre?: string): Promise<void> {
+  if (!pacienteId) return
+  let leadId: string
+  try {
+    // Lead más reciente del paciente que aún no esté CONVERTIDO. Si el paciente no vino de un
+    // lead (walk-in) o ya estaba convertido → no hay nada que hacer (el 2do cobro no re-emite).
+    const lead = await db.lead.findFirst({
+      where: { pacienteId, estado: { not: 'CONVERTIDO' } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    })
+    if (!lead) return
+    leadId = lead.id
+    // El cambio de estado se AWAITEA (consistencia inmediata del embudo); es local y barato.
+    await db.lead.update({ where: { id: lead.id }, data: { estado: 'CONVERTIDO', ultimaGestionAt: new Date() } })
+    await db.leadNota.create({ data: { leadId: lead.id, tipo: 'ESTADO', texto: 'Estado → CONVERTIDO (automático: primer cobro pagado del paciente)', autorNombre: actorNombre ?? 'Sistema' } }).catch(() => {})
+  } catch (e) {
+    log.error('crm: no se pudo marcar CONVERTIDO por cobro pagado', { pacienteId, err: serializeError(e) })
+    captureError(e instanceof Error ? e : new Error(String(e)), { route: 'marcarConvertidoPorCobro' })
+    return
+  }
+  // Emisión "customer" a Meta: MISMO emisor + guard que el cambio manual (dispararEtapaCrmMeta,
+  // que solo emite si el lead está CONVERTIDO, es de Meta Form y no se envió aún). Fire-and-forget
+  // para NO bloquear el cobro con una llamada de red — pero NO silenciosa: log + Sentry si Meta
+  // la rechaza. No se toca el emisor ni sus guards.
+  void dispararEtapaCrmMeta(db, leadId, 'customer')
+    .then((r) => {
+      if (r.estado === 'error') {
+        log.error('crm: evento "customer" rechazado por Meta al convertir por cobro', { leadId, error: r.error })
+        captureError(new Error(`customer rechazado por Meta al convertir lead ${leadId}: ${r.error ?? 'sin detalle'}`), { route: 'marcarConvertidoPorCobro' })
+      }
+    })
+    .catch((e) => {
+      log.error('crm: falló la emisión "customer" al convertir por cobro', { leadId, err: serializeError(e) })
+      captureError(e instanceof Error ? e : new Error(String(e)), { route: 'marcarConvertidoPorCobro' })
+    })
 }
 
 export async function agregarNota(db: TenantClient, actor: JwtPayload, id: string, texto: string) {

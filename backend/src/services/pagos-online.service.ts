@@ -131,6 +131,10 @@ export async function procesarWebhookFlow(db: TenantClient, token: string): Prom
     const cobro = await db.cobro.findUnique({ where: { id: pago.cobroId }, select: { estado: true, anulado: true } })
     if (cobro && !cobro.anulado && cobro.estado !== 'PAGADO') {
       await db.cobro.update({ where: { id: pago.cobroId }, data: { estado: 'PAGADO', metodoPago: 'FLOW', fechaPago: new Date() } })
+      // Conversión del embudo: el pago online cuenta como cobro pagado. El helper no lanza ni
+      // bloquea con Meta. Import dinámico para evitar un ciclo de módulos (pagos ↔ crm ↔ cobros).
+      const { marcarConvertidoPorCobro } = await import('@/services/crm.service')
+      await marcarConvertidoPorCobro(db, pago.pacienteId, 'Sistema (pago online)')
     }
   }
 

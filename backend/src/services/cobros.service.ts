@@ -5,6 +5,7 @@ import { getSesionAbierta } from '@/lib/caja'
 import { audit } from '@/lib/audit'
 import { crearLinkParaCobro, type ResultadoLinkPago } from '@/services/pagos-online.service'
 import { aplicarAbonoLibreAAccion } from '@/services/tratamientos.service'
+import { marcarConvertidoPorCobro } from '@/services/crm.service'
 import { siguienteNumero } from '@/lib/correlativo'
 
 const ESTADOS = ['PENDIENTE', 'PAGADO', 'PARCIAL', 'ANULADO']
@@ -223,6 +224,10 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
     accion: 'CREAR', entidad: 'Cobro', entidadId: nuevo.id, pacienteId: input.pacienteId,
     resumen: `Recibió un pago #${nuevo.numero} por ${fmtMoney(monto)}${medioNombre ? ` · ${medioNombre}` : ' · Efectivo'}`,
   })
+  // Conversión automática del embudo: si el paciente vino de un lead, su cobro pagado lo marca
+  // CONVERTIDO. El helper NUNCA lanza ni bloquea con Meta (la emisión va en background), así que
+  // awaitearlo deja el estado consistente sin poner en riesgo el registro del cobro.
+  await marcarConvertidoPorCobro(db, input.pacienteId, actorName(actor))
   return nuevo
 }
 

@@ -5,6 +5,43 @@
 
 ---
 
+## 2026-08-08 — Conversión automática del CRM: el primer cobro pagado marca CONVERTIDO
+
+Hoy el estado CONVERTIDO se marcaba a mano y nadie lo hacía → el embudo mentía (5/495) y el
+evento `customer` nunca se emitía. Ahora el sistema lo detecta solo: un lead está convertido
+cuando su paciente vinculado registra su **primer cobro PAGADO**. Rama `feat/conversion-automatica-crm`.
+**No se tocó el pipeline CAPI/Meta** (lib/meta.ts, el emisor, los nombres de evento ni el guard).
+
+- **Cómo funciona:** al crear un cobro PAGADO (`crearCobro`) o cuando el webhook de Flow marca
+  uno pagado (`procesarWebhookFlow`), si el paciente tiene un lead no-CONVERTIDO se llama a
+  `marcarConvertidoPorCobro` (crm.service). Ese helper va por **el mismo camino que el cambio
+  manual de estado** (`actualizarLead`): escribe estado=CONVERTIDO + nota ESTADO y dispara
+  `customer` vía **`dispararEtapaCrmMeta`**, que conserva su guard (customer solo si CONVERTIDO,
+  solo leads de Meta Form con leadgenId, idempotente). No es un camino paralelo.
+- **Emisión a Meta (señal que hoy está apagada):** SÍ empieza a emitir `customer` — pero solo en
+  clínicas con CRM↔Meta habilitado (hoy **solo digital-dent**; montenegro/orodent en off) y solo
+  para leads de Meta Form. El cambio de estado se awaitea (consistencia inmediata del embudo);
+  la llamada de red a Meta va en **background** (no bloquea el cobro), con **log + Sentry** si
+  Meta la rechaza. Una falla de CRM/Meta jamás impide registrar el cobro (helper best-effort, nunca lanza).
+- **Anulación posterior del cobro:** NO revierte el lead. La conversión es un hito comercial (fue
+  cliente al menos una vez); revertir emitiría ruido a Meta y no existe evento de des-conversión.
+  Decisión deliberada, documentada en el helper.
+- **Backfill histórico (`src/scripts/backfill-conversiones.ts`, dry-run por defecto):** marca
+  CONVERTIDO los leads con paciente que ya pagó. **NO EMITE A META a propósito** — escribe el
+  estado DIRECTO en la base, sin pasar por el emisor (las conversiones viejas serían rechazadas
+  por el clamp de >7 días de Meta o aplastadas a ~6 días atrás inflando el día). El comentario de
+  cabecera lo deja escrito para que nadie lo "arregle". Alcance medido en prod: **6 leads (todos
+  digital-dent), 1 de Meta Form**.
+- **Hallazgo aparte (no es esta tarea):** el vínculo lead→paciente es débil — 61/144 agendados de
+  digital-dent no tienen pacienteId. La recepción a veces crea la ficha desde cero en vez de
+  convertir el lead. Automatizar CONVERTIDO es correcto, pero el embudo seguirá sub-reportando
+  hasta arreglar ese flujo/capacitación. (El "vínculo perdido" en la etapa de pago es chico: de 43
+  pacientes que pagaron sin lead, solo 3-4 tenían un lead con mismo teléfono/RUT.)
+- **Verificación:** typecheck ✓ · unit 118 · integración **71/71** (+3: primer cobro convierte,
+  segundo no re-emite, cobro sin lead no hace nada) · contrato ✓ · lint 0.
+
+---
+
 ## 2026-08-07 — Editar username + contratos robustos por profesional (Equipo)
 
 Dos ajustes de organización (frontend-only, sin cambios de backend/endpoints). Rama

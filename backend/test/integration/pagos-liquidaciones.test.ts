@@ -181,6 +181,54 @@ describe('montos fijos por prestación (override del contrato base)', () => {
   })
 })
 
+describe('CRM: el primer cobro pagado convierte el lead automáticamente', () => {
+  let cajaId = ''
+  beforeAll(async () => {
+    const caja = await post('/cajas', { nombre: 'Caja conversión', usuarioIds: [A.adminId] })
+    cajaId = caja.body.id
+    await post(`/cajas/${cajaId}/abrir`, { saldoApertura: 0 })
+  })
+  // Crea un lead y lo vincula a un paciente (sin marcarlo CONVERTIDO, como hace "convertir").
+  async function leadConPaciente(nombre: string) {
+    const tel = `+56 9 ${Math.floor(1000 + Math.random() * 8999)} ${Math.floor(1000 + Math.random() * 8999)}`
+    const lead = await post('/crm/leads', { nombre, telefono: tel })
+    const conv = await post(`/crm/leads/${lead.body.id}/convertir`, {})
+    return { leadId: lead.body.id as string, pacienteId: conv.body.pacienteId as string }
+  }
+  const estadoLead = async (leadId: string) => {
+    const db = tenantClient(A.dbName)
+    return (await db.lead.findUnique({ where: { id: leadId }, select: { estado: true } }))?.estado
+  }
+  // Cobro pagado mínimo: un abono libre al plan del paciente.
+  async function cobrarAbono(pacienteId: string, monto: number) {
+    const plan = await post('/planes-tratamiento', { pacienteId, doctorTitularId: doctorId })
+    return post('/cobros', { pacienteId, cajaId, items: [{ planId: plan.body.id, descripcion: 'Abono', monto }] })
+  }
+
+  it('primer cobro pagado → el lead pasa a CONVERTIDO', async () => {
+    const { leadId, pacienteId } = await leadConPaciente('Convierte Uno')
+    expect(await estadoLead(leadId)).not.toBe('CONVERTIDO')
+    const c = await cobrarAbono(pacienteId, 20000)
+    expect(c.status).toBe(201)
+    expect(await estadoLead(leadId)).toBe('CONVERTIDO')
+  })
+
+  it('segundo cobro del mismo paciente: sigue CONVERTIDO y no falla (no re-emite)', async () => {
+    const { leadId, pacienteId } = await leadConPaciente('Convierte Dos')
+    await cobrarAbono(pacienteId, 15000)
+    expect(await estadoLead(leadId)).toBe('CONVERTIDO')
+    const c2 = await cobrarAbono(pacienteId, 5000) // ya no hay lead no-convertido → no-op
+    expect(c2.status).toBe(201)
+    expect(await estadoLead(leadId)).toBe('CONVERTIDO')
+  })
+
+  it('cobro de un paciente SIN lead vinculado no hace nada (no rompe el cobro)', async () => {
+    const p = await post('/pacientes', { nombre: 'Sin', apellido: 'Lead' })
+    const c = await cobrarAbono(p.body.id, 10000)
+    expect(c.status).toBe(201)
+  })
+})
+
 describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, gastos en caja', () => {
   let cajaId = ''
   beforeAll(async () => {
