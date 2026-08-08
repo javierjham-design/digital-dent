@@ -7,7 +7,20 @@
 
 ## Última actualización
 
-- **Fecha:** 2026-08-07
+- **Fecha:** 2026-08-08
+- **Conversión automática del CRM (Paso 2 DESPLEGADO 2026-08-08; backfill Paso 3 pendiente de aplicar).**
+  El primer cobro PAGADO de un paciente marca su lead `CONVERTIDO` (antes se hacía a mano y nadie lo
+  hacía). Hook en `crearCobro` y en el webhook de Flow → `marcarConvertidoPorCobro` (crm.service), que
+  va por el MISMO camino que el cambio manual (`actualizarLead`): estado + nota + `dispararEtapaCrmMeta('customer')`.
+  **No se tocó el pipeline CAPI/Meta.** Emite `customer` solo en clínicas con CRM↔Meta habilitado
+  (hoy solo digital-dent) y leads de Meta Form; estado se awaitea (consistencia), Meta en background
+  (log+Sentry si rechaza); best-effort (nunca rompe el cobro). Anulación NO revierte. Verificado
+  e2e en una demo real (lead→CONVERTIDO, sin emitir por falta de config). **Backfill histórico:**
+  `src/scripts/backfill-conversiones.ts` (dry-run por defecto, **NO emite a Meta** a propósito).
+  Dry-run en prod = **6 leads en digital-dent** (todos AGENDADO→CONVERTIDO, 1 de Meta Form). ⚠️
+  **Falta correr `--apply`** (esperando OK del usuario). Ver `docs/AI_CHANGELOG.md`. **Hallazgo:** el
+  vínculo lead→paciente es débil (61/144 agendados de digital-dent sin pacienteId) — recepción crea
+  la ficha desde cero en vez de convertir; el embudo seguirá sub-reportando hasta arreglar ese flujo.
 - **Editar username + contratos robustos por profesional — DESPLEGADO 2026-08-07** (frontend-only).
   (1) El editor de usuario (Equipo → Datos) ahora deja **editar/agregar el `username`** (el backend
   ya lo validaba). (2) Los **montos fijos por prestación** se movieron del modal "Contratos" de
