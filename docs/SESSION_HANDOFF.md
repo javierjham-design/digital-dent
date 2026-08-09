@@ -15,9 +15,11 @@
   la **ficha muestra un aviso** para elegir (endpoints `/pacientes/:id/leads-sugeridos` y
   `/vincular-lead`). **B)** Script `reconciliar-vinculos.ts` (dry-run) separa INEQUÍVOCOS de
   DUDOSOS. **⚠️ vincularLeadPaciente marca CONVERTIDO SIN emitir a Meta** (conversión vieja; mismo
-  clamp de 7 días). Verificado e2e en demo + integración 75/75. **Dry-run en prod (digital-dent):
-  447 leads sin vincular → 72 inequívocos + 8 dudosos; atribución de pacientes que pagaron
-  8 → 11 (de 51).** ⚠️ **Falta `reconciliar-vinculos.ts --apply`** (esperando OK). Ver AI_CHANGELOG.
+  clamp de 7 días). Verificado e2e en demo + integración 75/75. **Parte B APLICADA a prod
+  (2026-08-09, backup fresco antes):** digital-dent 447→**375** leads sin vincular (72 vínculos),
+  **2 marcados CONVERTIDO sin emitir** (verificado: sin `customer` en metaCrmEtapas), **8 dudosos**
+  quedan para el aviso de la ficha. **Atribución de pacientes que pagaron: 8 → 11 (de 51).** Ver
+  AI_CHANGELOG. (Los 40/51 restantes no vinieron del embudo — walk-in/derivación.)
 - **Conversión automática del CRM (Paso 2 DESPLEGADO 2026-08-08; backfill Paso 3 pendiente de aplicar).**
   El primer cobro PAGADO de un paciente marca su lead `CONVERTIDO` (antes se hacía a mano y nadie lo
   hacía). Hook en `crearCobro` y en el webhook de Flow → `marcarConvertidoPorCobro` (crm.service), que
