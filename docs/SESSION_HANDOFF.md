@@ -8,6 +8,16 @@
 ## Última actualización
 
 - **Fecha:** 2026-08-08
+- **Vínculo automático lead→paciente (Parte A DESPLEGADA 2026-08-08; Parte B dry-run pendiente de aplicar).**
+  El vínculo se perdía cuando recepción crea la ficha desde cero (61/144 agendados sin pacienteId).
+  **A)** Al crear un paciente, si hay EXACTAMENTE un lead sin vincular que coincide por teléfono
+  (`telCanonico`) o RUT → se vincula solo (`autolinkLeadAlCrearPaciente`); si hay varios (familia),
+  la **ficha muestra un aviso** para elegir (endpoints `/pacientes/:id/leads-sugeridos` y
+  `/vincular-lead`). **B)** Script `reconciliar-vinculos.ts` (dry-run) separa INEQUÍVOCOS de
+  DUDOSOS. **⚠️ vincularLeadPaciente marca CONVERTIDO SIN emitir a Meta** (conversión vieja; mismo
+  clamp de 7 días). Verificado e2e en demo + integración 75/75. **Dry-run en prod (digital-dent):
+  447 leads sin vincular → 72 inequívocos + 8 dudosos; atribución de pacientes que pagaron
+  8 → 11 (de 51).** ⚠️ **Falta `reconciliar-vinculos.ts --apply`** (esperando OK). Ver AI_CHANGELOG.
 - **Conversión automática del CRM (Paso 2 DESPLEGADO 2026-08-08; backfill Paso 3 pendiente de aplicar).**
   El primer cobro PAGADO de un paciente marca su lead `CONVERTIDO` (antes se hacía a mano y nadie lo
   hacía). Hook en `crearCobro` y en el webhook de Flow → `marcarConvertidoPorCobro` (crm.service), que
