@@ -75,7 +75,12 @@ export const pacientesService = {
   comentarios: (id: string) => api.get<ComentarioDTO[]>(`/pacientes/${id}/comentarios`),
   agregarComentario: (id: string, texto: string) => api.post<ComentarioDTO>(`/pacientes/${id}/comentarios`, { texto }),
   mensajes: (id: string) => api.get<MensajeDTO[]>(`/pacientes/${id}/mensajes`),
+  // Leads sin vincular que coinciden por teléfono/RUT (aviso de trazabilidad del embudo).
+  leadsSugeridos: (id: string) => api.get<{ leads: LeadSugerido[] }>(`/pacientes/${id}/leads-sugeridos`),
+  vincularLead: (id: string, leadId: string) => api.post<{ convertido: boolean }>(`/pacientes/${id}/vincular-lead`, { leadId }),
 }
+
+export interface LeadSugerido { id: string; nombre: string; telefono: string | null; estado: string; createdAt: string }
 
 export interface ResumenPaciente { tratamientosCount: number; activos: number; finalizados: number; expirados: number; realizado: number; abonado: number; saldo: number }
 export interface ComentarioDTO { id: string; texto: string; autorNombre: string | null; createdAt: string }

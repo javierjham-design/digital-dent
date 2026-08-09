@@ -229,6 +229,64 @@ describe('CRM: el primer cobro pagado convierte el lead automáticamente', () =>
   })
 })
 
+describe('vínculo automático lead→paciente por identidad (teléfono/RUT)', () => {
+  let telN = 20000000
+  const tel = () => { telN++; const s = String(telN); return `+56 9 ${s.slice(0, 4)} ${s.slice(4)}` }
+  const db = () => tenantClient(A.dbName)
+  const leadPac = async (leadId: string) => (await db().lead.findUnique({ where: { id: leadId }, select: { pacienteId: true } }))?.pacienteId ?? null
+
+  it('crear paciente con el teléfono de UN lead sin vincular → se vincula solo', async () => {
+    const t = tel()
+    const lead = await post('/crm/leads', { nombre: 'Auto Uno', telefono: t })
+    const pac = await post('/pacientes', { nombre: 'Auto', apellido: 'Uno', telefono: t })
+    expect(pac.status).toBe(201)
+    expect(await leadPac(lead.body.id)).toBe(pac.body.id)
+  })
+
+  it('teléfono compartido por VARIOS leads (familia) → NO se vincula; la ficha los sugiere', async () => {
+    const t = tel()
+    const l1 = await post('/crm/leads', { nombre: 'Fam Uno', telefono: t })
+    const l2 = await post('/crm/leads', { nombre: 'Fam Dos', telefono: t })
+    const pac = await post('/pacientes', { nombre: 'Fam', apellido: 'Madre', telefono: t })
+    expect(await leadPac(l1.body.id)).toBeNull()
+    expect(await leadPac(l2.body.id)).toBeNull()
+    const sug = await get(`/pacientes/${pac.body.id}/leads-sugeridos`)
+    expect(sug.body.leads.length).toBe(2)
+    const v = await post(`/pacientes/${pac.body.id}/vincular-lead`, { leadId: l1.body.id })
+    expect(v.status).toBe(200)
+    expect(await leadPac(l1.body.id)).toBe(pac.body.id)
+    const sug2 = await get(`/pacientes/${pac.body.id}/leads-sugeridos`)
+    expect(sug2.body.leads.length).toBe(1) // queda solo el otro
+  })
+
+  it('crear paciente sin lead que coincida → no vincula nada', async () => {
+    const pac = await post('/pacientes', { nombre: 'Solo', apellido: 'Ficha', telefono: tel() })
+    expect(pac.status).toBe(201)
+    const sug = await get(`/pacientes/${pac.body.id}/leads-sugeridos`)
+    expect(sug.body.leads.length).toBe(0)
+  })
+
+  it('vincular un lead cuyo paciente YA pagó → CONVERTIDO sin emitir a Meta', async () => {
+    const t = tel()
+    const l1 = await post('/crm/leads', { nombre: 'Pago Uno', telefono: t })
+    await post('/crm/leads', { nombre: 'Pago Dos', telefono: t }) // 2do lead → ambiguo, no autolink
+    const pac = await post('/pacientes', { nombre: 'Pago', apellido: 'Previo', telefono: t })
+    // El paciente paga ANTES de estar vinculado a un lead (no convierte nada aún).
+    const caja = await post('/cajas', { nombre: `Caja vinc ${telN}`, usuarioIds: [A.adminId] })
+    await post(`/cajas/${caja.body.id}/abrir`, { saldoApertura: 0 })
+    const plan = await post('/planes-tratamiento', { pacienteId: pac.body.id, doctorTitularId: doctorId })
+    expect((await post('/cobros', { pacienteId: pac.body.id, cajaId: caja.body.id, items: [{ planId: plan.body.id, descripcion: 'Abono', monto: 12000 }] })).status).toBe(201)
+    // Se resuelve el vínculo manualmente → como ya pagó, queda CONVERTIDO SIN emitir.
+    const v = await post(`/pacientes/${pac.body.id}/vincular-lead`, { leadId: l1.body.id })
+    expect(v.status).toBe(200)
+    expect(v.body.convertido).toBe(true)
+    const l = await db().lead.findUnique({ where: { id: l1.body.id }, select: { estado: true, pacienteId: true, metaCrmEtapas: true } })
+    expect(l?.estado).toBe('CONVERTIDO')
+    expect(l?.pacienteId).toBe(pac.body.id)
+    expect(l?.metaCrmEtapas).toBeNull() // no se emitió "customer" a Meta
+  })
+})
+
 describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, gastos en caja', () => {
   let cajaId = ''
   beforeAll(async () => {

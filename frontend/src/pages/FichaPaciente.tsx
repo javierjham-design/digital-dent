@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { CitaDTO, DoctorDTO, PacienteDTO, PrestacionDTO, ClinicaConfigDTO } from '@shared/types'
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
-import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO } from '@/services/clinica.service'
+import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO, type LeadSugerido } from '@/services/clinica.service'
 import { planesService, seccionesService, tratamientosService, evolucionesService, historialService, type HistorialEntry } from '@/services/clinico.service'
 import { prestacionesService, mediosPagoService, clinicaService, type MedioPagoDTO } from '@/services/catalogo.service'
 import { PresupuestoPlanDoc, type PPlan } from '@/components/PresupuestoPlanDoc'
@@ -64,12 +64,18 @@ export function FichaPaciente() {
   const [resumen, setResumen] = useState<ResumenPaciente | null>(null)
   const [ficha, setFicha] = useState<FichaClinica | null>(null)
   const [avisoDeuda, setAvisoDeuda] = useState(false)
+  const [leadsSug, setLeadsSug] = useState<LeadSugerido[]>([])
   const [error, setError] = useState('')
 
   useEffect(() => { pacientesService.obtener(id).then(setPaciente).catch((e) => setError(e.message)) }, [id])
   useEffect(() => { pacientesService.resumen(id).then(setResumen).catch(() => {}) }, [id])
   // Ficha a nivel de página para mostrar las advertencias médicas en el encabezado.
   useEffect(() => { pacientesService.ficha(id).then((f) => setFicha(f.ficha)).catch(() => {}) }, [id])
+  // Trazabilidad del embudo: leads sin vincular que coinciden por teléfono/RUT con la ficha.
+  useEffect(() => { pacientesService.leadsSugeridos(id).then((r) => setLeadsSug(r.leads)).catch(() => {}) }, [id])
+  const vincularLead = async (leadId: string) => {
+    try { await pacientesService.vincularLead(id, leadId); setLeadsSug((ls) => ls.filter((l) => l.id !== leadId)) } catch { /* noop */ }
+  }
 
   if (error) return <p className="text-rose-600 text-sm">{error}</p>
   if (!paciente) return <p className="text-slate-500 text-sm">Cargando…</p>
@@ -113,6 +119,25 @@ export function FichaPaciente() {
           montoPago={resumen.saldo}
           mensajeDefault={`Te recordamos que tienes un saldo pendiente de ${fmtCLP(resumen.saldo)} por tu tratamiento. Puedes pagarlo en línea con el botón de abajo, acercarte a la clínica o responder este correo.`}
           onClose={() => setAvisoDeuda(false)} />
+      )}
+
+      {/* Aviso de trazabilidad: leads del CRM sin vincular que coinciden por teléfono/RUT.
+          Solo aparece cuando el sistema no pudo vincular solo (varios candidatos / familia). */}
+      {leadsSug.length > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <p className="text-sm text-amber-800 font-medium">
+            {leadsSug.length === 1 ? 'Hay 1 lead del CRM con este teléfono/RUT sin vincular.' : `Hay ${leadsSug.length} leads del CRM con este teléfono/RUT sin vincular.`}
+            <span className="font-normal text-amber-700"> ¿Vincular a esta ficha para no perder la trazabilidad del embudo?</span>
+          </p>
+          <div className="mt-2 space-y-1.5">
+            {leadsSug.map((l) => (
+              <div key={l.id} className="flex items-center justify-between gap-2 text-sm">
+                <span className="text-slate-700 truncate min-w-0">{l.nombre}{l.telefono ? <span className="text-slate-400"> · {l.telefono}</span> : ''} <span className="text-xs text-slate-400">({l.estado})</span></span>
+                <button onClick={() => vincularLead(l.id)} className="shrink-0 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg">Vincular</button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       <div className="flex gap-1 border-b border-slate-200 mb-5 overflow-x-auto">

@@ -806,6 +806,105 @@ export async function marcarConvertidoPorCobro(db: TenantClient, pacienteId: str
     })
 }
 
+// ── Vínculo lead ↔ paciente por identidad (teléfono normalizado / RUT) ──────────
+// El vínculo lead→paciente se pierde cuando la recepción crea la ficha desde cero en vez de
+// convertir el lead. Estas funciones lo reconstruyen por identidad: teléfono (misma
+// normalización del CRM, telCanonico → últimos 8 dígitos) o RUT (agnóstico al formato).
+
+// Clave de teléfono para el match: últimos 8 dígitos, SOLO si es un número chileno completo.
+export function telKey(t?: string | null): string | null {
+  const k = telCanonico(t)
+  return k && k.length === 8 ? k : null
+}
+// Clave de RUT: dígitos + K, sin puntos ni guion. Requiere el largo de un RUT real.
+export function rutKey(r?: string | null): string | null {
+  const k = (r ?? '').toLowerCase().replace(/[^0-9k]/g, '')
+  return k.length >= 7 ? k : null
+}
+const mismaIdentidad = (a: { telefono: string | null; rut: string | null }, tk: string | null, rk: string | null): boolean =>
+  (!!tk && telKey(a.telefono) === tk) || (!!rk && rutKey(a.rut) === rk)
+
+// Leads SIN pacienteId que coinciden por teléfono o RUT con la identidad dada.
+export async function leadsSinVincularPorIdentidad(db: TenantClient, telefono: string | null, rut: string | null) {
+  const tk = telKey(telefono), rk = rutKey(rut)
+  if (!tk && !rk) return []
+  // El match por teléfono no se puede expresar en SQL (normalización a últimos 8), así que
+  // se traen los leads sin vincular con teléfono/RUT y se filtra en memoria (son pocos).
+  const candidatos = await db.lead.findMany({
+    where: { pacienteId: null, OR: [{ telefono: { not: null } }, { rut: { not: null } }] },
+    select: { id: true, nombre: true, apellido: true, telefono: true, rut: true, estado: true, createdAt: true },
+    orderBy: { createdAt: 'desc' },
+  })
+  return candidatos.filter((l) => mismaIdentidad(l, tk, rk))
+}
+
+// Vincula un lead a un paciente. ⚠️ Si el paciente YA tiene un cobro pagado, marca el lead
+// CONVERTIDO pero DIRECTO en la base, SIN pasar por el emisor de etapas (dispararEtapaCrmMeta):
+// es una conversión PASADA y emitirla la rechazaría el clamp de 7 días de Meta o la aplastaría
+// a ~6 días atrás inflando las conversiones del día (mismo motivo que el backfill de
+// conversiones). NO "arreglar" esto agregando la emisión.
+export async function vincularLeadPaciente(db: TenantClient, leadId: string, pacienteId: string, opts?: { autorNombre?: string; motivo?: string }): Promise<{ convertido: boolean }> {
+  const lead = await db.lead.findUnique({ where: { id: leadId }, select: { estado: true } })
+  if (!lead) return { convertido: false }
+  const yaPago = await db.cobro.findFirst({ where: { pacienteId, estado: 'PAGADO', anulado: false }, select: { id: true } })
+  const convertido = Boolean(yaPago) && lead.estado !== 'CONVERTIDO'
+  const data: Record<string, unknown> = { pacienteId, ultimaGestionAt: new Date() }
+  if (convertido) data.estado = 'CONVERTIDO' // conversión histórica: escritura DIRECTA, SIN emitir a Meta
+  await db.lead.update({ where: { id: leadId }, data })
+  const suf = opts?.motivo ? ` · ${opts.motivo}` : ''
+  await db.leadNota.create({
+    data: {
+      leadId, tipo: convertido ? 'ESTADO' : 'SISTEMA', autorNombre: opts?.autorNombre ?? 'Sistema',
+      texto: convertido
+        ? `Vinculado al paciente y marcado CONVERTIDO (cobro pagado previo; SIN emisión a Meta)${suf}`
+        : `Vinculado al paciente por coincidencia de identidad${suf}`,
+    },
+  }).catch(() => {})
+  return { convertido }
+}
+
+// Autovínculo al CREAR una ficha: si hay EXACTAMENTE un lead sin vincular que coincide, se
+// vincula solo. Si hay varios (familias con el mismo teléfono) NO adivina: se dejan sin
+// vincular y la ficha muestra el aviso para elegir. Best-effort: no rompe el alta del paciente.
+export async function autolinkLeadAlCrearPaciente(db: TenantClient, paciente: { id: string; telefono: string | null; rut: string | null }): Promise<{ vinculado: boolean; ambiguos: number }> {
+  try {
+    const matches = await leadsSinVincularPorIdentidad(db, paciente.telefono, paciente.rut)
+    if (matches.length === 1) {
+      await vincularLeadPaciente(db, matches[0].id, paciente.id, { motivo: 'coincidencia al crear la ficha' })
+      return { vinculado: true, ambiguos: 0 }
+    }
+    return { vinculado: false, ambiguos: matches.length } // 0 = sin match · >1 = ambiguo (aviso en la ficha)
+  } catch (e) {
+    log.error('crm: autolink lead→paciente falló al crear la ficha', { pacienteId: paciente.id, err: serializeError(e) })
+    return { vinculado: false, ambiguos: 0 }
+  }
+}
+
+// Sugerencias para el aviso de la ficha: leads sin vincular que coinciden con el paciente.
+export async function sugerenciasVinculoLead(db: TenantClient, pacienteId: string) {
+  const p = await db.paciente.findUnique({ where: { id: pacienteId }, select: { telefono: true, rut: true } })
+  if (!p) return { leads: [] }
+  const matches = await leadsSinVincularPorIdentidad(db, p.telefono, p.rut)
+  return {
+    leads: matches.map((l) => ({
+      id: l.id, nombre: `${l.nombre ?? ''} ${l.apellido ?? ''}`.trim() || l.id.slice(-6),
+      telefono: l.telefono, estado: l.estado, createdAt: l.createdAt.toISOString(),
+    })),
+  }
+}
+
+// Vínculo MANUAL desde el aviso de la ficha: valida que el lead esté sin vincular y coincida
+// por identidad con el paciente (no se aceptan vínculos arbitrarios), y lo vincula.
+export async function vincularLeadSugerido(db: TenantClient, actor: JwtPayload, pacienteId: string, leadId: string): Promise<{ convertido: boolean }> {
+  const p = await db.paciente.findUnique({ where: { id: pacienteId }, select: { id: true, telefono: true, rut: true } })
+  if (!p) throw notFound('Paciente no encontrado')
+  const lead = await db.lead.findUnique({ where: { id: leadId }, select: { id: true, pacienteId: true, telefono: true, rut: true } })
+  if (!lead) throw notFound('Lead no encontrado')
+  if (lead.pacienteId) throw badRequest('Ese lead ya está vinculado a un paciente.')
+  if (!mismaIdentidad(lead, telKey(p.telefono), rutKey(p.rut))) throw badRequest('El lead no coincide por teléfono ni RUT con este paciente.')
+  return vincularLeadPaciente(db, leadId, pacienteId, { autorNombre: actorName(actor), motivo: 'vínculo manual desde la ficha' })
+}
+
 export async function agregarNota(db: TenantClient, actor: JwtPayload, id: string, texto: string) {
   if (!texto?.trim()) throw badRequest('La nota no puede quedar vacía')
   const existing = await db.lead.findUnique({ where: { id }, select: { id: true } })

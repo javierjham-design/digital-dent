@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-08 — Vínculo automático lead→paciente (trazabilidad del embudo)
+
+El vínculo lead→paciente se perdía cuando la recepción creaba la ficha desde cero en vez de
+convertir el lead (61/144 agendados de digital-dent sin pacienteId). Sin ese vínculo no se
+sabe cuántos pacientes que pagan vienen de Meta. Ahora el sistema reconstruye el vínculo solo.
+Rama `feat/vinculo-lead-paciente`. **No se tocó el pipeline CAPI/Meta.**
+
+- **A) Hacia adelante.** Al crear una ficha (`crearPaciente`), si hay EXACTAMENTE un lead sin
+  `pacienteId` que coincide por **teléfono normalizado** (`telCanonico`, últimos 8 dígitos) o
+  **RUT** (agnóstico al formato), se vincula solo (`autolinkLeadAlCrearPaciente`). Si hay varios
+  (familias con el mismo teléfono) **no adivina**: los deja sin vincular y la **ficha muestra un
+  aviso discreto** con la opción de elegir cuál vincular (endpoints `GET /pacientes/:id/leads-sugeridos`
+  y `POST /pacientes/:id/vincular-lead`; el link valida que el lead coincida por identidad).
+- **B) Hacia atrás.** Script `src/scripts/reconciliar-vinculos.ts` (dry-run por defecto) propone
+  los vínculos históricos, separando **INEQUÍVOCOS** (1 paciente, por RUT o por teléfono no
+  compartido → se aplican con `--apply`) de **DUDOSOS** (varios pacientes, o teléfono compartido
+  por varios leads → se listan para decidir a mano desde el aviso de la ficha). Reporta la
+  **atribución**: pacientes con cobro pagado atados a un lead, antes → después.
+- **⚠️ CRÍTICO (mismo cuidado que el backfill de conversiones):** al vincular un lead cuyo
+  paciente ya tiene cobros pagados, se marca CONVERTIDO **directo en la base, SIN pasar por el
+  emisor de etapas** (`dispararEtapaCrmMeta`) — son conversiones viejas y emitirlas las rechazaría
+  el clamp de 7 días de Meta o las aplastaría a ~6 días atrás inflando el día. Está en el helper
+  `vincularLeadPaciente` y comentado para que nadie lo "arregle".
+- **Verificación:** typecheck be/fe/web ✓ · unit 118 · integración **75/75** (+4: autolink de 1
+  match, ambiguo no vincula + sugiere, sin match no hace nada, vínculo con pago previo → CONVERTIDO
+  sin emitir) · contrato ✓ · lint 0. Probado e2e en una demo.
+
+---
+
 ## 2026-08-08 — Conversión automática del CRM: el primer cobro pagado marca CONVERTIDO
 
 Hoy el estado CONVERTIDO se marcaba a mano y nadie lo hacía → el embudo mentía (5/495) y el

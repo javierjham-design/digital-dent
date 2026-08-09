@@ -238,6 +238,11 @@ export async function crearPaciente(db: TenantClient, input: CrearPacienteInput)
       },
     })
   })
+  // Reconstruye el vínculo con el embudo del CRM: si esta ficha coincide (teléfono/RUT) con un
+  // único lead sin vincular, se asocia solo; si hay varios, queda para el aviso de la ficha.
+  // Best-effort (el helper no lanza): no bloquea el alta del paciente. Import dinámico por ciclo.
+  const { autolinkLeadAlCrearPaciente } = await import('@/services/crm.service')
+  await autolinkLeadAlCrearPaciente(db, { id: p.id, telefono: p.telefono, rut: p.rut })
   return toDTO(p)
 }
 

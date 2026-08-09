@@ -7,6 +7,8 @@ import {
   pacientesSinProximaCita,
 } from '@/services/pacientes.service'
 import { actorName } from '@/services/auth.service'
+import { sugerenciasVinculoLead, vincularLeadSugerido } from '@/services/crm.service'
+import { badRequest } from '@/lib/errors'
 import { crearPacienteSchema } from '@/validators/schemas'
 
 export async function getPacientes(req: Request, res: Response) {
@@ -46,6 +48,17 @@ export async function postPaciente(req: Request, res: Response) {
 
 export async function patchPaciente(req: Request, res: Response) {
   res.json(await actualizarPaciente(tenantDb(req), req.params.id, req.body ?? {}))
+}
+
+// Leads sin vincular que coinciden por teléfono/RUT con este paciente (aviso de la ficha).
+export async function getLeadsSugeridos(req: Request, res: Response) {
+  res.json(await sugerenciasVinculoLead(tenantDb(req), req.params.id))
+}
+// Vincula un lead sugerido a este paciente (elección manual desde el aviso).
+export async function postVincularLead(req: Request, res: Response) {
+  const leadId = String((req.body ?? {}).leadId ?? '').trim()
+  if (!leadId) throw badRequest('Falta leadId')
+  res.json(await vincularLeadSugerido(tenantDb(req), req.auth!, req.params.id, leadId))
 }
 
 export async function getFicha(req: Request, res: Response) {

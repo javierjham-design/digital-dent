@@ -7,7 +7,7 @@ import { getMe, postLogin, postCambiarPassword, post2FASetup, post2FAVerify } fr
 import {
   getPacientes, getPaciente, postPaciente, patchPaciente, getFicha, putFicha,
   getComentarios, postComentario, getMensajes, postMensaje, getResumen,
-  getExport, getTemplate, postImport, getPacientesSinProxima,
+  getExport, getTemplate, postImport, getPacientesSinProxima, getLeadsSugeridos, postVincularLead,
 } from '@/controllers/pacientes.controller'
 import { getCitas, postCita, patchCita, deleteCita, patchEstado, getLogsCita } from '@/controllers/citas.controller'
 import * as box from '@/controllers/boxes.controller'
@@ -139,6 +139,9 @@ apiRouter.post('/pacientes/import', adminTenant, upload.single('file'), asyncHan
 apiRouter.post('/pacientes', tenant, asyncHandler(postPaciente))
 apiRouter.get('/pacientes/:id', tenant, asyncHandler(getPaciente))
 apiRouter.patch('/pacientes/:id', tenant, asyncHandler(patchPaciente))
+// Vínculo lead→paciente (aviso de la ficha): leads sin vincular que coinciden por teléfono/RUT.
+apiRouter.get('/pacientes/:id/leads-sugeridos', tenant, asyncHandler(getLeadsSugeridos))
+apiRouter.post('/pacientes/:id/vincular-lead', tenant, asyncHandler(postVincularLead))
 apiRouter.get('/pacientes/:id/ficha', tenant, asyncHandler(getFicha))
 apiRouter.put('/pacientes/:id/ficha', tenant, asyncHandler(putFicha))
 apiRouter.get('/pacientes/:id/comentarios', tenant, asyncHandler(getComentarios))
