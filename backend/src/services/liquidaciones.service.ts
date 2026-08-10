@@ -1,5 +1,5 @@
 import type { TenantClient } from '@/db/tenant'
-import { badRequest, forbidden, notFound } from '@/lib/errors'
+import { AppError, badRequest, forbidden, notFound } from '@/lib/errors'
 import { rangoFechasUtc, todayYmd } from '@/lib/tz'
 import type { JwtPayload } from '@/services/auth.service'
 import { filtroNoLiquidable } from '@/services/catalogo.service'
@@ -268,15 +268,21 @@ export async function liquidacionActiva(db: TenantClient, actor: JwtPayload, doc
   }
 }
 
+// Valida y normaliza la fecha de corte (YYYY-MM-DD; por defecto hoy en Chile).
+function validarCorte(fechaCorte?: string): string {
+  const corte = fechaCorte ?? todayYmd()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(corte)) throw badRequest('fechaCorte inválida (use YYYY-MM-DD)')
+  if (corte > todayYmd()) throw badRequest('La fecha de corte no puede ser futura')
+  return corte
+}
+
 // Finaliza: toma una foto de las acciones PAGADAS y las marca como liquidadas.
 // `fechaCorte` (YYYY-MM-DD, opcional; por defecto hoy en Chile) limita la foto a las
 // acciones evolucionadas hasta esa fecha inclusive: lo evolucionado después — y lo
 // evolucionado pero impago o pagado parcial — queda pendiente para el próximo ciclo.
 export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, doctorId: string, fechaCorte?: string) {
   if (!(await puedeGestionar(db, actor))) throw forbidden('No tienes permiso para finalizar liquidaciones.')
-  const corte = fechaCorte ?? todayYmd()
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(corte)) throw badRequest('fechaCorte inválida (use YYYY-MM-DD)')
-  if (corte > todayYmd()) throw badRequest('La fecha de corte no puede ser futura')
+  const corte = validarCorte(fechaCorte)
   const contrato = await db.contrato.findFirst({ where: { doctorId, activo: true } })
   if (!contrato) throw badRequest('El profesional no tiene contrato activo')
 
@@ -321,6 +327,33 @@ export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, 
     },
     include: { ...LIQ_LIST_INCLUDE, items: true },
   })
+}
+
+// Finalización masiva: cierra la liquidación de TODOS los profesionales con
+// contrato activo usando la misma fecha de corte. Un profesional sin acciones
+// pagadas hasta el corte no es un error: queda reportado como omitido.
+export async function finalizarTodasLiquidaciones(db: TenantClient, actor: JwtPayload, fechaCorte?: string) {
+  if (!(await puedeGestionar(db, actor))) throw forbidden('No tienes permiso para finalizar liquidaciones.')
+  const corte = validarCorte(fechaCorte)
+  const contratos = await db.contrato.findMany({
+    where: { activo: true },
+    include: { doctor: { select: { id: true, name: true, email: true } } },
+  })
+  const finalizadas: { doctorId: string; doctor: string; acciones: number; totalLiquidado: number }[] = []
+  const omitidas: { doctorId: string; doctor: string; motivo: string }[] = []
+  for (const c of contratos) {
+    if (c.porcentaje == null && c.montoFijo == null) continue
+    const nombre = c.doctor.name ?? c.doctor.email ?? '—'
+    try {
+      const liq = await finalizarLiquidacion(db, actor, c.doctorId, corte)
+      finalizadas.push({ doctorId: c.doctorId, doctor: nombre, acciones: liq.items.length, totalLiquidado: liq.totalLiquidado })
+    } catch (e) {
+      // 400 aquí solo puede ser "no hay acciones pagadas hasta esa fecha" (el corte ya se validó).
+      if (e instanceof AppError && e.status === 400) omitidas.push({ doctorId: c.doctorId, doctor: nombre, motivo: e.message })
+      else throw e
+    }
+  }
+  return { fechaCorte: corte, finalizadas, omitidas }
 }
 
 // ── Liquidaciones FINALIZADAS (snapshots guardados) ───────────────────────────

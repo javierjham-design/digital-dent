@@ -255,6 +255,24 @@ describe('finalizar liquidación con fecha de corte', () => {
     const activa = await get(`/liquidaciones-activas/${doctorId}`)
     expect(activa.body.items.every((i: { pagada: boolean }) => !i.pagada)).toBe(true)
   })
+
+  it('finalizar-todas cierra en lote lo pagado hasta el corte y reporta omitidos', async () => {
+    const bad = await post('/liquidaciones-activas/finalizar-todas', { fechaCorte: 'no-fecha' })
+    expect(bad.status).toBe(400)
+
+    await accion(45000, { pagar: true })
+    const r1 = await post('/liquidaciones-activas/finalizar-todas', {})
+    expect(r1.status).toBe(201)
+    const f = r1.body.finalizadas.find((x: { doctorId: string }) => x.doctorId === doctorId)
+    expect(f).toBeTruthy()
+    expect(f.acciones).toBeGreaterThanOrEqual(1)
+
+    // Segunda pasada: ya no queda nada pagado → el doctor sale como omitido, no como error.
+    const r2 = await post('/liquidaciones-activas/finalizar-todas', {})
+    expect(r2.status).toBe(201)
+    expect(r2.body.finalizadas.find((x: { doctorId: string }) => x.doctorId === doctorId)).toBeUndefined()
+    expect(r2.body.omitidas.some((x: { doctorId: string }) => x.doctorId === doctorId)).toBe(true)
+  })
 })
 
 describe('CRM: el primer cobro pagado convierte el lead automáticamente', () => {
