@@ -7,22 +7,15 @@
 // borra trazos, y viceversa (DibujoFacial no tiene FK a plan/tratamiento).
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
+import { ZONAS_FACIALES_NUCLEO } from '@shared/constants/zonas-faciales'
 
-// ⚠️ PLACEHOLDER de zonas (pocas, para desarrollo). La lista DEFINITIVA está en
-// revisión de un profesional de estética facial: NO habilitar el área estética a
-// una clínica real hasta congelarla acá (renombrar/agregar zonas después implica
-// migrar datos clínicos ya cargados). El `codigo` mapea 1:1 con el id del path
-// del SVG (`zona-{codigo}`); lateralidad desde la perspectiva del paciente.
-const ZONAS_SEED: { codigo: string; nombre: string; grupo: string; orden: number }[] = [
-  { codigo: 'frente', nombre: 'Frente', grupo: 'TERCIO_SUPERIOR', orden: 0 },
-  { codigo: 'glabela', nombre: 'Entrecejo', grupo: 'TERCIO_SUPERIOR', orden: 1 },
-  { codigo: 'patas_gallo_izq', nombre: 'Patas de gallo (izq)', grupo: 'TERCIO_SUPERIOR', orden: 2 },
-  { codigo: 'patas_gallo_der', nombre: 'Patas de gallo (der)', grupo: 'TERCIO_SUPERIOR', orden: 3 },
-  { codigo: 'surco_nasogeniano_izq', nombre: 'Surco nasogeniano (izq)', grupo: 'TERCIO_MEDIO', orden: 4 },
-  { codigo: 'surco_nasogeniano_der', nombre: 'Surco nasogeniano (der)', grupo: 'TERCIO_MEDIO', orden: 5 },
-  { codigo: 'labio_sup', nombre: 'Labio superior', grupo: 'TERCIO_INFERIOR', orden: 6 },
-  { codigo: 'menton', nombre: 'Mentón', grupo: 'TERCIO_INFERIOR', orden: 7 },
-]
+// ⚠️ CATÁLOGO PROVISIONAL — la ÚNICA fuente es shared/constants/zonas-faciales.ts
+// (en revisión de un profesional del rubro; 6 preguntas abiertas pueden cambiar
+// códigos). NO habilitar area_estetica a una clínica REAL hasta congelar la lista:
+// el codigo queda grabado en cada tratamiento y cambiarlo después implica migrar
+// datos clínicos. Hoy el cambio es gratis (cero tratamientos cargados).
+const ZONAS_SEED = ZONAS_FACIALES_NUCLEO.map(({ codigo, nombreClinico, nombreVisible, grupo, orden }) =>
+  ({ codigo, nombreClinico, nombreVisible, grupo, orden }))
 
 // Lista el catálogo de zonas del tenant; la primera vez lo siembra (lazy, como
 // listarCategorias). Solo se llega acá con el área estética habilitada.
@@ -46,7 +39,7 @@ async function fichaDePaciente(db: TenantClient, pacienteId: string) {
 // Estado por zona de la ficha (espejo del odontograma).
 export async function zonasDeFicha(db: TenantClient, pacienteId: string) {
   const { ficha } = await fichaDePaciente(db, pacienteId)
-  return db.zonaFicha.findMany({ where: { fichaId: ficha.id }, include: { zona: { select: { codigo: true, nombre: true, grupo: true } } } })
+  return db.zonaFicha.findMany({ where: { fichaId: ficha.id }, include: { zona: { select: { codigo: true, nombreClinico: true, nombreVisible: true, grupo: true } } } })
 }
 
 export async function upsertZonaFicha(db: TenantClient, body: { pacienteId: string; zonaId: string; estado?: string; color?: string | null; notas?: string | null }) {
@@ -58,7 +51,7 @@ export async function upsertZonaFicha(db: TenantClient, body: { pacienteId: stri
     where: { fichaId_zonaId: { fichaId: ficha.id, zonaId: body.zonaId } },
     create: { fichaId: ficha.id, zonaId: body.zonaId, estado, color: body.color ?? null, notas: body.notas ?? null },
     update: { estado, ...(body.color !== undefined ? { color: body.color } : {}), ...(body.notas !== undefined ? { notas: body.notas } : {}) },
-    include: { zona: { select: { codigo: true, nombre: true } } },
+    include: { zona: { select: { codigo: true, nombreVisible: true } } },
   })
 }
 

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { ZONAS_FACIALES_NUCLEO, ZONAS_VIEWBOX } from '@shared/constants/zonas-faciales'
 import { esteticaService, type ZonaFacialDTO, type ZonaFichaDTO, type TrazoDTO, type DibujoDTO } from '@/services/estetica.service'
 
 // ── Gráfico facial: DOS capas sobre el mismo lienzo ──────────────────────────
@@ -15,25 +16,17 @@ import { esteticaService, type ZonaFacialDTO, type ZonaFichaDTO, type TrazoDTO, 
 //    dibuja. Nunca los dos a la vez.
 //  · Borrar un plan/tratamiento no borra los trazos, y viceversa (sin FKs).
 //
-// ⚠️ SVG PLACEHOLDER: pocas zonas para avanzar mientras se encarga la ilustración
-// definitiva. El contrato del SVG real: dos archivos (rostro-f/rostro-m) con el
-// MISMO viewBox (0 0 1000 1300) y los MISMOS ids `zona-{codigo}` (códigos del
-// catálogo ZonaFacial); solo cambia la ilustración base (grupo no interactivo).
+// ⚠️ CATÁLOGO Y GEOMETRÍA PROVISIONALES: la ÚNICA fuente de las zonas (códigos,
+// nombres y paths del placeholder) es shared/constants/zonas-faciales.ts, EN
+// REVISIÓN PROFESIONAL. La ilustración definitiva se encarga con el contrato de
+// docs/SVG_ROSTRO_CONTRATO.md: dos archivos (rostro-f/rostro-m), MISMO viewBox y
+// MISMOS ids `zona-{CODIGO}`; el SVG real reemplaza solo la geometría — cero
+// cambios de lógica.
 
-const VIEWBOX = { w: 1000, h: 1300 }
+const VIEWBOX = ZONAS_VIEWBOX
 
-// Placeholder: formas simples posicionadas sobre un óvalo de rostro. El SVG real
-// reemplaza SOLO este mapa de paths (mismos códigos → cero cambios de lógica).
-const PATHS_PLACEHOLDER: Record<string, string> = {
-  frente: 'M 320 260 Q 500 200 680 260 L 660 380 Q 500 340 340 380 Z',
-  glabela: 'M 455 400 L 545 400 L 535 480 L 465 480 Z',
-  patas_gallo_der: 'M 285 480 L 345 470 L 350 540 L 295 550 Z',
-  patas_gallo_izq: 'M 655 470 L 715 480 L 705 550 L 650 540 Z',
-  surco_nasogeniano_der: 'M 375 640 L 430 660 L 415 760 L 360 730 Z',
-  surco_nasogeniano_izq: 'M 570 660 L 625 640 L 640 730 L 585 760 Z',
-  labio_sup: 'M 420 800 Q 500 770 580 800 L 570 850 Q 500 830 430 850 Z',
-  menton: 'M 430 940 Q 500 920 570 940 L 555 1030 Q 500 1050 445 1030 Z',
-}
+const PATHS_PLACEHOLDER: Record<string, string> = Object.fromEntries(
+  ZONAS_FACIALES_NUCLEO.map((z) => [z.codigo, z.path]))
 
 const ESTADO_COLORES: Record<string, string> = { SANO: 'transparent', TRATADO: '#7c3aed', PLANIFICADO: '#0ea5e9', OBSERVACION: '#f59e0b' }
 
@@ -144,7 +137,7 @@ export function GraficoFacial({ pacienteId, sexo, selZonas, onToggleZona }: {
                   pointerEvents={modoDibujo ? 'none' : 'auto'}
                   className={modoDibujo ? '' : 'cursor-pointer'}
                   onClick={() => { if (!modoDibujo) onToggleZona(z.id) }}>
-                  <title>{z.nombre}</title>
+                  <title>{z.nombreVisible} · {z.nombreClinico}</title>
                 </path>
               )
             })}

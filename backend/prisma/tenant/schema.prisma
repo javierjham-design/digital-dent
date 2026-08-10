@@ -378,16 +378,23 @@ model CategoriaPrestacion {
 // ── Áreas clínicas: estética facial ──────────────────────────────────────────
 
 // Catálogo de zonas faciales del tenant (equivalente del "diente" del odontograma).
-// Se siembra al crear la clínica; codigo es la llave estable que mapea 1:1 con el
-// id del path del SVG (`zona-{codigo}`). Lateralidad desde la PERSPECTIVA DEL
-// PACIENTE (su _izq aparece a la derecha del espectador).
+// ⚠️ PROVISIONAL: la lista vive en shared/constants/zonas-faciales.ts (ÚNICA fuente)
+// y está en revisión de un profesional del rubro — NO habilitar area_estetica a una
+// clínica real hasta congelarla (el codigo queda grabado en cada tratamiento).
+// `codigo` es la llave estable que mapea 1:1 con el id del path del SVG
+// (`zona-{CODIGO}`), SIN el grupo adentro (el agrupamiento por tercios es
+// presentación y puede cambiar; el código no). Lateralidad en el código
+// (_IZQ/_DER), desde la PERSPECTIVA DEL PACIENTE (su _IZQ se dibuja a la derecha
+// del espectador). Tres nombres separados: el clínico (ficha/historia) y el
+// visible (presupuesto de la paciente) pueden cambiar sin tocar datos.
 model ZonaFacial {
-  id     String  @id @default(cuid())
-  codigo String  @unique
-  nombre String
-  grupo  String  // TERCIO_SUPERIOR | TERCIO_MEDIO | TERCIO_INFERIOR | CUELLO_OTROS
-  orden  Int     @default(0)
-  activo Boolean @default(true)
+  id            String  @id @default(cuid())
+  codigo        String  @unique
+  nombreClinico String
+  nombreVisible String
+  grupo         String  // TERCIO_SUPERIOR | TERCIO_MEDIO | TERCIO_INFERIOR | GLOBAL
+  orden         Int     @default(0)
+  activo        Boolean @default(true)
   fichas       ZonaFicha[]
   tratamientos TratamientoZona[]
 }

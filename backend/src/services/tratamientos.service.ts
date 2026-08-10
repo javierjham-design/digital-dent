@@ -268,7 +268,7 @@ export async function crearTratamiento(db: TenantClient, actorId: string, body: 
   const creados = (zonaIds.length > 0)
     ? [await db.tratamiento.create({
         data: { ...baseData, diente: null, cara: null, zonas: { create: zonaIds.map((zonaId) => ({ zonaId })) } },
-        include: { prestacion: true, zonas: { include: { zona: { select: { codigo: true, nombre: true } } } } },
+        include: { prestacion: true, zonas: { include: { zona: { select: { codigo: true, nombreVisible: true } } } } },
       })]
     : (Array.isArray(body.piezas) && body.piezas.length > 0)
       ? await Promise.all(body.piezas.map((pieza) =>
@@ -277,7 +277,7 @@ export async function crearTratamiento(db: TenantClient, actorId: string, body: 
 
   const piezasTxt = creados.map((t) => t.diente).filter(Boolean).join(', ')
   const zonasTxt = zonaIds.length > 0
-    ? (creados[0] as { zonas?: { zona: { nombre: string } }[] }).zonas?.map((z) => z.zona.nombre).join(', ') ?? ''
+    ? (creados[0] as { zonas?: { zona: { nombreVisible: string } }[] }).zonas?.map((z) => z.zona.nombreVisible).join(', ') ?? ''
     : ''
   await audit(db, actorId, {
     accion: 'CREAR', entidad: 'Tratamiento', entidadId: creados[0]?.id, pacienteId: body.pacienteId,

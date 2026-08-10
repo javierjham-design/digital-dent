@@ -899,9 +899,9 @@ describe('áreas clínicas: guard por usuario, multi-zona con UN precio, y capas
   it('multi-zona: UN tratamiento cubre N zonas con UN precio (no duplica en presupuesto/cobro)', async () => {
     const zonas = await get('/zonas-faciales')
     expect(zonas.status).toBe(200)
-    expect(zonas.body.length).toBeGreaterThanOrEqual(6) // placeholder sembrado lazy
-    const ids = zonas.body.filter((z: { codigo: string }) => z.codigo.startsWith('patas_gallo')).map((z: { id: string }) => z.id)
-    expect(ids.length).toBe(2)
+    expect(zonas.body.length).toBe(32) // catálogo PROVISIONAL completo (shared/constants/zonas-faciales)
+    const ids = zonas.body.filter((z: { codigo: string }) => z.codigo.startsWith('PERIORBITAL_LAT')).map((z: { id: string }) => z.id)
+    expect(ids.length).toBe(2) // patas de gallo: ambos lados, un solo precio
 
     const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })
     const r = await post('/tratamientos', { pacienteId: A.pacienteId, prestacionId: botox.id, planId: plan.body.id, precio: 180000, zonaIds: ids })
@@ -936,11 +936,11 @@ describe('áreas clínicas: guard por usuario, multi-zona con UN precio, y capas
 
   it('estado por zona (capa 1): se asigna y persiste como el odontograma', async () => {
     const zonas = await get('/zonas-faciales')
-    const menton = zonas.body.find((z: { codigo: string }) => z.codigo === 'menton')
+    const menton = zonas.body.find((z: { codigo: string }) => z.codigo === 'MENTON')
     const r = await request(app).put(`/api/v1/pacientes/${A.pacienteId}/zonas-faciales`).set(auth())
       .send({ zonaId: menton.id, estado: 'TRATADO', color: '#7c3aed' })
     expect(r.status).toBe(200)
     const lista = await get(`/pacientes/${A.pacienteId}/zonas-faciales`)
-    expect(lista.body.some((z: { zona: { codigo: string }; estado: string }) => z.zona.codigo === 'menton' && z.estado === 'TRATADO')).toBe(true)
+    expect(lista.body.some((z: { zona: { codigo: string }; estado: string }) => z.zona.codigo === 'MENTON' && z.estado === 'TRATADO')).toBe(true)
   })
 })

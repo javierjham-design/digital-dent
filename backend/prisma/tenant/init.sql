@@ -287,7 +287,8 @@ CREATE TABLE "CategoriaPrestacion" (
 CREATE TABLE "ZonaFacial" (
     "id" TEXT NOT NULL,
     "codigo" TEXT NOT NULL,
-    "nombre" TEXT NOT NULL,
+    "nombreClinico" TEXT NOT NULL,
+    "nombreVisible" TEXT NOT NULL,
     "grupo" TEXT NOT NULL,
     "orden" INTEGER NOT NULL DEFAULT 0,
     "activo" BOOLEAN NOT NULL DEFAULT true,

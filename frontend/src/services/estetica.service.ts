@@ -3,8 +3,8 @@ import { api } from './api'
 // Área estética: zonas faciales (capa 1, clínica/facturable) y dibujo libre
 // (capa 2, anotación). Capas separadas: ver GraficoFacial.tsx.
 
-export interface ZonaFacialDTO { id: string; codigo: string; nombre: string; grupo: string; orden: number; activo: boolean }
-export interface ZonaFichaDTO { id: string; zonaId: string; estado: string; color: string | null; notas: string | null; zona: { codigo: string; nombre: string; grupo: string } }
+export interface ZonaFacialDTO { id: string; codigo: string; nombreClinico: string; nombreVisible: string; grupo: string; orden: number; activo: boolean }
+export interface ZonaFichaDTO { id: string; zonaId: string; estado: string; color: string | null; notas: string | null; zona: { codigo: string; nombreClinico: string; nombreVisible: string; grupo: string } }
 export interface TrazoDTO { herramienta: 'lapiz' | 'circulo' | 'linea'; color?: string; grosor?: number; puntos: { x: number; y: number }[] }
 export interface DibujoDTO { genero: string; trazos: TrazoDTO[]; updatedAt: string | null }
 
