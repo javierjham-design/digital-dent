@@ -35,11 +35,21 @@ export async function listarCategorias(db: TenantClient): Promise<CategoriaPrest
   return cats
 }
 
-export async function crearCategoria(db: TenantClient, nombre: string): Promise<CategoriaPrestacionDTO> {
+// Unicidad de secciones POR ÁREA, no global: una sección "General" dental y otra
+// "General" de estética son legítimas y distintas. Este helper es el único punto
+// que valida duplicados de sección; en la Fase 1 (campo `area` en el schema) el
+// filtro incluye el área y el @unique global pasa a @@unique([nombre, area]).
+// findFirst (no findUnique): el unique compuesto de Fase 1 rompería findUnique.
+async function categoriaDuplicada(db: TenantClient, nombre: string, area?: string, excluirId?: string): Promise<boolean> {
+  const candidatas = await db.categoriaPrestacion.findMany({ where: { nombre, ...(excluirId ? { NOT: { id: excluirId } } : {}) } })
+  const areaBuscada = (area || AREA_DEFAULT).trim().toUpperCase()
+  return candidatas.some((c) => (((c as { area?: string }).area || AREA_DEFAULT).trim().toUpperCase()) === areaBuscada)
+}
+
+export async function crearCategoria(db: TenantClient, nombre: string, area?: string): Promise<CategoriaPrestacionDTO> {
   const n = (nombre ?? '').trim()
   if (!n) throw badRequest('Falta el nombre de la sección')
-  const dup = await db.categoriaPrestacion.findUnique({ where: { nombre: n }, select: { id: true } })
-  if (dup) throw badRequest('Ya existe una sección con ese nombre')
+  if (await categoriaDuplicada(db, n, area)) throw badRequest('Ya existe una sección con ese nombre en esta área')
   const max = await db.categoriaPrestacion.aggregate({ _max: { orden: true } })
   return db.categoriaPrestacion.create({ data: { nombre: n, orden: (max._max.orden ?? -1) + 1 } })
 }
@@ -53,8 +63,9 @@ export async function actualizarCategoria(db: TenantClient, id: string, body: { 
     const n = body.nombre.trim()
     if (!n) throw badRequest('El nombre no puede quedar vacío')
     if (n !== existing.nombre) {
-      const dup = await db.categoriaPrestacion.findFirst({ where: { nombre: n, NOT: { id } }, select: { id: true } })
-      if (dup) throw badRequest('Ya existe una sección con ese nombre')
+      // Duplicado DENTRO del área de la sección que se renombra (ver categoriaDuplicada).
+      const areaExistente = (existing as { area?: string }).area
+      if (await categoriaDuplicada(db, n, areaExistente, id)) throw badRequest('Ya existe una sección con ese nombre en esta área')
       data.nombre = n
       // Renombrar la categoría también en las prestaciones que la usaban.
       await db.prestacion.updateMany({ where: { categoria: existing.nombre }, data: { categoria: n } })
@@ -83,11 +94,46 @@ export async function categoriasNoLiquidables(db: TenantClient): Promise<Set<str
 }
 
 const normNombre = (s: string | null | undefined) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
-// Clave de identidad de una prestación: nombre + categoría (ambos normalizados).
-// Solo se fusionan prestaciones realmente equivalentes (mismo nombre Y categoría).
-const prestacionKey = (nombre: string | null, categoria: string | null) => `${normNombre(nombre)}||${normNombre(categoria)}`
 
-// Deja una sola prestación por (nombre, categoría): fusiona las duplicadas
+// ─── Áreas clínicas: blindaje del catálogo (Fase 0) ──────────────────────────
+// El área de una prestación se DERIVA de su categoría (CategoriaPrestacion.area).
+// Este resolver es el ÚNICO punto que decide el área de una categoría: cuando el
+// campo `area` exista en el schema (Fase 1 del módulo de áreas), se conecta AQUÍ y
+// dedupe/creación idempotente quedan area-aware sin tocar su lógica.
+export const AREA_DEFAULT = 'DENTAL'
+export type ResolverArea = (categoria: string | null) => string
+async function resolverAreaPorCategoria(db: TenantClient): Promise<ResolverArea> {
+  const cats = await db.categoriaPrestacion.findMany()
+  // `area` llega al schema en la Fase 1; hasta entonces la propiedad no existe y
+  // toda categoría resuelve DENTAL (comportamiento actual intacto).
+  const mapa = new Map(cats.map((c) => [normNombre(c.nombre), (c as { area?: string }).area || AREA_DEFAULT]))
+  return (categoria) => mapa.get(normNombre(categoria)) ?? AREA_DEFAULT
+}
+
+// Clave de identidad de una prestación: ÁREA + nombre + categoría (normalizados).
+// El área va en la clave a propósito: una "Consulta" dental y una "Consulta" de
+// estética en secciones homónimas son prestaciones DISTINTAS y jamás deben
+// fusionarse (dedupe corre solo en cada arranque, sobre todas las clínicas).
+export const prestacionKey = (nombre: string | null, categoria: string | null, area: string = AREA_DEFAULT) =>
+  `${(area || AREA_DEFAULT).trim().toUpperCase()}||${normNombre(nombre)}||${normNombre(categoria)}`
+
+// PURA (testeable sin base): agrupa las prestaciones que son duplicados reales
+// (misma área + nombre + categoría). Devuelve solo los grupos con más de una.
+// El área se resuelve POR PRESTACIÓN (no por nombre de categoría): cuando existan
+// secciones homónimas en áreas distintas ("General" dental y "General" estética),
+// el nombre solo no alcanza para decidir el área.
+export function agruparPrestacionesDuplicadas<T extends { nombre: string; categoria: string | null }>(
+  prestaciones: T[], areaDe: (p: T) => string,
+): T[][] {
+  const grupos = new Map<string, T[]>()
+  for (const p of prestaciones) {
+    const key = prestacionKey(p.nombre, p.categoria, areaDe(p))
+    const arr = grupos.get(key) ?? []; arr.push(p); grupos.set(key, arr)
+  }
+  return [...grupos.values()].filter((arr) => arr.length > 1)
+}
+
+// Deja una sola prestación por (área, nombre, categoría): fusiona las duplicadas
 // repuntando los tratamientos e ítems de presupuesto a la que se conserva (la
 // más referenciada, para no perder precios en uso). Idempotente y FK-safe:
 // Tratamiento e ItemPresupuesto son las ÚNICAS tablas que apuntan a Prestacion.
@@ -95,12 +141,8 @@ export async function dedupePrestaciones(db: TenantClient): Promise<{ duplicados
   const prestaciones = await db.prestacion.findMany({
     select: { id: true, nombre: true, categoria: true, _count: { select: { tratamientos: true, itemsPresupuesto: true } } },
   })
-  const grupos = new Map<string, typeof prestaciones>()
-  for (const p of prestaciones) {
-    const key = prestacionKey(p.nombre, p.categoria)
-    const arr = grupos.get(key) ?? []; arr.push(p); grupos.set(key, arr)
-  }
-  const aFusionar = [...grupos.values()].filter((arr) => arr.length > 1)
+  const areaDe = await resolverAreaPorCategoria(db)
+  const aFusionar = agruparPrestacionesDuplicadas(prestaciones, (p) => areaDe(p.categoria))
   if (aFusionar.length === 0) return { duplicados: 0, eliminadas: 0, restantes: prestaciones.length }
 
   // Cada fusión son 3 operaciones (reasignar tratamiento + itemPresupuesto, borrar
@@ -129,10 +171,12 @@ export async function crearPrestacion(db: TenantClient, input: { nombre: string;
   if (!input.nombre?.trim() || input.precio == null) throw badRequest('Faltan campos requeridos')
   const nombre = input.nombre.trim()
   const categoria = input.categoria || null
-  // Idempotente: si ya existe una prestación con el mismo nombre y categoría, se
-  // reutiliza (reactivándola si estaba inactiva) en lugar de crear un duplicado.
+  // Idempotente: si ya existe una prestación con el mismo (área, nombre, categoría),
+  // se reutiliza (reactivándola si estaba inactiva) en lugar de crear un duplicado.
+  // El área se deriva de la categoría, igual que en dedupe.
+  const areaDe = await resolverAreaPorCategoria(db)
   const todas = await db.prestacion.findMany({ select: { id: true, nombre: true, categoria: true, activo: true } })
-  const dup = todas.find((p) => prestacionKey(p.nombre, p.categoria) === prestacionKey(nombre, categoria))
+  const dup = todas.find((p) => prestacionKey(p.nombre, p.categoria, areaDe(p.categoria)) === prestacionKey(nombre, categoria, areaDe(categoria)))
   if (dup) {
     const p = await db.prestacion.update({ where: { id: dup.id }, data: { activo: true, precio: Number(input.precio), ...(input.descripcion !== undefined ? { descripcion: input.descripcion || null } : {}) } })
     return prestacionDTO(p)
