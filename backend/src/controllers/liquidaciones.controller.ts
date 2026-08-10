@@ -44,6 +44,10 @@ export async function postFinalizarLiquidacion(req: Request, res: Response) {
   const fechaCorte = typeof req.body?.fechaCorte === 'string' ? req.body.fechaCorte : undefined
   res.status(201).json(await svc.finalizarLiquidacion(tenantDb(req), req.auth!, req.params.doctorId, fechaCorte))
 }
+export async function postFinalizarTodas(req: Request, res: Response) {
+  const fechaCorte = typeof req.body?.fechaCorte === 'string' ? req.body.fechaCorte : undefined
+  res.status(201).json(await svc.finalizarTodasLiquidaciones(tenantDb(req), req.auth!, fechaCorte))
+}
 
 // ── Liquidaciones FINALIZADAS ──
 export async function getLiquidaciones(req: Request, res: Response) {

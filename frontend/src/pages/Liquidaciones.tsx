@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import type { LiquidacionActivaDetalle, LiquidacionActivaResumen, LiquidacionAccion } from '@shared/types'
-import { liquidacionesService } from '@/services/caja.service'
+import { liquidacionesService, type FinalizarTodasResultado } from '@/services/caja.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 import { AdjuntosLiquidacion } from '@/components/AdjuntosLiquidacion'
@@ -51,6 +51,9 @@ function ActivasTab({ notify }: { notify: (t: string, ok?: boolean) => void }) {
   const [resumen, setResumen] = useState<LiquidacionActivaResumen[]>([])
   const [cargando, setCargando] = useState(true)
   const [detalle, setDetalle] = useState<LiquidacionActivaDetalle | null>(null)
+  const [corteDe, setCorteDe] = useState<LiquidacionActivaDetalle | null>(null) // finalizar directo desde la fila
+  const [finalizandoFila, setFinalizandoFila] = useState(false)
+  const [masivo, setMasivo] = useState(false)
 
   const cargar = () => { setCargando(true); liquidacionesService.activas().then(setResumen).catch(() => {}).finally(() => setCargando(false)) }
   useEffect(() => { cargar() }, [])
@@ -58,9 +61,28 @@ function ActivasTab({ notify }: { notify: (t: string, ok?: boolean) => void }) {
   const ver = async (doctorId: string) => {
     try { setDetalle(await liquidacionesService.activa(doctorId)) } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
+  const abrirCorte = async (doctorId: string) => {
+    try { setCorteDe(await liquidacionesService.activa(doctorId)) } catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
+  }
+  async function finalizarFila(fechaCorte: string) {
+    if (!corteDe) return
+    setFinalizandoFila(true)
+    try { await liquidacionesService.finalizar(corteDe.doctor.id, fechaCorte); setCorteDe(null); notify('Liquidación finalizada'); cargar() }
+    catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
+    finally { setFinalizandoFila(false) }
+  }
+
+  const hayPagables = resumen.some((r) => r.aPagar > 0)
 
   return (
     <>
+      <div className="flex justify-end mb-3">
+        <button onClick={() => setMasivo(true)} disabled={cargando || !hayPagables}
+          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">
+          Finalizar todas…
+        </button>
+      </div>
+
       <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wide">
@@ -84,8 +106,12 @@ function ActivasTab({ notify }: { notify: (t: string, ok?: boolean) => void }) {
                 </td>
                 <td className="px-4 py-3 text-right font-mono text-slate-600">{fmt(r.realizado)}</td>
                 <td className="px-4 py-3 text-right font-mono font-semibold text-cyan-700">{fmt(r.aPagar)}</td>
-                <td className="px-4 py-3 text-right">
+                <td className="px-4 py-3 text-right whitespace-nowrap">
                   <button onClick={() => ver(r.doctorId)} className="text-cyan-600 hover:text-cyan-800 text-sm font-medium">Ver detalle →</button>
+                  <button onClick={() => abrirCorte(r.doctorId)} disabled={r.aPagar <= 0}
+                    className="ml-3 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-xs font-semibold">
+                    Finalizar…
+                  </button>
                 </td>
               </tr>
             ))}
@@ -94,7 +120,65 @@ function ActivasTab({ notify }: { notify: (t: string, ok?: boolean) => void }) {
       </div>
 
       {detalle && <DetalleActivaModal detalle={detalle} onClose={() => setDetalle(null)} onFinalizado={() => { setDetalle(null); notify('Liquidación finalizada'); cargar() }} notify={notify} />}
+      {corteDe && <FinalizarCorteModal detalle={corteDe} finalizando={finalizandoFila} onConfirmar={finalizarFila} onClose={() => setCorteDe(null)} />}
+      {masivo && <FinalizarTodasModal resumen={resumen} onClose={() => setMasivo(false)} onFinalizado={() => { setMasivo(false); cargar() }} notify={notify} />}
     </>
+  )
+}
+
+// Finalización masiva: pide UNA fecha de corte y cierra la liquidación de todos los
+// profesionales con contrato activo; muestra el resultado (finalizadas y omitidas).
+function FinalizarTodasModal({ resumen, onClose, onFinalizado, notify }: {
+  resumen: LiquidacionActivaResumen[]; onClose: () => void; onFinalizado: () => void; notify: (t: string, ok?: boolean) => void
+}) {
+  const [fechaCorte, setFechaCorte] = useState(hoyYmd())
+  const [enviando, setEnviando] = useState(false)
+  const [resultado, setResultado] = useState<FinalizarTodasResultado | null>(null)
+  const candidatos = resumen.filter((r) => r.aPagar > 0)
+
+  async function ejecutar() {
+    setEnviando(true)
+    try { setResultado(await liquidacionesService.finalizarTodas(fechaCorte)) }
+    catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
+    finally { setEnviando(false) }
+  }
+
+  if (resultado) {
+    return (
+      <Modal title="Liquidaciones finalizadas" onClose={onFinalizado}>
+        <div className="space-y-1.5 mb-3">
+          {resultado.finalizadas.map((f) => (
+            <p key={f.doctorId} className="text-sm text-slate-700">✅ <b>{f.doctor}</b> · {f.acciones} acción(es) · <span className="font-mono text-cyan-700">{fmt(f.totalLiquidado)}</span></p>
+          ))}
+          {resultado.finalizadas.length === 0 && <p className="text-sm text-slate-500">No se finalizó ninguna liquidación.</p>}
+          {resultado.omitidas.map((o) => (
+            <p key={o.doctorId} className="text-xs text-slate-500">— {o.doctor}: sin acciones pagadas hasta el corte (queda para el próximo ciclo)</p>
+          ))}
+        </div>
+        <div className="flex justify-end pt-1">
+          <button onClick={onFinalizado} className="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Listo</button>
+        </div>
+      </Modal>
+    )
+  }
+
+  return (
+    <Modal title="Finalizar todas las liquidaciones" onClose={onClose}>
+      <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de corte</label>
+      <input type="date" value={fechaCorte} max={hoyYmd()} onChange={(e) => setFechaCorte(e.target.value)}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm mb-3" />
+      <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm text-slate-600 space-y-1 mb-3">
+        <p>Se cierra la liquidación de <b className="text-slate-800">{candidatos.length}</b> profesional(es) con montos a pagar, con corte al {fmtFecha(fechaCorte + 'T12:00:00')}.</p>
+        <p className="text-xs">Solo se cierran las acciones evolucionadas y pagadas hasta esa fecha. Lo evolucionado después, sin pagar o con pago parcial queda pendiente para el próximo ciclo.</p>
+      </div>
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button onClick={onClose} className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700">Cancelar</button>
+        <button onClick={ejecutar} disabled={enviando || candidatos.length === 0 || !/^\d{4}-\d{2}-\d{2}$/.test(fechaCorte)}
+          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">
+          {enviando ? '…' : 'Finalizar todas'}
+        </button>
+      </div>
+    </Modal>
   )
 }
 

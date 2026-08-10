@@ -372,6 +372,7 @@ apiRouter.delete('/montos-fijos/:id', tenant, asyncHandler(liq.deleteMontoFijo))
 // ── Liquidaciones ────────────────────────────────────────────────────────────
 // Activas (saldo corriente por profesional) + finalizar.
 apiRouter.get('/liquidaciones-activas', tenant, asyncHandler(liq.getLiquidacionesActivas))
+apiRouter.post('/liquidaciones-activas/finalizar-todas', tenant, asyncHandler(liq.postFinalizarTodas))
 apiRouter.get('/liquidaciones-activas/:doctorId', tenant, asyncHandler(liq.getLiquidacionActiva))
 apiRouter.post('/liquidaciones-activas/:doctorId/finalizar', tenant, asyncHandler(liq.postFinalizarLiquidacion))
 // Finalizadas (snapshots guardados).
