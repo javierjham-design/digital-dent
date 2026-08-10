@@ -62,6 +62,16 @@ Primero Nivel A (nunca quitar esquema con el código nuevo arriba). Luego, por t
 5. `ALTER TABLE "CategoriaPrestacion" DROP COLUMN IF EXISTS "area";`
 6. En montenegro/orodent: `DELETE FROM "CategoriaPrestacion";` (tenían 0 filas; las
    sembradas son del paso 2). En digital-dent NO tocar: sus 29 secciones preexisten.
+   ⚠️ **Este DELETE asume que nadie tocó las secciones sembradas.** Si el rollback
+   ocurre días después, ANTES de borrar hay que verificar que ninguna sección
+   sembrada tenga trabajo encima; si lo tiene, NO borrarla (dejarla como sección
+   legítima de la clínica):
+   - sin prestaciones apuntándole: `SELECT count(*) FROM "Prestacion" WHERE "categoriaId" = <id>` = 0
+     (correr ANTES del paso 1, que pone los categoriaId en NULL), y
+   - sin ediciones posteriores a la migración: nombre/orden/noLiquidable idénticos a
+     los sembrados (el seed copia el string `Prestacion.categoria`, orden alfabético,
+     `noLiquidable=false`) — cualquier rename, reorden manual o flag activado es
+     trabajo de la clínica.
 7. Flags de User (`areaDental/areaEstetica/areaMedico`): DROP COLUMN o dejar inertes.
 8. Control: `UPDATE "Clinica" SET modulos = replace(modulos, ',area_dental', '');`
    (`vertical` puede quedar — es inerte).
