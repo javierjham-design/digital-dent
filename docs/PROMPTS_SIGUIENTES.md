@@ -21,6 +21,8 @@
 | **`init.sql` sincronizado** | Resincronizado con el schema tenant, parser endurecido, **guarda anti-drift en la suite**, y verificado creando una demo real desde la landing de punta a punta. |
 | **Suite de tests** | 114/114 unit · 54/54 integración. Los dos fallos crónicos eran tests desactualizados. |
 | **Techo de conexiones** | Caché LRU de clientes por tenant con pool acotado. |
+| **Navegación reordenada** | CRM anclado en el header · menú agrupado por secciones · Configuración en pestañas · permiso `puedeVerReportes` (los 7 endpoints de reportes estaban sin protección) · liquidaciones unificadas. |
+| **CRM: conversión automática** | Un lead pasa a CONVERTIDO solo cuando su paciente registra el primer cobro pagado, por el mismo camino que la marca manual. Vínculo lead→paciente automático por teléfono/RUT al crear ficha, con aviso para los ambiguos. Reconciliación histórica: 72 vínculos recuperados. |
 | **ESLint** | Flat config 9 para backend/frontend/web/shared. `no-floating-promises` como error en backend. 6 warnings, ninguno bloqueante. *(rama `chore/eslint-flat-config`, falta mergear)* |
 
 ---
@@ -33,26 +35,31 @@
 
 ## Pendiente
 
-Nada bloqueante. Quedan solo dos propuestas sin decidir y algunas cosas menores.
+### En curso: módulo de áreas clínicas (Dental / Estética facial / Médico)
+
+**El prompt completo y definitivo está en `docs/PROMPT_MODULO_AREAS.md`.** Es la
+funcionalidad más grande del proyecto: catálogo, ficha y diagrama diferenciados por área,
+habilitación en dos niveles (módulo por clínica + toggle por profesional), y gráfico facial
+con zonas clicables más capa de dibujo.
+
+Va en una sola rama, en seis fases y con dos checkpoints. La fase 0 (blindar
+`dedupePrestaciones` y la unicidad de nombres por área) va antes que todo lo demás: hoy es
+inofensiva, y en cuanto exista la primera prestación estética homónima se vuelve un borrado
+silencioso de datos clínicos.
+
+Antes de encargar la ilustración SVG, esperá el checkpoint 1 — ahí salen los códigos de zona
+exactos. Y hacé validar la lista de zonas con un profesional de estética antes de
+congelarla: se siembra en la base de cada clínica.
 
 ### Decisiones esperando tu OK
 
-**`@unique` en `Caja.numero`.** Como red contra duplicados silenciosos. El correlativo ya
-es seguro; esto sería defensa en profundidad. La migración no es trivial: pueden existir
-filas con `numero = 0` sin backfillear.
+**Self-check de schema en `provisionTenant()`.** Que después de aplicar el DDL verifique que
+la base quedó completa, como red de último momento. La guarda anti-drift ya cubre el caso
+normal; esto sería defensa en profundidad.
 
-**Self-check de schema en `provisionTenant()`.** Que después de aplicar el DDL verifique
-que la base quedó completa. La guarda anti-drift ya cubre el caso normal.
+### Esperando a terceros
 
-### Idea suelta: censo de bases como chequeo automático
-
-El 2026-08-05 se verificó a mano que las bases físicas coinciden con el registro del
-control-plane (3 y 3, cero huérfanas). Hoy eso es un chequeo manual de una vez. El runner
-de backup ya recorre las clínicas del control-plane: agregarle el listado de bases del
-servidor y comparar son pocas líneas, y avisaría si una provisión falla a mitad de camino
-y deja una base colgada. Mismo dead-man's switch que el resto del sistema.
-
----
+**Verificación OAuth de Google** — enviada, en revisión.
 
 ## Cosas menores, cuando haya un rato
 
