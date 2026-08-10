@@ -49,11 +49,18 @@ export const cajasService = {
   anularMovimiento: (id: string, movId: string, motivo: string) => api.post<unknown>(`/cajas/${id}/movimientos/${movId}/anular`, { motivo }),
 }
 
+export interface FinalizarTodasResultado {
+  fechaCorte: string
+  finalizadas: { doctorId: string; doctor: string; acciones: number; totalLiquidado: number }[]
+  omitidas: { doctorId: string; doctor: string; motivo: string }[]
+}
+
 export const liquidacionesService = {
   // Activas (saldo corriente)
   activas: () => api.get<LiquidacionActivaResumen[]>('/liquidaciones-activas'),
   activa: (doctorId: string) => api.get<LiquidacionActivaDetalle>(`/liquidaciones-activas/${doctorId}`),
   finalizar: (doctorId: string, fechaCorte: string) => api.post<unknown>(`/liquidaciones-activas/${doctorId}/finalizar`, { fechaCorte }),
+  finalizarTodas: (fechaCorte: string) => api.post<FinalizarTodasResultado>('/liquidaciones-activas/finalizar-todas', { fechaCorte }),
   // Finalizadas (snapshots)
   listar: () => api.get<unknown[]>('/liquidaciones'),
   obtener: (id: string) => api.get<unknown>(`/liquidaciones/${id}`),
