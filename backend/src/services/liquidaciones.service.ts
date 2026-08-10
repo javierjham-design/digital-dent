@@ -1,5 +1,6 @@
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
+import { rangoFechasUtc, todayYmd } from '@/lib/tz'
 import type { JwtPayload } from '@/services/auth.service'
 import { filtroNoLiquidable } from '@/services/catalogo.service'
 
@@ -268,17 +269,25 @@ export async function liquidacionActiva(db: TenantClient, actor: JwtPayload, doc
 }
 
 // Finaliza: toma una foto de las acciones PAGADAS y las marca como liquidadas.
-export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, doctorId: string) {
+// `fechaCorte` (YYYY-MM-DD, opcional; por defecto hoy en Chile) limita la foto a las
+// acciones evolucionadas hasta esa fecha inclusive: lo evolucionado después — y lo
+// evolucionado pero impago o pagado parcial — queda pendiente para el próximo ciclo.
+export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, doctorId: string, fechaCorte?: string) {
   if (!(await puedeGestionar(db, actor))) throw forbidden('No tienes permiso para finalizar liquidaciones.')
+  const corte = fechaCorte ?? todayYmd()
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(corte)) throw badRequest('fechaCorte inválida (use YYYY-MM-DD)')
+  if (corte > todayYmd()) throw badRequest('La fecha de corte no puede ser futura')
   const contrato = await db.contrato.findFirst({ where: { doctorId, activo: true } })
   if (!contrato) throw badRequest('El profesional no tiene contrato activo')
 
+  const finCorte = rangoFechasUtc(undefined, corte).lte! // fin del día de corte (hora Chile)
   const esNoLiq = await filtroNoLiquidable(db)
   const montosFijos = await montosFijosDeDoctor(db, doctorId)
   const trats = (await db.tratamiento.findMany({
     where: { doctorId, estado: 'COMPLETADO', liquidacionItems: { none: {} } },
     include: TRAT_ACTIVA_INCLUDE,
   })).filter((t) => !esNoLiq(t.prestacion))
+    .filter((t) => (t.fechaCompletado ?? t.fecha) <= finCorte)
 
   const itemsData = trats.flatMap((t) => {
     const c = calcAccion(t, contrato, montosFijos)
@@ -301,13 +310,13 @@ export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, 
       montoLiquidado: c.total,
     }]
   })
-  if (itemsData.length === 0) throw badRequest('No hay acciones pagadas pendientes de liquidar')
+  if (itemsData.length === 0) throw badRequest('No hay acciones pagadas hasta esa fecha de corte')
 
   const totalBruto = itemsData.reduce((s, i) => s + i.montoPagado, 0)
   const totalLiquidado = itemsData.reduce((s, i) => s + i.montoLiquidado, 0)
   return db.liquidacion.create({
     data: {
-      doctorId, contratoId: contrato.id, periodo: new Date().toISOString().slice(0, 10),
+      doctorId, contratoId: contrato.id, periodo: corte,
       estado: 'APROBADA', totalBruto, totalLiquidado, items: { create: itemsData },
     },
     include: { ...LIQ_LIST_INCLUDE, items: true },

@@ -120,18 +120,23 @@ function explicacion(it: LiquidacionAccion, contrato: LiquidacionActivaDetalle['
     : `Monto fijo ${fmt(contrato?.montoFijo ?? 0)}  −  comisión ${fmt(it.comision)}  =  ${fmt(it.total)}.`
 }
 
+// YYYY-MM-DD de hoy en la zona del navegador (Chile).
+const hoyYmd = () => new Date().toLocaleDateString('en-CA')
+// Día (YYYY-MM-DD, zona local) en que se evolucionó una acción.
+const diaLocal = (iso: string) => new Date(iso).toLocaleDateString('en-CA')
+
 function DetalleActivaModal({ detalle, onClose, onFinalizado, notify }: {
   detalle: LiquidacionActivaDetalle; onClose: () => void; onFinalizado: () => void; notify: (t: string, ok?: boolean) => void
 }) {
   const [expandido, setExpandido] = useState<string | null>(null)
   const [finalizando, setFinalizando] = useState(false)
+  const [pidiendoCorte, setPidiendoCorte] = useState(false)
   const pagables = detalle.items.filter((i) => i.pagada).length
 
-  async function finalizar() {
-    if (!confirm(`Finalizar la liquidación de ${detalle.doctor.name ?? ''}? Se emitirán ${pagables} acción(es) pagada(s) por ${fmt(detalle.aPagar)}. Las pendientes quedan para la próxima.`)) return
+  async function finalizar(fechaCorte: string) {
     setFinalizando(true)
-    try { await liquidacionesService.finalizar(detalle.doctor.id); onFinalizado() }
-    catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
+    try { await liquidacionesService.finalizar(detalle.doctor.id, fechaCorte); onFinalizado() }
+    catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false); setPidiendoCorte(false) }
     finally { setFinalizando(false) }
   }
 
@@ -197,9 +202,47 @@ function DetalleActivaModal({ detalle, onClose, onFinalizado, notify }: {
 
       <div className="flex items-center justify-end gap-2 pt-4">
         <button onClick={onClose} className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700">Cerrar</button>
-        <button onClick={finalizar} disabled={finalizando || pagables === 0}
+        <button onClick={() => setPidiendoCorte(true)} disabled={finalizando || pagables === 0}
           className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">
-          {finalizando ? '…' : `Finalizar y pagar ${fmt(detalle.aPagar)}`}
+          Finalizar liquidación…
+        </button>
+      </div>
+
+      {pidiendoCorte && (
+        <FinalizarCorteModal detalle={detalle} finalizando={finalizando}
+          onConfirmar={finalizar} onClose={() => setPidiendoCorte(false)} />
+      )}
+    </Modal>
+  )
+}
+
+// Pide la fecha de corte y muestra la foto de lo que se va a cerrar: solo acciones
+// evolucionadas Y pagadas hasta esa fecha. Lo evolucionado impago o pagado parcial
+// queda pendiente para el próximo ciclo.
+function FinalizarCorteModal({ detalle, finalizando, onConfirmar, onClose }: {
+  detalle: LiquidacionActivaDetalle; finalizando: boolean; onConfirmar: (fechaCorte: string) => void; onClose: () => void
+}) {
+  const [fechaCorte, setFechaCorte] = useState(hoyYmd())
+  const enCorte = detalle.items.filter((i) => i.pagada && diaLocal(i.fecha) <= fechaCorte)
+  const quedan = detalle.items.length - enCorte.length
+  const total = enCorte.reduce((s, i) => s + i.total, 0)
+
+  return (
+    <Modal title="Finalizar liquidación" onClose={onClose}>
+      <label className="block text-sm font-medium text-slate-700 mb-1">Fecha de corte</label>
+      <input type="date" value={fechaCorte} max={hoyYmd()} onChange={(e) => setFechaCorte(e.target.value)}
+        className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm mb-3" />
+
+      <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm text-slate-600 space-y-1 mb-3">
+        <p>Se cierran <b className="text-slate-800">{enCorte.length}</b> acción(es) evolucionadas y pagadas hasta el {fmtFecha(fechaCorte + 'T12:00:00')} · total <b className="font-mono text-cyan-700">{fmt(total)}</b>.</p>
+        {quedan > 0 && <p className="text-xs">{quedan} acción(es) quedan pendientes para el próximo ciclo (evolucionadas después del corte, sin pagar o con pago parcial).</p>}
+      </div>
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button onClick={onClose} className="px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700">Cancelar</button>
+        <button onClick={() => onConfirmar(fechaCorte)} disabled={finalizando || enCorte.length === 0 || !/^\d{4}-\d{2}-\d{2}$/.test(fechaCorte)}
+          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">
+          {finalizando ? '…' : `Finalizar y pagar ${fmt(total)}`}
         </button>
       </div>
     </Modal>
@@ -219,22 +262,45 @@ function FinalizadasTab({ notify }: { notify: (t: string, ok?: boolean) => void 
     catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
 
+  // Agrupadas por mes de la fecha de corte (periodo YYYY-MM-DD), más recientes primero.
+  const meses: [string, LiqFin[]][] = []
+  for (const l of [...liqs].sort((a, b) => b.periodo.localeCompare(a.periodo))) {
+    const mes = l.periodo.slice(0, 7)
+    const grupo = meses.find(([m]) => m === mes)
+    if (grupo) grupo[1].push(l)
+    else meses.push([mes, [l]])
+  }
+  const nombreMes = (ym: string) => {
+    const s = new Date(`${ym}-15T12:00:00`).toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })
+    return s.charAt(0).toUpperCase() + s.slice(1)
+  }
+
   return (
     <>
-      <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-        {liqs.length === 0 ? <p className="px-5 py-8 text-center text-slate-500 text-sm">Sin liquidaciones finalizadas.</p> : liqs.map((l) => (
-          <div key={l.id} className="flex items-center justify-between px-5 py-3.5 gap-3">
-            <button onClick={async () => setDetalle(await liquidacionesService.obtener(l.id) as LiqFinDetalle)} className="text-left min-w-0 flex-1">
-              <p className="text-sm font-semibold text-cyan-800">{l.doctor?.name ?? '—'} · {l.periodo}</p>
-              <p className="text-xs text-slate-500">{l._count?.items ?? 0} acción(es) · pagado al profesional {fmt(l.totalLiquidado)}</p>
-            </button>
-            <select value={l.estado} onChange={(e) => cambiarEstado(l.id, e.target.value)}
-              className={`text-xs font-semibold rounded-lg px-2 py-1 border-0 ${ESTADO_COLOR[l.estado] ?? ''}`}>
-              {ESTADOS.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+      {liqs.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-slate-200"><p className="px-5 py-8 text-center text-slate-500 text-sm">Sin liquidaciones finalizadas.</p></div>
+      ) : meses.map(([mes, grupo]) => (
+        <div key={mes} className="mb-5">
+          <div className="flex items-baseline justify-between px-1 mb-2">
+            <h3 className="text-sm font-semibold text-slate-700">{nombreMes(mes)}</h3>
+            <span className="text-xs text-slate-400 font-mono">{grupo.length} liquidación(es) · {fmt(grupo.reduce((s, l) => s + l.totalLiquidado, 0))}</span>
           </div>
-        ))}
-      </div>
+          <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+            {grupo.map((l) => (
+              <div key={l.id} className="flex items-center justify-between px-5 py-3.5 gap-3">
+                <button onClick={async () => setDetalle(await liquidacionesService.obtener(l.id) as LiqFinDetalle)} className="text-left min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-cyan-800">{l.doctor?.name ?? '—'} · corte {fmtFecha(l.periodo + 'T12:00:00')}</p>
+                  <p className="text-xs text-slate-500">{l._count?.items ?? 0} acción(es) · pagado al profesional {fmt(l.totalLiquidado)}</p>
+                </button>
+                <select value={l.estado} onChange={(e) => cambiarEstado(l.id, e.target.value)}
+                  className={`text-xs font-semibold rounded-lg px-2 py-1 border-0 ${ESTADO_COLOR[l.estado] ?? ''}`}>
+                  {ESTADOS.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
       {detalle && <DetalleFinalizadaModal liq={detalle} onClose={() => setDetalle(null)} />}
     </>
   )
