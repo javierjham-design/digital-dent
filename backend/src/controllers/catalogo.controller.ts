@@ -36,7 +36,8 @@ export async function getCategorias(req: Request, res: Response) {
   res.json(await listarCategorias(tenantDb(req)))
 }
 export async function postCategoria(req: Request, res: Response) {
-  res.status(201).json(await crearCategoria(tenantDb(req), String((req.body ?? {}).nombre ?? '')))
+  const body = req.body ?? {}
+  res.status(201).json(await crearCategoria(tenantDb(req), String(body.nombre ?? ''), typeof body.area === 'string' ? body.area : undefined))
 }
 export async function patchCategoria(req: Request, res: Response) {
   res.json(await actualizarCategoria(tenantDb(req), req.params.id, req.body ?? {}))

@@ -4,6 +4,8 @@ import { tenantClient } from '@/db/tenant'
 import { badRequest, tooMany, serviceUnavailable } from '@/lib/errors'
 import { rateLimit } from '@/lib/rate-limit'
 import { getVertical } from '@/lib/verticales'
+import { AREA_POR_VERTICAL, MODULO_POR_AREA } from '@shared/constants/areas'
+import { MODULOS_DEFAULT } from '@shared/constants/modulos'
 import { provisionTenant, dropTenantDatabase, dbNameForSlug } from '@/lib/provision'
 import { seedTenantBasics, seedDemoTenant } from '@/lib/tenant-seed'
 import { issueTokenForTenantUser } from '@/services/auth.service'
@@ -103,10 +105,14 @@ export async function crearDemo(input: CrearDemoInput, ip: string): Promise<Demo
     })
     await seedDemoTenant(dbName, vertical)
 
+    // La clínica nace con los módulos base + el área de su vertical (una demo
+    // estética nace con area_estetica; una dental con area_dental).
+    const areaInicial = AREA_POR_VERTICAL[vertical] ?? 'DENTAL'
     const clinica = await control.clinica.create({
       data: {
         slug, dbName, nombre: nombreClinica, email, telefono,
         plan: 'TRIAL', trialHasta: expira, activo: true, esDemo: true, demoExpiraEn: expira,
+        vertical, modulos: `${MODULOS_DEFAULT},${MODULO_POR_AREA[areaInicial]}`,
       },
     })
     const t = input.tracking ?? {}

@@ -245,7 +245,10 @@ export interface PrestacionDTO {
   descripcion: string | null
   precio: number
   duracion: number
+  // `categoria` es la copia derivada (nombre de la sección); `categoriaId` es la
+  // fuente de verdad. El área de la prestación se deriva de la sección.
   categoria: string | null
+  categoriaId?: string | null
   activo: boolean
 }
 

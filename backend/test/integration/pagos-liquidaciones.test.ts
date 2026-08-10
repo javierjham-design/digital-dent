@@ -393,6 +393,56 @@ describe('prestaciones: sin duplicados (creación idempotente + dedupe automáti
   })
 })
 
+describe('áreas clínicas: secciones homónimas + categoriaId como fuente única', () => {
+  it('secciones "Homónima" en áreas distintas conviven; duplicada en la MISMA área se rechaza', async () => {
+    const dental = await post('/categorias-prestacion', { nombre: 'Homónima', area: 'DENTAL' })
+    expect(dental.status).toBe(201)
+    const estetica = await post('/categorias-prestacion', { nombre: 'Homónima', area: 'ESTETICA' })
+    expect(estetica.status).toBe(201)
+    expect(estetica.body.area).toBe('ESTETICA')
+    const repetida = await post('/categorias-prestacion', { nombre: 'Homónima', area: 'DENTAL' })
+    expect(repetida.status).toBe(400) // misma área → duplicada
+  })
+
+  it('prestaciones homónimas en secciones homónimas de áreas distintas NO se fusionan (dedupe)', async () => {
+    const cats = await get('/categorias-prestacion')
+    const catDental = cats.body.find((c: { nombre: string; area: string }) => c.nombre === 'Homónima' && c.area === 'DENTAL')
+    const catEstetica = cats.body.find((c: { nombre: string; area: string }) => c.nombre === 'Homónima' && c.area === 'ESTETICA')
+    const p1 = await post('/prestaciones', { nombre: 'Consulta Área', categoriaId: catDental.id, precio: 30000 })
+    const p2 = await post('/prestaciones', { nombre: 'Consulta Área', categoriaId: catEstetica.id, precio: 80000 })
+    expect(p1.status).toBe(201)
+    expect(p2.status).toBe(201)
+    expect(p2.body.id).not.toBe(p1.body.id) // la idempotencia NO las confunde entre áreas
+
+    await post('/prestaciones/dedupe', {})
+    const db = tenantClient(A.dbName)
+    const vivas = await db.prestacion.findMany({ where: { nombre: 'Consulta Área' } })
+    expect(vivas.length).toBe(2) // el dedupe del arranque jamás fusiona entre áreas
+    expect(vivas.map((v) => v.precio).sort((a, b) => a - b)).toEqual([30000, 80000])
+  })
+
+  it('divergencia categoria/categoriaId: crear + renombrar sección mantiene el par sincronizado', async () => {
+    const cats = await get('/categorias-prestacion')
+    const catEstetica = cats.body.find((c: { nombre: string; area: string }) => c.nombre === 'Homónima' && c.area === 'ESTETICA')
+    // Renombrar la sección estética NO debe arrastrar las prestaciones dentales homónimas.
+    const r = await request(app).patch(`/api/v1/categorias-prestacion/${catEstetica.id}`).set(auth()).send({ nombre: 'Estética Facial Básica' })
+    expect(r.status).toBe(200)
+
+    // Aserción de NO divergencia: para TODA prestación con categoriaId, su string
+    // `categoria` es exactamente el nombre de esa sección.
+    const db = tenantClient(A.dbName)
+    const prestaciones = await db.prestacion.findMany({ where: { categoriaId: { not: null } }, select: { id: true, nombre: true, categoria: true, categoriaId: true } })
+    const catsAll = await db.categoriaPrestacion.findMany({ select: { id: true, nombre: true } })
+    const nombrePorId = new Map(catsAll.map((c) => [c.id, c.nombre]))
+    const divergentes = prestaciones.filter((pr) => pr.categoria !== nombrePorId.get(pr.categoriaId!))
+    expect(divergentes).toEqual([]) // si esto falla, alguien escribió un campo sin el otro
+
+    // Y la dental homónima sigue llamándose "Homónima" (no la arrastró el rename).
+    const dentalViva = prestaciones.find((pr) => pr.nombre === 'Consulta Área' && pr.categoria === 'Homónima')
+    expect(dentalViva).toBeTruthy()
+  })
+})
+
 describe('ficha del paciente: datos y registro de accesos', () => {
   it('guarda y devuelve sexo, dirección, observaciones y fecha de nacimiento', async () => {
     const r = await request(app).patch(`/api/v1/pacientes/${A.pacienteId}`).set(auth())

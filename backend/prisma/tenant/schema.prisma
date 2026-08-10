@@ -149,6 +149,12 @@ model User {
   puedeDesbloquearPlanes      Boolean @default(false) // desbloquear presupuestos bloqueados (al imprimir/enviar quedan bloqueados)
   puedeGestionarAgenda        Boolean @default(false) // gestionar la agenda de cualquier profesional: bloqueos y citas (crear/editar/eliminar)
   puedeVerReportes            Boolean @default(false) // descargar los reportes XLSX (nómina de pacientes, cobros, morosos, etc.)
+  // Áreas clínicas que trabaja el usuario (disponible = clínica contrató el área
+  // Y el usuario la tiene). Dental default true: todos los usuarios actuales
+  // siguen operando exactamente igual.
+  areaDental                  Boolean @default(true)
+  areaEstetica                Boolean @default(false)
+  areaMedico                  Boolean @default(false)
 
   // Mapeo a un calendario de Google (dentro de la cuenta de la clínica).
   googleCalendarId String?
@@ -312,6 +318,8 @@ model FichaClinica {
   paciente          Paciente      @relation(fields: [pacienteId], references: [id])
   tratamientos      Tratamiento[]
   odontograma       Diente[]
+  zonasFaciales     ZonaFicha[]
+  dibujoFacial      DibujoFacial?
 }
 
 model Diente {
@@ -333,7 +341,14 @@ model Prestacion {
   descripcion      String?
   precio           Float
   duracion         Int               @default(30)
+  // `categoria` (string) es una COPIA DERIVADA del nombre de la categoría, mantenida
+  // por compatibilidad. La fuente de verdad es `categoriaId`: con secciones homónimas
+  // en áreas distintas ("General" dental y "General" estética), el nombre solo es
+  // ambiguo. Todo write pasa por catalogo.service (helper único que escribe ambos);
+  // el string se elimina en una tanda posterior (ver AI_CHANGELOG).
   categoria        String?
+  categoriaId      String?
+  categoriaRef     CategoriaPrestacion? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
   activo           Boolean           @default(true)
   tratamientos     Tratamiento[]
   itemsPresupuesto ItemPresupuesto[]
@@ -346,9 +361,81 @@ model Prestacion {
 // se pagan al profesional y no cuentan en la liquidación).
 model CategoriaPrestacion {
   id           String  @id @default(cuid())
-  nombre       String  @unique
+  nombre       String
+  // Área clínica de la sección (DENTAL | ESTETICA | MEDICO). Las prestaciones
+  // HEREDAN el área de su categoría (no se etiquetan una por una). Todas las
+  // categorías existentes quedan DENTAL por el default.
+  area         String  @default("DENTAL")
   orden        Int     @default(0)
   noLiquidable Boolean @default(false)
+  prestaciones Prestacion[]
+
+  // Unicidad POR ÁREA: "General" dental y "General" estética son secciones
+  // legítimas y distintas. (El unique global anterior era solo por nombre.)
+  @@unique([nombre, area])
+}
+
+// ── Áreas clínicas: estética facial ──────────────────────────────────────────
+
+// Catálogo de zonas faciales del tenant (equivalente del "diente" del odontograma).
+// Se siembra al crear la clínica; codigo es la llave estable que mapea 1:1 con el
+// id del path del SVG (`zona-{codigo}`). Lateralidad desde la PERSPECTIVA DEL
+// PACIENTE (su _izq aparece a la derecha del espectador).
+model ZonaFacial {
+  id     String  @id @default(cuid())
+  codigo String  @unique
+  nombre String
+  grupo  String  // TERCIO_SUPERIOR | TERCIO_MEDIO | TERCIO_INFERIOR | CUELLO_OTROS
+  orden  Int     @default(0)
+  activo Boolean @default(true)
+  fichas       ZonaFicha[]
+  tratamientos TratamientoZona[]
+}
+
+// Estado clínico por zona de cada ficha (espejo de Diente para estética).
+model ZonaFicha {
+  id      String       @id @default(cuid())
+  fichaId String
+  zonaId  String
+  estado  String       @default("SANO")
+  color   String?
+  notas   String?
+  ficha   FichaClinica @relation(fields: [fichaId], references: [id])
+  zona    ZonaFacial   @relation(fields: [zonaId], references: [id])
+
+  @@unique([fichaId, zonaId])
+}
+
+// Zonas de un tratamiento estético: UN tratamiento cubre N zonas con UN precio
+// (un bótox de patas de gallo cubre ambos lados y se cobra una vez). NO es "un
+// tratamiento por zona" como el patrón dental por pieza: eso duplicaría el precio
+// en presupuesto/cobro y pagaría N veces el monto fijo en la liquidación.
+model TratamientoZona {
+  id            String      @id @default(cuid())
+  tratamientoId String
+  zonaId        String
+  tratamiento   Tratamiento @relation(fields: [tratamientoId], references: [id], onDelete: Cascade)
+  zona          ZonaFacial  @relation(fields: [zonaId], references: [id])
+
+  @@unique([tratamientoId, zonaId])
+}
+
+// Dibujo libre sobre el gráfico facial (capa 2, anotación clínica). POR FICHA
+// (como el odontograma, compartido entre planes): borrar un plan o un tratamiento
+// JAMÁS toca los trazos, y viceversa. `trazos` = JSON de trazos VECTORIALES
+// [{herramienta, color, grosor, puntos:[{x,y}…]}] con coordenadas normalizadas al
+// viewBox del SVG (editable y escalable; nunca imagen rasterizada). Un trazo no
+// genera prestaciones ni aparece en presupuestos: no hay FK a plan/tratamiento.
+// `genero` = ilustración elegida (F/M); si no hay fila, la UI deriva de
+// Paciente.sexo.
+model DibujoFacial {
+  id        String       @id @default(cuid())
+  fichaId   String       @unique
+  genero    String       @default("F")
+  trazos    String       @default("[]")
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  ficha     FichaClinica @relation(fields: [fichaId], references: [id])
 }
 
 model Tratamiento {
@@ -375,6 +462,9 @@ model Tratamiento {
   liquidacionItems LiquidacionItem[]
   cobroItems      CobroItem[]
   evoluciones     Evolucion[]
+  // Zonas faciales (solo tratamientos estéticos; N zonas, UN precio). Un
+  // tratamiento dental usa diente/cara; uno médico no usa ninguno de los tres.
+  zonas           TratamientoZona[]
 }
 
 model PlanTratamiento {

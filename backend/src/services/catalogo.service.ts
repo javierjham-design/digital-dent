@@ -6,9 +6,9 @@ import type { ClinicaConfigDTO, PrestacionDTO } from '@shared/types'
 
 function prestacionDTO(p: {
   id: string; nombre: string; descripcion: string | null; precio: number
-  duracion: number; categoria: string | null; activo: boolean
+  duracion: number; categoria: string | null; categoriaId?: string | null; activo: boolean
 }): PrestacionDTO {
-  return p
+  return { ...p, categoriaId: p.categoriaId ?? null }
 }
 
 export async function listarPrestaciones(db: TenantClient): Promise<PrestacionDTO[]> {
@@ -18,7 +18,7 @@ export async function listarPrestaciones(db: TenantClient): Promise<PrestacionDT
 
 // ─── Categorías / secciones del catálogo ─────────────────────────────────────
 
-export interface CategoriaPrestacionDTO { id: string; nombre: string; orden: number; noLiquidable: boolean }
+export interface CategoriaPrestacionDTO { id: string; nombre: string; area: string; orden: number; noLiquidable: boolean }
 
 // Lista las secciones (categorías) del catálogo, ordenadas. La primera vez las
 // siembra a partir de las categorías ya usadas por las prestaciones existentes.
@@ -36,22 +36,25 @@ export async function listarCategorias(db: TenantClient): Promise<CategoriaPrest
 }
 
 // Unicidad de secciones POR ÁREA, no global: una sección "General" dental y otra
-// "General" de estética son legítimas y distintas. Este helper es el único punto
-// que valida duplicados de sección; en la Fase 1 (campo `area` en el schema) el
-// filtro incluye el área y el @unique global pasa a @@unique([nombre, area]).
-// findFirst (no findUnique): el unique compuesto de Fase 1 rompería findUnique.
+// "General" de estética son legítimas y distintas. Único punto de validación de
+// duplicados de sección (respaldado por el @@unique([nombre, area]) del schema).
 async function categoriaDuplicada(db: TenantClient, nombre: string, area?: string, excluirId?: string): Promise<boolean> {
-  const candidatas = await db.categoriaPrestacion.findMany({ where: { nombre, ...(excluirId ? { NOT: { id: excluirId } } : {}) } })
   const areaBuscada = (area || AREA_DEFAULT).trim().toUpperCase()
-  return candidatas.some((c) => (((c as { area?: string }).area || AREA_DEFAULT).trim().toUpperCase()) === areaBuscada)
+  const dup = await db.categoriaPrestacion.findFirst({
+    where: { nombre, area: areaBuscada, ...(excluirId ? { NOT: { id: excluirId } } : {}) },
+    select: { id: true },
+  })
+  return Boolean(dup)
 }
 
 export async function crearCategoria(db: TenantClient, nombre: string, area?: string): Promise<CategoriaPrestacionDTO> {
   const n = (nombre ?? '').trim()
   if (!n) throw badRequest('Falta el nombre de la sección')
-  if (await categoriaDuplicada(db, n, area)) throw badRequest('Ya existe una sección con ese nombre en esta área')
+  const a = (area || AREA_DEFAULT).trim().toUpperCase()
+  if (!['DENTAL', 'ESTETICA', 'MEDICO'].includes(a)) throw badRequest('Área inválida (DENTAL | ESTETICA | MEDICO)')
+  if (await categoriaDuplicada(db, n, a)) throw badRequest('Ya existe una sección con ese nombre en esta área')
   const max = await db.categoriaPrestacion.aggregate({ _max: { orden: true } })
-  return db.categoriaPrestacion.create({ data: { nombre: n, orden: (max._max.orden ?? -1) + 1 } })
+  return db.categoriaPrestacion.create({ data: { nombre: n, area: a, orden: (max._max.orden ?? -1) + 1 } })
 }
 
 export async function actualizarCategoria(db: TenantClient, id: string, body: { nombre?: string; noLiquidable?: boolean }): Promise<CategoriaPrestacionDTO> {
@@ -64,11 +67,16 @@ export async function actualizarCategoria(db: TenantClient, id: string, body: { 
     if (!n) throw badRequest('El nombre no puede quedar vacío')
     if (n !== existing.nombre) {
       // Duplicado DENTRO del área de la sección que se renombra (ver categoriaDuplicada).
-      const areaExistente = (existing as { area?: string }).area
-      if (await categoriaDuplicada(db, n, areaExistente, id)) throw badRequest('Ya existe una sección con ese nombre en esta área')
+      if (await categoriaDuplicada(db, n, existing.area, id)) throw badRequest('Ya existe una sección con ese nombre en esta área')
       data.nombre = n
-      // Renombrar la categoría también en las prestaciones que la usaban.
-      await db.prestacion.updateMany({ where: { categoria: existing.nombre }, data: { categoria: n } })
+      // Renombrar la copia derivada `categoria` en las prestaciones de ESTA sección
+      // (por FK, no por nombre: con secciones homónimas el nombre arrastraría otra área).
+      await db.prestacion.updateMany({ where: { categoriaId: id }, data: { categoria: n } })
+      // Filas legacy sin backfill (categoriaId null) son DENTAL por definición: si esta
+      // sección es dental, las adopta (auto-sana el vínculo al renombrar).
+      if (existing.area === AREA_DEFAULT) {
+        await db.prestacion.updateMany({ where: { categoriaId: null, categoria: existing.nombre }, data: { categoria: n, categoriaId: id } })
+      }
     }
   }
   return db.categoriaPrestacion.update({ where: { id }, data })
@@ -81,8 +89,13 @@ export async function reordenarCategorias(db: TenantClient, ids: string[]): Prom
 export async function eliminarCategoria(db: TenantClient, id: string): Promise<void> {
   const existing = await db.categoriaPrestacion.findUnique({ where: { id } })
   if (!existing) throw notFound('Sección no encontrada')
-  // Las prestaciones que la usaban quedan "Sin categoría" (no se borran).
-  await db.prestacion.updateMany({ where: { categoria: existing.nombre }, data: { categoria: null } })
+  // Las prestaciones que la usaban quedan "Sin categoría" (no se borran). Por FK;
+  // las legacy sin backfill (dental por definición) se limpian por nombre solo si
+  // esta sección es dental.
+  await db.prestacion.updateMany({ where: { categoriaId: id }, data: { categoria: null, categoriaId: null } })
+  if (existing.area === AREA_DEFAULT) {
+    await db.prestacion.updateMany({ where: { categoriaId: null, categoria: existing.nombre }, data: { categoria: null } })
+  }
   await db.categoriaPrestacion.delete({ where: { id } })
 }
 
@@ -95,19 +108,19 @@ export async function categoriasNoLiquidables(db: TenantClient): Promise<Set<str
 
 const normNombre = (s: string | null | undefined) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
 
-// ─── Áreas clínicas: blindaje del catálogo (Fase 0) ──────────────────────────
+// ─── Áreas clínicas: resolución de área en el catálogo ───────────────────────
 // El área de una prestación se DERIVA de su categoría (CategoriaPrestacion.area).
-// Este resolver es el ÚNICO punto que decide el área de una categoría: cuando el
-// campo `area` exista en el schema (Fase 1 del módulo de áreas), se conecta AQUÍ y
-// dedupe/creación idempotente quedan area-aware sin tocar su lógica.
+// Este resolver es el ÚNICO punto que decide el área de una prestación:
+// `categoriaId` manda (fuente de verdad; con secciones homónimas en áreas
+// distintas el nombre es ambiguo); el nombre queda como fallback para filas
+// legacy sin backfill, que son DENTAL por definición.
 export const AREA_DEFAULT = 'DENTAL'
-export type ResolverArea = (categoria: string | null) => string
+export type ResolverArea = (p: { categoriaId?: string | null; categoria?: string | null }) => string
 async function resolverAreaPorCategoria(db: TenantClient): Promise<ResolverArea> {
-  const cats = await db.categoriaPrestacion.findMany()
-  // `area` llega al schema en la Fase 1; hasta entonces la propiedad no existe y
-  // toda categoría resuelve DENTAL (comportamiento actual intacto).
-  const mapa = new Map(cats.map((c) => [normNombre(c.nombre), (c as { area?: string }).area || AREA_DEFAULT]))
-  return (categoria) => mapa.get(normNombre(categoria)) ?? AREA_DEFAULT
+  const cats = await db.categoriaPrestacion.findMany({ select: { id: true, nombre: true, area: true } })
+  const porId = new Map(cats.map((c) => [c.id, c.area || AREA_DEFAULT]))
+  const porNombre = new Map(cats.map((c) => [normNombre(c.nombre), c.area || AREA_DEFAULT]))
+  return (p) => (p.categoriaId ? porId.get(p.categoriaId) : undefined) ?? porNombre.get(normNombre(p.categoria ?? null)) ?? AREA_DEFAULT
 }
 
 // Clave de identidad de una prestación: ÁREA + nombre + categoría (normalizados).
@@ -119,9 +132,9 @@ export const prestacionKey = (nombre: string | null, categoria: string | null, a
 
 // PURA (testeable sin base): agrupa las prestaciones que son duplicados reales
 // (misma área + nombre + categoría). Devuelve solo los grupos con más de una.
-// El área se resuelve POR PRESTACIÓN (no por nombre de categoría): cuando existan
-// secciones homónimas en áreas distintas ("General" dental y "General" estética),
-// el nombre solo no alcanza para decidir el área.
+// El área se resuelve POR PRESTACIÓN (vía categoriaId): con secciones homónimas
+// en áreas distintas ("General" dental y "General" estética), el nombre solo no
+// alcanza para decidir el área.
 export function agruparPrestacionesDuplicadas<T extends { nombre: string; categoria: string | null }>(
   prestaciones: T[], areaDe: (p: T) => string,
 ): T[][] {
@@ -139,10 +152,10 @@ export function agruparPrestacionesDuplicadas<T extends { nombre: string; catego
 // Tratamiento e ItemPresupuesto son las ÚNICAS tablas que apuntan a Prestacion.
 export async function dedupePrestaciones(db: TenantClient): Promise<{ duplicados: number; eliminadas: number; restantes: number }> {
   const prestaciones = await db.prestacion.findMany({
-    select: { id: true, nombre: true, categoria: true, _count: { select: { tratamientos: true, itemsPresupuesto: true } } },
+    select: { id: true, nombre: true, categoria: true, categoriaId: true, _count: { select: { tratamientos: true, itemsPresupuesto: true } } },
   })
   const areaDe = await resolverAreaPorCategoria(db)
-  const aFusionar = agruparPrestacionesDuplicadas(prestaciones, (p) => areaDe(p.categoria))
+  const aFusionar = agruparPrestacionesDuplicadas(prestaciones, areaDe)
   if (aFusionar.length === 0) return { duplicados: 0, eliminadas: 0, restantes: prestaciones.length }
 
   // Cada fusión son 3 operaciones (reasignar tratamiento + itemPresupuesto, borrar
@@ -167,23 +180,42 @@ export async function dedupePrestaciones(db: TenantClient): Promise<{ duplicados
   return { duplicados: aFusionar.length, eliminadas, restantes: prestaciones.length - eliminadas }
 }
 
-export async function crearPrestacion(db: TenantClient, input: { nombre: string; categoria?: string | null; precio: number; descripcion?: string | null; duracion?: number }): Promise<PrestacionDTO> {
+// ÚNICO punto que resuelve el par (categoriaId, categoria) de una prestación.
+// `categoriaId` es la fuente de verdad; `categoria` (string) es la copia derivada
+// del nombre de esa sección. Los callers legacy que mandan solo el nombre se
+// resuelven contra la sección homónima (prefiriendo DENTAL si hubiera homónimas);
+// si la sección no existe como fila, queda solo el string (comportamiento previo).
+async function resolverCategoriaDestino(db: TenantClient, input: { categoriaId?: string | null; categoria?: string | null }): Promise<{ categoriaId: string | null; categoria: string | null }> {
+  if (input.categoriaId) {
+    const cat = await db.categoriaPrestacion.findUnique({ where: { id: input.categoriaId }, select: { id: true, nombre: true } })
+    if (!cat) throw badRequest('La sección indicada no existe')
+    return { categoriaId: cat.id, categoria: cat.nombre }
+  }
+  const nombre = (input.categoria ?? '').trim() || null
+  if (!nombre) return { categoriaId: null, categoria: null }
+  const cats = await db.categoriaPrestacion.findMany({ where: { nombre }, select: { id: true, area: true } })
+  const cat = cats.find((c) => c.area === AREA_DEFAULT) ?? cats[0] ?? null
+  return { categoriaId: cat?.id ?? null, categoria: nombre }
+}
+
+export async function crearPrestacion(db: TenantClient, input: { nombre: string; categoria?: string | null; categoriaId?: string | null; precio: number; descripcion?: string | null; duracion?: number }): Promise<PrestacionDTO> {
   if (!input.nombre?.trim() || input.precio == null) throw badRequest('Faltan campos requeridos')
   const nombre = input.nombre.trim()
-  const categoria = input.categoria || null
+  const destino = await resolverCategoriaDestino(db, input)
   // Idempotente: si ya existe una prestación con el mismo (área, nombre, categoría),
   // se reutiliza (reactivándola si estaba inactiva) en lugar de crear un duplicado.
-  // El área se deriva de la categoría, igual que en dedupe.
+  // El área se deriva de la categoría (categoriaId manda), igual que en dedupe.
   const areaDe = await resolverAreaPorCategoria(db)
-  const todas = await db.prestacion.findMany({ select: { id: true, nombre: true, categoria: true, activo: true } })
-  const dup = todas.find((p) => prestacionKey(p.nombre, p.categoria, areaDe(p.categoria)) === prestacionKey(nombre, categoria, areaDe(categoria)))
+  const todas = await db.prestacion.findMany({ select: { id: true, nombre: true, categoria: true, categoriaId: true, activo: true } })
+  const keyNueva = prestacionKey(nombre, destino.categoria, areaDe(destino))
+  const dup = todas.find((p) => prestacionKey(p.nombre, p.categoria, areaDe(p)) === keyNueva)
   if (dup) {
     const p = await db.prestacion.update({ where: { id: dup.id }, data: { activo: true, precio: Number(input.precio), ...(input.descripcion !== undefined ? { descripcion: input.descripcion || null } : {}) } })
     return prestacionDTO(p)
   }
   const p = await db.prestacion.create({
     data: {
-      nombre, categoria,
+      nombre, categoria: destino.categoria, categoriaId: destino.categoriaId,
       precio: Number(input.precio), descripcion: input.descripcion || null,
       duracion: input.duracion ?? 30, activo: true,
     },
@@ -196,7 +228,15 @@ export async function actualizarPrestacion(db: TenantClient, id: string, body: R
   if (!existing) throw notFound('Prestación no encontrada')
   const data: Record<string, unknown> = {}
   if (body.nombre !== undefined) data.nombre = String(body.nombre)
-  if (body.categoria !== undefined) data.categoria = body.categoria || null
+  // Cambio de sección: SIEMPRE por el resolver (escribe el par categoriaId+categoria).
+  if (body.categoriaId !== undefined || body.categoria !== undefined) {
+    const destino = await resolverCategoriaDestino(db, {
+      categoriaId: body.categoriaId != null && body.categoriaId !== '' ? String(body.categoriaId) : null,
+      categoria: typeof body.categoria === 'string' ? body.categoria : null,
+    })
+    data.categoria = destino.categoria
+    data.categoriaId = destino.categoriaId
+  }
   if (body.precio !== undefined) data.precio = Number(body.precio)
   if (body.descripcion !== undefined) data.descripcion = body.descripcion || null
   if (body.duracion !== undefined) data.duracion = Number(body.duracion)

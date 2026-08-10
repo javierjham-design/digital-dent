@@ -101,6 +101,9 @@ CREATE TABLE "User" (
     "puedeDesbloquearPlanes" BOOLEAN NOT NULL DEFAULT false,
     "puedeGestionarAgenda" BOOLEAN NOT NULL DEFAULT false,
     "puedeVerReportes" BOOLEAN NOT NULL DEFAULT false,
+    "areaDental" BOOLEAN NOT NULL DEFAULT true,
+    "areaEstetica" BOOLEAN NOT NULL DEFAULT false,
+    "areaMedico" BOOLEAN NOT NULL DEFAULT false,
     "googleCalendarId" TEXT,
     "googleSyncToken" TEXT,
     "googleSyncedAt" TIMESTAMP(3),
@@ -263,6 +266,7 @@ CREATE TABLE "Prestacion" (
     "precio" DOUBLE PRECISION NOT NULL,
     "duracion" INTEGER NOT NULL DEFAULT 30,
     "categoria" TEXT,
+    "categoriaId" TEXT,
     "activo" BOOLEAN NOT NULL DEFAULT true,
 
     CONSTRAINT "Prestacion_pkey" PRIMARY KEY ("id")
@@ -272,10 +276,56 @@ CREATE TABLE "Prestacion" (
 CREATE TABLE "CategoriaPrestacion" (
     "id" TEXT NOT NULL,
     "nombre" TEXT NOT NULL,
+    "area" TEXT NOT NULL DEFAULT 'DENTAL',
     "orden" INTEGER NOT NULL DEFAULT 0,
     "noLiquidable" BOOLEAN NOT NULL DEFAULT false,
 
     CONSTRAINT "CategoriaPrestacion_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ZonaFacial" (
+    "id" TEXT NOT NULL,
+    "codigo" TEXT NOT NULL,
+    "nombre" TEXT NOT NULL,
+    "grupo" TEXT NOT NULL,
+    "orden" INTEGER NOT NULL DEFAULT 0,
+    "activo" BOOLEAN NOT NULL DEFAULT true,
+
+    CONSTRAINT "ZonaFacial_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ZonaFicha" (
+    "id" TEXT NOT NULL,
+    "fichaId" TEXT NOT NULL,
+    "zonaId" TEXT NOT NULL,
+    "estado" TEXT NOT NULL DEFAULT 'SANO',
+    "color" TEXT,
+    "notas" TEXT,
+
+    CONSTRAINT "ZonaFicha_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "TratamientoZona" (
+    "id" TEXT NOT NULL,
+    "tratamientoId" TEXT NOT NULL,
+    "zonaId" TEXT NOT NULL,
+
+    CONSTRAINT "TratamientoZona_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DibujoFacial" (
+    "id" TEXT NOT NULL,
+    "fichaId" TEXT NOT NULL,
+    "genero" TEXT NOT NULL DEFAULT 'F',
+    "trazos" TEXT NOT NULL DEFAULT '[]',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "DibujoFacial_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -890,7 +940,19 @@ CREATE UNIQUE INDEX "FichaClinica_pacienteId_key" ON "FichaClinica"("pacienteId"
 CREATE UNIQUE INDEX "Diente_fichaId_numero_cara_key" ON "Diente"("fichaId", "numero", "cara");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "CategoriaPrestacion_nombre_key" ON "CategoriaPrestacion"("nombre");
+CREATE UNIQUE INDEX "CategoriaPrestacion_nombre_area_key" ON "CategoriaPrestacion"("nombre", "area");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ZonaFacial_codigo_key" ON "ZonaFacial"("codigo");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ZonaFicha_fichaId_zonaId_key" ON "ZonaFicha"("fichaId", "zonaId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "TratamientoZona_tratamientoId_zonaId_key" ON "TratamientoZona"("tratamientoId", "zonaId");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "DibujoFacial_fichaId_key" ON "DibujoFacial"("fichaId");
 
 -- CreateIndex
 CREATE INDEX "AuditLog_pacienteId_fecha_idx" ON "AuditLog"("pacienteId", "fecha");
@@ -1017,6 +1079,24 @@ ALTER TABLE "FichaClinica" ADD CONSTRAINT "FichaClinica_pacienteId_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "Diente" ADD CONSTRAINT "Diente_fichaId_fkey" FOREIGN KEY ("fichaId") REFERENCES "FichaClinica"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Prestacion" ADD CONSTRAINT "Prestacion_categoriaId_fkey" FOREIGN KEY ("categoriaId") REFERENCES "CategoriaPrestacion"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ZonaFicha" ADD CONSTRAINT "ZonaFicha_fichaId_fkey" FOREIGN KEY ("fichaId") REFERENCES "FichaClinica"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ZonaFicha" ADD CONSTRAINT "ZonaFicha_zonaId_fkey" FOREIGN KEY ("zonaId") REFERENCES "ZonaFacial"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TratamientoZona" ADD CONSTRAINT "TratamientoZona_tratamientoId_fkey" FOREIGN KEY ("tratamientoId") REFERENCES "Tratamiento"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "TratamientoZona" ADD CONSTRAINT "TratamientoZona_zonaId_fkey" FOREIGN KEY ("zonaId") REFERENCES "ZonaFacial"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DibujoFacial" ADD CONSTRAINT "DibujoFacial_fichaId_fkey" FOREIGN KEY ("fichaId") REFERENCES "FichaClinica"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Tratamiento" ADD CONSTRAINT "Tratamiento_fichaId_fkey" FOREIGN KEY ("fichaId") REFERENCES "FichaClinica"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

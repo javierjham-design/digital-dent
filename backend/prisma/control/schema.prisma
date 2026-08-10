@@ -31,6 +31,7 @@ model Clinica {
   plan       String   @default("TRIAL")
   pais       String   @default("CL")  // país de operación (define documento, teléfono y moneda). Solo el super-admin lo cambia.
   modulos    String   @default("crm,agendamiento_online,whatsapp") // módulos habilitados (CSV). Los asigna el super-admin.
+  vertical   String   @default("dental") // rubro (dental|medico|estetica): define el área clínica con la que nace
   activo     Boolean  @default(true)
   trialHasta DateTime?
 
