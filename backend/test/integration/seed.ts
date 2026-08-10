@@ -50,10 +50,14 @@ async function resetYSeedTenant(dbName: string, n: number) {
   await db.evolucion.deleteMany()
   await db.itemPresupuesto.deleteMany()
   await db.presupuesto.deleteMany()
+  await db.tratamientoZona.deleteMany() // FK a Tratamiento y ZonaFacial
   await db.tratamiento.deleteMany()
   await db.seccionPlan.deleteMany()
   await db.planTratamiento.deleteMany()
   await db.diente.deleteMany()
+  await db.zonaFicha.deleteMany()    // FK a FichaClinica y ZonaFacial
+  await db.dibujoFacial.deleteMany() // FK a FichaClinica
+  await db.zonaFacial.deleteMany()   // catálogo de zonas (ya sin referencias)
   await db.fichaClinica.deleteMany()
   await db.prestacion.deleteMany()
   await db.medioPago.deleteMany()
