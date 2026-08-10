@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { PrestacionDTO } from '@shared/types'
 import { AREA_LABELS, type AreaClinica } from '@shared/constants/areas'
 import { prestacionesService, categoriasService, type CategoriaPrestacionDTO } from '@/services/catalogo.service'
@@ -16,7 +16,7 @@ export function Prestaciones() {
   // Áreas efectivas del usuario (clínica ∩ usuario, ya resueltas en la sesión).
   // Cada área tiene su catálogo COMPLETO e independiente; todo lo de abajo opera
   // dentro del área activa. Con una sola área el selector no se muestra.
-  const areas = (user?.areas ?? []) as AreaClinica[]
+  const areas = useMemo(() => (user?.areas ?? []) as AreaClinica[], [user?.areas])
   const [area, setArea] = useState<AreaClinica | ''>('')
   useEffect(() => { if (!area && areas.length > 0) setArea(areas[0]) }, [areas, area])
   const [items, setItems] = useState<PrestacionDTO[]>([])
