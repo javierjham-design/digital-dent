@@ -181,6 +181,82 @@ describe('montos fijos por prestación (override del contrato base)', () => {
   })
 })
 
+describe('finalizar liquidación con fecha de corte', () => {
+  let medioPagoId = ''
+  let cajaId = ''
+  const ymd = (d: Date) => d.toISOString().slice(0, 10)
+
+  beforeAll(async () => {
+    const medio = await post('/medios-pago', { nombre: 'Efectivo corte', comision: 0 })
+    medioPagoId = medio.body.id
+    await post('/contratos', { doctorId, tipo: 'PORCENTAJE', porcentaje: 50 })
+    const caja = await post('/cajas', { nombre: 'Caja corte', usuarioIds: [A.adminId] })
+    cajaId = caja.body.id
+    await post(`/cajas/${cajaId}/abrir`, { saldoApertura: 0 })
+  })
+
+  // Acción evolucionada por el doctor; opcionalmente pagada completa y/o backdateada.
+  async function accion(precio: number, opts: { pagar?: boolean; fechaCompletado?: Date } = {}) {
+    const suf = Math.random().toString(36).slice(2, 7)
+    const prest = await post('/prestaciones', { nombre: `Corte ${suf}`, precio })
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })
+    const trat = await post('/tratamientos', { pacienteId: A.pacienteId, prestacionId: prest.body.id, planId: plan.body.id, precio })
+    const tratId = trat.body[0].id as string
+    await post(`/tratamientos/${tratId}/evolucionar`, { texto: 'Hecho', profesionalId: doctorId })
+    if (opts.pagar) {
+      const cobro = await post('/cobros', { pacienteId: A.pacienteId, cajaId, medioPagoId, items: [{ tratamientoId: tratId, descripcion: 'Corte', monto: precio }] })
+      expect(cobro.status).toBe(201)
+    }
+    if (opts.fechaCompletado) {
+      await tenantClient(A.dbName).tratamiento.update({ where: { id: tratId }, data: { fechaCompletado: opts.fechaCompletado } })
+    }
+    return tratId
+  }
+
+  it('rechaza una fecha de corte inválida o futura', async () => {
+    const r1 = await post(`/liquidaciones-activas/${doctorId}/finalizar`, { fechaCorte: '31-12-2026' })
+    expect(r1.status).toBe(400)
+    const r2 = await post(`/liquidaciones-activas/${doctorId}/finalizar`, { fechaCorte: ymd(new Date(Date.now() + 2 * 86400_000)) })
+    expect(r2.status).toBe(400)
+  })
+
+  it('un corte anterior a toda acción pagada → 400 y no crea liquidación', async () => {
+    const r = await post(`/liquidaciones-activas/${doctorId}/finalizar`, { fechaCorte: '2020-01-01' })
+    expect(r.status).toBe(400)
+  })
+
+  it('cierra SOLO lo evolucionado y pagado hasta el corte; lo posterior y lo impago quedan para el próximo ciclo', async () => {
+    const hace10 = new Date(Date.now() - 10 * 86400_000)
+    const corte = ymd(new Date(Date.now() - 5 * 86400_000))
+    const antiguaPagada = await accion(50000, { pagar: true, fechaCompletado: hace10 })
+    const recientePagada = await accion(30000, { pagar: true }) // evolucionada HOY, después del corte
+    const antiguaImpaga = await accion(20000, { fechaCompletado: hace10 }) // evolucionada, sin pagar
+
+    const fin = await post(`/liquidaciones-activas/${doctorId}/finalizar`, { fechaCorte: corte })
+    expect(fin.status).toBe(201)
+    expect(fin.body.periodo).toBe(corte) // el periodo ES la fecha de corte
+    const ids = fin.body.items.map((i: { tratamientoId: string }) => i.tratamientoId)
+    expect(ids).toContain(antiguaPagada)
+    expect(ids).not.toContain(recientePagada)
+    expect(ids).not.toContain(antiguaImpaga)
+
+    // Las excluidas siguen en la liquidación activa (pendientes para el próximo ciclo).
+    const activa = await get(`/liquidaciones-activas/${doctorId}`)
+    const activos = activa.body.items.map((i: { tratamientoId: string }) => i.tratamientoId)
+    expect(activos).toContain(recientePagada)
+    expect(activos).toContain(antiguaImpaga)
+    expect(activos).not.toContain(antiguaPagada)
+  })
+
+  it('sin fechaCorte usa hoy: cierra lo pagado restante; lo impago sigue pendiente', async () => {
+    const fin = await post(`/liquidaciones-activas/${doctorId}/finalizar`, {})
+    expect(fin.status).toBe(201)
+    expect(fin.body.periodo).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    const activa = await get(`/liquidaciones-activas/${doctorId}`)
+    expect(activa.body.items.every((i: { pagada: boolean }) => !i.pagada)).toBe(true)
+  })
+})
+
 describe('CRM: el primer cobro pagado convierte el lead automáticamente', () => {
   let cajaId = ''
   beforeAll(async () => {

@@ -41,7 +41,8 @@ export async function getLiquidacionActiva(req: Request, res: Response) {
   res.json(await svc.liquidacionActiva(tenantDb(req), req.auth!, req.params.doctorId))
 }
 export async function postFinalizarLiquidacion(req: Request, res: Response) {
-  res.status(201).json(await svc.finalizarLiquidacion(tenantDb(req), req.auth!, req.params.doctorId))
+  const fechaCorte = typeof req.body?.fechaCorte === 'string' ? req.body.fechaCorte : undefined
+  res.status(201).json(await svc.finalizarLiquidacion(tenantDb(req), req.auth!, req.params.doctorId, fechaCorte))
 }
 
 // ── Liquidaciones FINALIZADAS ──
