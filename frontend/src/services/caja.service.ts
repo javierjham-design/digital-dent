@@ -53,7 +53,7 @@ export const liquidacionesService = {
   // Activas (saldo corriente)
   activas: () => api.get<LiquidacionActivaResumen[]>('/liquidaciones-activas'),
   activa: (doctorId: string) => api.get<LiquidacionActivaDetalle>(`/liquidaciones-activas/${doctorId}`),
-  finalizar: (doctorId: string) => api.post<unknown>(`/liquidaciones-activas/${doctorId}/finalizar`),
+  finalizar: (doctorId: string, fechaCorte: string) => api.post<unknown>(`/liquidaciones-activas/${doctorId}/finalizar`, { fechaCorte }),
   // Finalizadas (snapshots)
   listar: () => api.get<unknown[]>('/liquidaciones'),
   obtener: (id: string) => api.get<unknown>(`/liquidaciones/${id}`),
