@@ -24,6 +24,7 @@ import * as presupuestos from '@/controllers/presupuestos.controller'
 import * as caja from '@/controllers/caja.controller'
 import * as cobros from '@/controllers/cobros.controller'
 import * as liq from '@/controllers/liquidaciones.controller'
+import * as estetica from '@/controllers/estetica.controller'
 import * as reportes from '@/controllers/reportes.controller'
 import * as admin from '@/controllers/admin.controller'
 import * as demo from '@/controllers/demo.controller'
@@ -304,6 +305,16 @@ apiRouter.get('/historial', tenant, asyncHandler(clinico.getHistorial))
 
 // ── Clínico: odontograma ─────────────────────────────────────────────────────
 apiRouter.post('/odontograma', tenant, asyncHandler(clinico.postDiente))
+
+// ── Área estética: zonas faciales + estado por zona + dibujo (capa 2) ─────────
+// Cadena: módulo de la clínica (area_estetica); las escrituras exigen además el
+// área habilitada en el usuario (assertAreaDisponible en el controller).
+const esteticaTenant = [requireAuth, requireTenant, requireModulo('area_estetica')]
+apiRouter.get('/zonas-faciales', esteticaTenant, asyncHandler(estetica.getZonasFaciales))
+apiRouter.get('/pacientes/:id/zonas-faciales', esteticaTenant, asyncHandler(estetica.getZonasFicha))
+apiRouter.put('/pacientes/:id/zonas-faciales', esteticaTenant, asyncHandler(estetica.putZonaFicha))
+apiRouter.get('/pacientes/:id/dibujo-facial', esteticaTenant, asyncHandler(estetica.getDibujoFacial))
+apiRouter.put('/pacientes/:id/dibujo-facial', esteticaTenant, asyncHandler(estetica.putDibujoFacial))
 
 // ── Presupuestos ─────────────────────────────────────────────────────────────
 apiRouter.get('/presupuestos', tenant, asyncHandler(presupuestos.getPresupuestos))

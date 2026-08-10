@@ -1,7 +1,7 @@
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
-import { categoriasNoLiquidables } from '@/services/catalogo.service'
+import { filtroNoLiquidable } from '@/services/catalogo.service'
 
 const ESTADOS_LIQ = ['BORRADOR', 'APROBADA', 'PAGADA']
 const TIPOS_CONTRATO = ['PORCENTAJE', 'MONTO_FIJO']
@@ -130,7 +130,7 @@ const LIQ_LIST_INCLUDE = {
 } as const
 
 const TRAT_ACTIVA_INCLUDE = {
-  prestacion: { select: { nombre: true, categoria: true } },
+  prestacion: { select: { nombre: true, categoria: true, categoriaId: true } },
   ficha: { select: { paciente: { select: { nombre: true, apellido: true } } } },
   cobroItems: {
     select: {
@@ -197,13 +197,13 @@ async function montosFijosDeDoctor(db: TenantClient, doctorId: string): Promise<
 }
 
 async function accionesActivas(db: TenantClient, doctorId: string, contrato: ContratoCalc) {
-  const noLiq = await categoriasNoLiquidables(db)
+  const esNoLiq = await filtroNoLiquidable(db)
   const montosFijos = await montosFijosDeDoctor(db, doctorId)
   const trats = (await db.tratamiento.findMany({
     where: { doctorId, estado: 'COMPLETADO', liquidacionItems: { none: {} } },
     include: TRAT_ACTIVA_INCLUDE,
     orderBy: { fechaCompletado: 'desc' },
-  })).filter((t) => !(t.prestacion.categoria && noLiq.has(t.prestacion.categoria))) // excluye laboratorios/insumos no liquidables
+  })).filter((t) => !esNoLiq(t.prestacion)) // excluye laboratorios/insumos no liquidables (por categoriaId; nombre solo legacy)
   return trats.map((t) => {
     const c = calcAccion(t, contrato, montosFijos)
     return {
@@ -273,12 +273,12 @@ export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, 
   const contrato = await db.contrato.findFirst({ where: { doctorId, activo: true } })
   if (!contrato) throw badRequest('El profesional no tiene contrato activo')
 
-  const noLiq = await categoriasNoLiquidables(db)
+  const esNoLiq = await filtroNoLiquidable(db)
   const montosFijos = await montosFijosDeDoctor(db, doctorId)
   const trats = (await db.tratamiento.findMany({
     where: { doctorId, estado: 'COMPLETADO', liquidacionItems: { none: {} } },
     include: TRAT_ACTIVA_INCLUDE,
-  })).filter((t) => !(t.prestacion.categoria && noLiq.has(t.prestacion.categoria)))
+  })).filter((t) => !esNoLiq(t.prestacion))
 
   const itemsData = trats.flatMap((t) => {
     const c = calcAccion(t, contrato, montosFijos)

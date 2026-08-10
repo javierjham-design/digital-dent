@@ -10,7 +10,8 @@ import { crearPrestacionSchema } from '@/validators/schemas'
 
 // ── Prestaciones ──
 export async function getPrestaciones(req: Request, res: Response) {
-  res.json(await listarPrestaciones(tenantDb(req)))
+  const area = typeof req.query.area === 'string' ? req.query.area : undefined
+  res.json(await listarPrestaciones(tenantDb(req), area))
 }
 
 export async function postPrestacion(req: Request, res: Response) {
@@ -33,7 +34,8 @@ export async function postDedupePrestaciones(req: Request, res: Response) {
 
 // ── Secciones / categorías del catálogo ──
 export async function getCategorias(req: Request, res: Response) {
-  res.json(await listarCategorias(tenantDb(req)))
+  const area = typeof req.query.area === 'string' ? req.query.area : undefined
+  res.json(await listarCategorias(tenantDb(req), area))
 }
 export async function postCategoria(req: Request, res: Response) {
   const body = req.body ?? {}

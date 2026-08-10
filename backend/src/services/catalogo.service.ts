@@ -11,9 +11,14 @@ function prestacionDTO(p: {
   return { ...p, categoriaId: p.categoriaId ?? null }
 }
 
-export async function listarPrestaciones(db: TenantClient): Promise<PrestacionDTO[]> {
+// `area` opcional: filtra las prestaciones de esa área (derivada de su categoría).
+// Sin parámetro devuelve todo (comportamiento previo intacto).
+export async function listarPrestaciones(db: TenantClient, area?: string): Promise<PrestacionDTO[]> {
   const prestaciones = await db.prestacion.findMany({ orderBy: [{ categoria: 'asc' }, { nombre: 'asc' }] })
-  return prestaciones.map(prestacionDTO)
+  if (!area) return prestaciones.map(prestacionDTO)
+  const areaDe = await resolverAreaPorCategoria(db)
+  const buscada = area.trim().toUpperCase()
+  return prestaciones.filter((p) => areaDe(p) === buscada).map(prestacionDTO)
 }
 
 // ─── Categorías / secciones del catálogo ─────────────────────────────────────
@@ -22,7 +27,7 @@ export interface CategoriaPrestacionDTO { id: string; nombre: string; area: stri
 
 // Lista las secciones (categorías) del catálogo, ordenadas. La primera vez las
 // siembra a partir de las categorías ya usadas por las prestaciones existentes.
-export async function listarCategorias(db: TenantClient): Promise<CategoriaPrestacionDTO[]> {
+export async function listarCategorias(db: TenantClient, area?: string): Promise<CategoriaPrestacionDTO[]> {
   let cats = await db.categoriaPrestacion.findMany({ orderBy: [{ orden: 'asc' }, { nombre: 'asc' }] })
   if (cats.length === 0) {
     const usadas = await db.prestacion.findMany({ where: { categoria: { not: null } }, select: { categoria: true }, distinct: ['categoria'] })
@@ -31,6 +36,10 @@ export async function listarCategorias(db: TenantClient): Promise<CategoriaPrest
       await db.categoriaPrestacion.createMany({ data: nombres.map((nombre, i) => ({ nombre, orden: i })) })
       cats = await db.categoriaPrestacion.findMany({ orderBy: [{ orden: 'asc' }, { nombre: 'asc' }] })
     }
+  }
+  if (area) {
+    const buscada = area.trim().toUpperCase()
+    return cats.filter((c) => c.area === buscada)
   }
   return cats
 }
@@ -99,11 +108,15 @@ export async function eliminarCategoria(db: TenantClient, id: string): Promise<v
   await db.categoriaPrestacion.delete({ where: { id } })
 }
 
-// Conjunto de nombres de categorías NO liquidables (laboratorios/insumos). Se usa
-// para excluir esas acciones del cálculo de la liquidación del profesional.
-export async function categoriasNoLiquidables(db: TenantClient): Promise<Set<string>> {
-  const cats = await db.categoriaPrestacion.findMany({ where: { noLiquidable: true }, select: { nombre: true } })
-  return new Set(cats.map((c) => c.nombre))
+// Predicado "esta prestación es NO liquidable" (laboratorios/insumos que no se
+// pagan al profesional). Por categoriaId cuando existe; por nombre SOLO para
+// filas legacy sin FK (con secciones homónimas entre áreas, el nombre solo
+// marcaría de más). Excluye esas acciones del cálculo de la liquidación.
+export async function filtroNoLiquidable(db: TenantClient): Promise<(p: { categoriaId?: string | null; categoria?: string | null }) => boolean> {
+  const cats = await db.categoriaPrestacion.findMany({ where: { noLiquidable: true }, select: { id: true, nombre: true } })
+  const ids = new Set(cats.map((c) => c.id))
+  const nombres = new Set(cats.map((c) => c.nombre))
+  return (p) => (p.categoriaId ? ids.has(p.categoriaId) : Boolean(p.categoria && nombres.has(p.categoria)))
 }
 
 const normNombre = (s: string | null | undefined) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -116,7 +129,7 @@ const normNombre = (s: string | null | undefined) => (s ?? '').trim().toLowerCas
 // legacy sin backfill, que son DENTAL por definición.
 export const AREA_DEFAULT = 'DENTAL'
 export type ResolverArea = (p: { categoriaId?: string | null; categoria?: string | null }) => string
-async function resolverAreaPorCategoria(db: TenantClient): Promise<ResolverArea> {
+export async function resolverAreaPorCategoria(db: TenantClient): Promise<ResolverArea> {
   const cats = await db.categoriaPrestacion.findMany({ select: { id: true, nombre: true, area: true } })
   const porId = new Map(cats.map((c) => [c.id, c.area || AREA_DEFAULT]))
   const porNombre = new Map(cats.map((c) => [normNombre(c.nombre), c.area || AREA_DEFAULT]))

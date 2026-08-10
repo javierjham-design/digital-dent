@@ -856,3 +856,91 @@ describe('radiografías y documentos del paciente', () => {
     expect(del.status).toBe(200)
   })
 })
+
+describe('áreas clínicas: guard por usuario, multi-zona con UN precio, y capas separadas', () => {
+  let catEstetica = { id: '' }
+  let botox = { id: '' }
+  let docToken = ''
+  let docId = ''
+  const authDoc = () => ({ Authorization: `Bearer ${docToken}` })
+
+  beforeAll(async () => {
+    // Sección + prestación del área ESTETICA (la clínica A contrata dental+estética en el seed).
+    catEstetica = (await post('/categorias-prestacion', { nombre: 'Toxina', area: 'ESTETICA' })).body
+    botox = (await post('/prestaciones', { nombre: 'Bótox periocular', categoriaId: catEstetica.id, precio: 180000 })).body
+    // Usuaria SIN el área estética habilitada (default areaEstetica=false).
+    // role staff: no consume el cupo de profesionales con agenda del plan.
+    const doc = await post('/usuarios', { name: 'Dra. Área', username: 'dra-area', password: 'Password123', role: 'staff' })
+    docId = doc.body.id
+    const login = await request(app).post('/api/v1/auth/login').send({ slug: A.slug, username: 'dra-area', password: 'Password123' })
+    docToken = login.body.token
+  })
+
+  it('la sesión trae las áreas efectivas: admin = las de la clínica; doctor sin flag = solo DENTAL', async () => {
+    const meAdmin = await get('/auth/me')
+    expect(meAdmin.body.user.areas.sort()).toEqual(['DENTAL', 'ESTETICA'])
+    const meDoc = await request(app).get('/api/v1/auth/me').set(authDoc())
+    expect(meDoc.body.user.areas).toEqual(['DENTAL'])
+  })
+
+  it('guard: el doctor sin areaEstetica NO puede crear un tratamiento estético (403); con el flag sí', async () => {
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: docId })
+    const intento = await request(app).post('/api/v1/tratamientos').set(authDoc())
+      .send({ pacienteId: A.pacienteId, prestacionId: botox.id, planId: plan.body.id, precio: 180000 })
+    expect(intento.status).toBe(403)
+
+    const habilitar = await request(app).patch(`/api/v1/usuarios/${docId}`).set(auth()).send({ areaEstetica: true })
+    expect(habilitar.status).toBe(200)
+    const ok = await request(app).post('/api/v1/tratamientos').set(authDoc())
+      .send({ pacienteId: A.pacienteId, prestacionId: botox.id, planId: plan.body.id, precio: 180000 })
+    expect(ok.status).toBe(201)
+  })
+
+  it('multi-zona: UN tratamiento cubre N zonas con UN precio (no duplica en presupuesto/cobro)', async () => {
+    const zonas = await get('/zonas-faciales')
+    expect(zonas.status).toBe(200)
+    expect(zonas.body.length).toBeGreaterThanOrEqual(6) // placeholder sembrado lazy
+    const ids = zonas.body.filter((z: { codigo: string }) => z.codigo.startsWith('patas_gallo')).map((z: { id: string }) => z.id)
+    expect(ids.length).toBe(2)
+
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })
+    const r = await post('/tratamientos', { pacienteId: A.pacienteId, prestacionId: botox.id, planId: plan.body.id, precio: 180000, zonaIds: ids })
+    expect(r.status).toBe(201)
+    expect(r.body.length).toBe(1) // UN tratamiento (no uno por zona)
+    expect(r.body[0].precio).toBe(180000)
+    expect(r.body[0].zonas.length).toBe(2)
+
+    const db = tenantClient(A.dbName)
+    const uniones = await db.tratamientoZona.count({ where: { tratamientoId: r.body[0].id } })
+    expect(uniones).toBe(2)
+  })
+
+  it('capas separadas: guardar y borrar trazos del dibujo JAMÁS toca tratamientos ni zonas', async () => {
+    const db = tenantClient(A.dbName)
+    const antes = await db.tratamiento.count()
+    const zonasAntes = await db.tratamientoZona.count()
+
+    const trazos = [{ herramienta: 'lapiz', color: '#1d4ed8', grosor: 2, puntos: [{ x: 0.4, y: 0.3 }, { x: 0.42, y: 0.33 }] }]
+    const put1 = await request(app).put(`/api/v1/pacientes/${A.pacienteId}/dibujo-facial`).set(auth()).send({ genero: 'F', trazos })
+    expect(put1.status).toBe(200)
+    expect(put1.body.trazos.length).toBe(1)
+
+    // "Goma" / reiniciar: borra TODOS los trazos.
+    const put2 = await request(app).put(`/api/v1/pacientes/${A.pacienteId}/dibujo-facial`).set(auth()).send({ trazos: [] })
+    expect(put2.status).toBe(200)
+    expect(put2.body.trazos.length).toBe(0)
+
+    expect(await db.tratamiento.count()).toBe(antes)        // ni un tratamiento tocado
+    expect(await db.tratamientoZona.count()).toBe(zonasAntes) // ni una zona de tratamiento tocada
+  })
+
+  it('estado por zona (capa 1): se asigna y persiste como el odontograma', async () => {
+    const zonas = await get('/zonas-faciales')
+    const menton = zonas.body.find((z: { codigo: string }) => z.codigo === 'menton')
+    const r = await request(app).put(`/api/v1/pacientes/${A.pacienteId}/zonas-faciales`).set(auth())
+      .send({ zonaId: menton.id, estado: 'TRATADO', color: '#7c3aed' })
+    expect(r.status).toBe(200)
+    const lista = await get(`/pacientes/${A.pacienteId}/zonas-faciales`)
+    expect(lista.body.some((z: { zona: { codigo: string }; estado: string }) => z.zona.codigo === 'menton' && z.estado === 'TRATADO')).toBe(true)
+  })
+})
