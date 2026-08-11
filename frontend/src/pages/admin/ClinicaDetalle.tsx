@@ -5,6 +5,7 @@ import { ApiError } from '@/services/api'
 import { PAISES_LISTA, getPais } from '@shared/constants/paises'
 import { MODULOS, MODULOS_CODES } from '@shared/constants/modulos'
 import { AREAS, AREA_LABELS, MODULO_POR_AREA } from '@shared/constants/areas'
+import { EXTRAS_CATALOGO, precioExtraCatalogo } from '@shared/constants/extras'
 import { fmtCobro, type MonedaCobro } from '@shared/constants/cobro'
 
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
@@ -602,14 +603,20 @@ function PagosCard({ id, moneda, onChange }: { id: string; moneda: MonedaCobro; 
 
 function ExtrasCard({ id, moneda }: { id: string; moneda: MonedaCobro }) {
   const [extras, setExtras] = useState<Extra[]>([])
-  const [form, setForm] = useState({ nombre: '', montoMensual: '' })
+  const [form, setForm] = useState({ codigo: 'OTRO', nombre: '', montoMensual: '' })
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
   const [editId, setEditId] = useState<string | null>(null); const [editVal, setEditVal] = useState('')
   const cargar = () => adminService.extras(id).then((r) => setExtras(r.extras as Extra[])).catch(() => {})
   useEffect(() => { cargar() }, [id])
+  // Elegir un extra predefinido del catálogo rellena concepto + monto sugerido (editable).
+  function elegirCatalogo(codigo: string) {
+    const def = EXTRAS_CATALOGO.find((e) => e.codigo === codigo)
+    if (def) setForm({ codigo: def.codigo, nombre: def.nombre, montoMensual: String(precioExtraCatalogo(def, moneda)) })
+    else setForm({ codigo: 'OTRO', nombre: '', montoMensual: '' })
+  }
   async function crear() {
     setBusy(true); setErr('')
-    try { await adminService.crearExtra(id, { nombre: form.nombre, montoMensual: Number(form.montoMensual) || 0 }); setForm({ nombre: '', montoMensual: '' }); cargar() }
+    try { await adminService.crearExtra(id, { codigo: form.codigo, nombre: form.nombre, montoMensual: Number(form.montoMensual) || 0 }); setForm({ codigo: 'OTRO', nombre: '', montoMensual: '' }); cargar() }
     catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
   }
   async function toggle(x: Extra) { await adminService.actualizarExtra(id, x.id, { activo: !x.activo }).catch(() => {}); cargar() }
@@ -620,8 +627,14 @@ function ExtrasCard({ id, moneda }: { id: string; moneda: MonedaCobro }) {
   }
   return (
     <Card title="Extras facturables">
-      <p className="text-xs text-slate-500 -mt-2 mb-3">Cargos mensuales adicionales para esta clínica (se suman al MRR). Ej: recordatorios WhatsApp, módulos extra.</p>
+      <p className="text-xs text-slate-500 -mt-2 mb-3">Cargos mensuales adicionales para esta clínica (se suman al MRR). Ej: módulos de área (Estética, Médico), recordatorios WhatsApp.</p>
       <div className="flex flex-wrap items-end gap-2 mb-4">
+        <label className="min-w-[170px]"><L>Predefinido</L>
+          <select value={form.codigo} onChange={(e) => elegirCatalogo(e.target.value)} className={inpCls}>
+            <option value="OTRO">Otro (personalizado)</option>
+            {EXTRAS_CATALOGO.map((e) => <option key={e.codigo} value={e.codigo}>{e.nombre}</option>)}
+          </select>
+        </label>
         <label className="flex-1 min-w-[160px]"><L>Concepto</L><input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Recordatorios WhatsApp" className={inpCls} /></label>
         <label><L>Monto mensual ({moneda})</L><input value={form.montoMensual} onChange={(e) => setForm({ ...form, montoMensual: e.target.value })} inputMode="numeric" placeholder="0" className={`${inpCls} font-mono w-32`} /></label>
         <button onClick={crear} disabled={busy || !form.nombre} className={btnCls}>Agregar</button>
