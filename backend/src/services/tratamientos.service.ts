@@ -47,6 +47,9 @@ const TRAT_INCLUDE = {
     orderBy: { fecha: 'desc' },
     select: { id: true, fecha: true, texto: true, autor: { select: { id: true, name: true, email: true } } },
   },
+  // Zonas faciales de la acción (área estética): el plan las muestra donde
+  // una acción dental muestra la pieza.
+  zonas: { select: { zona: { select: { codigo: true, nombreVisible: true } } } },
   // Si tiene ítems de liquidación, la acción ya fue liquidada (pagada al profesional).
   _count: { select: { liquidacionItems: true } },
 } as const

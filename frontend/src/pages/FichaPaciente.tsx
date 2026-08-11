@@ -471,6 +471,7 @@ interface TratNode {
   prestacion: { nombre: string; categoria: string | null }; cobroItems: CobroItemLite[]
   doctor: { id: string; name: string | null } | null
   evoluciones?: EvolucionLite[]
+  zonas?: { zona: { codigo: string; nombreVisible: string } }[] // área estética
   _count?: { liquidacionItems: number }
 }
 interface TratLite { estado: string; precio: number; descuento: number; cobroItems: CobroItemLite[] }
@@ -1372,9 +1373,10 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
     if (!window.confirm('¿Desevolucionar esta acción? Volverá a quedar como planificada (no realizada) y se quitará de lo realizado del paciente.')) return
     accion(() => tratamientosService.actualizar(t.id, { estado: 'PLANIFICADO', fechaCompletado: null }))
   }
+  const zonasLabel = (t.zonas ?? []).map((z) => z.zona.nombreVisible).join(', ')
   const piezaLabel = t.diente
     ? `${t.diente}${t.cara ? ` (${t.cara.split('').join(',')})` : ''}`
-    : (t.cara ? t.cara : (t.notas ? t.notas.replace(/^Piezas:\s*/, '') : '—'))
+    : (zonasLabel || (t.cara ? t.cara : (t.notas ? t.notas.replace(/^Piezas:\s*/, '') : '—')))
 
   function abrir(campo: 'precio' | 'dscto') {
     if (campo === 'precio' ? !precioEditable : !dsctoEditable) return
