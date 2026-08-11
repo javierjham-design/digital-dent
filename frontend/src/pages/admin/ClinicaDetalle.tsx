@@ -4,6 +4,7 @@ import { adminService } from '@/services/admin.service'
 import { ApiError } from '@/services/api'
 import { PAISES_LISTA, getPais } from '@shared/constants/paises'
 import { MODULOS, MODULOS_CODES } from '@shared/constants/modulos'
+import { AREAS, AREA_LABELS, MODULO_POR_AREA } from '@shared/constants/areas'
 import { fmtCobro, type MonedaCobro } from '@shared/constants/cobro'
 
 const fmtFecha = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('es-CL', { day: '2-digit', month: 'short', year: 'numeric' }) : '—')
@@ -426,6 +427,31 @@ function ModulosCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void 
               <span>
                 <span className="text-sm text-white font-medium">{m.nombre}</span>
                 <span className="block text-xs text-slate-500">{m.descripcion}</span>
+              </span>
+            </label>
+          )
+        })}
+      </div>
+
+      <p className="text-xs uppercase tracking-wide text-slate-400 mt-4 mb-2">Áreas clínicas</p>
+      <div className="space-y-2">
+        {AREAS.map((a) => {
+          const code = MODULO_POR_AREA[a]
+          const on = sel.includes(code)
+          const esEstetica = a === 'ESTETICA'
+          return (
+            <label key={code} className="flex items-start gap-3 rounded-lg border border-white/10 px-3 py-2 cursor-pointer hover:bg-white/5">
+              <input type="checkbox" checked={on} onChange={() => toggle(code)} className="mt-1 accent-purple-500" />
+              <span>
+                <span className="text-sm text-white font-medium">{AREA_LABELS[a]}</span>
+                <span className="block text-xs text-slate-500">
+                  {a === 'DENTAL' ? 'Odontograma, catálogo y liquidaciones dentales.'
+                    : a === 'ESTETICA' ? 'Mapa de zonas faciales y catálogo estético.'
+                    : 'Catálogo y fichas del área médica.'}
+                </span>
+                {esEstetica && on && (
+                  <span className="block text-xs text-amber-400 mt-1">⚠️ Lista de zonas PROVISIONAL: no habilitar en una clínica real hasta congelarla (los códigos se graban en cada tratamiento).</span>
+                )}
               </span>
             </label>
           )

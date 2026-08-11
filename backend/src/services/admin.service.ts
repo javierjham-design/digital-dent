@@ -156,9 +156,19 @@ export async function cambiarProfesionalesExtra(ctx: AuditCtx, id: string, canti
 // Asigna los módulos habilitados de la clínica (CRM / Agendamiento online /
 // WhatsApp). Se guardan como CSV en el control-plane; el cache de tenant se
 // invalida para que el gating (requireModulo) refleje el cambio de inmediato.
+// Filtra a los códigos VÁLIDOS: módulos comerciales (CRM, agenda, WhatsApp) + módulos
+// de ÁREA (area_dental/estetica/medico), sin duplicados. Función pura (testeable).
+// Antes solo se aceptaban los comerciales, así que guardar desde el panel BORRABA el
+// área de la clínica (regresión de pérdida de dato). Ahora el panel manda el set
+// completo (comerciales + áreas) y acá se conservan ambos tipos.
+export function sanitizarModulos(rawModulos: string[]): string[] {
+  const permitidos = new Set([...MODULOS_CODES, ...MODULOS_AREA_CODES])
+  return [...new Set(rawModulos.map((m) => String(m)).filter((c) => permitidos.has(c)))]
+}
+
 export async function cambiarModulos(ctx: AuditCtx, id: string, rawModulos: unknown) {
   if (!Array.isArray(rawModulos)) throw badRequest('modulos debe ser un arreglo de códigos.')
-  const validos = rawModulos.map((m) => String(m)).filter((c) => MODULOS_CODES.includes(c))
+  const validos = sanitizarModulos(rawModulos)
   const csv = validos.join(',')
   const clinica = await control.clinica.update({ where: { id }, data: { modulos: csv } })
   invalidateClinicaCache(id)
