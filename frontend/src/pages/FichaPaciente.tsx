@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { CitaDTO, DoctorDTO, PacienteDTO, PrestacionDTO, ClinicaConfigDTO } from '@shared/types'
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
@@ -1651,6 +1651,14 @@ function PanelAgregarPrestacion({ planId, pacienteId, prestaciones, selPiezas, s
   const [guardando, setGuardando] = useState(false)
   const [agregadas, setAgregadas] = useState(0)
 
+  // Mobile: deslizar la barra gris hacia abajo cierra el panel (gesto natural).
+  const [dragY, setDragY] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const dragStart = useRef<number | null>(null)
+  const onDragStart = (e: RPointerEvent<HTMLDivElement>) => { dragStart.current = e.clientY; setDragging(true); e.currentTarget.setPointerCapture(e.pointerId) }
+  const onDragMove = (e: RPointerEvent<HTMLDivElement>) => { if (dragStart.current != null) setDragY(Math.max(0, e.clientY - dragStart.current)) }
+  const onDragEnd = () => { if (dragStart.current == null) return; const cerrar = dragY > 90; dragStart.current = null; setDragging(false); if (cerrar) onClose(); else setDragY(0) }
+
   // Mobile: al abrir el panel inferior, subir el diagrama justo debajo del header
   // fijo para que las piezas/zonas queden a la vista (y no el presupuesto de arriba).
   useEffect(() => {
@@ -1716,14 +1724,19 @@ function PanelAgregarPrestacion({ planId, pacienteId, prestaciones, selPiezas, s
     // Mobile: panel INFERIOR (bottom sheet) que deja el diagrama visible arriba para
     // seguir marcando piezas/zonas. Escritorio (lg): panel lateral izquierdo de alto
     // completo. En ambos, sin capa que bloquee el diagrama.
-    <div className="fixed z-40 bg-white shadow-2xl flex flex-col overflow-hidden
-      inset-x-0 bottom-0 max-h-[55vh] rounded-t-2xl
-      lg:inset-x-auto lg:top-0 lg:bottom-0 lg:left-0 lg:max-h-none lg:w-[440px] lg:rounded-none">
-      <div className="lg:hidden pt-2 pb-1 flex justify-center shrink-0"><span className="h-1 w-10 rounded-full bg-slate-300" /></div>
+    <div style={dragY ? { transform: `translateY(${dragY}px)` } : undefined}
+      className={`fixed z-40 bg-white shadow-2xl flex flex-col overflow-hidden
+      inset-x-0 bottom-0 max-h-[55vh] rounded-t-2xl ${dragging ? '' : 'transition-transform duration-200'}
+      lg:inset-x-auto lg:top-0 lg:bottom-0 lg:left-0 lg:max-h-none lg:w-[440px] lg:rounded-none lg:transition-none`}>
+      {/* Barra: deslizala hacia abajo para cerrar (solo mobile). */}
+      <div className="lg:hidden py-3 flex justify-center shrink-0 cursor-grab touch-none"
+        onPointerDown={onDragStart} onPointerMove={onDragMove} onPointerUp={onDragEnd} onPointerCancel={onDragEnd}>
+        <span className="h-1.5 w-12 rounded-full bg-slate-300" />
+      </div>
       <div className="bg-cyan-600 text-white px-4 py-3 flex items-center gap-2 shrink-0">
-        {(cat || q) && <button onClick={() => { setCat(null); setBusca('') }} className="text-white/90 hover:text-white text-xl leading-none">‹</button>}
+        {(cat || q) && <button onClick={() => { setCat(null); setBusca('') }} className="text-white/90 hover:text-white text-xl leading-none px-1">‹</button>}
         <span className="font-semibold flex-1 truncate">{cat ?? 'Definir prestación'}</span>
-        <button onClick={onClose} className="text-white/90 hover:text-white text-xl leading-none">✕</button>
+        <button onClick={onClose} aria-label="Cerrar" className="flex items-center gap-1 text-white/90 hover:text-white text-sm font-medium bg-white/15 rounded-lg px-2.5 py-1.5">Cerrar ✕</button>
       </div>
       <div className="p-3 border-b border-slate-100 shrink-0">
         <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar prestación o categoría…"
