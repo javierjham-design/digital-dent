@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-10 — Liquidaciones: fecha de corte, finalización masiva y finalizadas por mes
+
+Pedido del usuario (pausa dentro de la tarea de áreas). Dos tandas desplegadas el mismo día
+(ramas `fix/liquidaciones-corte` y `fix/liquidaciones-finalizar-todas`, ambas mergeadas a `arch`):
+
+- **Finalizar con fecha de corte.** `finalizarLiquidacion(db, actor, doctorId, fechaCorte?)`
+  cierra SOLO las acciones **evolucionadas Y pagadas** hasta el **fin del día de corte (hora
+  Chile**, `rangoFechasUtc(undefined, corte).lte`); lo evolucionado después, lo impago y lo
+  pagado parcial queda en la activa para el próximo ciclo. **`periodo` = fecha de corte**
+  (antes era "hoy" fijo). Valida `YYYY-MM-DD` y rechaza futuras (`validarCorte`).
+- **Finalización masiva.** `POST /liquidaciones-activas/finalizar-todas` (ruta registrada
+  ANTES de `/:doctorId`): recorre los contratos activos y cierra cada profesional con la misma
+  fecha de corte; el que no tiene acciones pagadas hasta el corte queda como **omitido**
+  (reportado, no error — se distingue por `AppError` 400 tras validar el corte una sola vez).
+- **UI** (`Liquidaciones.tsx`): botón **"Finalizar…" por fila** (abre directo el modal de
+  corte) + **"Finalizar todas…"** arriba (modal de fecha única + resultado detallado
+  finalizadas/omitidas) + el modal de detalle ahora pide fecha de corte (reemplazó el
+  `confirm()`), con vista previa de cuántas acciones se cierran y cuántas quedan. Pestaña
+  **Finalizadas agrupada por mes** (desc, subtotal mensual; `periodo.slice(0,7)`); la gestión
+  (estado + factura/comprobante) sigue en el detalle de cada finalizada.
+- **Verificación (2 tandas):** typecheck be/fe ✓ · unit 118 · integración **80/80** (+5:
+  corte excluye posterior/impago, periodo=corte, 400 inválida/futura, default hoy, lote con
+  omitidos) · contrato 247/219 ✓ · lint 0 errores. Deploy BACKEND+FRONTEND SUCCESS + smoke verde.
+- **Back-merges a `feat/areas-clinicas` hechos** (conflicto en `liquidaciones.service.ts`
+  resuelto: `filtroNoLiquidable` de áreas + filtro de corte; segundo merge limpio). La rama
+  de áreas quedó verde (89/89) y lista para su ventana de migración.
+
+---
+
 ## 2026-08-08 — Vínculo automático lead→paciente (trazabilidad del embudo)
 
 El vínculo lead→paciente se perdía cuando la recepción creaba la ficha desde cero en vez de

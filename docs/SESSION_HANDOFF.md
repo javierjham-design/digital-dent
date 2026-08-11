@@ -7,7 +7,28 @@
 
 ## Última actualización
 
-- **Fecha:** 2026-08-08
+- **Fecha:** 2026-08-10
+- **⏳ EN CURSO — Módulo de ÁREAS CLÍNICAS (rama `feat/areas-clinicas`, NO mergeada).**
+  DENTAL/ESTETICA/MEDICO en dos niveles (módulos `area_*` por clínica ∩ booleanos por usuario),
+  catálogos por área, mapa facial con 2 capas (`GraficoFacial`, zonas desde
+  `shared/src/constants/zonas-faciales.ts` — **PROVISIONAL**, pendiente revisión profesional;
+  título dice 28 pero las tablas enumeran 32, discrepancia flagueada). Decisión de diseño
+  confirmada: **el plan define capacidad comercial, el área define la naturaleza del negocio —
+  no se mezclan** (`cambiarPlan` preserva los `area_*`). Rollback en `docs/AREAS_ROLLBACK.md`,
+  contrato del SVG en `docs/SVG_ROSTRO_CONTRATO.md`.
+  **Ventana de migración HOY 22:15 Chile (monitor armado): SOLO pasos 1→3**
+  (backup → `areas-fase6.ts --apply` → `migrate:tenants --strict` con **freno: si da 2/3 se
+  PARA y no se despliega**) **y PARAR**. El deploy (paso 4) y la verificación visual (paso 5)
+  se hacen CON Javier mirando. NO habilitar `area_estetica` a nadie hasta congelar la lista
+  de zonas. La rama está al día con arch (back-merges hechos) y verde: 125 unit + 89 integración.
+- **Liquidaciones: fecha de corte + finalización masiva + finalizadas por mes — DESPLEGADO
+  2026-08-10** (smoke verde). Finalizar (individual o "Finalizar todas…") pide **fecha de
+  corte**: cierra solo lo evolucionado Y pagado hasta el fin de ese día (Chile); lo impago,
+  parcial o posterior queda para el próximo ciclo; `periodo` = corte. Finalizadas agrupadas
+  por mes; gestión (estado + factura/comprobante) en el detalle. Endpoint nuevo
+  `POST /liquidaciones-activas/finalizar-todas`. Ver `docs/AI_CHANGELOG.md`.
+
+- **Fecha previa:** 2026-08-08
 - **Vínculo automático lead→paciente (Parte A DESPLEGADA 2026-08-08; Parte B dry-run pendiente de aplicar).**
   El vínculo se perdía cuando recepción crea la ficha desde cero (61/144 agendados sin pacienteId).
   **A)** Al crear un paciente, si hay EXACTAMENTE un lead sin vincular que coincide por teléfono
