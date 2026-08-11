@@ -5,6 +5,50 @@
 
 ---
 
+## 2026-08-10 — ÁREAS CLÍNICAS EN PRODUCCIÓN (ventana completa 1→8, con Javier presente)
+
+La rama `feat/areas-clinicas` (DENTAL/ESTETICA/MEDICO en dos niveles: módulos `area_*` por
+clínica ∩ booleanos por usuario; catálogos por área; mapa facial de 2 capas) se **desplegó a
+producción** ejecutando la secuencia completa en una ventana con las clínicas cerradas:
+
+1. **Monitor de las 22:15 desarmado** antes de arrancar (nada automático sin nadie mirando).
+2. **Backup fresco**: OK 4/4 bases, 35,1 MB (manifest `clariva/2026/08/11/…00-52-54`).
+3. **`areas-fase6 --apply`** (con verificación read-only): columna `area` + swap de índice a
+   `CategoriaPrestacion_nombre_area_key` en las 3; secciones sembradas donde no existían
+   (montenegro **33**, orodent **7** — derivadas de su catálogo real, con duplicados de
+   mayúsculas fieles al origen); backfill `categoriaId` **776/759/8** con **0 sin vincular**;
+   `area_dental` explícito en el control de las 3. Dos tropiezos SIN impacto: (a) quoting de
+   la CLI de Railway en Windows mandó la PRIMERA lectura a la base `railway` del monolito
+   (abortó solo, cero escrituras; se pasó a un wrapper `.sh`); (b) el `update` del control
+   pedía `Clinica.vertical` en el RETURNING antes del `control:push` → fix `select: {id}`.
+4. **`migrate:tenants --strict`: 3/3 OK** (freno 2/3 no aplicó).
+5. **Deploy** (merge `5f138aa`): BACKEND+FRONTEND SUCCESS, smoke 9/9, `Clinica.vertical`
+   creada por el prestart (las 3 = `dental`).
+6. **Verificación visual de Javier en digital-dent: CONFIRMADA** (774 prestaciones / 29
+   secciones, odontograma normal, sin barra de pestañas con una sola área).
+7. **E2E en demo real (`demo-l49j1s`), 24 aserciones verdes**: dos áreas habilitadas
+   (control + flag de usuario), 32 zonas lazy-seed, catálogos separados por `?area=`, acción
+   estética multi-zona (FRENTE+MENTÓN, UN precio), dibujo 2 trazos → goma deja 1 **sin tocar
+   acciones ni zonas**, presupuesto dental+estética $280.000, liquidación 50% = $140.000
+   cuadrando por área. **Hallazgo arreglado en el acto** (`eaacaa3`): el detalle del plan no
+   exponía las zonas de una acción estética (`TRAT_INCLUDE` sin `zonas`; la UI mostraba `—`)
+   → ahora devuelve `zonas[]` y la fila del plan las muestra donde la dental muestra la pieza.
+
+**Pendientes que NO cerrar en falso:**
+- **Zonas faciales PROVISIONALES** (`shared/src/constants/zonas-faciales.ts`): 6 preguntas
+  abiertas a revisión profesional; título del doc dice 28 y las tablas enumeran 32. **NO
+  habilitar `area_estetica` a una clínica REAL hasta congelar la lista** (el código queda
+  grabado en cada tratamiento). Hoy cambiar es gratis (0 tratamientos reales).
+- **Ilustración SVG** (rostro-f/rostro-m): encargar SOLO tras congelar zonas
+  (`docs/SVG_ROSTRO_CONTRATO.md`).
+- **Guarda de identidad de base en scripts de producción** (pedido de Javier tras el
+  casi-accidente (a)): todo script que toque prod debe afirmar `SELECT current_database()`
+  contra lo esperado ANTES de operar y abortar si no coincide. Barato; cierra la clase entera.
+- Decisión de diseño vigente: **plan = capacidad comercial, área = naturaleza del negocio;
+  no se mezclan** (`cambiarPlan` preserva `area_*`). Rollback en `docs/AREAS_ROLLBACK.md`.
+
+---
+
 ## 2026-08-10 — Liquidaciones: fecha de corte, finalización masiva y finalizadas por mes
 
 Pedido del usuario (pausa dentro de la tarea de áreas). Dos tandas desplegadas el mismo día

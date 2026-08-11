@@ -8,19 +8,24 @@
 ## Última actualización
 
 - **Fecha:** 2026-08-10
-- **⏳ EN CURSO — Módulo de ÁREAS CLÍNICAS (rama `feat/areas-clinicas`, NO mergeada).**
+- **✅ ÁREAS CLÍNICAS EN PRODUCCIÓN (2026-08-10, ventana completa con Javier presente).**
   DENTAL/ESTETICA/MEDICO en dos niveles (módulos `area_*` por clínica ∩ booleanos por usuario),
-  catálogos por área, mapa facial con 2 capas (`GraficoFacial`, zonas desde
-  `shared/src/constants/zonas-faciales.ts` — **PROVISIONAL**, pendiente revisión profesional;
-  título dice 28 pero las tablas enumeran 32, discrepancia flagueada). Decisión de diseño
-  confirmada: **el plan define capacidad comercial, el área define la naturaleza del negocio —
-  no se mezclan** (`cambiarPlan` preserva los `area_*`). Rollback en `docs/AREAS_ROLLBACK.md`,
-  contrato del SVG en `docs/SVG_ROSTRO_CONTRATO.md`.
-  **Ventana de migración HOY 22:15 Chile (monitor armado): SOLO pasos 1→3**
-  (backup → `areas-fase6.ts --apply` → `migrate:tenants --strict` con **freno: si da 2/3 se
-  PARA y no se despliega**) **y PARAR**. El deploy (paso 4) y la verificación visual (paso 5)
-  se hacen CON Javier mirando. NO habilitar `area_estetica` a nadie hasta congelar la lista
-  de zonas. La rama está al día con arch (back-merges hechos) y verde: 125 unit + 89 integración.
+  catálogos por área, mapa facial con 2 capas. Secuencia ejecutada: backup OK 4/4 (35,1 MB) →
+  `areas-fase6 --apply` verificado (columna+índice en las 3; secciones sembradas montenegro 33
+  / orodent 7; backfill categoriaId 776/759/8 con 0 sin vincular; `area_dental` en el control
+  de las 3) → `migrate:tenants --strict` **3/3** → deploy `5f138aa` SUCCESS + smoke 9/9 +
+  `Clinica.vertical` creada → **verificación visual de Javier CONFIRMADA** (774 prestaciones /
+  29 secciones, odontograma normal, sin pestañas con una sola área) → **e2e en demo
+  `demo-l49j1s`: 24/24** (multi-zona con un precio, goma no toca acciones/zonas, presupuesto
+  y liquidación cuadrando por área). Fix sobre la marcha `eaacaa3`: el plan ahora expone
+  `zonas[]` de las acciones estéticas (antes la UI mostraba `—`). Detalle en AI_CHANGELOG.
+  **⚠️ Pendientes:** zonas **PROVISIONALES** (28-vs-32, 6 preguntas) → **NO habilitar
+  `area_estetica` a una clínica REAL hasta congelar la lista**; ilustración SVG después de
+  congelar (`docs/SVG_ROSTRO_CONTRATO.md`); **guarda de identidad de base** en scripts de
+  prod (`SELECT current_database()` vs esperado, abortar si difiere — pedido de Javier tras
+  un casi-accidente de quoting que mandó una lectura a la base `railway` del monolito).
+  Decisión vigente: **plan = capacidad comercial, área = naturaleza del negocio; no se
+  mezclan**. Rollback en `docs/AREAS_ROLLBACK.md`.
 - **Liquidaciones: fecha de corte + finalización masiva + finalizadas por mes — DESPLEGADO
   2026-08-10** (smoke verde). Finalizar (individual o "Finalizar todas…") pide **fecha de
   corte**: cierra solo lo evolucionado Y pagado hasta el fin de ese día (Chile); lo impago,
