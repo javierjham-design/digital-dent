@@ -1651,6 +1651,17 @@ function PanelAgregarPrestacion({ planId, pacienteId, prestaciones, selPiezas, s
   const [guardando, setGuardando] = useState(false)
   const [agregadas, setAgregadas] = useState(0)
 
+  // Mobile: al abrir el panel inferior, subir el diagrama justo debajo del header
+  // fijo para que las piezas/zonas queden a la vista (y no el presupuesto de arriba).
+  useEffect(() => {
+    if (!window.matchMedia('(max-width: 1023px)').matches) return
+    const el = document.getElementById('plan-diagrama')
+    if (!el) return
+    const offset = (document.querySelector('header')?.getBoundingClientRect().height ?? 0) + 8
+    const y = el.getBoundingClientRect().top + window.scrollY - offset
+    window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' })
+  }, [])
+
   const piezas = [...selPiezas].sort((a, b) => a - b)
   const resumen = piezas.map((n) => `${n}${selCaras[n]?.length ? `(${selCaras[n].join('')})` : ''}`).join(', ')
 
@@ -1706,7 +1717,7 @@ function PanelAgregarPrestacion({ planId, pacienteId, prestaciones, selPiezas, s
     // seguir marcando piezas/zonas. Escritorio (lg): panel lateral izquierdo de alto
     // completo. En ambos, sin capa que bloquee el diagrama.
     <div className="fixed z-40 bg-white shadow-2xl flex flex-col overflow-hidden
-      inset-x-0 bottom-0 max-h-[62vh] rounded-t-2xl
+      inset-x-0 bottom-0 max-h-[55vh] rounded-t-2xl
       lg:inset-x-auto lg:top-0 lg:bottom-0 lg:left-0 lg:max-h-none lg:w-[440px] lg:rounded-none">
       <div className="lg:hidden pt-2 pb-1 flex justify-center shrink-0"><span className="h-1 w-10 rounded-full bg-slate-300" /></div>
       <div className="bg-cyan-600 text-white px-4 py-3 flex items-center gap-2 shrink-0">
