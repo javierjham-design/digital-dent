@@ -863,8 +863,17 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, a
   onBloquear: () => void; onProfesional: (id: string) => void; onEnviarCorreo: () => void; puedeDesbloquear: boolean
 }) {
   const finalizado = plan.estado === 'FINALIZADO'
-  const [agregando, setAgregando] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const selCount = selPiezas.length + selZonas.length + selZonasFax.size // qué hay marcado para asociar
+  // Panel lateral de prestaciones: se abre al seleccionar una pieza/zona (o con
+  // "+ Prestación") y se cierra solo al quedar sin selección — sin bloquear el
+  // diagrama, así se pueden seguir marcando/desmarcando dientes con el panel abierto.
+  const prevSel = useRef(0)
+  useEffect(() => {
+    if (selCount > 0 && !plan.bloqueado) setDrawerOpen(true)
+    else if (selCount === 0 && prevSel.current > 0) setDrawerOpen(false)
+    prevSel.current = selCount
+  }, [selCount, plan.bloqueado])
   const todas = [...plan.secciones.flatMap((s) => s.tratamientos), ...plan.tratamientos]
   const fin = planFinanzas(todas)
   const abonado = fin.abonado + (plan.abonoLibre ?? 0)
@@ -984,26 +993,26 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, a
               Plan bloqueado: no se puede editar el presupuesto (agregar/quitar acciones, precios). Las acciones igual se pueden evolucionar. Desbloquéalo para editar.
             </p>
           ) : (
-            // Panel FIJO (sticky): al scrollear las secciones queda pegado al tope,
-            // así el selector de prestación no se pierde. Muestra qué está marcado y
-            // deja saltar al diagrama para re-seleccionar sin buscarlo a mano.
-            <div className="sticky top-2 z-20 bg-white rounded-2xl border border-slate-200 shadow-lg shadow-slate-300/40 p-3 space-y-2">
+            <div className="bg-white rounded-2xl border border-slate-200 p-3">
               <div className="flex items-center gap-2 flex-wrap">
-                <button onClick={() => setAgregando((v) => !v)}
-                  className={`px-3 py-1.5 text-sm font-semibold rounded-lg ${agregando ? 'bg-cyan-100 text-cyan-700' : 'bg-cyan-600 hover:bg-cyan-700 text-white'}`}>
-                  + Agregar prestación
-                </button>
                 <AgregarSeccion planId={plan.id} accion={accion} sinSeccionIds={plan.tratamientos.map((t) => t.id)} />
-                <button type="button" onClick={() => document.getElementById('plan-diagrama')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-                  className="text-xs text-cyan-600 hover:underline">↑ Ver diagrama</button>
+                <button onClick={() => setDrawerOpen(true)}
+                  className="px-3 py-1.5 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white">
+                  + Prestación
+                </button>
                 {selCount > 0 ? (
                   <span className="text-xs font-medium text-cyan-700 bg-cyan-50 border border-cyan-100 rounded-full px-2 py-0.5">{selCount} seleccionada{selCount > 1 ? 's' : ''}</span>
-                ) : !agregando && (
-                  <span className="text-xs text-slate-400">{areaPlan === 'DENTAL' ? 'Selecciona piezas o una zona en el diagrama.' : areaPlan === 'ESTETICA' ? 'Selecciona zonas del rostro (con el puntero).' : 'Agrega prestaciones desde el catálogo médico.'}</span>
+                ) : (
+                  <span className="text-xs text-slate-400">{areaPlan === 'DENTAL' ? 'Seleccioná piezas o una zona; o tocá “+ Prestación”.' : areaPlan === 'ESTETICA' ? 'Seleccioná zonas del rostro; o tocá “+ Prestación”.' : 'Tocá “+ Prestación” para el catálogo médico.'}</span>
                 )}
               </div>
-              {agregando && <AgregarAccion planId={plan.id} seccionId="" pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} selZonasFax={selZonasFax} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />}
             </div>
+          )}
+
+          {!plan.bloqueado && drawerOpen && (
+            <PanelAgregarPrestacion planId={plan.id} pacienteId={pacienteId} prestaciones={prestaciones}
+              selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} selZonasFax={selZonasFax}
+              areaPlan={areaPlan} accion={accion} onClose={() => setDrawerOpen(false)} />
           )}
 
           {todas.length > 0 && (
@@ -1610,6 +1619,126 @@ function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas,
         {agregadas > 0 && <span className="text-xs text-emerald-600">✓ {agregadas} acción{agregadas > 1 ? 'es' : ''} agregada{agregadas > 1 ? 's' : ''} · la selección se mantiene</span>}
       </div>
     </div>
+  )
+}
+
+// Panel lateral (drawer) para cargar prestaciones — estilo "definir procedimiento":
+// buscador + navegación por categorías, con la selección de piezas/zonas del
+// diagrama (que queda a la vista) y el toggle una-por-pieza / una-para-todas.
+// Reutiliza la MISMA lógica de creación que AgregarAccion (los 4 casos).
+function PanelAgregarPrestacion({ planId, pacienteId, prestaciones, selPiezas, selCaras, selZonas, selZonasFax, areaPlan, accion, onClose }: {
+  planId: string; pacienteId: string; prestaciones: PrestacionDTO[]
+  selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; selZonasFax: Set<string>
+  areaPlan: AreaClinica; accion: (fn: () => Promise<unknown>) => Promise<void>; onClose: () => void
+}) {
+  const [prest, setPrest] = useState<PrestacionDTO | null>(null)
+  const [modo, setModo] = useState<'porPieza' | 'unaSola'>('porPieza')
+  const [busca, setBusca] = useState('')
+  const [cat, setCat] = useState<string | null>(null)
+  const [guardando, setGuardando] = useState(false)
+  const [agregadas, setAgregadas] = useState(0)
+
+  const piezas = [...selPiezas].sort((a, b) => a - b)
+  const resumen = piezas.map((n) => `${n}${selCaras[n]?.length ? `(${selCaras[n].join('')})` : ''}`).join(', ')
+
+  // Catálogo agrupado por categoría (sección). Sin categoría → "Otras".
+  const categorias = useMemo(() => {
+    const m = new Map<string, PrestacionDTO[]>()
+    for (const p of prestaciones) { const c = p.categoria?.trim() || 'Otras'; const arr = m.get(c) ?? []; arr.push(p); m.set(c, arr) }
+    return [...m.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [prestaciones])
+  const q = busca.trim().toLowerCase()
+  const resultados = useMemo(() => q ? prestaciones.filter((p) => p.nombre.toLowerCase().includes(q) || (p.categoria ?? '').toLowerCase().includes(q)) : [], [q, prestaciones])
+
+  const multi = piezas.length >= 2
+  const nAcc = selZonasFax.size > 0 ? 1 : selZonas.length > 0 ? selZonas.length : (multi && modo === 'porPieza' ? piezas.length : 1)
+  const total = prest ? prest.precio * nAcc : 0
+
+  async function agregar() {
+    if (!prest) return
+    setGuardando(true)
+    try {
+      await accion(async () => {
+        if (selZonasFax.size > 0) {
+          await tratamientosService.crear({ pacienteId, prestacionId: prest.id, planId, seccionId: '', precio: prest.precio, zonaIds: [...selZonasFax] })
+        } else if (selZonas.length > 0) {
+          await Promise.all(selZonas.map((zona) => tratamientosService.crear({ pacienteId, prestacionId: prest.id, planId, seccionId: '', precio: prest.precio, zona })))
+        } else if (piezas.length === 0 || modo === 'unaSola') {
+          await tratamientosService.crear({ pacienteId, prestacionId: prest.id, planId, seccionId: '', precio: prest.precio, ...(piezas.length ? { notas: `Piezas: ${resumen}` } : {}) })
+        } else {
+          await Promise.all(piezas.map((n) => tratamientosService.crear({ pacienteId, prestacionId: prest.id, planId, seccionId: '', precio: prest.precio, piezas: [n], cara: selCaras[n]?.length ? selCaras[n].join('') : undefined })))
+        }
+      })
+      // Se mantiene la selección (para cargar varias) y el panel abierto; solo limpia la prestación.
+      setPrest(null); setAgregadas((n) => n + 1)
+    } finally { setGuardando(false) }
+  }
+
+  const items = cat ? (categorias.find(([c]) => c === cat)?.[1] ?? []) : []
+  const selTxt = selZonasFax.size > 0 ? `${selZonasFax.size} zona(s) del rostro`
+    : selZonas.length > 0 ? selZonas.join(', ')
+    : piezas.length > 0 ? resumen : 'Ninguna · prestación general'
+
+  return (
+    <div className="fixed top-0 left-0 h-full w-full max-w-[440px] bg-white shadow-2xl z-40 flex flex-col">
+      <div className="bg-cyan-600 text-white px-4 py-3 flex items-center gap-2">
+        {(cat || q) && <button onClick={() => { setCat(null); setBusca('') }} className="text-white/90 hover:text-white text-xl leading-none">‹</button>}
+        <span className="font-semibold flex-1 truncate">{cat ?? 'Definir prestación'}</span>
+        <button onClick={onClose} className="text-white/90 hover:text-white text-xl leading-none">✕</button>
+      </div>
+      <div className="p-3 border-b border-slate-100">
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar prestación o categoría…" autoFocus
+          className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+      </div>
+      <div className="flex-1 overflow-auto">
+        {q ? (
+          resultados.length === 0
+            ? <p className="px-4 py-6 text-sm text-slate-400 text-center">Sin resultados.</p>
+            : resultados.map((p) => <ProdRow key={p.id} p={p} on={prest?.id === p.id} onClick={() => setPrest(p)} />)
+        ) : cat ? (
+          items.map((p) => <ProdRow key={p.id} p={p} on={prest?.id === p.id} onClick={() => setPrest(p)} />)
+        ) : (
+          categorias.map(([c, arr]) => (
+            <button key={c} onClick={() => setCat(c)} className="w-full flex items-center justify-between px-4 py-3 border-b border-slate-100 hover:bg-slate-50 text-left text-sm">
+              <span>{c}<span className="block text-xs text-slate-400">{arr.length} prestación{arr.length > 1 ? 'es' : ''}</span></span>
+              <span className="text-slate-300">›</span>
+            </button>
+          ))
+        )}
+      </div>
+      <div className="border-t border-slate-200 p-3 bg-slate-50 space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">{areaPlan === 'ESTETICA' ? 'Zonas' : 'Piezas'} seleccionadas</p>
+            <p className="text-xs font-mono text-cyan-700 truncate">{selTxt}</p>
+          </div>
+          {multi && (
+            <label className="text-right text-xs text-slate-600 shrink-0 cursor-pointer">
+              <span className="block">{modo === 'porPieza' ? 'Una por cada pieza' : 'Una para todas'}</span>
+              <input type="checkbox" checked={modo === 'unaSola'} onChange={(e) => setModo(e.target.checked ? 'unaSola' : 'porPieza')} className="scale-125 mt-0.5" />
+            </label>
+          )}
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-slate-400 truncate">{prest ? prest.nombre : 'Elegí una prestación ↑'}</span>
+          <span className="font-mono font-bold text-cyan-700 shrink-0">{fmtCLP(total)}</span>
+        </div>
+        <button onClick={agregar} disabled={!prest || guardando}
+          className="w-full py-2.5 rounded-xl text-sm font-semibold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white">
+          {guardando ? '…' : '+ Agregar prestación'}
+        </button>
+        {agregadas > 0 && <p className="text-xs text-emerald-600 text-center">✓ {agregadas} agregada{agregadas > 1 ? 's' : ''} · la selección se mantiene</p>}
+      </div>
+    </div>
+  )
+}
+
+function ProdRow({ p, on, onClick }: { p: PrestacionDTO; on: boolean; onClick: () => void }) {
+  return (
+    <button onClick={onClick} className={`w-full flex items-center justify-between px-4 py-3 border-b border-slate-100 text-left text-sm ${on ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}>
+      <span className="min-w-0"><span className="block truncate">{p.nombre}</span><span className="block text-xs text-slate-400 font-mono">{fmtCLP(p.precio)}</span></span>
+      {on ? <span className="text-emerald-600 font-bold shrink-0">✓</span> : <span className="text-xs text-slate-300 shrink-0">elegir ›</span>}
+    </button>
   )
 }
 
