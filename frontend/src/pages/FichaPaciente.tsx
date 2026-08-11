@@ -1650,8 +1650,12 @@ function PanelAgregarPrestacion({ planId, pacienteId, prestaciones, selPiezas, s
   const q = busca.trim().toLowerCase()
   const resultados = useMemo(() => q ? prestaciones.filter((p) => p.nombre.toLowerCase().includes(q) || (p.categoria ?? '').toLowerCase().includes(q)) : [], [q, prestaciones])
 
-  const multi = piezas.length >= 2
-  const nAcc = selZonasFax.size > 0 ? 1 : selZonas.length > 0 ? selZonas.length : (multi && modo === 'porPieza' ? piezas.length : 1)
+  const multiZonas = selZonas.length >= 2 // 2+ arcadas/sextantes
+  const multi = piezas.length >= 2 || multiZonas
+  const unidad = multiZonas ? 'zona' : 'pieza'
+  const nAcc = selZonasFax.size > 0 ? 1
+    : selZonas.length > 0 ? (multiZonas && modo === 'unaSola' ? 1 : selZonas.length)
+    : (piezas.length >= 2 && modo === 'porPieza' ? piezas.length : 1)
   const total = prest ? prest.precio * nAcc : 0
 
   async function agregar() {
@@ -1662,7 +1666,12 @@ function PanelAgregarPrestacion({ planId, pacienteId, prestaciones, selPiezas, s
         if (selZonasFax.size > 0) {
           await tratamientosService.crear({ pacienteId, prestacionId: prest.id, planId, seccionId: '', precio: prest.precio, zonaIds: [...selZonasFax] })
         } else if (selZonas.length > 0) {
-          await Promise.all(selZonas.map((zona) => tratamientosService.crear({ pacienteId, prestacionId: prest.id, planId, seccionId: '', precio: prest.precio, zona })))
+          if (multiZonas && modo === 'unaSola') {
+            // Una sola acción que cubre todas las zonas (arcadas/sextantes) con un precio.
+            await tratamientosService.crear({ pacienteId, prestacionId: prest.id, planId, seccionId: '', precio: prest.precio, zona: selZonas.join(' + ') })
+          } else {
+            await Promise.all(selZonas.map((zona) => tratamientosService.crear({ pacienteId, prestacionId: prest.id, planId, seccionId: '', precio: prest.precio, zona })))
+          }
         } else if (piezas.length === 0 || modo === 'unaSola') {
           await tratamientosService.crear({ pacienteId, prestacionId: prest.id, planId, seccionId: '', precio: prest.precio, ...(piezas.length ? { notas: `Piezas: ${resumen}` } : {}) })
         } else {
@@ -1709,12 +1718,12 @@ function PanelAgregarPrestacion({ planId, pacienteId, prestaciones, selPiezas, s
       <div className="border-t border-slate-200 p-3 bg-slate-50 space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-wide text-slate-400">{areaPlan === 'ESTETICA' ? 'Zonas' : 'Piezas'} seleccionadas</p>
+            <p className="text-[11px] uppercase tracking-wide text-slate-400">{(areaPlan === 'ESTETICA' || selZonas.length > 0) ? 'Zonas' : 'Piezas'} seleccionadas</p>
             <p className="text-xs font-mono text-cyan-700 truncate">{selTxt}</p>
           </div>
           {multi && (
             <label className="text-right text-xs text-slate-600 shrink-0 cursor-pointer">
-              <span className="block">{modo === 'porPieza' ? 'Una por cada pieza' : 'Una para todas'}</span>
+              <span className="block">{modo === 'porPieza' ? `Una por cada ${unidad}` : 'Una para todas'}</span>
               <input type="checkbox" checked={modo === 'unaSola'} onChange={(e) => setModo(e.target.checked ? 'unaSola' : 'porPieza')} className="scale-125 mt-0.5" />
             </label>
           )}
