@@ -75,7 +75,9 @@ async function main() {
     if (!tieneModuloArea) {
       console.log(`   módulos: "${c.modulos}" → + area_dental (explícito)`)
       if (APPLY) {
-        await control.clinica.update({ where: { id: c.id }, data: { modulos: `${c.modulos},area_dental` } })
+        // select explícito: el RETURNING por defecto pediría Clinica.vertical, que en
+        // prod recién existe tras el control:push del deploy (este script corre ANTES).
+        await control.clinica.update({ where: { id: c.id }, data: { modulos: `${c.modulos},area_dental` }, select: { id: true } })
         console.log('   ✔ area_dental asignado en el control-plane')
       }
     } else {
