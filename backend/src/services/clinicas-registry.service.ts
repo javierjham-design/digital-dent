@@ -8,6 +8,9 @@ import { control } from '@/db/control'
 import { badRequest, serviceUnavailable } from '@/lib/errors'
 import { provisionTenant, dropTenantDatabase, dbNameForSlug } from '@/lib/provision'
 import { seedTenantBasics } from '@/lib/tenant-seed'
+import { esVertical } from '@/lib/verticales'
+import { AREA_POR_VERTICAL, MODULO_POR_AREA } from '@shared/constants/areas'
+import { MODULOS_DEFAULT } from '@shared/constants/modulos'
 
 const PLANES_VALIDOS = ['TRIAL', 'BASICO', 'PRO']
 const DEFAULT_ADMIN_USERNAME = 'Administrador'
@@ -48,6 +51,7 @@ export interface CrearClinicaInput {
   plan?: string
   trialDias?: number
   slug?: string
+  vertical?: string // dental | medico | estetica — define el área clínica inicial
 }
 
 export interface CrearClinicaResult {
@@ -91,11 +95,15 @@ export async function crearClinicaConProvision(body: CrearClinicaInput): Promise
       email: body.clinicaEmail,
     }, { name: 'Administrador', username: DEFAULT_ADMIN_USERNAME, passwordHash, forcePasswordChange: true })
 
+    // La clínica nace con los módulos base + el área de su vertical.
+    const vertical = esVertical(body.vertical) ? body.vertical : 'dental'
+    const areaInicial = AREA_POR_VERTICAL[vertical] ?? 'DENTAL'
     const clinica = await control.clinica.create({
       data: {
         slug, dbName, nombre: body.clinicaNombre.trim(), rut: body.rut ?? null,
         email: body.clinicaEmail ?? '', telefono: body.clinicaTelefono ?? '',
         plan, trialHasta, activo: true,
+        vertical, modulos: `${MODULOS_DEFAULT},${MODULO_POR_AREA[areaInicial]}`,
       },
     })
     return { clinica: { id: clinica.id, slug, dbName, nombre: clinica.nombre }, credenciales: { usuario: DEFAULT_ADMIN_USERNAME, contrasena } }

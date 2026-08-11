@@ -229,3 +229,24 @@ describe('super-admin: link definitivo (slug) + clave del admin', () => {
     expect(r.status).toBe(400)
   })
 })
+
+describe('cambio de plan: PRESERVA las áreas clínicas de la clínica', () => {
+  it('cambiar de plan no le quita area_dental/area_estetica (un cambio de precio no puede quitar un área de trabajo)', async () => {
+    const { control } = await import('./control-test')
+    const antes = await control.clinica.findUnique({ where: { id: B.clinicaId }, select: { plan: true, modulos: true } })
+    expect(antes?.modulos).toContain('area_dental')
+    expect(antes?.modulos).toContain('area_estetica')
+
+    // El super-admin cambia el plan (PRO → BASICO). El plan BASICO no incluye áreas
+    // en su bundle: sin el fix, este cambio sobrescribía modulos y las borraba.
+    const r = await request(app).post(`/api/v1/admin/clinicas/${B.clinicaId}/cambiar-plan`)
+      .set('Authorization', `Bearer ${tokenSuper}`).send({ plan: 'BASICO' })
+    expect(r.status).toBe(200)
+
+    const despues = await control.clinica.findUnique({ where: { id: B.clinicaId }, select: { plan: true, modulos: true } })
+    expect(despues?.plan).toBe('BASICO')
+    expect(despues?.modulos).toContain('area_dental')   // preservada
+    expect(despues?.modulos).toContain('area_estetica') // preservada
+    expect(despues?.modulos).toContain('crm')           // módulos del plan aplicados
+  })
+})

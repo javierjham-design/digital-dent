@@ -46,6 +46,14 @@ const PERMISOS: [keyof UsuarioDTO, string][] = [
   ['puedeVerReportes', 'Ver y descargar reportes (nómina de pacientes, cobros, morosos)'],
   ['puedeDesbloquearPlanes', 'Desbloquear presupuestos (reabrir un plan bloqueado al imprimir/enviar)'],
 ]
+// Áreas clínicas que trabaja el usuario (disponibles solo si la clínica contrató
+// el área). Separadas de los permisos: son alcance clínico, no capacidades.
+const AREAS_FLAGS: [keyof UsuarioDTO, string][] = [
+  ['areaDental', 'Dental (odontograma)'],
+  ['areaEstetica', 'Estética facial (mapa de zonas)'],
+  ['areaMedico', 'Médico'],
+]
+
 const DIAS: [number, string][] = [[1, 'Lunes'], [2, 'Martes'], [3, 'Miércoles'], [4, 'Jueves'], [5, 'Viernes'], [6, 'Sábado'], [0, 'Domingo']]
 const hoyISO = () => new Date().toISOString().slice(0, 10)
 const fmtCLP = fmtMonto
@@ -260,7 +268,7 @@ function DatosForm({ user, onSaved }: { user: UsuarioDTO; onSaved: () => void })
 }
 
 function PermisosForm({ user, onSaved }: { user: UsuarioDTO; onSaved: () => void }) {
-  const [p, setP] = useState<Record<string, boolean>>(() => Object.fromEntries(PERMISOS.map(([k]) => [k, Boolean(user[k])])))
+  const [p, setP] = useState<Record<string, boolean>>(() => Object.fromEntries([...PERMISOS, ...AREAS_FLAGS].map(([k]) => [k, Boolean(user[k])])))
   const [msg, setMsg] = useState(''); const [saving, setSaving] = useState(false)
   async function guardar() {
     setSaving(true); setMsg('')
@@ -272,6 +280,15 @@ function PermisosForm({ user, onSaved }: { user: UsuarioDTO; onSaved: () => void
       <p className="text-xs text-slate-500">Si el usuario es administrador tiene todos los permisos por defecto. Estos permisos finos aplican al resto del equipo.</p>
       <div className="space-y-2">
         {PERMISOS.map(([k, l]) => (
+          <label key={k} className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={p[k]} onChange={(e) => setP({ ...p, [k]: e.target.checked })} /> {l}
+          </label>
+        ))}
+      </div>
+      <div className="border-t border-slate-100 pt-3 space-y-2">
+        <p className="text-sm font-semibold text-slate-700">Áreas clínicas que trabaja</p>
+        <p className="text-xs text-slate-500">El área queda disponible solo si la clínica la tiene contratada. Un profesional puede trabajar más de una (ej. dental + estética).</p>
+        {AREAS_FLAGS.map(([k, l]) => (
           <label key={k} className="flex items-center gap-2 text-sm text-slate-700">
             <input type="checkbox" checked={p[k]} onChange={(e) => setP({ ...p, [k]: e.target.checked })} /> {l}
           </label>

@@ -4,6 +4,7 @@
 import bcrypt from 'bcryptjs'
 import { tenantClient } from '@/db/tenant'
 import { getVertical } from '@/lib/verticales'
+import { AREA_POR_VERTICAL } from '@shared/constants/areas'
 
 export interface PerfilClinica {
   nombre: string
@@ -77,8 +78,18 @@ export async function seedDemoTenant(dbName: string, verticalId: string): Promis
   // (evita duplicar el catálogo si el seed se ejecuta más de una vez).
   const yaHayPrestaciones = await db.prestacion.count()
   if (yaHayPrestaciones === 0) {
+    // Las secciones del seed pertenecen al ÁREA del vertical (una demo estética
+    // nace con su catálogo en el área ESTETICA). categoriaId = fuente de verdad;
+    // el string `categoria` es la copia derivada.
+    const area = AREA_POR_VERTICAL[v.id] ?? 'DENTAL'
+    const nombresCat = [...new Set(v.seed.prestaciones.map((p) => p.categoria))]
+    const catId = new Map<string, string>()
+    for (const [i, nombre] of nombresCat.entries()) {
+      const cat = await db.categoriaPrestacion.create({ data: { nombre, area, orden: i } })
+      catId.set(nombre, cat.id)
+    }
     await db.prestacion.createMany({
-      data: v.seed.prestaciones.map((p) => ({ nombre: p.nombre, precio: p.precio, duracion: p.duracion, categoria: p.categoria, activo: true })),
+      data: v.seed.prestaciones.map((p) => ({ nombre: p.nombre, precio: p.precio, duracion: p.duracion, categoria: p.categoria, categoriaId: catId.get(p.categoria) ?? null, activo: true })),
     })
   }
 

@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import type { CitaDTO, DoctorDTO, PacienteDTO, PrestacionDTO, ClinicaConfigDTO } from '@shared/types'
 import { CITA_ESTADOS } from '@shared/constants/cita-estados'
 import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO, type LeadSugerido } from '@/services/clinica.service'
 import { planesService, seccionesService, tratamientosService, evolucionesService, historialService, type HistorialEntry } from '@/services/clinico.service'
 import { prestacionesService, mediosPagoService, clinicaService, type MedioPagoDTO } from '@/services/catalogo.service'
+import { AREA_LABELS, type AreaClinica } from '@shared/constants/areas'
+import { GraficoFacial } from '@/components/GraficoFacial'
 import { PresupuestoPlanDoc, type PPlan } from '@/components/PresupuestoPlanDoc'
 import { elementoAPdfBase64 } from '@/lib/pdf'
 import { cobrosService, cajasService } from '@/services/caja.service'
@@ -530,6 +532,10 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   // Zonas (arcadas/sextantes): selección MÚLTIPLE, igual que las piezas — se puede
   // marcar arcada superior E inferior a la vez.
   const [selZonas, setSelZonas] = useState<string[]>([])
+  // Área activa del plan (pestañas solo si el profesional tiene más de una) y
+  // zonas FACIALES seleccionadas (capa 1 del gráfico facial → alimentan la acción).
+  const [areaPlan, setAreaPlan] = useState<AreaClinica | ''>('')
+  const [selZonasFax, setSelZonasFax] = useState<Set<string>>(new Set())
   const [denticion, setDenticion] = useState<'PERM' | 'TEMP'>('PERM')
   const [evoAccion, setEvoAccion] = useState<TratNode | null>(null)
   const [nuevoPlanOpen, setNuevoPlanOpen] = useState(false)
@@ -538,13 +544,19 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   // Al imprimir/enviar un presupuesto queda bloqueado; sólo puede reabrirlo un
   // admin o quien tenga el permiso "desbloquear presupuestos".
   const puedeDesbloquear = user?.role === 'admin' || Boolean(user?.permisos?.puedeDesbloquearPlanes)
+  const areasUsuario = useMemo(() => (user?.areas ?? []) as AreaClinica[], [user?.areas])
+  useEffect(() => { if (!areaPlan && areasUsuario.length > 0) setAreaPlan(areasUsuario[0]) }, [areasUsuario, areaPlan])
 
   const cargarPlanes = () => planesService.listar(pacienteId).then((p) => setPlanes(p as PlanCard[])).catch(() => {})
   useEffect(() => {
     cargarPlanes()
-    prestacionesService.listar().then((ps) => setPrestaciones(ps.filter((p) => p.activo))).catch(() => {})
     usuariosService.doctores().then(setDoctores).catch(() => {})
   }, [pacienteId]) // eslint-disable-line react-hooks/exhaustive-deps
+  // El selector de prestaciones del plan trae SOLO las del área activa.
+  useEffect(() => {
+    if (!areaPlan) return
+    prestacionesService.listar(areaPlan).then((ps) => setPrestaciones(ps.filter((p) => p.activo))).catch(() => {})
+  }, [areaPlan])
 
   // Al abrir el envío por correo, prepara el presupuesto completo (fuera de
   // pantalla) para poder adjuntarlo en PDF de forma confiable.
@@ -569,9 +581,9 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   // Selección múltiple en el odontograma: se pueden marcar varias piezas y, en
   // cada una, sus caras. Clic en una cara agrega esa pieza+cara; clic en la
   // silueta/número selecciona/deselecciona la pieza completa (implante).
-  const clearSel = () => { setSelPiezas([]); setSelCaras({}); setSelZonas([]) }
+  const clearSel = () => { setSelPiezas([]); setSelCaras({}); setSelZonas([]); setSelZonasFax(new Set()) }
   const toggleFace = (n: number, f: string) => {
-    setSelZonas([])
+    setSelZonas([]); setSelZonasFax(new Set())
     setSelPiezas((ps) => (ps.includes(n) ? ps : [...ps, n]))
     setSelCaras((cs) => {
       const cur = cs[n] ?? []
@@ -579,17 +591,22 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
     })
   }
   const toggleWhole = (n: number) => {
-    setSelZonas([])
+    setSelZonas([]); setSelZonasFax(new Set())
     setSelPiezas((ps) => (ps.includes(n) ? ps.filter((x) => x !== n) : [...ps, n]))
     setSelCaras((cs) => { const { [n]: _omit, ...rest } = cs; return rest })
   }
   // Zona = selección independiente (no marca dientes). Excluye la selección de
   // piezas, pero permite VARIAS zonas a la vez (arcada superior + inferior, etc.).
   const toggleZona = (label: string) => {
-    setSelPiezas([]); setSelCaras({})
+    setSelPiezas([]); setSelCaras({}); setSelZonasFax(new Set())
     setSelZonas((zs) => (zs.includes(label) ? zs.filter((x) => x !== label) : [...zs, label]))
   }
   const cambiarDenticion = (d: 'PERM' | 'TEMP') => { setDenticion(d); clearSel() }
+  // Zonas faciales (estética): selección múltiple; excluye piezas/zonas dentales.
+  const toggleZonaFax = (zonaId: string) => {
+    setSelPiezas([]); setSelCaras({}); setSelZonas([])
+    setSelZonasFax((zs) => { const n = new Set(zs); if (n.has(zonaId)) n.delete(zonaId); else n.add(zonaId); return n })
+  }
   // El profesional a cargo se elige al crear el plan (NuevoPlanModal). Antes caía
   // por defecto al primer doctor de la lista, dejando todos los planes con el mismo.
   async function crearPlan(doctorTitularId: string) {
@@ -638,6 +655,8 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
       {detalle ? (
         <PlanDetalleView
           plan={detalle} prestaciones={prestaciones} doctores={doctores} pacienteId={pacienteId}
+          areaPlan={(areaPlan || 'DENTAL') as AreaClinica} areasUsuario={areasUsuario} onArea={(a) => { setAreaPlan(a); clearSel() }}
+          selZonasFax={selZonasFax} toggleZonaFax={toggleZonaFax}
           selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} denticion={denticion}
           toggleFace={toggleFace} toggleWhole={toggleWhole} toggleZona={toggleZona} clearSel={clearSel} cambiarDenticion={cambiarDenticion}
           accion={accion}
@@ -830,8 +849,10 @@ function PlanLista({ planes, onAbrir, onNuevo, onEliminar, onEnviar }: {
   )
 }
 
-function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, selCaras, selZonas, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onFinalizar, onReabrir, onBloquear, onProfesional, onEnviarCorreo, puedeDesbloquear }: {
+function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, areasUsuario, onArea, selZonasFax, toggleZonaFax, selPiezas, selCaras, selZonas, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onFinalizar, onReabrir, onBloquear, onProfesional, onEnviarCorreo, puedeDesbloquear }: {
   plan: PlanDetalle; prestaciones: PrestacionDTO[]; doctores: DoctorDTO[]; pacienteId: string
+  areaPlan: AreaClinica; areasUsuario: AreaClinica[]; onArea: (a: AreaClinica) => void
+  selZonasFax: Set<string>; toggleZonaFax: (zonaId: string) => void
   selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; denticion: 'PERM' | 'TEMP'
   toggleFace: (n: number, f: string) => void; toggleWhole: (n: number) => void; toggleZona: (label: string) => void
   clearSel: () => void; cambiarDenticion: (d: 'PERM' | 'TEMP') => void
@@ -929,12 +950,32 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
           </div>
         </div>
 
-        {/* Panel derecho: odontograma + secciones */}
+        {/* Panel derecho: diagrama del área activa + secciones. Pestañas SOLO si el
+            profesional trabaja más de un área; con una sola se ve directo (el flujo
+            dental actual queda idéntico). Dental → odontograma; Estética → gráfico
+            facial (2 capas); Médico → sin diagrama (solo catálogo). */}
         <div className="space-y-4 min-w-0">
-          <div className="bg-white rounded-2xl border border-slate-200 p-4">
-            <OdontogramaPlan caraMap={caraMap} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} denticion={denticion}
-              onFace={toggleFace} onWhole={toggleWhole} onZona={toggleZona} onClear={clearSel} onDenticion={cambiarDenticion} />
-          </div>
+          {areasUsuario.length > 1 && (
+            <div className="flex gap-1 border-b border-slate-200">
+              {areasUsuario.map((a) => (
+                <button key={a} onClick={() => onArea(a)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${areaPlan === a ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+                  {AREA_LABELS[a]}
+                </button>
+              ))}
+            </div>
+          )}
+          {areaPlan === 'DENTAL' && (
+            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+              <OdontogramaPlan caraMap={caraMap} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} denticion={denticion}
+                onFace={toggleFace} onWhole={toggleWhole} onZona={toggleZona} onClear={clearSel} onDenticion={cambiarDenticion} />
+            </div>
+          )}
+          {areaPlan === 'ESTETICA' && (
+            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+              <GraficoFacial pacienteId={pacienteId} selZonas={selZonasFax} onToggleZona={toggleZonaFax} />
+            </div>
+          )}
 
           {plan.bloqueado ? (
             <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -948,9 +989,9 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
                   + Agregar prestación
                 </button>
                 <AgregarSeccion planId={plan.id} accion={accion} sinSeccionIds={plan.tratamientos.map((t) => t.id)} />
-                {!agregando && <span className="text-xs text-slate-400">Selecciona piezas o una zona arriba.</span>}
+                {!agregando && <span className="text-xs text-slate-400">{areaPlan === 'DENTAL' ? 'Selecciona piezas o una zona arriba.' : areaPlan === 'ESTETICA' ? 'Selecciona zonas del rostro arriba (con el puntero).' : 'Agrega prestaciones desde el catálogo médico.'}</span>}
               </div>
-              {agregando && <AgregarAccion planId={plan.id} seccionId="" pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />}
+              {agregando && <AgregarAccion planId={plan.id} seccionId="" pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} selZonasFax={selZonasFax} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />}
             </div>
           )}
 
@@ -963,10 +1004,10 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, selPiezas, 
           )}
 
           {plan.secciones.map((s, i) => (
-            <SeccionBloque key={s.id} seccion={s} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} onMoverAccion={moverAccion} idx={i} total={plan.secciones.length} onMover={moverSeccion} />
+            <SeccionBloque key={s.id} seccion={s} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} selZonasFax={selZonasFax} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} onMoverAccion={moverAccion} idx={i} total={plan.secciones.length} onMover={moverSeccion} />
           ))}
           {plan.tratamientos.length > 0 && (
-            <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', orden: 0, fechaTentativa: null, diasDesdeAnterior: null, tratamientos: plan.tratamientos }} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} onMoverAccion={moverAccion} sinSeccion />
+            <SeccionBloque seccion={{ id: '', titulo: 'Sin sección', orden: 0, fechaTentativa: null, diasDesdeAnterior: null, tratamientos: plan.tratamientos }} plan={plan} prestaciones={prestaciones} pacienteId={pacienteId} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} selZonasFax={selZonasFax} clearSel={clearSel} accion={accion} onEvolucionar={onEvolucionar} onMoverAccion={moverAccion} sinSeccion />
           )}
         </div>
       </div>
@@ -1194,9 +1235,9 @@ function EvolucionModal({ accion, pacienteNombre, doctores, plan, onClose, onDon
   )
 }
 
-function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, selCaras, selZonas, clearSel, accion, onEvolucionar, onMoverAccion, sinSeccion, idx, total, onMover }: {
+function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, selCaras, selZonas, selZonasFax, clearSel, accion, onEvolucionar, onMoverAccion, sinSeccion, idx, total, onMover }: {
   seccion: SeccionNode; plan: PlanDetalle; prestaciones: PrestacionDTO[]; pacienteId: string
-  selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; clearSel: () => void
+  selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; selZonasFax: Set<string>; clearSel: () => void
   accion: (fn: () => Promise<unknown>) => Promise<void>; onEvolucionar: (t: TratNode) => void
   onMoverAccion?: (tratId: string, seccionId: string) => void; sinSeccion?: boolean
   idx?: number; total?: number; onMover?: (idx: number, dir: -1 | 1) => void
@@ -1282,7 +1323,7 @@ function SeccionBloque({ seccion, plan, prestaciones, pacienteId, selPiezas, sel
       {!plan.bloqueado && !sinSeccion && (
         <div className="px-4 py-2 border-t border-slate-100">
           {agregando
-            ? <AgregarAccion planId={plan.id} seccionId={seccion.id} pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />
+            ? <AgregarAccion planId={plan.id} seccionId={seccion.id} pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} selZonasFax={selZonasFax} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />
             : <button onClick={() => setAgregando(true)} className="text-xs font-semibold text-cyan-700">+ Agregar prestación{seleccion ? ` (${seleccion})` : ''}</button>}
         </div>
       )}
@@ -1493,9 +1534,9 @@ function PrestacionBuscador({ prestaciones, onSelect }: { prestaciones: Prestaci
   )
 }
 
-function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas, selCaras, selZonas, clearSel, accion, onDone }: {
+function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas, selCaras, selZonas, selZonasFax, clearSel, accion, onDone }: {
   planId: string; seccionId: string; pacienteId: string; prestaciones: PrestacionDTO[]
-  selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; clearSel: () => void
+  selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; selZonasFax: Set<string>; clearSel: () => void
   accion: (fn: () => Promise<unknown>) => Promise<void>; onDone: () => void
 }) {
   const [prestId, setPrestId] = useState('')
@@ -1509,7 +1550,11 @@ function AgregarAccion({ planId, seccionId, pacienteId, prestaciones, selPiezas,
   async function añadir() {
     if (!prestId) return
     await accion(async () => {
-      if (selZonas.length > 0) {
+      if (selZonasFax.size > 0) {
+        // Estética: UN tratamiento que cubre TODAS las zonas seleccionadas con UN
+        // precio (bótox de patas de gallo = un procedimiento, dos zonas, un precio).
+        await tratamientosService.crear({ pacienteId, prestacionId: prestId, planId, seccionId, precio: prest?.precio, zonaIds: [...selZonasFax] })
+      } else if (selZonas.length > 0) {
         // Una acción por cada zona seleccionada (arcada superior, inferior, sextante…), sin dientes.
         await Promise.all(selZonas.map((zona) => tratamientosService.crear({ pacienteId, prestacionId: prestId, planId, seccionId, precio: prest?.precio, zona })))
       } else if (piezas.length === 0 || modo === 'unaSola') {

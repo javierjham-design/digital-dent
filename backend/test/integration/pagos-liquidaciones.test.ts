@@ -487,6 +487,56 @@ describe('prestaciones: sin duplicados (creación idempotente + dedupe automáti
   })
 })
 
+describe('áreas clínicas: secciones homónimas + categoriaId como fuente única', () => {
+  it('secciones "Homónima" en áreas distintas conviven; duplicada en la MISMA área se rechaza', async () => {
+    const dental = await post('/categorias-prestacion', { nombre: 'Homónima', area: 'DENTAL' })
+    expect(dental.status).toBe(201)
+    const estetica = await post('/categorias-prestacion', { nombre: 'Homónima', area: 'ESTETICA' })
+    expect(estetica.status).toBe(201)
+    expect(estetica.body.area).toBe('ESTETICA')
+    const repetida = await post('/categorias-prestacion', { nombre: 'Homónima', area: 'DENTAL' })
+    expect(repetida.status).toBe(400) // misma área → duplicada
+  })
+
+  it('prestaciones homónimas en secciones homónimas de áreas distintas NO se fusionan (dedupe)', async () => {
+    const cats = await get('/categorias-prestacion')
+    const catDental = cats.body.find((c: { nombre: string; area: string }) => c.nombre === 'Homónima' && c.area === 'DENTAL')
+    const catEstetica = cats.body.find((c: { nombre: string; area: string }) => c.nombre === 'Homónima' && c.area === 'ESTETICA')
+    const p1 = await post('/prestaciones', { nombre: 'Consulta Área', categoriaId: catDental.id, precio: 30000 })
+    const p2 = await post('/prestaciones', { nombre: 'Consulta Área', categoriaId: catEstetica.id, precio: 80000 })
+    expect(p1.status).toBe(201)
+    expect(p2.status).toBe(201)
+    expect(p2.body.id).not.toBe(p1.body.id) // la idempotencia NO las confunde entre áreas
+
+    await post('/prestaciones/dedupe', {})
+    const db = tenantClient(A.dbName)
+    const vivas = await db.prestacion.findMany({ where: { nombre: 'Consulta Área' } })
+    expect(vivas.length).toBe(2) // el dedupe del arranque jamás fusiona entre áreas
+    expect(vivas.map((v) => v.precio).sort((a, b) => a - b)).toEqual([30000, 80000])
+  })
+
+  it('divergencia categoria/categoriaId: crear + renombrar sección mantiene el par sincronizado', async () => {
+    const cats = await get('/categorias-prestacion')
+    const catEstetica = cats.body.find((c: { nombre: string; area: string }) => c.nombre === 'Homónima' && c.area === 'ESTETICA')
+    // Renombrar la sección estética NO debe arrastrar las prestaciones dentales homónimas.
+    const r = await request(app).patch(`/api/v1/categorias-prestacion/${catEstetica.id}`).set(auth()).send({ nombre: 'Estética Facial Básica' })
+    expect(r.status).toBe(200)
+
+    // Aserción de NO divergencia: para TODA prestación con categoriaId, su string
+    // `categoria` es exactamente el nombre de esa sección.
+    const db = tenantClient(A.dbName)
+    const prestaciones = await db.prestacion.findMany({ where: { categoriaId: { not: null } }, select: { id: true, nombre: true, categoria: true, categoriaId: true } })
+    const catsAll = await db.categoriaPrestacion.findMany({ select: { id: true, nombre: true } })
+    const nombrePorId = new Map(catsAll.map((c) => [c.id, c.nombre]))
+    const divergentes = prestaciones.filter((pr) => pr.categoria !== nombrePorId.get(pr.categoriaId!))
+    expect(divergentes).toEqual([]) // si esto falla, alguien escribió un campo sin el otro
+
+    // Y la dental homónima sigue llamándose "Homónima" (no la arrastró el rename).
+    const dentalViva = prestaciones.find((pr) => pr.nombre === 'Consulta Área' && pr.categoria === 'Homónima')
+    expect(dentalViva).toBeTruthy()
+  })
+})
+
 describe('ficha del paciente: datos y registro de accesos', () => {
   it('guarda y devuelve sexo, dirección, observaciones y fecha de nacimiento', async () => {
     const r = await request(app).patch(`/api/v1/pacientes/${A.pacienteId}`).set(auth())
@@ -898,5 +948,93 @@ describe('radiografías y documentos del paciente', () => {
 
     const del = await request(app).delete(`/api/v1/documentos/${up.body.id}`).set(auth())
     expect(del.status).toBe(200)
+  })
+})
+
+describe('áreas clínicas: guard por usuario, multi-zona con UN precio, y capas separadas', () => {
+  let catEstetica = { id: '' }
+  let botox = { id: '' }
+  let docToken = ''
+  let docId = ''
+  const authDoc = () => ({ Authorization: `Bearer ${docToken}` })
+
+  beforeAll(async () => {
+    // Sección + prestación del área ESTETICA (la clínica A contrata dental+estética en el seed).
+    catEstetica = (await post('/categorias-prestacion', { nombre: 'Toxina', area: 'ESTETICA' })).body
+    botox = (await post('/prestaciones', { nombre: 'Bótox periocular', categoriaId: catEstetica.id, precio: 180000 })).body
+    // Usuaria SIN el área estética habilitada (default areaEstetica=false).
+    // role staff: no consume el cupo de profesionales con agenda del plan.
+    const doc = await post('/usuarios', { name: 'Dra. Área', username: 'dra-area', password: 'Password123', role: 'staff' })
+    docId = doc.body.id
+    const login = await request(app).post('/api/v1/auth/login').send({ slug: A.slug, username: 'dra-area', password: 'Password123' })
+    docToken = login.body.token
+  })
+
+  it('la sesión trae las áreas efectivas: admin = las de la clínica; doctor sin flag = solo DENTAL', async () => {
+    const meAdmin = await get('/auth/me')
+    expect(meAdmin.body.user.areas.sort()).toEqual(['DENTAL', 'ESTETICA'])
+    const meDoc = await request(app).get('/api/v1/auth/me').set(authDoc())
+    expect(meDoc.body.user.areas).toEqual(['DENTAL'])
+  })
+
+  it('guard: el doctor sin areaEstetica NO puede crear un tratamiento estético (403); con el flag sí', async () => {
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: docId })
+    const intento = await request(app).post('/api/v1/tratamientos').set(authDoc())
+      .send({ pacienteId: A.pacienteId, prestacionId: botox.id, planId: plan.body.id, precio: 180000 })
+    expect(intento.status).toBe(403)
+
+    const habilitar = await request(app).patch(`/api/v1/usuarios/${docId}`).set(auth()).send({ areaEstetica: true })
+    expect(habilitar.status).toBe(200)
+    const ok = await request(app).post('/api/v1/tratamientos').set(authDoc())
+      .send({ pacienteId: A.pacienteId, prestacionId: botox.id, planId: plan.body.id, precio: 180000 })
+    expect(ok.status).toBe(201)
+  })
+
+  it('multi-zona: UN tratamiento cubre N zonas con UN precio (no duplica en presupuesto/cobro)', async () => {
+    const zonas = await get('/zonas-faciales')
+    expect(zonas.status).toBe(200)
+    expect(zonas.body.length).toBe(32) // catálogo PROVISIONAL completo (shared/constants/zonas-faciales)
+    const ids = zonas.body.filter((z: { codigo: string }) => z.codigo.startsWith('PERIORBITAL_LAT')).map((z: { id: string }) => z.id)
+    expect(ids.length).toBe(2) // patas de gallo: ambos lados, un solo precio
+
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })
+    const r = await post('/tratamientos', { pacienteId: A.pacienteId, prestacionId: botox.id, planId: plan.body.id, precio: 180000, zonaIds: ids })
+    expect(r.status).toBe(201)
+    expect(r.body.length).toBe(1) // UN tratamiento (no uno por zona)
+    expect(r.body[0].precio).toBe(180000)
+    expect(r.body[0].zonas.length).toBe(2)
+
+    const db = tenantClient(A.dbName)
+    const uniones = await db.tratamientoZona.count({ where: { tratamientoId: r.body[0].id } })
+    expect(uniones).toBe(2)
+  })
+
+  it('capas separadas: guardar y borrar trazos del dibujo JAMÁS toca tratamientos ni zonas', async () => {
+    const db = tenantClient(A.dbName)
+    const antes = await db.tratamiento.count()
+    const zonasAntes = await db.tratamientoZona.count()
+
+    const trazos = [{ herramienta: 'lapiz', color: '#1d4ed8', grosor: 2, puntos: [{ x: 0.4, y: 0.3 }, { x: 0.42, y: 0.33 }] }]
+    const put1 = await request(app).put(`/api/v1/pacientes/${A.pacienteId}/dibujo-facial`).set(auth()).send({ genero: 'F', trazos })
+    expect(put1.status).toBe(200)
+    expect(put1.body.trazos.length).toBe(1)
+
+    // "Goma" / reiniciar: borra TODOS los trazos.
+    const put2 = await request(app).put(`/api/v1/pacientes/${A.pacienteId}/dibujo-facial`).set(auth()).send({ trazos: [] })
+    expect(put2.status).toBe(200)
+    expect(put2.body.trazos.length).toBe(0)
+
+    expect(await db.tratamiento.count()).toBe(antes)        // ni un tratamiento tocado
+    expect(await db.tratamientoZona.count()).toBe(zonasAntes) // ni una zona de tratamiento tocada
+  })
+
+  it('estado por zona (capa 1): se asigna y persiste como el odontograma', async () => {
+    const zonas = await get('/zonas-faciales')
+    const menton = zonas.body.find((z: { codigo: string }) => z.codigo === 'MENTON')
+    const r = await request(app).put(`/api/v1/pacientes/${A.pacienteId}/zonas-faciales`).set(auth())
+      .send({ zonaId: menton.id, estado: 'TRATADO', color: '#7c3aed' })
+    expect(r.status).toBe(200)
+    const lista = await get(`/pacientes/${A.pacienteId}/zonas-faciales`)
+    expect(lista.body.some((z: { zona: { codigo: string }; estado: string }) => z.zona.codigo === 'MENTON' && z.estado === 'TRATADO')).toBe(true)
   })
 })

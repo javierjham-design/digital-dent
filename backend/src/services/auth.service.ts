@@ -9,6 +9,7 @@ import { encrypt, decrypt } from '@/lib/crypto'
 import { generarSecretoTotp, otpauthUri, qrDataUrl, verificarTotp, generarCodigosRespaldo, hashCodigosRespaldo, normalizarCodigoRespaldo } from '@/lib/totp'
 import type { LoginRequest, LoginResponse, LoginResult, SessionUserDTO, Setup2FAResponse } from '@shared/types'
 import { parseModulos, MODULOS_CODES } from '@shared/constants/modulos'
+import { areasDeModulos, AREAS } from '@shared/constants/areas'
 
 const LOGIN_LIMIT = { limit: 5, windowMs: 15 * 60_000 }
 const LOGIN_IP_LIMIT = { limit: 30, windowMs: 15 * 60_000 }
@@ -74,11 +75,19 @@ type TenantUserRow = {
   puedeGestionarCajas: boolean; puedeRecibirPagos: boolean
   puedeConfigurarClinica: boolean; puedeGestionarEquipo: boolean; puedeGestionarPrestaciones: boolean
   puedeDesbloquearPlanes: boolean; puedeGestionarAgenda: boolean; puedeVerReportes: boolean
+  areaDental: boolean; areaEstetica: boolean; areaMedico: boolean
 }
 function tenantUserDTO(u: TenantUserRow, clinicaId: string, pais: string, modulos: string[]): SessionUserDTO {
   const isAdmin = u.role === 'admin'
+  // Áreas efectivas: (áreas de la clínica) ∩ (flags del usuario). Una clínica sin
+  // módulos de área es una fila anterior al módulo → dental (el ruido lo ponen los
+  // guards vía areasDeClinica; acá solo se refleja en la sesión).
+  const areasClinica = areasDeModulos(modulos)
+  const base = areasClinica.length > 0 ? areasClinica : (['DENTAL'] as const)
+  const flags = { DENTAL: u.areaDental, ESTETICA: u.areaEstetica, MEDICO: u.areaMedico } as Record<string, boolean>
+  const areas = isAdmin ? [...base] : base.filter((a) => flags[a])
   return {
-    id: u.id, name: u.name, email: u.email, role: u.role, clinicaId, pais, modulos, isPlatformAdmin: false,
+    id: u.id, name: u.name, email: u.email, role: u.role, clinicaId, pais, modulos, areas, isPlatformAdmin: false,
     requirePasswordChange: u.passwordChangedAt === null,
     permisos: {
       puedeModificarPrecio: isAdmin || u.puedeModificarPrecio,
@@ -102,7 +111,7 @@ function tenantUserDTO(u: TenantUserRow, clinicaId: string, pais: string, modulo
 
 function platformAdminDTO(a: { id: string; name: string | null; email: string; passwordChangedAt: Date | null }): SessionUserDTO {
   return {
-    id: a.id, name: a.name, email: a.email, role: 'admin', clinicaId: null, pais: 'CL', modulos: MODULOS_CODES, isPlatformAdmin: true,
+    id: a.id, name: a.name, email: a.email, role: 'admin', clinicaId: null, pais: 'CL', modulos: MODULOS_CODES, areas: [...AREAS], isPlatformAdmin: true,
     requirePasswordChange: a.passwordChangedAt === null,
     permisos: {
       puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,

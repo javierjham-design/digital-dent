@@ -10,6 +10,7 @@ import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/cl
 import { invalidateClinicaCache } from '@/middlewares/tenant'
 import { esPaisValido, PAISES_LISTA } from '@shared/constants/paises'
 import { parseModulos, MODULOS, MODULOS_CODES, MODULOS_DEFAULT } from '@shared/constants/modulos'
+import { MODULOS_AREA_CODES } from '@shared/constants/areas'
 import { VERTICAL_IDS } from '@/lib/verticales'
 import { conteoEnLinea, usuariosEnLinea, totalEnLinea } from '@/lib/presence'
 import { monedaCobroDe, MONEDAS_COBRO } from '@shared/constants/cobro'
@@ -199,11 +200,20 @@ export async function cambiarPlan(ctx: AuditCtx, id: string, body: Record<string
   const planDef = nuevoPlan === 'TRIAL' ? null : await getPlan(nuevoPlan)
   if (nuevoPlan !== 'TRIAL' && !planDef) throw badRequest('Plan inválido: no existe en el catálogo de planes.')
 
-  const actual = await control.clinica.findUnique({ where: { id }, select: { plan: true, proximoCobro: true } })
+  const actual = await control.clinica.findUnique({ where: { id }, select: { plan: true, proximoCobro: true, modulos: true } })
   const data: Record<string, unknown> = { plan: nuevoPlan }
-  // Al CAMBIAR de plan, aplica los módulos incluidos en el nuevo plan como punto de
-  // partida. La clínica se puede ajustar después (tarjeta "Funcionalidades/Módulos").
-  if (planDef && actual && actual.plan !== nuevoPlan) data.modulos = planDef.modulos.join(',')
+  // Al CAMBIAR de plan, aplica los módulos del nuevo plan como punto de partida
+  // PRESERVANDO las áreas clínicas (area_*) que la clínica ya tenía: un cambio de
+  // plan/precio jamás quita (ni regala) un área de trabajo — sin esto, el primer
+  // cambio de plan dejaría a la clínica sin area_dental y le rompería catálogo y
+  // fichas. Las áreas se gestionan SOLO al crear la clínica (vertical) y desde la
+  // tarjeta "Funcionalidades/Módulos" (cambio deliberado); por eso los planes NO
+  // incluyen códigos area_* en sus bundles.
+  if (planDef && actual && actual.plan !== nuevoPlan) {
+    const areasActuales = parseModulos(actual.modulos).filter((c) => MODULOS_AREA_CODES.includes(c))
+    const basePlan = planDef.modulos.filter((c) => !MODULOS_AREA_CODES.includes(c))
+    data.modulos = [...new Set([...basePlan, ...areasActuales])].join(',')
+  }
 
   if (body.cicloFacturacion !== undefined) {
     if (!CICLOS_VALIDOS.includes(String(body.cicloFacturacion))) throw badRequest('cicloFacturacion debe ser MENSUAL o ANUAL')

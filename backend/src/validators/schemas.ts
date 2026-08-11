@@ -83,6 +83,7 @@ export const crearBloqueoSchema = z.object({
 export const crearPrestacionSchema = z.object({
   nombre: z.string().min(1),
   categoria: z.string().nullish(),
+  categoriaId: z.string().nullish(), // fuente de verdad de la sección (el nombre es legacy)
   precio: z.number().nonnegative(),
   descripcion: z.string().nullish(),
   duracion: z.number().int().positive().optional(),
@@ -109,6 +110,7 @@ export const crearTratamientoSchema = z.object({
   prestacionId: z.string().min(1),
   piezas: z.array(z.number().int()).optional(),
   zona: z.string().optional(),
+  zonaIds: z.array(z.string()).optional(), // zonas faciales (área estética)
   cara: z.string().optional(),
   precio: z.number().optional(),
   notas: z.string().optional(),

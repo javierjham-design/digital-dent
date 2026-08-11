@@ -40,7 +40,7 @@ export async function deleteSeccion(req: Request, res: Response) {
 // ── Tratamientos ──
 export async function postTratamiento(req: Request, res: Response) {
   const input = crearTratamientoSchema.parse(req.body)
-  res.status(201).json(await svc.crearTratamiento(tenantDb(req), req.auth!.sub, input))
+  res.status(201).json(await svc.crearTratamiento(tenantDb(req), req.auth!.sub, input, req.auth!))
 }
 export async function patchTratamiento(req: Request, res: Response) {
   res.json(await svc.actualizarTratamiento(tenantDb(req), req.auth!.sub, req.params.id, req.body ?? {}))

@@ -22,6 +22,9 @@ export default defineConfig({
     fileParallelism: false,
     pool: 'forks',
     testTimeout: 20_000,
-    hookTimeout: 40_000,
+    // El seed (beforeAll) resetea y re-siembra las 2 bases sqlite; en frío en
+    // Windows puede superar los 40 s y el timeout iba rotando de archivo en
+    // archivo como falso rojo. 120 s da margen sin ocultar cuelgues reales.
+    hookTimeout: 120_000,
   },
 })

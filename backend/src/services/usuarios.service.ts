@@ -34,6 +34,7 @@ const SELECT = {
   puedeGestionarCrm: true, puedeEliminar: true, puedeGestionarCajas: true,
   puedeConfigurarClinica: true, puedeGestionarEquipo: true, puedeGestionarPrestaciones: true,
   puedeDesbloquearPlanes: true, puedeGestionarAgenda: true, puedeVerReportes: true,
+  areaDental: true, areaEstetica: true, areaMedico: true,
   googleCalendarId: true, createdAt: true,
 } as const
 
@@ -44,6 +45,7 @@ function toDTO(u: {
   puedeRevertirCompletado?: boolean; puedeEditarPagos?: boolean; puedeGestionarLiquidaciones?: boolean
   puedeGestionarCrm?: boolean; puedeEliminar?: boolean; puedeGestionarCajas?: boolean
   puedeDesbloquearPlanes?: boolean; puedeGestionarAgenda?: boolean; puedeVerReportes?: boolean
+  areaDental?: boolean; areaEstetica?: boolean; areaMedico?: boolean
   googleCalendarId?: string | null; createdAt: Date
 }): UsuarioDTO {
   return { ...u, createdAt: u.createdAt.toISOString() }
@@ -129,7 +131,7 @@ const CAMPOS_ADMIN = [
   'puedeRecibirPagos', 'puedeModificarPrecio', 'puedeAplicarDescuento', 'puedeRevertirCompletado',
   'puedeEditarPagos', 'puedeGestionarLiquidaciones', 'puedeGestionarCrm', 'puedeEliminar', 'puedeGestionarCajas',
   'puedeConfigurarClinica', 'puedeGestionarEquipo', 'puedeGestionarPrestaciones', 'puedeDesbloquearPlanes',
-  'puedeGestionarAgenda', 'puedeVerReportes', 'googleCalendarId',
+  'puedeGestionarAgenda', 'puedeVerReportes', 'areaDental', 'areaEstetica', 'areaMedico', 'googleCalendarId',
 ]
 
 export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, targetId: string, body: Record<string, unknown>, clinicaId?: string): Promise<UsuarioDTO> {

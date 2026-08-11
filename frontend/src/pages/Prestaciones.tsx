@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { PrestacionDTO } from '@shared/types'
+import { AREA_LABELS, type AreaClinica } from '@shared/constants/areas'
 import { prestacionesService, categoriasService, type CategoriaPrestacionDTO } from '@/services/catalogo.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
@@ -12,23 +13,30 @@ export function Prestaciones() {
   const { user } = useAuth()
   const esAdmin = user?.role === 'admin'
   const puedeGestionar = esAdmin || Boolean(user?.permisos?.puedeGestionarPrestaciones)
+  // Áreas efectivas del usuario (clínica ∩ usuario, ya resueltas en la sesión).
+  // Cada área tiene su catálogo COMPLETO e independiente; todo lo de abajo opera
+  // dentro del área activa. Con una sola área el selector no se muestra.
+  const areas = useMemo(() => (user?.areas ?? []) as AreaClinica[], [user?.areas])
+  const [area, setArea] = useState<AreaClinica | ''>('')
+  useEffect(() => { if (!area && areas.length > 0) setArea(areas[0]) }, [areas, area])
   const [items, setItems] = useState<PrestacionDTO[]>([])
   const [cats, setCats] = useState<CategoriaPrestacionDTO[]>([])
   const [cargando, setCargando] = useState(true)
   const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
-  const [form, setForm] = useState({ nombre: '', categoria: '', precio: '', duracion: '30' })
+  const [form, setForm] = useState({ nombre: '', categoriaId: '', precio: '', duracion: '30' })
   const [nuevaSeccion, setNuevaSeccion] = useState('')
   const [busy, setBusy] = useState(false)
 
   function cargar() {
+    if (!area) return
     setCargando(true)
     Promise.all([
-      prestacionesService.listar().then(setItems),
-      categoriasService.listar().then(setCats),
+      prestacionesService.listar(area).then(setItems),
+      categoriasService.listar(area).then(setCats),
     ]).catch((e) => setError(e instanceof Error ? e.message : 'Error')).finally(() => setCargando(false))
   }
-  useEffect(cargar, [])
+  useEffect(cargar, [area])
 
   const aviso = (m: string) => setError(m)
   const correr = async (fn: () => Promise<unknown>) => {
@@ -41,14 +49,14 @@ export function Prestaciones() {
     const precio = Number(form.precio)
     if (!form.nombre.trim() || !Number.isFinite(precio)) return
     await correr(async () => {
-      await prestacionesService.crear({ nombre: form.nombre.trim(), categoria: form.categoria || undefined, precio, duracion: Number(form.duracion) || 30 })
-      setForm({ nombre: '', categoria: '', precio: '', duracion: '30' }); setShowForm(false)
+      await prestacionesService.crear({ nombre: form.nombre.trim(), categoriaId: form.categoriaId || undefined, precio, duracion: Number(form.duracion) || 30 })
+      setForm({ nombre: '', categoriaId: '', precio: '', duracion: '30' }); setShowForm(false)
     })
   }
 
   async function agregarSeccion() {
-    const n = nuevaSeccion.trim(); if (!n) return
-    await correr(async () => { await categoriasService.crear(n); setNuevaSeccion('') })
+    const n = nuevaSeccion.trim(); if (!n || !area) return
+    await correr(async () => { await categoriasService.crear(n, area); setNuevaSeccion('') })
   }
   const moverSeccion = (idx: number, dir: -1 | 1) => {
     const arr = [...cats]; const j = idx + dir
@@ -57,11 +65,13 @@ export function Prestaciones() {
     correr(() => categoriasService.reordenar(arr.map((c) => c.id)))
   }
 
-  // Agrupar prestaciones por categoría gestionada; el resto va a "Sin categoría".
-  const nombres = new Set(cats.map((c) => c.nombre))
+  // Agrupar prestaciones por sección, por categoriaId (fuente de verdad); las
+  // legacy sin FK caen por nombre. El resto va a "Sin sección".
+  const catPorNombre = new Map(cats.map((c) => [c.nombre, c.id]))
+  const idsCat = new Set(cats.map((c) => c.id))
   const porCat = new Map<string, PrestacionDTO[]>()
   for (const p of items) {
-    const k = p.categoria && nombres.has(p.categoria) ? p.categoria : SIN
+    const k = (p.categoriaId && idsCat.has(p.categoriaId)) ? p.categoriaId : (p.categoria && catPorNombre.get(p.categoria)) || SIN
     const arr = porCat.get(k) ?? []; arr.push(p); porCat.set(k, arr)
   }
   const sinCat = porCat.get(SIN) ?? []
@@ -73,12 +83,25 @@ export function Prestaciones() {
       <div className="flex items-center justify-between mb-6 gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Prestaciones</h1>
-          <p className="text-slate-500 text-sm mt-1">{items.length} prestaciones · {cats.length} secciones</p>
+          {/* El contador refleja el ÁREA ACTIVA, no el total global. */}
+          <p className="text-slate-500 text-sm mt-1">{items.length} prestaciones · {cats.length} secciones{areas.length > 1 && area ? ` · ${AREA_LABELS[area as AreaClinica]}` : ''}</p>
         </div>
         <button onClick={() => setShowForm((v) => !v)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">
           {showForm ? 'Cerrar' : '+ Nueva prestación'}
         </button>
       </div>
+
+      {/* Selector de área: solo si el usuario tiene más de una habilitada. */}
+      {areas.length > 1 && (
+        <div className="flex gap-1 mb-5 border-b border-slate-200">
+          {areas.map((a) => (
+            <button key={a} onClick={() => setArea(a)}
+              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${area === a ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
+              {AREA_LABELS[a]}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && <p className="mb-4 text-sm text-rose-600">{error}</p>}
 
@@ -86,10 +109,10 @@ export function Prestaciones() {
         <form onSubmit={crear} className="bg-white rounded-2xl border border-slate-200 p-5 mb-5 grid sm:grid-cols-4 gap-3">
           <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre *" required
             className="sm:col-span-2 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-          <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value })}
+          <select value={form.categoriaId} onChange={(e) => setForm({ ...form, categoriaId: e.target.value })}
             className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500">
             <option value="">Sin sección</option>
-            {cats.map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+            {cats.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
           </select>
           <input value={form.precio} onChange={(e) => setForm({ ...form, precio: e.target.value })} placeholder="Precio *" required inputMode="numeric"
             className="px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500" />
@@ -113,7 +136,7 @@ export function Prestaciones() {
         <div className="space-y-5">
           {cats.map((c, i) => (
             <Seccion key={c.id} cat={c} idx={i} total={cats.length} puedeGestionar={puedeGestionar}
-              prestaciones={porCat.get(c.nombre) ?? []} cats={cats} correr={correr} onMover={moverSeccion} />
+              prestaciones={porCat.get(c.id) ?? []} cats={cats} correr={correr} onMover={moverSeccion} />
           ))}
           {sinCat.length > 0 && (
             <Seccion cat={null} idx={-1} total={0} puedeGestionar={puedeGestionar} prestaciones={sinCat} cats={cats} correr={correr} onMover={moverSeccion} defaultOpen />
@@ -183,23 +206,25 @@ function PrestacionFila({ p, cats, correr }: { p: PrestacionDTO; cats: Categoria
   const [edit, setEdit] = useState(false)
   const [nombre, setNombre] = useState(p.nombre)
   const [precio, setPrecio] = useState(String(Math.round(p.precio)))
-  const [categoria, setCategoria] = useState(p.categoria ?? '')
+  // La sección se cambia por categoriaId (fuente de verdad); las legacy sin FK
+  // muestran su sección por nombre.
+  const [categoriaId, setCategoriaId] = useState(p.categoriaId ?? cats.find((c) => c.nombre === p.categoria)?.id ?? '')
 
   function guardar() {
     const pr = Number(precio)
-    correr(async () => { await prestacionesService.actualizar(p.id, { nombre: nombre.trim() || p.nombre, precio: Number.isFinite(pr) ? pr : p.precio, categoria: categoria || null }); setEdit(false) })
+    correr(async () => { await prestacionesService.actualizar(p.id, { nombre: nombre.trim() || p.nombre, precio: Number.isFinite(pr) ? pr : p.precio, categoriaId: categoriaId || null }); setEdit(false) })
   }
 
   if (edit) return (
     <div className="flex items-center gap-2 px-4 py-2.5 flex-wrap">
       <input value={nombre} onChange={(e) => setNombre(e.target.value)} className="flex-1 min-w-[10rem] px-2 py-1.5 border border-slate-200 rounded-lg text-sm" />
-      <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm bg-white">
+      <select value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)} className="px-2 py-1.5 border border-slate-200 rounded-lg text-sm bg-white">
         <option value="">Sin sección</option>
-        {cats.map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+        {cats.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
       </select>
       <input value={precio} onChange={(e) => setPrecio(e.target.value)} inputMode="numeric" className="w-28 px-2 py-1.5 border border-slate-200 rounded-lg text-sm font-mono" />
       <button onClick={guardar} className="px-3 py-1.5 bg-cyan-600 text-white text-xs font-semibold rounded-lg">Guardar</button>
-      <button onClick={() => { setNombre(p.nombre); setPrecio(String(Math.round(p.precio))); setCategoria(p.categoria ?? ''); setEdit(false) }} className="px-3 py-1.5 border border-slate-200 text-slate-500 text-xs rounded-lg">Cancelar</button>
+      <button onClick={() => { setNombre(p.nombre); setPrecio(String(Math.round(p.precio))); setEdit(false) }} className="px-3 py-1.5 border border-slate-200 text-slate-500 text-xs rounded-lg">Cancelar</button>
     </div>
   )
   return (

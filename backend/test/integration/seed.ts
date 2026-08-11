@@ -50,10 +50,14 @@ async function resetYSeedTenant(dbName: string, n: number) {
   await db.evolucion.deleteMany()
   await db.itemPresupuesto.deleteMany()
   await db.presupuesto.deleteMany()
+  await db.tratamientoZona.deleteMany() // FK a Tratamiento y ZonaFacial
   await db.tratamiento.deleteMany()
   await db.seccionPlan.deleteMany()
   await db.planTratamiento.deleteMany()
   await db.diente.deleteMany()
+  await db.zonaFicha.deleteMany()    // FK a FichaClinica y ZonaFacial
+  await db.dibujoFacial.deleteMany() // FK a FichaClinica
+  await db.zonaFacial.deleteMany()   // catálogo de zonas (ya sin referencias)
   await db.fichaClinica.deleteMany()
   await db.prestacion.deleteMany()
   await db.medioPago.deleteMany()
@@ -90,7 +94,14 @@ export async function seedDosClinicas() {
     const dbName = dbNameForSlug(slug)
     const { adminId, pacienteId } = await resetYSeedTenant(dbName, n)
     const clinica = await control.clinica.create({
-      data: { slug, dbName, nombre: `Clínica ${slug}`, activo: true, plan: 'PRO', proximoCobro: new Date(Date.now() + 30 * 86400000) },
+      // A/B con dental + estética contratadas: permite probar el flujo por área
+      // completo (guards de usuario, zonas, dibujo) sin tocar módulos en caliente
+      // (el cache de clínica del middleware tiene TTL y no se invalida por test).
+      data: {
+        slug, dbName, nombre: `Clínica ${slug}`, activo: true, plan: 'PRO',
+        modulos: 'crm,agendamiento_online,whatsapp,area_dental,area_estetica',
+        proximoCobro: new Date(Date.now() + 30 * 86400000),
+      },
     })
     fixtures[slug] = { clinicaId: clinica.id, slug, dbName, adminId, pacienteId }
   }

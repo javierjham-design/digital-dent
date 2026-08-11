@@ -2,6 +2,9 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
 import { audit } from '@/lib/audit'
+import { assertAreaDisponible, type ActorArea } from '@/lib/areas'
+import { resolverAreaPorCategoria } from '@/services/catalogo.service'
+import type { AreaClinica } from '@shared/constants/areas'
 import { conTitulo } from '@shared/utils/nombre'
 
 // El nombre del doctor titular se muestra con su título (ej. "Dra. Ana").
@@ -209,15 +212,30 @@ export async function eliminarSeccion(db: TenantClient, id: string) {
 
 export interface CrearTratamientoInput {
   pacienteId: string; prestacionId: string; piezas?: number[]; zona?: string; cara?: string
+  zonaIds?: string[] // zonas faciales (área ESTETICA): UN tratamiento cubre N zonas con UN precio
   precio?: number; notas?: string; planId?: string; seccionId?: string; descuento?: number
 }
 
-export async function crearTratamiento(db: TenantClient, actorId: string, body: CrearTratamientoInput) {
+export async function crearTratamiento(db: TenantClient, actorId: string, body: CrearTratamientoInput, actor?: ActorArea) {
   const paciente = await db.paciente.findUnique({ where: { id: body.pacienteId }, select: { id: true } })
   if (!paciente) throw notFound('Paciente no encontrado')
-  const prestacion = await db.prestacion.findUnique({ where: { id: body.prestacionId }, select: { id: true, precio: true } })
+  const prestacion = await db.prestacion.findUnique({ where: { id: body.prestacionId }, select: { id: true, precio: true, categoria: true, categoriaId: true } })
   if (!prestacion) throw notFound('Prestación no encontrada')
   await assertPlanDesbloqueado(db, body.planId)
+
+  // Guard de área: el área del tratamiento se deriva de la categoría de su
+  // prestación; el actor debe tenerla disponible (clínica contrató ∩ usuario la
+  // tiene). Con el actor ausente (llamadas internas) no se gatea.
+  const areaDe = await resolverAreaPorCategoria(db)
+  const area = areaDe(prestacion) as AreaClinica
+  if (actor) await assertAreaDisponible(db, actor, area)
+  // Las zonas faciales son EXCLUSIVAS del área estética.
+  const zonaIds = [...new Set(body.zonaIds ?? [])]
+  if (zonaIds.length > 0) {
+    if (area !== 'ESTETICA') throw badRequest('Las zonas faciales solo aplican a prestaciones del área estética.')
+    const zonas = await db.zonaFacial.findMany({ where: { id: { in: zonaIds }, activo: true }, select: { id: true } })
+    if (zonas.length !== zonaIds.length) throw badRequest('Alguna zona facial indicada no existe o está inactiva.')
+  }
 
   const me = await actorPermisos(db, actorId)
   const precioFinal = me.permisos.puedeModificarPrecio ? Number(body.precio) : prestacion.precio
@@ -245,15 +263,25 @@ export async function crearTratamiento(db: TenantClient, actorId: string, body: 
     notas: body.notas || null, estado: 'PLANIFICADO',
   }
 
-  const creados = (Array.isArray(body.piezas) && body.piezas.length > 0)
-    ? await Promise.all(body.piezas.map((pieza) =>
-        db.tratamiento.create({ data: { ...baseData, diente: pieza, cara: body.cara || null }, include: { prestacion: true } })))
-    : [await db.tratamiento.create({ data: { ...baseData, diente: null, cara: body.zona || body.cara || null }, include: { prestacion: true } })]
+  // Estética con zonas: UN tratamiento con N zonas (unión TratamientoZona), UN precio.
+  // Dental: un tratamiento POR PIEZA (patrón actual intacto). Resto: uno simple.
+  const creados = (zonaIds.length > 0)
+    ? [await db.tratamiento.create({
+        data: { ...baseData, diente: null, cara: null, zonas: { create: zonaIds.map((zonaId) => ({ zonaId })) } },
+        include: { prestacion: true, zonas: { include: { zona: { select: { codigo: true, nombreVisible: true } } } } },
+      })]
+    : (Array.isArray(body.piezas) && body.piezas.length > 0)
+      ? await Promise.all(body.piezas.map((pieza) =>
+          db.tratamiento.create({ data: { ...baseData, diente: pieza, cara: body.cara || null }, include: { prestacion: true } })))
+      : [await db.tratamiento.create({ data: { ...baseData, diente: null, cara: body.zona || body.cara || null }, include: { prestacion: true } })]
 
   const piezasTxt = creados.map((t) => t.diente).filter(Boolean).join(', ')
+  const zonasTxt = zonaIds.length > 0
+    ? (creados[0] as { zonas?: { zona: { nombreVisible: string } }[] }).zonas?.map((z) => z.zona.nombreVisible).join(', ') ?? ''
+    : ''
   await audit(db, actorId, {
     accion: 'CREAR', entidad: 'Tratamiento', entidadId: creados[0]?.id, pacienteId: body.pacienteId,
-    resumen: `Agregó "${creados[0]?.prestacion?.nombre ?? 'prestación'}"${piezasTxt ? ` · pieza(s) ${piezasTxt}` : ''} al plan`,
+    resumen: `Agregó "${creados[0]?.prestacion?.nombre ?? 'prestación'}"${piezasTxt ? ` · pieza(s) ${piezasTxt}` : ''}${zonasTxt ? ` · zona(s) ${zonasTxt}` : ''} al plan`,
   })
   return creados
 }

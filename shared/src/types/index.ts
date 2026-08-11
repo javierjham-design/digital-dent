@@ -11,6 +11,9 @@ export interface SessionUserDTO {
   clinicaId: string | null
   pais: string
   modulos: string[]
+  // Áreas clínicas EFECTIVAS del usuario: (áreas contratadas por la clínica) ∩
+  // (flags del usuario). Con una sola, la UI no muestra selectores de área.
+  areas: string[]
   isPlatformAdmin: boolean
   requirePasswordChange: boolean
   permisos: {
@@ -210,6 +213,9 @@ export interface UsuarioDTO {
   puedeDesbloquearPlanes?: boolean
   puedeGestionarAgenda?: boolean
   puedeVerReportes?: boolean
+  areaDental?: boolean
+  areaEstetica?: boolean
+  areaMedico?: boolean
   googleCalendarId?: string | null
   createdAt: string
 }
@@ -245,7 +251,10 @@ export interface PrestacionDTO {
   descripcion: string | null
   precio: number
   duracion: number
+  // `categoria` es la copia derivada (nombre de la sección); `categoriaId` es la
+  // fuente de verdad. El área de la prestación se deriva de la sección.
   categoria: string | null
+  categoriaId?: string | null
   activo: boolean
 }
 
