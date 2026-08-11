@@ -1702,14 +1702,20 @@ function PanelAgregarPrestacion({ planId, pacienteId, prestaciones, selPiezas, s
     : piezas.length > 0 ? resumen : 'Ninguna · prestación general'
 
   return (
-    <div className="fixed top-0 left-0 h-full w-full max-w-[440px] bg-white shadow-2xl z-40 flex flex-col">
-      <div className="bg-cyan-600 text-white px-4 py-3 flex items-center gap-2">
+    // Mobile: panel INFERIOR (bottom sheet) que deja el diagrama visible arriba para
+    // seguir marcando piezas/zonas. Escritorio (lg): panel lateral izquierdo de alto
+    // completo. En ambos, sin capa que bloquee el diagrama.
+    <div className="fixed z-40 bg-white shadow-2xl flex flex-col overflow-hidden
+      inset-x-0 bottom-0 max-h-[62vh] rounded-t-2xl
+      lg:inset-x-auto lg:top-0 lg:bottom-0 lg:left-0 lg:max-h-none lg:w-[440px] lg:rounded-none">
+      <div className="lg:hidden pt-2 pb-1 flex justify-center shrink-0"><span className="h-1 w-10 rounded-full bg-slate-300" /></div>
+      <div className="bg-cyan-600 text-white px-4 py-3 flex items-center gap-2 shrink-0">
         {(cat || q) && <button onClick={() => { setCat(null); setBusca('') }} className="text-white/90 hover:text-white text-xl leading-none">‹</button>}
         <span className="font-semibold flex-1 truncate">{cat ?? 'Definir prestación'}</span>
         <button onClick={onClose} className="text-white/90 hover:text-white text-xl leading-none">✕</button>
       </div>
-      <div className="p-3 border-b border-slate-100">
-        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar prestación o categoría…" autoFocus
+      <div className="p-3 border-b border-slate-100 shrink-0">
+        <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar prestación o categoría…"
           className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
       </div>
       <div className="flex-1 overflow-auto">
@@ -1728,7 +1734,7 @@ function PanelAgregarPrestacion({ planId, pacienteId, prestaciones, selPiezas, s
           ))
         )}
       </div>
-      <div className="border-t border-slate-200 p-3 bg-slate-50 space-y-2">
+      <div className="border-t border-slate-200 p-3 bg-slate-50 space-y-2 shrink-0">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[11px] uppercase tracking-wide text-slate-400">{(areaPlan === 'ESTETICA' || selZonas.length > 0) ? 'Zonas' : 'Piezas'} seleccionadas</p>
