@@ -5,6 +5,35 @@
 
 ---
 
+## 2026-08-11 — Un plan de tratamiento pertenece a UN área (no se mezclan)
+
+Pedido de Javier probando estética en un demo: un mismo plan mezclaba acciones dental +
+estética + médico. **Reemplaza la decisión previa** ("un plan puede mezclar áreas").
+
+- **Schema tenant**: `PlanTratamiento.area` (default `DENTAL`, columna **aditiva**). Se fija
+  al crear y no cambia. `crearPlan` la guarda; `crearTratamiento` **rechaza (400)** una
+  acción cuya área (derivada de su prestación) no coincide con la del plan. init.sql
+  regenerado (guarda anti-drift verde).
+- **Frontend**: `NuevoPlanModal` muestra selector de área si el profesional trabaja 2+
+  áreas (si trabaja una, se asigna sola). El detalle del plan **pierde las pestañas de
+  área**: muestra el área como **badge** y SOLO su diagrama (odontograma / rostro / sin
+  diagrama para médico) y su catálogo. La lista de planes muestra un badge del área.
+- **Migración a prod**: columna aditiva con default → `migrate:tenants` (prestart) la aplicó
+  sin data-loss a las 4 bases activas. Backfill verificado: **digital-dent 125 planes
+  DENTAL · orodent 1 · demo 4 · montenegro sin planes** (las 3 clínicas reales son
+  dentales, sin impacto). Backup fresco antes (4/4, 39,2 MB). Deploy SUCCESS + smoke verde.
+- **UI de carga**: el panel lateral de prestaciones filtra por `plan.area`, así que solo
+  aparecen las prestaciones de esa área; el guard del backend es la red de seguridad.
+- **Verificación**: typecheck be/fe, unit 115, integración **90** (+1: plan dental rechaza
+  acción estética; se ajustaron los 2 tests de estética para crear plan `area:'ESTETICA'`),
+  contrato, build, init-sql-sync.
+
+También hoy (antes de este cambio): panel lateral de prestaciones estilo "definir
+procedimiento" (drawer que no bloquea el diagrama, abre al seleccionar pieza/zona, cierra al
+quedar sin selección) + toggle "una por cada / una para todas" extendido a arcadas/sextantes.
+
+---
+
 ## 2026-08-10 — ÁREAS CLÍNICAS EN PRODUCCIÓN (ventana completa 1→8, con Javier presente)
 
 La rama `feat/areas-clinicas` (DENTAL/ESTETICA/MEDICO en dos niveles: módulos `area_*` por

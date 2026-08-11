@@ -3,8 +3,12 @@
 // Y el usuario la tiene habilitada (flags booleanos en User).
 //
 // El área de una PRESTACIÓN se deriva de su categoría (CategoriaPrestacion.area);
-// el área de un TRATAMIENTO, de la categoría de su prestación. El área NO vive en
-// PlanTratamiento: un mismo plan puede mezclar acciones dentales y estéticas.
+// el área de un TRATAMIENTO, de la categoría de su prestación.
+//
+// DECISIÓN (2026-08-11, reemplaza la previa): un PLAN pertenece a UN área
+// (PlanTratamiento.area, fijada al crear). Solo admite acciones de esa área — el
+// backend rechaza (400) una acción de otra área. Para tratar dos áreas de un mismo
+// paciente se crean planes separados. Antes un plan podía mezclar áreas; ya no.
 
 export const AREAS = ['DENTAL', 'ESTETICA', 'MEDICO'] as const
 export type AreaClinica = (typeof AREAS)[number]
