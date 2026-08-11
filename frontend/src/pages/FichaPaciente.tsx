@@ -483,12 +483,12 @@ function labelTiempoEstimado(cant: number, unidad?: string): string {
 }
 interface DoctorRef { id: string; name: string | null; email?: string | null }
 interface PlanCard {
-  id: string; nombre: string; estado: string; bloqueado?: boolean
+  id: string; nombre: string; estado: string; bloqueado?: boolean; area?: AreaClinica
   doctorTitular: DoctorRef | null; createdAt: string; updatedAt: string; fechaInicio: string | null
   _count?: { tratamientos: number; secciones: number }; tratamientos: TratLite[]; abonoLibre?: number
 }
 interface PlanDetalle {
-  id: string; nombre: string; estado: string; bloqueado: boolean
+  id: string; nombre: string; estado: string; bloqueado: boolean; area?: AreaClinica
   doctorTitularId: string | null; doctorTitular: DoctorRef | null
   secciones: SeccionNode[]; tratamientos: TratNode[]; abonoLibre?: number
 }
@@ -547,6 +547,9 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   const puedeDesbloquear = user?.role === 'admin' || Boolean(user?.permisos?.puedeDesbloquearPlanes)
   const areasUsuario = useMemo(() => (user?.areas ?? []) as AreaClinica[], [user?.areas])
   useEffect(() => { if (!areaPlan && areasUsuario.length > 0) setAreaPlan(areasUsuario[0]) }, [areasUsuario, areaPlan])
+  // El área activa la fija el PLAN abierto (un plan = un área). Así el diagrama y el
+  // catálogo del detalle son SOLO los de esa área.
+  useEffect(() => { if (detalle?.area) setAreaPlan(detalle.area) }, [detalle?.area])
 
   const cargarPlanes = () => planesService.listar(pacienteId).then((p) => setPlanes(p as PlanCard[])).catch(() => {})
   useEffect(() => {
@@ -610,8 +613,8 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
   }
   // El profesional a cargo se elige al crear el plan (NuevoPlanModal). Antes caía
   // por defecto al primer doctor de la lista, dejando todos los planes con el mismo.
-  async function crearPlan(doctorTitularId: string) {
-    const p = await planesService.crear({ pacienteId, doctorTitularId: doctorTitularId || undefined }) as { id: string }
+  async function crearPlan(doctorTitularId: string, area: AreaClinica) {
+    const p = await planesService.crear({ pacienteId, doctorTitularId: doctorTitularId || undefined, area }) as { id: string }
     setNuevoPlanOpen(false); cargarPlanes(); abrir(p.id)
   }
 
@@ -656,7 +659,7 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
       {detalle ? (
         <PlanDetalleView
           plan={detalle} prestaciones={prestaciones} doctores={doctores} pacienteId={pacienteId}
-          areaPlan={(areaPlan || 'DENTAL') as AreaClinica} areasUsuario={areasUsuario} onArea={(a) => { setAreaPlan(a); clearSel() }}
+          areaPlan={(detalle.area || 'DENTAL') as AreaClinica}
           selZonasFax={selZonasFax} toggleZonaFax={toggleZonaFax}
           selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} denticion={denticion}
           toggleFace={toggleFace} toggleWhole={toggleWhole} toggleZona={toggleZona} clearSel={clearSel} cambiarDenticion={cambiarDenticion}
@@ -708,7 +711,7 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
           onDone={trasEvolucionar} />
       )}
       {nuevoPlanOpen && (
-        <NuevoPlanModal doctores={doctores} onClose={() => setNuevoPlanOpen(false)} onCrear={crearPlan} />
+        <NuevoPlanModal doctores={doctores} areasUsuario={areasUsuario} onClose={() => setNuevoPlanOpen(false)} onCrear={crearPlan} />
       )}
     </div>
   )
@@ -716,10 +719,13 @@ function PlanesTab({ pacienteId, pacienteNombre, pacienteEmail }: { pacienteId: 
 
 // Al crear un plan se pregunta el profesional a cargo (antes caía por defecto al
 // primer doctor). Queda asignado desde el inicio; se puede cambiar luego en el detalle.
-function NuevoPlanModal({ doctores, onClose, onCrear }: {
-  doctores: DoctorDTO[]; onClose: () => void; onCrear: (doctorTitularId: string) => Promise<void>
+function NuevoPlanModal({ doctores, areasUsuario, onClose, onCrear }: {
+  doctores: DoctorDTO[]; areasUsuario: AreaClinica[]; onClose: () => void; onCrear: (doctorTitularId: string, area: AreaClinica) => Promise<void>
 }) {
   const [doctorId, setDoctorId] = useState('')
+  // Un plan pertenece a un área. Si el profesional trabaja más de un área, la elige;
+  // si trabaja una sola, se asigna sola (sin preguntar).
+  const [area, setArea] = useState<AreaClinica>(areasUsuario[0] ?? 'DENTAL')
   const [creando, setCreando] = useState(false)
   const [err, setErr] = useState('')
 
@@ -732,7 +738,7 @@ function NuevoPlanModal({ doctores, onClose, onCrear }: {
   async function crear() {
     if (!doctorId) { setErr('Selecciona el profesional a cargo del plan'); return }
     setCreando(true); setErr('')
-    try { await onCrear(doctorId) } catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo crear el plan'); setCreando(false) }
+    try { await onCrear(doctorId, area) } catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo crear el plan'); setCreando(false) }
   }
 
   return (
@@ -740,9 +746,23 @@ function NuevoPlanModal({ doctores, onClose, onCrear }: {
       <div className="bg-white rounded-2xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-slate-100">
           <h3 className="text-lg font-bold text-slate-900">Nuevo plan de tratamiento</h3>
-          <p className="text-sm text-slate-500">¿Qué profesional queda a cargo de este plan?</p>
+          <p className="text-sm text-slate-500">{areasUsuario.length > 1 ? 'Elegí el área y el profesional a cargo.' : '¿Qué profesional queda a cargo de este plan?'}</p>
         </div>
         <div className="p-5 space-y-3">
+          {areasUsuario.length > 1 && (
+            <label className="block">
+              <span className="text-xs font-medium text-slate-500">Área del plan</span>
+              <div className="mt-1 flex gap-2">
+                {areasUsuario.map((a) => (
+                  <button key={a} type="button" onClick={() => setArea(a)}
+                    className={`flex-1 px-3 py-2 rounded-lg border text-sm font-medium ${area === a ? 'border-cyan-600 bg-cyan-50 text-cyan-700' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                    {AREA_LABELS[a]}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">El plan solo admitirá acciones de esta área. No se puede cambiar después.</p>
+            </label>
+          )}
           <label className="block">
             <span className="text-xs font-medium text-slate-500">Profesional a cargo</span>
             <select value={doctorId} onChange={(e) => { setDoctorId(e.target.value); setErr('') }} autoFocus
@@ -800,8 +820,9 @@ function PlanTarjeta({ p, onAbrir, onEliminar, onEnviar }: { p: PlanCard; onAbri
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onAbrir(p.id) }}
       className="bg-white rounded-2xl border border-slate-200 p-4 cursor-pointer hover:border-cyan-400 hover:shadow-sm transition-colors">
       <div className="flex items-center justify-between gap-2">
-        <span className="text-cyan-700 font-semibold truncate">#{p.id.slice(-4)}: {p.nombre}</span>
+        <span className="text-cyan-700 font-semibold truncate min-w-0">#{p.id.slice(-4)}: {p.nombre}</span>
         <div className="flex items-center gap-2 shrink-0">
+          {p.area && <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{AREA_LABELS[p.area]}</span>}
           <button onClick={(e) => { e.stopPropagation(); onEnviar(p) }} className="text-cyan-600 hover:text-cyan-800" title="Enviar plan por correo">✉</button>
           <button onClick={(e) => { e.stopPropagation(); onEliminar(p.id) }} className="text-slate-300 hover:text-rose-600" title="Eliminar plan">🗑</button>
         </div>
@@ -850,9 +871,9 @@ function PlanLista({ planes, onAbrir, onNuevo, onEliminar, onEnviar }: {
   )
 }
 
-function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, areasUsuario, onArea, selZonasFax, toggleZonaFax, selPiezas, selCaras, selZonas, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onFinalizar, onReabrir, onBloquear, onProfesional, onEnviarCorreo, puedeDesbloquear }: {
+function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, selZonasFax, toggleZonaFax, selPiezas, selCaras, selZonas, denticion, toggleFace, toggleWhole, toggleZona, clearSel, cambiarDenticion, accion, onCerrar, onEvolucionar, onRenombrar, onFinalizar, onReabrir, onBloquear, onProfesional, onEnviarCorreo, puedeDesbloquear }: {
   plan: PlanDetalle; prestaciones: PrestacionDTO[]; doctores: DoctorDTO[]; pacienteId: string
-  areaPlan: AreaClinica; areasUsuario: AreaClinica[]; onArea: (a: AreaClinica) => void
+  areaPlan: AreaClinica
   selZonasFax: Set<string>; toggleZonaFax: (zonaId: string) => void
   selPiezas: number[]; selCaras: Record<number, string[]>; selZonas: string[]; denticion: 'PERM' | 'TEMP'
   toggleFace: (n: number, f: string) => void; toggleWhole: (n: number) => void; toggleZona: (label: string) => void
@@ -961,21 +982,13 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, a
           </div>
         </div>
 
-        {/* Panel derecho: diagrama del área activa + secciones. Pestañas SOLO si el
-            profesional trabaja más de un área; con una sola se ve directo (el flujo
-            dental actual queda idéntico). Dental → odontograma; Estética → gráfico
-            facial (2 capas); Médico → sin diagrama (solo catálogo). */}
+        {/* Panel derecho: el plan es de UN área (badge). Dental → odontograma;
+            Estética → gráfico facial (2 capas); Médico → sin diagrama (solo catálogo). */}
         <div className="space-y-4 min-w-0">
-          {areasUsuario.length > 1 && (
-            <div className="flex gap-1 border-b border-slate-200">
-              {areasUsuario.map((a) => (
-                <button key={a} onClick={() => onArea(a)}
-                  className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${areaPlan === a ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
-                  {AREA_LABELS[a]}
-                </button>
-              ))}
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] uppercase tracking-wide text-slate-400">Área del plan</span>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-cyan-100 text-cyan-700">{AREA_LABELS[areaPlan]}</span>
+          </div>
           {areaPlan === 'DENTAL' && (
             <div id="plan-diagrama" className="bg-white rounded-2xl border border-slate-200 p-4 scroll-mt-2">
               <OdontogramaPlan caraMap={caraMap} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} denticion={denticion}

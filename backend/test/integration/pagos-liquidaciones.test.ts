@@ -978,7 +978,7 @@ describe('áreas clínicas: guard por usuario, multi-zona con UN precio, y capas
   })
 
   it('guard: el doctor sin areaEstetica NO puede crear un tratamiento estético (403); con el flag sí', async () => {
-    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: docId })
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: docId, area: 'ESTETICA' })
     const intento = await request(app).post('/api/v1/tratamientos').set(authDoc())
       .send({ pacienteId: A.pacienteId, prestacionId: botox.id, planId: plan.body.id, precio: 180000 })
     expect(intento.status).toBe(403)
@@ -990,6 +990,15 @@ describe('áreas clínicas: guard por usuario, multi-zona con UN precio, y capas
     expect(ok.status).toBe(201)
   })
 
+  it('un plan es de UN área: un plan DENTAL rechaza una acción estética (400)', async () => {
+    // El admin tiene estética habilitada, así que NO es un 403 de permiso: es el
+    // guard de área del plan (la accion estética no cabe en un plan dental).
+    const planDental = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId, area: 'DENTAL' })
+    const r = await post('/tratamientos', { pacienteId: A.pacienteId, prestacionId: botox.id, planId: planDental.body.id, precio: 180000 })
+    expect(r.status).toBe(400)
+    expect(String(r.body.error)).toMatch(/área/i)
+  })
+
   it('multi-zona: UN tratamiento cubre N zonas con UN precio (no duplica en presupuesto/cobro)', async () => {
     const zonas = await get('/zonas-faciales')
     expect(zonas.status).toBe(200)
@@ -997,7 +1006,7 @@ describe('áreas clínicas: guard por usuario, multi-zona con UN precio, y capas
     const ids = zonas.body.filter((z: { codigo: string }) => z.codigo.startsWith('PERIORBITAL_LAT')).map((z: { id: string }) => z.id)
     expect(ids.length).toBe(2) // patas de gallo: ambos lados, un solo precio
 
-    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId, area: 'ESTETICA' })
     const r = await post('/tratamientos', { pacienteId: A.pacienteId, prestacionId: botox.id, planId: plan.body.id, precio: 180000, zonaIds: ids })
     expect(r.status).toBe(201)
     expect(r.body.length).toBe(1) // UN tratamiento (no uno por zona)

@@ -5,7 +5,7 @@ import { api } from './api'
 export const planesService = {
   listar: (pacienteId: string) => api.get<unknown[]>(`/planes-tratamiento?pacienteId=${pacienteId}`),
   obtener: (id: string) => api.get<unknown>(`/planes-tratamiento/${id}`),
-  crear: (input: { pacienteId: string; nombre?: string; notas?: string; doctorTitularId?: string }) =>
+  crear: (input: { pacienteId: string; nombre?: string; notas?: string; doctorTitularId?: string; area?: string }) =>
     api.post<unknown>('/planes-tratamiento', input),
   actualizar: (id: string, patch: Record<string, unknown>) => api.patch<unknown>(`/planes-tratamiento/${id}`, patch),
   eliminar: (id: string) => api.del<{ ok: true }>(`/planes-tratamiento/${id}`),

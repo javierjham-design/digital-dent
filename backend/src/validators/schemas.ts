@@ -95,6 +95,7 @@ export const crearPlanSchema = z.object({
   notas: z.string().optional(),
   fechaInicio: z.string().optional(),
   doctorTitularId: z.string().optional(),
+  area: z.enum(['DENTAL', 'ESTETICA', 'MEDICO']).optional(),
 })
 
 export const crearSeccionSchema = z.object({

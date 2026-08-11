@@ -479,6 +479,7 @@ model PlanTratamiento {
   pacienteId      String
   doctorTitularId String?
   nombre          String        @default("Plan de tratamiento")
+  area            String        @default("DENTAL") // DENTAL | ESTETICA | MEDICO — un plan = un área; solo admite acciones de esa área
   estado          String        @default("ACTIVO")
   bloqueado       Boolean       @default(false)  // bloqueo al imprimir; desbloquear para editar
   notas           String?

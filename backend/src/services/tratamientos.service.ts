@@ -4,7 +4,7 @@ import type { JwtPayload } from '@/services/auth.service'
 import { audit } from '@/lib/audit'
 import { assertAreaDisponible, type ActorArea } from '@/lib/areas'
 import { resolverAreaPorCategoria } from '@/services/catalogo.service'
-import type { AreaClinica } from '@shared/constants/areas'
+import { esArea, type AreaClinica } from '@shared/constants/areas'
 import { conTitulo } from '@shared/utils/nombre'
 
 // El nombre del doctor titular se muestra con su título (ej. "Dra. Ana").
@@ -87,16 +87,20 @@ export async function listarPlanes(db: TenantClient, pacienteId: string) {
   return planes.map((p) => conTitularNombre({ ...p, abonoLibre: abonoMap.get(p.id) ?? 0 }))
 }
 
-export async function crearPlan(db: TenantClient, input: { pacienteId: string; nombre?: string; notas?: string; fechaInicio?: string; doctorTitularId?: string }) {
+export async function crearPlan(db: TenantClient, input: { pacienteId: string; nombre?: string; notas?: string; fechaInicio?: string; doctorTitularId?: string; area?: string }) {
   if (!input.pacienteId) throw badRequest('Falta pacienteId')
   const paciente = await db.paciente.findUnique({ where: { id: input.pacienteId }, select: { id: true } })
   if (!paciente) throw notFound('Paciente no encontrado')
+  // Un plan pertenece a UN área (DENTAL/ESTETICA/MEDICO): solo admite acciones de
+  // esa área. Se fija al crear y no cambia. Default DENTAL (comportamiento previo).
+  const area: AreaClinica = esArea(input.area) ? input.area : 'DENTAL'
   return db.planTratamiento.create({
     data: {
       pacienteId: input.pacienteId,
       doctorTitularId: input.doctorTitularId || null,
       nombre: input.nombre || 'Plan de tratamiento',
       notas: input.notas || null,
+      area,
       fechaInicio: input.fechaInicio ? new Date(input.fechaInicio) : null,
     },
   })
@@ -247,9 +251,13 @@ export async function crearTratamiento(db: TenantClient, actorId: string, body: 
 
   let doctorIdDefault: string | null = null
   if (body.planId) {
-    const plan = await db.planTratamiento.findUnique({ where: { id: body.planId }, select: { id: true, doctorTitularId: true } })
+    const plan = await db.planTratamiento.findUnique({ where: { id: body.planId }, select: { id: true, doctorTitularId: true, area: true } })
     if (!plan) throw notFound('Plan no encontrado')
     doctorIdDefault = plan.doctorTitularId
+    // Un plan es de UN área: la acción debe ser de esa misma área (la de su prestación).
+    if (plan.area && area !== plan.area) {
+      throw badRequest(`Esta prestación es del área ${area} y el plan es de ${plan.area}. Creá un plan del área correspondiente para cargarla.`)
+    }
   }
   if (body.seccionId) {
     const seccion = await db.seccionPlan.findUnique({ where: { id: body.seccionId }, select: { id: true } })

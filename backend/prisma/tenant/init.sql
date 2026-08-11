@@ -356,6 +356,7 @@ CREATE TABLE "PlanTratamiento" (
     "pacienteId" TEXT NOT NULL,
     "doctorTitularId" TEXT,
     "nombre" TEXT NOT NULL DEFAULT 'Plan de tratamiento',
+    "area" TEXT NOT NULL DEFAULT 'DENTAL',
     "estado" TEXT NOT NULL DEFAULT 'ACTIVO',
     "bloqueado" BOOLEAN NOT NULL DEFAULT false,
     "notas" TEXT,
