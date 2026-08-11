@@ -864,6 +864,7 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, a
 }) {
   const finalizado = plan.estado === 'FINALIZADO'
   const [agregando, setAgregando] = useState(false)
+  const selCount = selPiezas.length + selZonas.length + selZonasFax.size // qué hay marcado para asociar
   const todas = [...plan.secciones.flatMap((s) => s.tratamientos), ...plan.tratamientos]
   const fin = planFinanzas(todas)
   const abonado = fin.abonado + (plan.abonoLibre ?? 0)
@@ -967,13 +968,13 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, a
             </div>
           )}
           {areaPlan === 'DENTAL' && (
-            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+            <div id="plan-diagrama" className="bg-white rounded-2xl border border-slate-200 p-4 scroll-mt-2">
               <OdontogramaPlan caraMap={caraMap} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} denticion={denticion}
                 onFace={toggleFace} onWhole={toggleWhole} onZona={toggleZona} onClear={clearSel} onDenticion={cambiarDenticion} />
             </div>
           )}
           {areaPlan === 'ESTETICA' && (
-            <div className="bg-white rounded-2xl border border-slate-200 p-4">
+            <div id="plan-diagrama" className="bg-white rounded-2xl border border-slate-200 p-4 scroll-mt-2">
               <GraficoFacial pacienteId={pacienteId} selZonas={selZonasFax} onToggleZona={toggleZonaFax} />
             </div>
           )}
@@ -983,14 +984,23 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, a
               Plan bloqueado: no se puede editar el presupuesto (agregar/quitar acciones, precios). Las acciones igual se pueden evolucionar. Desbloquéalo para editar.
             </p>
           ) : (
-            <div className="bg-white rounded-2xl border border-slate-200 p-3 space-y-2">
+            // Panel FIJO (sticky): al scrollear las secciones queda pegado al tope,
+            // así el selector de prestación no se pierde. Muestra qué está marcado y
+            // deja saltar al diagrama para re-seleccionar sin buscarlo a mano.
+            <div className="sticky top-2 z-20 bg-white rounded-2xl border border-slate-200 shadow-lg shadow-slate-300/40 p-3 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
                 <button onClick={() => setAgregando((v) => !v)}
                   className={`px-3 py-1.5 text-sm font-semibold rounded-lg ${agregando ? 'bg-cyan-100 text-cyan-700' : 'bg-cyan-600 hover:bg-cyan-700 text-white'}`}>
                   + Agregar prestación
                 </button>
                 <AgregarSeccion planId={plan.id} accion={accion} sinSeccionIds={plan.tratamientos.map((t) => t.id)} />
-                {!agregando && <span className="text-xs text-slate-400">{areaPlan === 'DENTAL' ? 'Selecciona piezas o una zona arriba.' : areaPlan === 'ESTETICA' ? 'Selecciona zonas del rostro arriba (con el puntero).' : 'Agrega prestaciones desde el catálogo médico.'}</span>}
+                <button type="button" onClick={() => document.getElementById('plan-diagrama')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  className="text-xs text-cyan-600 hover:underline">↑ Ver diagrama</button>
+                {selCount > 0 ? (
+                  <span className="text-xs font-medium text-cyan-700 bg-cyan-50 border border-cyan-100 rounded-full px-2 py-0.5">{selCount} seleccionada{selCount > 1 ? 's' : ''}</span>
+                ) : !agregando && (
+                  <span className="text-xs text-slate-400">{areaPlan === 'DENTAL' ? 'Selecciona piezas o una zona en el diagrama.' : areaPlan === 'ESTETICA' ? 'Selecciona zonas del rostro (con el puntero).' : 'Agrega prestaciones desde el catálogo médico.'}</span>
+                )}
               </div>
               {agregando && <AgregarAccion planId={plan.id} seccionId="" pacienteId={pacienteId} prestaciones={prestaciones} selPiezas={selPiezas} selCaras={selCaras} selZonas={selZonas} selZonasFax={selZonasFax} clearSel={clearSel} accion={accion} onDone={() => setAgregando(false)} />}
             </div>
