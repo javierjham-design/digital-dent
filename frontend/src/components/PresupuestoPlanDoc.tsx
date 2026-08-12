@@ -1,15 +1,22 @@
 import type { PacienteDTO, ClinicaConfigDTO } from '@shared/types'
 import { fmtMonto, paisMoneda } from '@/lib/money'
 import { getPais } from '@shared/constants/paises'
+import { ZONAS_FACIALES_NUCLEO } from '@shared/constants/zonas-faciales'
+import rostroBase from '@/assets/rostro-base.jpg'
 
 const fmtCLP = fmtMonto
 
+// Path (calibrado sobre la foto base) por código de zona facial, para el mapa estético.
+const PATH_POR_CODIGO: Record<string, string> = Object.fromEntries(
+  ZONAS_FACIALES_NUCLEO.map((z) => [z.codigo, z.path]))
+
+export interface PZona { zona: { codigo: string; nombreVisible: string } }
 export interface PTrat {
   id: string; estado: string; precio: number; descuento: number; diente: number | null; cara: string | null; notas: string | null
-  prestacion: { nombre: string }; cobroItems: { monto: number; cobro: { estado: string } | null }[]
+  prestacion: { nombre: string }; cobroItems: { monto: number; cobro: { estado: string } | null }[]; zonas?: PZona[]
 }
 export interface PSeccion { id: string; titulo: string; fechaTentativa?: string | null; diasDesdeAnterior?: number | null; tiempoUnidad?: string; tratamientos: PTrat[] }
-export interface PPlan { id: string; nombre: string; pacienteId: string; doctorTitular: { name: string | null } | null; secciones: PSeccion[]; tratamientos: PTrat[]; abonoLibre?: number }
+export interface PPlan { id: string; nombre: string; pacienteId: string; area?: string; doctorTitular: { name: string | null } | null; secciones: PSeccion[]; tratamientos: PTrat[]; abonoLibre?: number }
 
 const unidadLabel = (u?: string) => (u === 'MESES' ? 'meses' : u === 'SEMANAS' ? 'semanas' : 'días')
 const tiempoSeccion = (s: PSeccion): string | null => (
@@ -55,7 +62,38 @@ const CSS = `
 .pp .pp-saldo { font-family:monospace; font-weight:600; color:#d97706; }
 .pp .pp-total-v { font-family:monospace; font-weight:bold; color:#0e7490; font-size:16px; }
 .pp .pp-foot { font-size:11px; color:#94a3b8; margin-top:40px; border-top:1px solid #f1f5f9; padding-top:12px; }
+.pp .pp-mapa { margin:4px 0 22px; page-break-inside:avoid; }
+.pp .pp-mapa-t { font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:#94a3b8; margin-bottom:8px; text-align:center; }
+.pp .pp-mapa-fig { position:relative; width:290px; margin:0 auto; }
+.pp .pp-mapa-img { width:100%; display:block; border-radius:12px; }
+.pp .pp-mapa-svg { position:absolute; top:0; left:0; width:100%; height:100%; }
+.pp .pp-mapa-leg { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; margin-top:12px; }
+.pp .pp-mapa-chip { font-size:11px; color:#0e7490; background:#ecfeff; border:1px solid #a5f3fc; border-radius:999px; padding:2px 10px; }
 `
+
+// Mapa facial estético para el documento: foto base + overlay SVG con SOLO las
+// zonas del plan marcadas. El overlay es solo <path> (sin <image>) sobre un <img>
+// nativo: es el patrón que html2canvas/html2pdf captura de forma fiable en el correo.
+function MapaFacialDoc({ zonas }: { zonas: { codigo: string; nombre: string }[] }) {
+  const marcadas = zonas.filter((z) => PATH_POR_CODIGO[z.codigo])
+  if (marcadas.length === 0) return null
+  return (
+    <div className="pp-mapa">
+      <div className="pp-mapa-t">Zonas a tratar</div>
+      <div className="pp-mapa-fig">
+        <img className="pp-mapa-img" src={rostroBase} alt="Mapa facial" />
+        <svg className="pp-mapa-svg" viewBox="0 0 1000 1300" preserveAspectRatio="xMidYMid meet">
+          {marcadas.map((z) => (
+            <path key={z.codigo} d={PATH_POR_CODIGO[z.codigo]} fill="rgba(8,145,178,0.32)" stroke="#0891b2" strokeWidth={4} />
+          ))}
+        </svg>
+      </div>
+      <div className="pp-mapa-leg">
+        {marcadas.map((z) => <span key={z.codigo} className="pp-mapa-chip">{z.nombre}</span>)}
+      </div>
+    </div>
+  )
+}
 
 // Documento de presupuesto de un plan de tratamiento (tamaño carta). Reutilizado
 // por la vista imprimible (/print/plan) y por el envío por correo en PDF.
@@ -69,6 +107,12 @@ export function PresupuestoPlanDoc({ plan, clinica, paciente }: { plan: PPlan; c
     ...plan.secciones,
     ...(plan.tratamientos.length ? [{ id: '', titulo: 'Otras prestaciones', tratamientos: plan.tratamientos }] : []),
   ]
+  // Zonas faciales del plan (solo estética): únicas por código, con su nombre visible.
+  const zonasTratadas = plan.area === 'ESTETICA'
+    ? Array.from(new Map(
+        todas.flatMap((t) => t.zonas ?? []).map((z) => [z.zona.codigo, z.zona.nombreVisible] as const),
+      ).entries()).map(([codigo, nombre]) => ({ codigo, nombre }))
+    : []
 
   return (
     <div className="pp">
@@ -103,6 +147,8 @@ export function PresupuestoPlanDoc({ plan, clinica, paciente }: { plan: PPlan; c
           {plan.doctorTitular?.name && <div className="pp-mut">Profesional: {plan.doctorTitular.name}</div>}
         </div>
       </div>
+
+      {zonasTratadas.length > 0 && <MapaFacialDoc zonas={zonasTratadas} />}
 
       {secciones.map((s) => (
         <div key={s.id || 'sin'} className="pp-sec">

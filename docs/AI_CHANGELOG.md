@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-08-11 — Mapa facial con zonas marcadas en el presupuesto (imprimible + correo)
+
+Pedido de Javier: en el imprimible de estética y en el correo, mostrar la foto del rostro
+con las zonas del plan marcadas como representación gráfica. Implementado en el componente
+**compartido** `frontend/src/components/PresupuestoPlanDoc.tsx` (lo usan tanto
+`/print/plan/:id` como el PDF adjunto del correo), así que aparece en ambos con un solo cambio.
+
+- **Solo planes estética** (`plan.area === 'ESTETICA'`) y solo si hay zonas: se dibuja la foto
+  base `rostro-base.jpg` + overlay SVG con **solo las zonas del plan** rellenas (cian translúcido)
+  + una leyenda con sus nombres visibles. Datos ya disponibles: `obtenerPlan` devuelve `area` y
+  `zonas[]` por tratamiento (`TRAT_INCLUDE`); se agregaron `area?`/`zonas?` a los tipos `PPlan`/`PTrat`.
+- **Robustez para el correo**: overlay = solo `<path>` sobre un `<img>` nativo (no `<image>` en SVG),
+  que es lo que `html2canvas`/`html2pdf` captura de forma fiable; el path por código sale de
+  `ZONAS_FACIALES_NUCLEO`. CSS con HEX (sin oklch), coherente con el resto del documento.
+
+Frontend-only, aditivo. Verificado: typecheck fe OK, build fe OK (foto empaquetada 137 KB).
+
+---
+
 ## 2026-08-11 — Zonas faciales CONGELADAS (revisión del especialista) — estética lista
 
 El especialista de estética facial validó el mapa. Lista definitiva en
