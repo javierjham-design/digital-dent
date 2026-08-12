@@ -62,7 +62,10 @@ model Clinica {
   // entrante de TuBot resuelve la clínica por su waConnectionId (va en la URL).
   waEnabled Boolean @default(false)
   waNumero  String? @unique          // número emisor (display); ya NO se usa para rutear
-  waConnectionId String? @unique     // id de conexión de TuBot → rutea /whatsapp/webhook/{connectionId}
+  // id de conexión de TuBot → rutea /whatsapp/webhook/{connectionId}. NO @unique (evita
+  // que db push exija --accept-data-loss, igual que metaPageId): una connectionId pertenece
+  // a una sola clínica de todos modos, y el ruteo usa findFirst.
+  waConnectionId String?
 
   // Enrutamiento de Meta Lead Ads (denormalizado desde la Configuracion del
   // tenant): el webhook nativo de leadgen resuelve la clínica por el page_id
