@@ -439,7 +439,6 @@ function ModulosCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void 
         {AREAS.map((a) => {
           const code = MODULO_POR_AREA[a]
           const on = sel.includes(code)
-          const esEstetica = a === 'ESTETICA'
           return (
             <label key={code} className="flex items-start gap-3 rounded-lg border border-white/10 px-3 py-2 cursor-pointer hover:bg-white/5">
               <input type="checkbox" checked={on} onChange={() => toggle(code)} className="mt-1 accent-purple-500" />
@@ -450,9 +449,6 @@ function ModulosCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void 
                     : a === 'ESTETICA' ? 'Mapa de zonas faciales y catálogo estético.'
                     : 'Catálogo y fichas del área médica.'}
                 </span>
-                {esEstetica && on && (
-                  <span className="block text-xs text-amber-400 mt-1">⚠️ Lista de zonas PROVISIONAL: no habilitar en una clínica real hasta congelarla (los códigos se graban en cada tratamiento).</span>
-                )}
               </span>
             </label>
           )

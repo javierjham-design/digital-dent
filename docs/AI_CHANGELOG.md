@@ -5,6 +5,21 @@
 
 ---
 
+## 2026-08-11 — Zonas faciales CONGELADAS (revisión del especialista) — estética lista
+
+El especialista de estética facial validó el mapa. Lista definitiva en
+`shared/constants/zonas-faciales.ts`: **29 códigos** (21 conceptos). Cambios vs la
+provisional (32): **labios en una sola zona `LABIOS`** (no superior/inferior); **masetero
+FUERA** (ambos lados); bichectomía y alas nasales **FUERA**; cuello/escote **FUERA** (mapa
+solo rostro); `nombreVisible` = nombre anatómico + coloquial entre paréntesis (ej. "Región
+periorbitaria (patas de gallo) · der"). Se quitó el aviso "provisional" del toggle de Estética
+en el Super Admin y los comentarios de "no habilitar hasta congelar". **Estética queda apta
+para clínica real.** Seed lazy: una base ya sembrada conserva su lista → para ver las 29 hay
+que usar demo/clínica nueva. Recorte más ajustado de la foto (sin cuello) = mejora opcional
+pendiente (requiere recalibrar zonas). Verificado: typecheck be/fe, integración 56, build.
+
+---
+
 ## 2026-08-11 — Un plan de tratamiento pertenece a UN área (no se mezclan)
 
 Pedido de Javier probando estética en un demo: un mismo plan mezclaba acciones dental +

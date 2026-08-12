@@ -1002,7 +1002,7 @@ describe('áreas clínicas: guard por usuario, multi-zona con UN precio, y capas
   it('multi-zona: UN tratamiento cubre N zonas con UN precio (no duplica en presupuesto/cobro)', async () => {
     const zonas = await get('/zonas-faciales')
     expect(zonas.status).toBe(200)
-    expect(zonas.body.length).toBe(32) // catálogo PROVISIONAL completo (shared/constants/zonas-faciales)
+    expect(zonas.body.length).toBe(29) // catálogo congelado (shared/constants/zonas-faciales)
     const ids = zonas.body.filter((z: { codigo: string }) => z.codigo.startsWith('PERIORBITAL_LAT')).map((z: { id: string }) => z.id)
     expect(ids.length).toBe(2) // patas de gallo: ambos lados, un solo precio
 

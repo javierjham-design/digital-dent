@@ -9,11 +9,11 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, notFound } from '@/lib/errors'
 import { ZONAS_FACIALES_NUCLEO } from '@shared/constants/zonas-faciales'
 
-// ⚠️ CATÁLOGO PROVISIONAL — la ÚNICA fuente es shared/constants/zonas-faciales.ts
-// (en revisión de un profesional del rubro; 6 preguntas abiertas pueden cambiar
-// códigos). NO habilitar area_estetica a una clínica REAL hasta congelar la lista:
-// el codigo queda grabado en cada tratamiento y cambiarlo después implica migrar
-// datos clínicos. Hoy el cambio es gratis (cero tratamientos cargados).
+// Catálogo CONGELADO (revisión profesional 2026-08-11): la ÚNICA fuente es
+// shared/constants/zonas-faciales.ts (29 códigos). Se puede AGREGAR zonas nuevas sin
+// problema; renombrar/fusionar las existentes obliga a migrar datos (el código queda
+// grabado en cada tratamiento). El seed es lazy: una base ya sembrada NO se re-siembra
+// (una demo vieja conserva su lista; para ver la nueva, base/demo nueva).
 const ZONAS_SEED = ZONAS_FACIALES_NUCLEO.map(({ codigo, nombreClinico, nombreVisible, grupo, orden }) =>
   ({ codigo, nombreClinico, nombreVisible, grupo, orden }))
 

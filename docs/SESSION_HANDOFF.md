@@ -29,11 +29,13 @@
     **cierra deslizando la barra hacia abajo** (o botón "Cerrar").
   - Áreas del usuario = intersección clínica-contratada ∩ flags del user; el admin ve todas
     las de la clínica. Verificado en `auth.service.ts:85-88`.
-- **⚠️ ÚNICO GATE antes de estética en clínica REAL:** la lista de zonas sigue **PROVISIONAL**
-  (28-vs-32, 6 preguntas) → **no habilitar `area_estetica` a una clínica real hasta que un
-  profesional la congele** (el código de zona se graba en cada tratamiento). La UI del Super
-  Admin ya avisa esto en el toggle de Estética. Después de congelar: quitar el aviso + encargar
-  la ilustración SVG definitiva si se quiere (hoy es la foto, que ya funciona).
+- **✅ Zonas faciales CONGELADAS por el especialista (2026-08-11) — estética lista para clínica
+  real.** Lista definitiva: **29 códigos** (labios en una sola zona `LABIOS`; masetero, bichectomía,
+  alas nasales, cuello y escote FUERA; nombres visibles = anatómico + coloquial entre paréntesis).
+  Se quitó el aviso "provisional" del toggle de Estética en el Super Admin. **Ojo con el seed
+  lazy:** una demo/base YA sembrada conserva su lista vieja — para ver las 29 hay que usar una
+  **demo/clínica nueva** (las reales aún no sembraron; siembran al habilitar estética). Migrar la
+  foto a un recorte más ajustado (sin cuello) quedó como mejora opcional (requiere recalibrar zonas).
 - **Pendiente menor (no bloquea):** guarda `SELECT current_database()` en scripts de prod
   (pedido de Javier tras el casi-accidente de quoting del 2026-08-10).
 
