@@ -35,13 +35,23 @@ model Configuracion {
   // Mensaje que el paciente envía por WhatsApp tras reservar online ({dia}/{hora} automáticos).
   mensajeReservaWA String @default("¡Hola! Ya agendé mi hora para el {dia} a las {hora} h. Quedo atento/a a la confirmación.")
 
-  // WhatsApp (Twilio). El auth token va cifrado (AES-256-GCM).
-  waEnabled     Boolean @default(false)
+  // WhatsApp por TuBot (recordatorio/confirmación por plantilla). Ver docs/TUBOT_WHATSAPP.md.
+  // Los secretos van cifrados (AES-256-GCM).
+  waEnabled       Boolean @default(false)
+  waNumero        String?          // número emisor (E.164): sólo display/identificación
+  waHorasAntes    Int     @default(24)
+  waApiKey        String?          // API key de TuBot (cnvk_…) — CIFRADA
+  waConnectionId  String?          // id de conexión de TuBot: rutea el webhook entrante al tenant
+  waWebhookSecret String?          // secreto por conexión (verifica X-Tubot-Signature) — CIFRADO
+  waTemplateName  String?          // nombre de la plantilla aprobada de esta clínica
+  waTemplateLang  String  @default("es")
+  // DEPRECADOS (Twilio). Inertes a propósito: NO se dropean porque migrate-tenants NO
+  // borra columnas sin --accept-data-loss (regla 1) y no vale gastar un DDL manual en
+  // cosmética. Si alguna vez hay otra ventana de DDL por algo real, se van de garrón.
+  // No leer ni escribir estas tres.
   waTwilioSid   String?
   waTwilioToken String?
-  waNumero      String?
   waTemplateSid String?
-  waHorasAntes  Int     @default(24)
 
   // Google Calendar (una cuenta por clínica). Tokens cifrados.
   googleRefreshToken    String?
@@ -272,7 +282,10 @@ model Cita {
   googleEventId   String?
   googleSyncedAt  DateTime?
   googleSyncError String?
-  waMessageSid    String?
+  waMessageSid     String?  // id del mensaje SALIENTE que devolvió TuBot (correlaciona la respuesta)
+  waDeliveryStatus String?  // sent | delivered | read | failed (evento "status" de TuBot)
+  waDeliveryReason String?  // motivo cuando failed (número inválido, bloqueó a la clínica…)
+  waReenvios       Int      @default(0) // reenvíos MANUALES: el envío auto usa n=1; el manual n=2+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   paciente     Paciente @relation(fields: [pacienteId], references: [id])
@@ -284,6 +297,18 @@ model Cita {
   @@index([googleEventId])
   @@index([waMessageSid])
   @@index([doctorId, fecha])
+}
+
+// Idempotencia del webhook entrante de TuBot: cada evento entrante (respuesta de
+// botón, texto o status) se registra por su providerMsgId ÚNICO. Reprocesar el mismo
+// id (doble toque del botón, o reintento de TuBot) es no-op: ni dos transiciones de
+// estado ni dos acuses. Ver docs/TUBOT_WHATSAPP.md.
+model WaEventoEntrante {
+  id            String   @id @default(cuid())
+  providerMsgId String   @unique
+  citaId        String?
+  tipo          String   // button | text | status
+  createdAt     DateTime @default(now())
 }
 
 model CitaLog {

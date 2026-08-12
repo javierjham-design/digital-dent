@@ -717,6 +717,9 @@ function DiariaLista({ citas, clinica, onClick, onAvanzar, onNotificarWA }: { ci
               </p>
               <p className="text-xs text-slate-500 truncate">{c.doctor} · {c.tipo}</p>
               {c.notas?.trim() && <p className="text-xs text-amber-700 truncate">📝 {c.notas.trim()}</p>}
+              {c.waDeliveryStatus === 'failed' && (
+                <p className="text-xs text-rose-600 font-medium truncate" title={c.waDeliveryReason ?? ''}>⚠ No se pudo entregar el recordatorio por WhatsApp{c.waDeliveryReason ? ` (${c.waDeliveryReason})` : ''}</p>
+              )}
             </button>
             <span className="hidden sm:inline text-xs font-semibold px-2.5 py-1 rounded-full shrink-0" style={{ backgroundColor: cfg?.bg, color: cfg?.text }}>{cfg?.label ?? c.estado}</span>
             {/* Notificar por WhatsApp: SIEMPRE visible (si hay teléfono). Abre WhatsApp y

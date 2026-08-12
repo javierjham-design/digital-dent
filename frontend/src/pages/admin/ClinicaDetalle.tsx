@@ -41,7 +41,7 @@ interface Clinica {
 interface Pago { id: string; fechaPago: string; monto: number; moneda?: string; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
 interface Plan { id: string; nombre: string; precioMensual: number; precioMensualUSD: number; orden: number; activo: boolean }
-interface Wa { waEnabled: boolean; waTwilioSid: string | null; waNumero: string | null; waTemplateSid: string | null; waHorasAntes: number; tokenConfigurado: boolean }
+interface Wa { waEnabled: boolean; waNumero: string | null; waConnectionId: string | null; waTemplateName: string | null; waTemplateLang: string; waHorasAntes: number; apiKeyConfigurada: boolean; webhookSecretConfigurado: boolean }
 
 export function AdminClinicaDetalle() {
   const { id = '' } = useParams()
@@ -664,7 +664,8 @@ function ExtrasCard({ id, moneda }: { id: string; moneda: MonedaCobro }) {
 
 function WhatsappCard({ id, onSaved }: { id: string; onSaved: () => void }) {
   const [wa, setWa] = useState<Wa | null>(null)
-  const [token, setToken] = useState('')
+  const [apiKey, setApiKey] = useState('')       // secreto write-only
+  const [secret, setSecret] = useState('')       // secreto write-only (webhook)
   const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
   const [probando, setProbando] = useState(false)
   const [test, setTest] = useState<{ ok: boolean; mensaje: string } | null>(null)
@@ -675,31 +676,35 @@ function WhatsappCard({ id, onSaved }: { id: string; onSaved: () => void }) {
     catch (e) { setTest({ ok: false, mensaje: e instanceof ApiError ? e.message : 'No se pudo probar' }) }
     finally { setProbando(false) }
   }
-  if (!wa) return <Card title="WhatsApp (Twilio)"><p className="text-slate-500 text-sm">Cargando…</p></Card>
+  if (!wa) return <Card title="WhatsApp (TuBot)"><p className="text-slate-500 text-sm">Cargando…</p></Card>
   const set = (patch: Partial<Wa>) => setWa({ ...wa, ...patch })
   async function guardar() {
     setBusy(true); setErr('')
     try {
       await adminService.guardarWhatsapp(id, {
-        waEnabled: wa!.waEnabled, waTwilioSid: wa!.waTwilioSid, waNumero: wa!.waNumero,
-        waTemplateSid: wa!.waTemplateSid, waHorasAntes: wa!.waHorasAntes,
-        ...(token.trim() ? { waTwilioToken: token.trim() } : {}),
+        waEnabled: wa!.waEnabled, waNumero: wa!.waNumero, waConnectionId: wa!.waConnectionId,
+        waTemplateName: wa!.waTemplateName, waTemplateLang: wa!.waTemplateLang, waHorasAntes: wa!.waHorasAntes,
+        ...(apiKey.trim() ? { waApiKey: apiKey.trim() } : {}),
+        ...(secret.trim() ? { waWebhookSecret: secret.trim() } : {}),
       })
-      setToken(''); onSaved()
+      setApiKey(''); setSecret(''); onSaved()
     } catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
   }
   return (
-    <Card title="WhatsApp (Twilio) — recordatorios de cita">
-      <label className="flex items-center gap-2 mb-4 text-sm text-slate-300">
+    <Card title="WhatsApp (TuBot) — recordatorios de cita">
+      <label className="flex items-center gap-2 mb-1 text-sm text-slate-300">
         <input type="checkbox" checked={wa.waEnabled} onChange={(e) => set({ waEnabled: e.target.checked })} className="w-4 h-4 accent-purple-500" />
         Servicio habilitado
       </label>
+      <p className="text-xs text-slate-500 mb-4">Al habilitar, Cláriva verifica que la plantilla esté <span className="font-semibold">aprobada</span> en TuBot; si no, no se habilita.</p>
       <div className="grid md:grid-cols-2 gap-3">
-        <label><L>Account SID (AC…)</L><input value={wa.waTwilioSid ?? ''} onChange={(e) => set({ waTwilioSid: e.target.value })} className={`${inpCls} font-mono`} /></label>
+        <label><L>Connection ID (TuBot)</L><input value={wa.waConnectionId ?? ''} onChange={(e) => set({ waConnectionId: e.target.value })} placeholder="conn_…" className={`${inpCls} font-mono`} /></label>
         <label><L>Número emisor (E.164)</L><input value={wa.waNumero ?? ''} onChange={(e) => set({ waNumero: e.target.value })} placeholder="+56912345678" className={`${inpCls} font-mono`} /></label>
-        <label><L>Template / Content SID (HX…)</L><input value={wa.waTemplateSid ?? ''} onChange={(e) => set({ waTemplateSid: e.target.value })} className={`${inpCls} font-mono`} /></label>
+        <label><L>Nombre de la plantilla</L><input value={wa.waTemplateName ?? ''} onChange={(e) => set({ waTemplateName: e.target.value })} placeholder="recordatorio_cita" className={`${inpCls} font-mono`} /></label>
+        <label><L>Idioma de la plantilla</L><input value={wa.waTemplateLang ?? 'es'} onChange={(e) => set({ waTemplateLang: e.target.value })} placeholder="es" className={`${inpCls} font-mono`} /></label>
         <label><L>Horas de anticipación</L><input value={wa.waHorasAntes} onChange={(e) => set({ waHorasAntes: Number(e.target.value) || 0 })} inputMode="numeric" className={`${inpCls} font-mono`} /></label>
-        <label className="md:col-span-2"><L>Auth Token {wa.tokenConfigurado ? '(configurado — dejar vacío para mantener)' : '(no configurado)'}</L><input type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder={wa.tokenConfigurado ? '••••••••' : 'Pegar token de Twilio'} className={`${inpCls} font-mono`} /></label>
+        <label><L>API key {wa.apiKeyConfigurada ? '(configurada — dejar vacío para mantener)' : '(no configurada)'}</L><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={wa.apiKeyConfigurada ? '••••••••' : 'cnvk_…'} className={`${inpCls} font-mono`} /></label>
+        <label className="md:col-span-2"><L>Secreto del webhook {wa.webhookSecretConfigurado ? '(configurado — dejar vacío para mantener)' : '(no configurado)'}</L><input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={wa.webhookSecretConfigurado ? '••••••••' : 'Secreto que entrega TuBot al conectar'} className={`${inpCls} font-mono`} /></label>
       </div>
       {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
       {test && <p className={`text-sm mt-3 px-3 py-2 rounded-lg ${test.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-rose-500/10 text-rose-300'}`}>{test.ok ? '✓ ' : '✗ '}{test.mensaje}</p>}

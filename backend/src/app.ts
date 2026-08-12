@@ -74,7 +74,8 @@ export function createApp() {
     limit: '15mb',
     verify: (req, _res, buf) => { (req as express.Request & { rawBody?: Buffer }).rawBody = buf },
   }))
-  // Twilio postea el webhook como application/x-www-form-urlencoded.
+  // El webhook de Flow (confirmación de pago) llega como application/x-www-form-urlencoded.
+  // (El webhook de TuBot es JSON y verifica su firma sobre el rawBody de express.json.)
   app.use(express.urlencoded({ extended: false }))
   app.use(cookieParser())
 

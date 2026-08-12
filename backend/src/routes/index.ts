@@ -115,8 +115,9 @@ apiRouter.post('/public/pagos/flow/:slug/retorno', asyncHandler(pagosOnline.reto
 // ── Público: demo + webhook WhatsApp (auth interna propia) ───────────────────
 apiRouter.post('/demo', asyncHandler(demo.postDemo))
 apiRouter.post('/demo/cleanup', asyncHandler(demo.postDemoCleanup))
-apiRouter.post('/whatsapp/webhook', asyncHandler(whatsapp.postWebhook))
-apiRouter.post('/whatsapp/recordatorios', asyncHandler(whatsapp.postRecordatorios))
+apiRouter.post('/whatsapp/webhook/:connectionId', asyncHandler(whatsapp.postWebhook)) // TuBot → Cláriva (firmado)
+apiRouter.post('/whatsapp/recordatorios', asyncHandler(whatsapp.postRecordatorios))   // cron / admin
+apiRouter.post('/whatsapp/reenviar/:citaId', tenant, asyncHandler(whatsapp.postReenviar)) // reenvío manual (recepción)
 // Google: sync acepta cron-secret (sin sesión); callback es redirect público.
 apiRouter.get('/google/callback', asyncHandler(googlec.getCallback))
 apiRouter.post('/google/sync', asyncHandler(googlec.postSync))

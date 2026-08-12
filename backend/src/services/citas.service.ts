@@ -16,6 +16,7 @@ import { conTitulo } from '@shared/utils/nombre'
 type CitaRow = {
   id: string; pacienteId: string; doctorId: string; fecha: Date; duracion: number
   estado: string; tipo: string | null; notas: string | null; sobrecupo: boolean; confirmadoWA: boolean
+  waDeliveryStatus?: string | null; waDeliveryReason?: string | null
   boxId: string | null
   paciente: { nombre: string; apellido: string; rut: string | null; telefono: string | null }
   doctor: { name: string | null; titulo?: string; email: string | null }
@@ -38,6 +39,8 @@ function toDTO(c: CitaRow): CitaDTO {
     notas: c.notas ?? '',
     sobrecupo: c.sobrecupo,
     confirmadoWA: c.confirmadoWA,
+    waDeliveryStatus: c.waDeliveryStatus ?? null,
+    waDeliveryReason: c.waDeliveryReason ?? null,
     boxId: c.boxId,
     box: c.box ? { id: c.box.id, nombre: c.box.nombre } : null,
   }

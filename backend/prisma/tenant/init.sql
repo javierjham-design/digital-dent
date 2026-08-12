@@ -13,11 +13,16 @@ CREATE TABLE "Configuracion" (
     "mensajeWACrm" TEXT NOT NULL DEFAULT 'Hola {nombre}, te contactamos de *{clinica}*. ¿Cómo podemos ayudarte?',
     "mensajeReservaWA" TEXT NOT NULL DEFAULT '¡Hola! Ya agendé mi hora para el {dia} a las {hora} h. Quedo atento/a a la confirmación.',
     "waEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "waNumero" TEXT,
+    "waHorasAntes" INTEGER NOT NULL DEFAULT 24,
+    "waApiKey" TEXT,
+    "waConnectionId" TEXT,
+    "waWebhookSecret" TEXT,
+    "waTemplateName" TEXT,
+    "waTemplateLang" TEXT NOT NULL DEFAULT 'es',
     "waTwilioSid" TEXT,
     "waTwilioToken" TEXT,
-    "waNumero" TEXT,
     "waTemplateSid" TEXT,
-    "waHorasAntes" INTEGER NOT NULL DEFAULT 24,
     "googleRefreshToken" TEXT,
     "googleAccessToken" TEXT,
     "googleTokenExpiresAt" TIMESTAMP(3),
@@ -203,10 +208,24 @@ CREATE TABLE "Cita" (
     "googleSyncedAt" TIMESTAMP(3),
     "googleSyncError" TEXT,
     "waMessageSid" TEXT,
+    "waDeliveryStatus" TEXT,
+    "waDeliveryReason" TEXT,
+    "waReenvios" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Cita_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "WaEventoEntrante" (
+    "id" TEXT NOT NULL,
+    "providerMsgId" TEXT NOT NULL,
+    "citaId" TEXT,
+    "tipo" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "WaEventoEntrante_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -934,6 +953,9 @@ CREATE INDEX "Cita_waMessageSid_idx" ON "Cita"("waMessageSid");
 
 -- CreateIndex
 CREATE INDEX "Cita_doctorId_fecha_idx" ON "Cita"("doctorId", "fecha");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "WaEventoEntrante_providerMsgId_key" ON "WaEventoEntrante"("providerMsgId");
 
 -- CreateIndex
 CREATE UNIQUE INDEX "FichaClinica_pacienteId_key" ON "FichaClinica"("pacienteId");

@@ -1,57 +1,37 @@
 import type { Request, Response } from 'express'
-import { control } from '@/db/control'
-import { tenantClient } from '@/db/tenant'
+import { tenantDb } from '@/middlewares/tenant'
 import { env } from '@/config/env'
 import { unauthorized } from '@/lib/errors'
-import { decryptNullable } from '@/lib/crypto'
 import { verifyToken } from '@/services/auth.service'
-import { enviarRecordatoriosPendientes, procesarRespuestaEntrante, validarFirmaTwilio } from '@/lib/whatsapp'
+import { tenantClient } from '@/db/tenant'
+import { tubotProvider } from '@/lib/tubot'
+import {
+  enviarRecordatoriosPendientes, procesarEventoEntrante, configPorConexion, reenviarRecordatorioManual,
+} from '@/lib/whatsapp'
 
-function escapeXml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-function twiml(res: Response, mensaje: string | null) {
-  const inner = mensaje ? `<Message>${escapeXml(mensaje)}</Message>` : ''
-  res.set('Content-Type', 'text/xml').send(`<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`)
-}
-
-// POST /api/v1/whatsapp/webhook — Twilio (form-urlencoded). Público; cada
-// request se valida con la firma X-Twilio-Signature usando el token de la
-// clínica dueña del número.
+// POST /api/v1/whatsapp/webhook/:connectionId — TuBot (JSON). Público; cada request
+// se valida con X-Tubot-Signature (HMAC-SHA256 sobre el body crudo) usando el
+// webhookSecret de la conexión. La connectionId de la URL rutea al tenant. Se
+// responde 401 UNIFORME (no se distingue firma inválida de connectionId inexistente).
 export async function postWebhook(req: Request, res: Response) {
-  const params: Record<string, string> = {}
-  for (const [k, v] of Object.entries(req.body ?? {})) if (typeof v === 'string') params[k] = v
+  const connectionId = req.params.connectionId ?? ''
+  const rawBody = (req as Request & { rawBody?: Buffer }).rawBody?.toString('utf8') ?? JSON.stringify(req.body ?? {})
+  const firma = (req.headers['x-tubot-signature'] as string) ?? null
 
-  const to = (params.To ?? '').replace(/^whatsapp:/, '')
-  const from = (params.From ?? '').replace(/^whatsapp:/, '')
-  if (!to || !from) return twiml(res, null)
-
-  // El control-plane enruta el número emisor → clínica (dbName). El auth token
-  // de Twilio vive cifrado en la Configuracion de la base de esa clínica.
-  const clinica = await control.clinica.findFirst({ where: { waNumero: to, waEnabled: true }, select: { dbName: true } })
-  if (!clinica) return twiml(res, null)
-
-  const db = tenantClient(clinica.dbName)
-  const config = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { waTwilioToken: true } })
-  const token = decryptNullable(config?.waTwilioToken ?? null)
-  if (!token) return twiml(res, null)
-
-  const proto = (req.headers['x-forwarded-proto'] as string) ?? 'https'
-  const host = req.headers.host ?? ''
-  const url = `${proto}://${host}/api/v1/whatsapp/webhook`
-  const firma = (req.headers['x-twilio-signature'] as string) ?? null
-  if (!validarFirmaTwilio(token, url, params, firma)) {
-    res.status(403).json({ error: 'Firma inválida' })
+  const resolved = await configPorConexion(connectionId).catch(() => null)
+  if (!resolved || !tubotProvider.verificarFirma(resolved.wa.webhookSecret, rawBody, firma)) {
+    res.status(401).json({ error: 'unauthorized' })
     return
   }
 
-  const texto = params.ButtonText || params.ButtonPayload || params.Body || ''
-  if (!texto.trim()) return twiml(res, null)
-
-  const respuesta = await procesarRespuestaEntrante(db, {
-    fromE164: from, texto, originalMessageSid: params.OriginalRepliedMessageSid || null,
-  }).catch(() => null)
-  twiml(res, respuesta)
+  const evento = tubotProvider.parseInbound(rawBody)
+  if (evento) {
+    const db = tenantClient(resolved.dbName)
+    // Idempotente y best-effort: respondemos 2xx apenas procesamos; TuBot reintenta
+    // sólo ante 5xx (ver contrato). Un error interno acá NO debe dar 5xx en cascada.
+    await procesarEventoEntrante(db, resolved.wa, evento).catch(() => undefined)
+  }
+  res.status(200).json({ ok: true })
 }
 
 // POST /api/v1/whatsapp/recordatorios — cron (x-cron-secret) o admin.
@@ -66,4 +46,10 @@ export async function postRecordatorios(req: Request, res: Response) {
     if (payload.role !== 'admin' && !payload.isPlatformAdmin) throw unauthorized('Requiere administrador')
   }
   res.json(await enviarRecordatoriosPendientes())
+}
+
+// POST /api/v1/whatsapp/reenviar/:citaId — reenvío MANUAL de una cita (recepción).
+export async function postReenviar(req: Request, res: Response) {
+  const messageId = await reenviarRecordatorioManual(tenantDb(req), req.params.citaId)
+  res.json({ ok: true, messageId })
 }

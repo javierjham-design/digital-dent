@@ -40,7 +40,11 @@ Envía un recordatorio por plantilla aprobada, con botones de respuesta rápida.
 
 Headers:
 - `Authorization: Bearer cnvk_<key>`
-- `Idempotency-Key: <string>` — **obligatorio**. Cláriva usa **`cita_<citaId>_<fechaCitaISO>`**.
+- `Idempotency-Key: <string>` — **obligatorio**. Cláriva usa **`cita_<citaId>_<fechaCitaISO>_<n>`**
+  donde `<n>` es el **número de intento**: el envío **automático** usa siempre `_1`; un
+  **reenvío manual** (la secretaria aprieta "reenviar" porque la paciente dice que no le llegó)
+  **incrementa** `n` (`_2`, `_3`, …). Así el reenvío manual **salta el dedupe** a propósito y sí
+  se manda, mientras que un reintento del cron por timeout (mismo `n=1`) no duplica.
 - `Content-Type: application/json`
 
 Body:
@@ -61,9 +65,10 @@ Body:
 ```
 
 **Idempotencia (TuBot):** TuBot deduplica por `(organización, Idempotency-Key)` durante al
-menos **72 h**. Reintento con la misma key ⇒ devuelve el **mismo `messageId`** y **no
-reenvía**. Esto cubre el caso real: `enviarRecordatoriosPendientes` corre cada ~20 min y si
-una tanda se corta por timeout, la siguiente reintenta.
+menos **72 h**. Reintento con la misma key (mismo `n`) ⇒ devuelve el **mismo `messageId`** y
+**no reenvía**. Esto cubre el caso real: `enviarRecordatoriosPendientes` corre cada ~20 min y
+si una tanda se corta por timeout, la siguiente reintenta con el **mismo `n=1`** → no duplica.
+Un **reenvío manual** usa un `n` mayor → key distinta → sí se envía.
 
 Respuestas:
 - `202` → `{ "messageId": "...", "status": "accepted" }`

@@ -1,46 +1,50 @@
-import { createHmac } from 'crypto'
-import { control } from '@/db/control'
-import { tenantClient, type TenantClient } from '@/db/tenant'
-import { decryptNullable } from '@/lib/crypto'
-
 // ─────────────────────────────────────────────────────────────────────────────
-//  Confirmaciones automáticas de citas por WhatsApp (Twilio)
+//  Recordatorio/confirmación de citas por WhatsApp — canal TuBot (por plantilla)
 // ─────────────────────────────────────────────────────────────────────────────
 //
 //  Flujo:
-//   1. Un cron llama a enviarRecordatoriosPendientes() → por cada cita próxima
-//      (dentro de la ventana waHorasAntes de su clínica) que aún no recibió
-//      recordatorio, envía la plantilla aprobada de Twilio con botones
-//      [Confirmar] [Reagendar] [Cancelar].
-//   2. El paciente toca un botón → Twilio hace POST a /api/whatsapp/webhook →
-//      procesarRespuestaEntrante() actualiza el estado de la cita y deja log.
+//   1. El cron llama a enviarRecordatoriosPendientes() → por cada cita próxima
+//      (dentro de waHorasAntes) sin recordatorio, envía la plantilla aprobada con
+//      botones [Confirmar][Cancelar][Reagendar] vía TuBot (idempotente por cita).
+//   2. El paciente toca un botón → TuBot POSTea a /whatsapp/webhook/{connectionId}
+//      → procesarEventoEntrante() actualiza el estado de la cita, deja log y manda
+//      el acuse por texto (la ventana de 24 h la abrió el botón). Idempotente.
+//   3. TuBot también envía eventos "status" (sent/delivered/read/failed): failed
+//      queda visible en la agenda ("no se pudo entregar").
 //
-//  Convención de variables de la plantilla (definir igual en Twilio Content):
-//   {{1}} = nombre del paciente   {{2}} = nombre de la clínica
-//   {{3}} = fecha legible         {{4}} = hora (HH:mm)
-//
-//  Usamos la REST API de Twilio directo con fetch (sin SDK: es un solo POST).
+//  Este módulo NO conoce el transporte: habla con la frontera de proveedor
+//  (lib/tubot.ts). Contrato completo en docs/TUBOT_WHATSAPP.md.
+import { control } from '@/db/control'
+import { tenantClient, type TenantClient } from '@/db/tenant'
+import { decryptNullable } from '@/lib/crypto'
+import { tubotProvider, RateLimitError, type TubotConfig, type EventoEntrante } from '@/lib/tubot'
 
-const TWILIO_API = 'https://api.twilio.com/2010-04-01'
-
-interface TwilioCreds {
-  sid: string
-  token: string
-  from: string        // número emisor E.164
-  templateSid: string
+// Config de WhatsApp de una clínica ya resuelta (secretos descifrados).
+interface WaConfig {
+  cfg: TubotConfig            // lo que necesita el proveedor para enviar
+  connectionId: string
+  webhookSecret: string
+  horasAntes: number
+  nombre: string
 }
 
-function credsDeClinica(c: {
-  waEnabled: boolean
-  waTwilioSid: string | null
-  waTwilioToken: string | null
-  waNumero: string | null
-  waTemplateSid: string | null
-}): TwilioCreds | null {
-  if (!c.waEnabled || !c.waTwilioSid || !c.waTwilioToken || !c.waNumero || !c.waTemplateSid) return null
-  const token = decryptNullable(c.waTwilioToken)
-  if (!token) return null
-  return { sid: c.waTwilioSid, token, from: c.waNumero, templateSid: c.waTemplateSid }
+const CONFIG_SELECT = {
+  nombre: true, waEnabled: true, waApiKey: true, waConnectionId: true,
+  waWebhookSecret: true, waTemplateName: true, waTemplateLang: true, waHorasAntes: true,
+} as const
+
+function resolverConfig(c: {
+  nombre: string; waEnabled: boolean; waApiKey: string | null; waConnectionId: string | null
+  waWebhookSecret: string | null; waTemplateName: string | null; waTemplateLang: string; waHorasAntes: number
+}): WaConfig | null {
+  if (!c.waEnabled || !c.waApiKey || !c.waConnectionId || !c.waWebhookSecret || !c.waTemplateName) return null
+  const apiKey = decryptNullable(c.waApiKey)
+  const webhookSecret = decryptNullable(c.waWebhookSecret)
+  if (!apiKey || !webhookSecret) return null
+  return {
+    cfg: { apiKey, templateName: c.waTemplateName, templateLang: c.waTemplateLang },
+    connectionId: c.waConnectionId, webhookSecret, horasAntes: c.waHorasAntes, nombre: c.nombre,
+  }
 }
 
 /** Normaliza un teléfono chileno a E.164 (+569XXXXXXXX). null si no es usable. */
@@ -56,144 +60,115 @@ export function fonoAE164(telefono: string | null | undefined): string | null {
 
 const DIAS_ES = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado']
 const MESES_ES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+const fechaLegible = (d: Date) => `${DIAS_ES[d.getDay()]} ${d.getDate()} de ${MESES_ES[d.getMonth()]}`
+const horaLegible = (d: Date) => d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
 
-function fechaLegible(d: Date): string {
-  return `${DIAS_ES[d.getDay()]} ${d.getDate()} de ${MESES_ES[d.getMonth()]}`
-}
-
-function horaLegible(d: Date): string {
-  return d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
-}
+// Idempotency-Key del envío: cita + fecha + número de intento. El auto usa n=1
+// (un reintento del cron por timeout no duplica); el reenvío manual incrementa n.
+const idemKey = (citaId: string, fecha: Date, intento: number) => `cita_${citaId}_${fecha.toISOString()}_${intento}`
 
 /**
- * Envía el recordatorio de UNA cita usando las credenciales ya resueltas de su
- * clínica (las provee el cron, que las lee una sola vez por clínica). Devuelve
- * el MessageSid o lanza error.
+ * Envía el recordatorio de UNA cita con las credenciales ya resueltas de su clínica.
+ * `intento` alimenta la Idempotency-Key (1 = automático). Devuelve el messageId.
  */
 export async function enviarRecordatorioCita(
-  db: TenantClient, citaId: string, creds: TwilioCreds, clinicaNombre: string,
+  db: TenantClient, citaId: string, wa: WaConfig, intento = 1,
 ): Promise<string> {
   const cita = await db.cita.findUnique({
     where: { id: citaId },
-    include: {
-      paciente: { select: { nombre: true, apellido: true, telefono: true } },
-    },
+    include: { paciente: { select: { nombre: true, telefono: true } } },
   })
   if (!cita) throw new Error('Cita no encontrada')
-
   const to = fonoAE164(cita.paciente.telefono)
   if (!to) throw new Error('El paciente no tiene teléfono válido')
 
   const fecha = new Date(cita.fecha)
-  const variables = JSON.stringify({
-    '1': cita.paciente.nombre,
-    '2': clinicaNombre,
-    '3': fechaLegible(fecha),
-    '4': horaLegible(fecha),
+  const { messageId } = await tubotProvider.enviarPlantilla(wa.cfg, {
+    to,
+    variables: [cita.paciente.nombre, wa.nombre, fechaLegible(fecha), horaLegible(fecha)],
+    botones: [{ payload: 'CONFIRMAR' }, { payload: 'CANCELAR' }, { payload: 'REAGENDAR' }],
+    idempotencyKey: idemKey(citaId, fecha, intento),
   })
-
-  const body = new URLSearchParams({
-    To: `whatsapp:${to}`,
-    From: `whatsapp:${creds.from}`,
-    ContentSid: creds.templateSid,
-    ContentVariables: variables,
-  })
-
-  const res = await fetch(`${TWILIO_API}/Accounts/${creds.sid}/Messages.json`, {
-    method: 'POST',
-    headers: {
-      Authorization: 'Basic ' + Buffer.from(`${creds.sid}:${creds.token}`).toString('base64'),
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: body.toString(),
-  })
-
-  const data = await res.json().catch(() => ({})) as { sid?: string; message?: string }
-  if (!res.ok || !data.sid) {
-    throw new Error(`Twilio ${res.status}: ${data.message ?? 'error desconocido'}`)
-  }
 
   await db.cita.update({
     where: { id: citaId },
     data: {
-      waMessageSid: data.sid,
-      // Al enviar el WhatsApp, la cita pasa a "Notificado por WhatsApp" (verde).
-      // Sólo avanza desde "Agendada" para no retroceder citas ya más avanzadas.
+      waMessageSid: messageId,
+      waDeliveryStatus: null, waDeliveryReason: null, // arranca sin estado; lo actualiza el evento "status"
+      // Al enviar, la cita pasa a "Notificado por WhatsApp" (sólo desde Agendada).
       ...(cita.estado === 'PENDIENTE' ? { estado: 'CONFIRMADA' } : {}),
-      logs: {
-        create: {
-          tipo: 'WA_ENVIADO',
-          detalle: `Recordatorio automático enviado por WhatsApp a ${to}`,
-          userName: 'Sistema',
-        },
-      },
+      logs: { create: { tipo: 'WA_ENVIADO', detalle: `Recordatorio ${intento > 1 ? `(reenvío #${intento - 1}) ` : ''}enviado por WhatsApp a ${to}`, userName: 'Sistema' } },
     },
   })
+  return messageId
+}
 
-  return data.sid
+/** Reenvío MANUAL de una cita (la paciente dice que no le llegó). Incrementa el
+ *  número de intento para saltar el dedupe de TuBot. La config del tenant ya exige
+ *  waEnabled + credenciales. */
+export async function reenviarRecordatorioManual(db: TenantClient, citaId: string): Promise<string> {
+  const config = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: CONFIG_SELECT })
+  const wa = config ? resolverConfig(config) : null
+  if (!wa) throw new Error('El servicio de WhatsApp no está habilitado o faltan credenciales (TuBot).')
+  const cita = await db.cita.findUnique({ where: { id: citaId }, select: { waReenvios: true } })
+  if (!cita) throw new Error('Cita no encontrada')
+  const intento = cita.waReenvios + 2 // auto = 1; primer manual = 2, luego 3, 4…
+  const id = await enviarRecordatorioCita(db, citaId, wa, intento)
+  await db.cita.update({ where: { id: citaId }, data: { waReenvios: { increment: 1 } } })
+  return id
 }
 
 /**
  * Para el cron: envía recordatorios de todas las citas elegibles.
  * Elegible = clínica con waEnabled, cita PENDIENTE, sin recordatorio previo,
- * y cuya fecha está dentro de las próximas waHorasAntes horas (pero no pasada).
+ * cuya fecha cae dentro de las próximas waHorasAntes horas (y no pasó).
  */
-export async function enviarRecordatoriosPendientes(): Promise<{
-  enviados: number
-  errores: { citaId: string; error: string }[]
-}> {
-  // Filtramos en el control-plane las clínicas con el servicio activo (waEnabled
-  // se denormaliza ahí) y luego abrimos cada base para leer credenciales y citas.
+export async function enviarRecordatoriosPendientes(): Promise<{ enviados: number; errores: { citaId: string; error: string }[] }> {
   const clinicas = await control.clinica.findMany({
     where: { waEnabled: true, activo: true, esDemo: false },
     select: { dbName: true },
   })
-
   let enviados = 0
   const errores: { citaId: string; error: string }[] = []
 
   for (const cl of clinicas) {
     const db = tenantClient(cl.dbName)
-    const config = await db.configuracion.findUnique({
-      where: { id: 'singleton' },
-      select: {
-        nombre: true, waEnabled: true, waTwilioSid: true, waTwilioToken: true,
-        waNumero: true, waTemplateSid: true, waHorasAntes: true,
-      },
-    })
-    const creds = config ? credsDeClinica(config) : null
-    if (!config || !creds) continue
+    const config = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: CONFIG_SELECT })
+    const wa = config ? resolverConfig(config) : null
+    if (!wa) continue
 
     const ahora = new Date()
-    const hasta = new Date(ahora.getTime() + config.waHorasAntes * 3600_000)
-
+    const hasta = new Date(ahora.getTime() + wa.horasAntes * 3600_000)
     const citas = await db.cita.findMany({
-      where: {
-        estado: 'PENDIENTE',
-        waMessageSid: null,
-        fecha: { gte: ahora, lte: hasta },
-      },
+      where: { estado: 'PENDIENTE', waMessageSid: null, fecha: { gte: ahora, lte: hasta } },
       select: { id: true },
       take: 100, // tope de seguridad por corrida
     })
 
     for (const c of citas) {
       try {
-        await enviarRecordatorioCita(db, c.id, creds, config.nombre)
+        await enviarRecordatorioCita(db, c.id, wa, 1)
         enviados++
       } catch (e) {
+        if (e instanceof RateLimitError) {
+          // Respetamos el rate limit: cortamos la tanda de ESTA clínica; las citas
+          // no enviadas quedan sin waMessageSid y entran en la próxima corrida.
+          errores.push({ citaId: c.id, error: `rate_limited (retry-after ${e.retryAfterSeg}s) — corte de tanda` })
+          break
+        }
         errores.push({ citaId: c.id, error: e instanceof Error ? e.message : String(e) })
       }
     }
   }
-
   return { enviados, errores }
 }
 
-// ─── Webhook: respuesta del paciente ────────────────────────────────────────
+// ─── Webhook: eventos entrantes de TuBot ─────────────────────────────────────
 
 export type RespuestaPaciente = 'CONFIRMAR' | 'CANCELAR' | 'REAGENDAR' | 'OTRO'
 
+// RESPALDO: sólo para el paciente que ESCRIBE en vez de tocar el botón. El camino
+// principal es el payload estructurado del botón (no pasa por acá).
 export function interpretarRespuesta(texto: string): RespuestaPaciente {
   const t = texto.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
   if (/confirm|\bsi\b|\bok\b|asistire/.test(t)) return 'CONFIRMAR'
@@ -202,112 +177,89 @@ export function interpretarRespuesta(texto: string): RespuestaPaciente {
   return 'OTRO'
 }
 
-/**
- * Valida la firma X-Twilio-Signature: base64(HMAC-SHA1(authToken, url + params
- * ordenados por clave)). Protege el webhook de requests falsificadas.
- */
-export function validarFirmaTwilio(
-  authToken: string,
-  url: string,
-  params: Record<string, string>,
-  firma: string | null,
-): boolean {
-  if (!firma) return false
-  const data = url + Object.keys(params).sort().map((k) => k + params[k]).join('')
-  const esperada = createHmac('sha1', authToken).update(data, 'utf8').digest('base64')
-  // Comparación en tiempo constante simple (las longitudes son fijas).
-  if (esperada.length !== firma.length) return false
-  let diff = 0
-  for (let i = 0; i < esperada.length; i++) diff |= esperada.charCodeAt(i) ^ firma.charCodeAt(i)
-  return diff === 0
+// Correlaciona un evento entrante con una cita: por el messageId respondido
+// (replyTo → waMessageSid) o, si no, por el teléfono del paciente.
+async function citaDelEvento(db: TenantClient, args: { replyTo: string | null; from: string }) {
+  if (args.replyTo) {
+    const c = await db.cita.findFirst({ where: { waMessageSid: args.replyTo }, select: { id: true, estado: true, fecha: true, paciente: { select: { telefono: true } } } })
+    if (c) return c
+  }
+  const digits = args.from.replace(/\D/g, '')
+  const sinPais = digits.startsWith('56') ? digits.slice(2) : digits
+  const candidatos = await db.cita.findMany({
+    where: { waMessageSid: { not: null }, estado: { in: ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO'] }, fecha: { gte: new Date(Date.now() - 3600_000) } },
+    include: { paciente: { select: { telefono: true } } }, orderBy: { fecha: 'asc' }, take: 50,
+  })
+  const m = candidatos.find((c) => { const t = (c.paciente.telefono ?? '').replace(/\D/g, ''); return t.length >= 8 && (t.endsWith(sinPais) || sinPais.endsWith(t)) })
+  return m ? { id: m.id, estado: m.estado, fecha: m.fecha, paciente: m.paciente } : null
 }
 
 /**
- * Procesa una respuesta entrante del paciente. Devuelve el texto de respuesta
- * a mostrar al paciente (o null si no se identificó la cita).
+ * Procesa un evento entrante de TuBot (respuesta de botón, texto o status).
+ * IDEMPOTENTE por providerMsgId: reprocesar el mismo evento (doble toque, reintento
+ * de TuBot) es no-op. Manda el acuse por texto cuando corresponde.
  */
-export async function procesarRespuestaEntrante(db: TenantClient, args: {
-  fromE164: string                 // teléfono del paciente
-  texto: string                    // ButtonText o Body
-  originalMessageSid: string | null
-}): Promise<string | null> {
-  const respuesta = interpretarRespuesta(args.texto)
-
-  // 1) Correlación exacta: respuesta a un mensaje nuestro.
-  let cita = args.originalMessageSid
-    ? await db.cita.findFirst({
-        where: { waMessageSid: args.originalMessageSid },
-        select: { id: true, estado: true, fecha: true },
-      })
-    : null
-
-  // 2) Fallback: próxima cita con recordatorio enviado de un paciente cuyo
-  //    teléfono coincida.
-  if (!cita) {
-    const digits = args.fromE164.replace(/\D/g, '')
-    const sinPais = digits.startsWith('56') ? digits.slice(2) : digits
-    const candidatos = await db.cita.findMany({
-      where: {
-        waMessageSid: { not: null },
-        estado: { in: ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO'] },
-        fecha: { gte: new Date(Date.now() - 3600_000) },
-      },
-      include: { paciente: { select: { telefono: true } } },
-      orderBy: { fecha: 'asc' },
-      take: 50,
-    })
-    const match = candidatos.find((c) => {
-      const t = (c.paciente.telefono ?? '').replace(/\D/g, '')
-      return t.length >= 8 && (t.endsWith(sinPais) || sinPais.endsWith(t))
-    })
-    if (match) cita = { id: match.id, estado: match.estado, fecha: match.fecha }
+export async function procesarEventoEntrante(db: TenantClient, wa: WaConfig, evento: EventoEntrante): Promise<void> {
+  // Idempotencia: el @unique de providerMsgId frena el reproceso.
+  try {
+    await db.waEventoEntrante.create({ data: { providerMsgId: evento.providerMsgId, tipo: evento.tipo } })
+  } catch {
+    return // ya procesado
   }
 
-  if (!cita) return null
+  // ── Evento de estado de entrega ──
+  if (evento.tipo === 'status') {
+    const cita = await db.cita.findFirst({ where: { waMessageSid: evento.providerMsgId }, select: { id: true } })
+    if (!cita) return
+    const detalle = evento.status === 'failed'
+      ? `No se pudo entregar el recordatorio por WhatsApp${evento.reason ? ` (${evento.reason})` : ''}`
+      : `WhatsApp ${evento.status}`
+    await db.cita.update({
+      where: { id: cita.id },
+      data: { waDeliveryStatus: evento.status, waDeliveryReason: evento.reason ?? null, logs: { create: { tipo: 'WA_ESTADO', detalle, userName: 'Sistema' } } },
+    })
+    return
+  }
+
+  // ── Respuesta del paciente (botón = principal; texto = respaldo) ──
+  const respuesta: RespuestaPaciente = evento.tipo === 'button'
+    ? (['CONFIRMAR', 'CANCELAR', 'REAGENDAR'].includes(evento.payload) ? evento.payload as RespuestaPaciente : 'OTRO')
+    : interpretarRespuesta(evento.texto)
+
+  const cita = await citaDelEvento(db, { replyTo: evento.replyTo, from: evento.from })
+  if (!cita) return
 
   const fecha = new Date(cita.fecha)
   const cuando = `${fechaLegible(fecha)} a las ${horaLegible(fecha)}`
+  const to = fonoAE164(cita.paciente?.telefono) ?? fonoAE164(evento.from)
+  let ack: string | null = null
 
   if (respuesta === 'CONFIRMAR') {
-    await db.cita.update({
-      where: { id: cita.id },
-      data: {
-        // El paciente confirmó → "Confirmado" (azul), distinto de sólo notificado.
-        estado: 'CONFIRMADO',
-        confirmadoWA: true,
-        logs: { create: { tipo: 'ESTADO', detalle: 'Cita confirmada por el paciente vía WhatsApp', userName: 'Paciente (WhatsApp)' } },
-      },
-    })
-    return `¡Gracias! Tu cita del ${cuando} quedó confirmada. Te esperamos.`
+    await db.cita.update({ where: { id: cita.id }, data: { estado: 'CONFIRMADO', confirmadoWA: true, logs: { create: { tipo: 'ESTADO', detalle: 'Cita confirmada por el paciente vía WhatsApp', userName: 'Paciente (WhatsApp)' } } } })
+    ack = `¡Gracias! Tu cita del ${cuando} quedó confirmada. Te esperamos.`
+  } else if (respuesta === 'CANCELAR') {
+    await db.cita.update({ where: { id: cita.id }, data: { estado: 'CANCELADA', logs: { create: { tipo: 'ESTADO', detalle: 'Cita cancelada por el paciente vía WhatsApp', userName: 'Paciente (WhatsApp)' } } } })
+    ack = `Tu cita del ${cuando} fue cancelada. Si quieres reagendar, contáctanos.`
+  } else if (respuesta === 'REAGENDAR') {
+    // Se MARCA y se DERIVA a la clínica (visible en agenda). El reagendamiento
+    // automático es de la integración inversa, no de este módulo.
+    await db.cita.update({ where: { id: cita.id }, data: { logs: { create: { tipo: 'WA_REAGENDAR', detalle: 'El paciente pidió REAGENDAR vía WhatsApp — derivado a la clínica', userName: 'Paciente (WhatsApp)' } } } })
+    ack = `Recibimos tu solicitud de reagendar la cita del ${cuando}. Te contactaremos a la brevedad para coordinar un nuevo horario.`
+  } else {
+    // Texto libre no interpretable: queda en el log para recepción.
+    await db.cita.update({ where: { id: cita.id }, data: { logs: { create: { tipo: 'ESTADO', detalle: `Mensaje del paciente por WhatsApp: "${evento.texto.slice(0, 200)}"`, userName: 'Paciente (WhatsApp)' } } } })
   }
 
-  if (respuesta === 'CANCELAR') {
-    await db.cita.update({
-      where: { id: cita.id },
-      data: {
-        estado: 'CANCELADA',
-        logs: { create: { tipo: 'ESTADO', detalle: 'Cita cancelada por el paciente vía WhatsApp', userName: 'Paciente (WhatsApp)' } },
-      },
-    })
-    return `Tu cita del ${cuando} fue cancelada. Si quieres reagendar, contáctanos.`
-  }
+  // Acuse por texto libre (la ventana de 24 h la abrió el botón). Best-effort.
+  if (ack && to) await tubotProvider.enviarTexto(wa.cfg, to, ack).catch(() => undefined)
+}
 
-  if (respuesta === 'REAGENDAR') {
-    await db.cita.update({
-      where: { id: cita.id },
-      data: {
-        logs: { create: { tipo: 'ESTADO', detalle: 'El paciente pidió reagendar vía WhatsApp', userName: 'Paciente (WhatsApp)' } },
-      },
-    })
-    return `Recibimos tu solicitud de reagendar la cita del ${cuando}. Te contactaremos a la brevedad para coordinar un nuevo horario.`
-  }
-
-  // Mensaje libre: lo dejamos en el log para que recepción lo vea.
-  await db.cita.update({
-    where: { id: cita.id },
-    data: {
-      logs: { create: { tipo: 'ESTADO', detalle: `Mensaje del paciente por WhatsApp: "${args.texto.slice(0, 200)}"`, userName: 'Paciente (WhatsApp)' } },
-    },
-  })
-  return null
+// Resuelve la clínica dueña de una connectionId y su WaConfig (para el webhook).
+export async function configPorConexion(connectionId: string): Promise<{ dbName: string; wa: WaConfig } | null> {
+  const clinica = await control.clinica.findFirst({ where: { waConnectionId: connectionId, waEnabled: true }, select: { dbName: true } })
+  if (!clinica) return null
+  const db = tenantClient(clinica.dbName)
+  const config = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: CONFIG_SELECT })
+  const wa = config ? resolverConfig(config) : null
+  return wa ? { dbName: clinica.dbName, wa } : null
 }
