@@ -5,6 +5,45 @@
 
 ---
 
+## 2026-08-12 — WhatsApp: Twilio → TuBot (recordatorios por plantilla) — DESPLEGADO
+
+Reemplazo del canal de WhatsApp (Twilio → TuBot, plataforma propia). **Cambio en frío**:
+WhatsApp estaba apagado en las 3 clínicas (`waEnabled=false`, sin credenciales, sin cron de
+recordatorios), así que no hubo datos que migrar. **Alcance estricto**: recordatorio/
+confirmación de citas por **plantilla** con botones (Confirmar/Cancelar/Reagendar). La
+integración inversa (TuBot agendando) es OTRO proyecto — sin ganchos. Contrato:
+`docs/TUBOT_WHATSAPP.md`; mock de desarrollo: `mock-tubot/`.
+
+- **Schema (aditivo, aplicado a prod)**: `Configuracion` suma `waApiKey/waConnectionId/
+  waWebhookSecret/waTemplateName/waTemplateLang` (secretos cifrados); `Clinica` (control) suma
+  `waConnectionId` (ruteo, **sin `@unique`** — patrón `metaPageId`, evita `--accept-data-loss`);
+  `Cita` suma `waDeliveryStatus/waDeliveryReason/waReenvios`; nueva tabla `WaEventoEntrante`
+  (idempotencia del webhook). **Columnas Twilio inertes** (regla 1: no se dropean). Aplicado con
+  backup fresco OK → `control:push` + `migrate:tenants --strict` **4/4**.
+- **Frontera de proveedor** `lib/tubot.ts` (`WhatsappProvider` + impl TuBot). `lib/whatsapp.ts`
+  queda como orquestador. **Envío idempotente** (`Idempotency-Key = cita_<id>_<fecha>_<n>`; auto
+  `n=1`, reenvío manual `n≥2`); corte de tanda ante `429`. **Reenvío manual**: `POST
+  /whatsapp/reenviar/:citaId` (UI del botón pendiente; no-op hasta habilitar).
+- **Webhook** `POST /whatsapp/webhook/:connectionId` (JSON, body crudo + **HMAC-SHA256**,
+  **401 uniforme**), **idempotente por `providerMsgId`**. `button` = principal; `text` =
+  respaldo (`interpretarRespuesta` degradado). `status failed` → cita marcada **"No se pudo
+  entregar"** visible en la agenda. Acuse por texto. `express.urlencoded` **conservado** (lo usa
+  el webhook de Flow — la premisa "solo Twilio" era incorrecta).
+- **Super-admin** por TuBot (API key, connectionId, plantilla, secreto webhook) + **degrade**:
+  no habilita si la plantilla no está `APPROVED` en TuBot.
+- **Desplegado** (arch+master): `/health` 200, ruta nueva verificada (401), prestart re-corrió
+  las migraciones idempotentes. Las 3 clínicas **siguen con WhatsApp apagado**.
+- **Pendientes**: (1) crear el servicio Railway `cron-recordatorios` (`*/20`, dashboard — ver
+  `docs/deploy-extras.md`) y setear `TUBOT_BASE_URL` real, ambos al habilitar la 1ª clínica
+  (hoy no-ops); (2) botón de reenvío manual en la UI; (3) **purgar `WaEventoEntrante`
+  periódicamente (90 días sobra: la ventana de dedupe es de horas, no meses)** — crece 1 fila
+  por evento entrante; (4) la API SALIENTE de TuBot para este sentido **aún no existe** (el
+  contrato + mock quedan listos para cuando TuBot la implemente).
+- Verificado: typecheck be/fe, contrato (253 rutas), unit **134/134**, integración **98/98**
+  (circuito TuBot 6/6: firma/routing/idempotencia/transiciones/status), build fe.
+
+---
+
 ## 2026-08-12 — Tope de abono libre (no abonar más que el presupuesto del plan)
 
 Pedido operativo de Javier. Dos temas del abono libre:

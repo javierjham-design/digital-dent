@@ -7,7 +7,29 @@
 
 ## Última actualización
 
-- **Fecha:** 2026-08-11
+- **Fecha:** 2026-08-12
+- **✅ WhatsApp: Twilio → TuBot (recordatorios por plantilla) — DESPLEGADO (2026-08-12).**
+  Cambio EN FRÍO (WhatsApp apagado en las 3 clínicas, sin datos que migrar). Alcance estricto:
+  recordatorio/confirmación por plantilla con botones; la integración inversa (TuBot agendando)
+  es OTRO proyecto. Contrato `docs/TUBOT_WHATSAPP.md` + `mock-tubot/`. Schema aditivo aplicado a
+  prod (backup OK → `control:push` + `migrate:tenants --strict` **4/4**): `Configuracion` suma
+  wa* de TuBot (cifrados), `Cita` suma delivery status + reenvíos, tabla `WaEventoEntrante`
+  (idempotencia), `Clinica.waConnectionId` (ruteo, sin @unique). **Columnas Twilio inertes**
+  (regla 1). Frontera `lib/tubot.ts`; webhook `/whatsapp/webhook/:connectionId` (HMAC-SHA256 sobre
+  raw, 401 uniforme, idempotente por providerMsgId); envío idempotente (`Idempotency-Key` con nº de
+  intento; reenvío manual `n≥2`); `status failed` → "No se pudo entregar" en la agenda; degrade si
+  la plantilla no está APPROVED. `express.urlencoded` **se conservó** (lo usa Flow, no era solo de
+  Twilio). Deploy verificado (`/health` 200, ruta nueva 401). Verificado: unit 134/134, integración
+  98/98 (circuito TuBot 6/6). **Las 3 clínicas siguen con WhatsApp apagado.**
+  - **⚠️ Pendientes al habilitar la 1ª clínica** (hoy no-ops): crear el servicio Railway
+    `cron-recordatorios` (`*/20`, config exacta en `docs/deploy-extras.md`) y setear
+    `TUBOT_BASE_URL` con la URL real de TuBot. **La API SALIENTE de TuBot para este sentido aún NO
+    existe** (contrato + mock listos para cuando la implementen).
+  - **⚠️ Deuda anotada**: `WaEventoEntrante` crece 1 fila por evento entrante y **hay que purgarla
+    periódicamente (90 días sobra; la ventana de dedupe es de horas)**. Con WhatsApp apagado no
+    acumula nada. Falta también el botón de reenvío manual en la UI (endpoint ya existe).
+
+- **Fecha previa:** 2026-08-11
 - **✅ Módulo ESTÉTICA usable + optimizaciones de UX del plan (2026-08-11, todo DESPLEGADO).**
   Sesión larga probando estética en el demo `demo-l49j1s`. Lo que salió a prod hoy:
   - **Mapa facial con FOTO real licenciada** (comprada por Javier, `frontend/src/assets/

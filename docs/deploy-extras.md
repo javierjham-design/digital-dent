@@ -66,6 +66,28 @@ case-sensitive):
 | `backup` | `npm run backup` (dump lógico por clínica) | `0 7 * * *` |
 | `backup-drill` | `npm run backup:drill` (ensayo de restore) | `0 8 * * 1` |
 | `backup-prune` | `npm run backup:prune -- --apply` | `30 8 * * 0` |
+| `cron-recordatorios` ⏳ **pendiente de crear** | `JOB=recordatorios` → `POST /whatsapp/recordatorios` (recordatorios de cita por TuBot) | `*/20 * * * *` |
+
+**`cron-recordatorios` — config exacta (crear cuando se habilite WhatsApp en alguna clínica).**
+El endpoint y el script (`cron/run.mjs`, JOB `recordatorios`) ya existen; con 0 clínicas
+habilitadas es un **no-op** (`{enviados:0}`), así que crearlo antes no hace daño. Dashboard →
+**New Service** → *Deploy from GitHub repo* (`javierjham-design/digital-dent`):
+- **Branch**: `arch/split-frontend-backend`
+- **Root Directory**: `cron`
+- **Cron Schedule**: `*/20 * * * *`
+- **Restart Policy**: `NEVER`
+- **Variables**:
+  - `JOB=recordatorios`
+  - `API_URL=https://api.clariva.cl`
+  - `CRON_SECRET=${{BACKEND.CRON_SECRET}}`  (⚠️ `BACKEND` en MAYÚSCULAS)
+
+⚠️ **No se puede crear por `railway add`** (el CLI no fija `rootDir` ni `cronSchedule`): es
+tarea de dashboard, como los otros crons. **No revivir el workflow de GitHub Actions.**
+
+**Relacionado — `TUBOT_BASE_URL` (BACKEND).** Base de la API de TuBot para enviar plantillas.
+Hoy **sin setear** (el código cae a `http://localhost:4020`, inofensivo porque WhatsApp está
+apagado). Setearla en el servicio `BACKEND` con la URL real de TuBot **al conectar la primera
+clínica**. Ver `docs/TUBOT_WHATSAPP.md`.
 
 **Por qué NO usamos GitHub Actions para esto.** Existió `.github/workflows/clariva-cron.yml`
 que hacía los mismos `POST` de `sync` y `cleanup` por schedule. Se **retiró (2026-08-05)** y
