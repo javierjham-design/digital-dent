@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-11 — Presupuesto estética: zonas por prestación + nombres del catálogo
+
+Ajuste del anterior. Javier notó que el imprimible/correo mostraba "—" en la columna
+"Pieza / zona" de las acciones estéticas (en el plan interactivo sí salían), y recordó que
+el nombre debe ser el acordado ("Anatómico (genérico)", ej. "Región frontal (frente)").
+
+- **Frontend** (`PresupuestoPlanDoc.tsx`): `piezaLabel` ahora, si la acción tiene zonas,
+  lista TODAS sus zonas (antes solo usaba diente/cara/notas → "—" en estética). El nombre
+  sale del **catálogo congelado** (`ZONAS_FACIALES_NUCLEO`) por código, no del que trae la
+  base, así el formato "Anatómico (genérico)" es correcto aunque la base tenga una etiqueta
+  vieja. La columna "Pieza / zona" se ensanchó (210px) y envuelve para que quepan completos.
+  El mapa y su leyenda usan la misma fuente de nombres.
+- **Backend** (`estetica.service.ts`, `listarZonas`): el seed lazy ahora, además de sembrar
+  lo faltante, **sincroniza las etiquetas** (nombreClinico/nombreVisible/grupo/orden) de las
+  zonas ya sembradas con el catálogo congelado. NO toca `codigo` (identidad grabada en cada
+  tratamiento) → puro display, seguro. Corrige bases viejas (demo con "Frente") sin recrearlas
+  y solo escribe las filas que difieren.
+
+Verificado: typecheck be/fe OK, integración 90/90, build fe OK. Aditivo, sin cambio de schema.
+
+---
+
 ## 2026-08-11 — Mapa facial con zonas marcadas en el presupuesto (imprimible + correo)
 
 Pedido de Javier: en el imprimible de estética y en el correo, mostrar la foto del rostro

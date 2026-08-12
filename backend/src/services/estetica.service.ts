@@ -17,21 +17,38 @@ import { ZONAS_FACIALES_NUCLEO } from '@shared/constants/zonas-faciales'
 const ZONAS_SEED = ZONAS_FACIALES_NUCLEO.map(({ codigo, nombreClinico, nombreVisible, grupo, orden }) =>
   ({ codigo, nombreClinico, nombreVisible, grupo, orden }))
 
-// Lista el catálogo de zonas del tenant. Auto-completa: siembra lo que FALTE del
-// catálogo (por código), no solo la primera vez. Así, si el catálogo cambia (se
-// agrega/renombra una zona, ej. LABIOS), las bases YA sembradas reciben las nuevas
-// al abrir el mapa, sin depender de recrear la base. skipDuplicates evita choques de
-// carrera contra el @unique de codigo. Las zonas viejas que ya no están en el catálogo
-// quedan en la base pero el frontend no las dibuja (filtra por el catálogo).
+// Lista el catálogo de zonas del tenant. Auto-cura contra el catálogo congelado en
+// dos frentes, cada vez que se abre el mapa: (1) SIEMBRA lo que falte por código
+// (ej. LABIOS); (2) SINCRONIZA las etiquetas (nombre/grupo/orden) de las que ya
+// existen. Así una base vieja (ej. demo con "Frente") converge al nombre acordado
+// ("Región frontal (frente)") sin recrearse. NUNCA toca `codigo` (identidad grabada
+// en cada tratamiento). Las zonas que ya no están en el catálogo quedan en la base
+// pero el frontend no las dibuja (filtra por el catálogo).
 export async function listarZonas(db: TenantClient) {
-  const existentes = await db.zonaFacial.findMany({ select: { codigo: true } })
-  const codigos = new Set(existentes.map((z) => z.codigo))
-  const faltantes = ZONAS_SEED.filter((z) => !codigos.has(z.codigo))
+  const existentes = await db.zonaFacial.findMany({
+    select: { id: true, codigo: true, nombreClinico: true, nombreVisible: true, grupo: true, orden: true },
+  })
+  const porCodigo = new Map(existentes.map((z) => [z.codigo, z]))
+  const faltantes = ZONAS_SEED.filter((z) => !porCodigo.has(z.codigo))
   if (faltantes.length > 0) {
     // `faltantes` ya excluye lo existente; el try/catch cubre una carrera rara (otra
     // request sembrando a la vez → choque con @unique). No usamos skipDuplicates
     // porque no existe en SQLite (tests). En prod (Postgres) el catch no se activa.
     try { await db.zonaFacial.createMany({ data: faltantes }) } catch { /* ya sembradas */ }
+  }
+  // Sincroniza ETIQUETAS (nombre/grupo/orden) de zonas ya sembradas con el catálogo
+  // congelado. NO toca `codigo` (identidad grabada en cada tratamiento) → es puro
+  // display, seguro. Corrige bases viejas (ej. demo con "Frente" en vez de "Región
+  // frontal (frente)") sin recrearlas. Solo actualiza las que difieren; si ya están
+  // al día, no hace ninguna escritura.
+  for (const z of ZONAS_SEED) {
+    const cur = porCodigo.get(z.codigo)
+    if (cur && (cur.nombreClinico !== z.nombreClinico || cur.nombreVisible !== z.nombreVisible || cur.grupo !== z.grupo || cur.orden !== z.orden)) {
+      await db.zonaFacial.update({
+        where: { id: cur.id },
+        data: { nombreClinico: z.nombreClinico, nombreVisible: z.nombreVisible, grupo: z.grupo, orden: z.orden },
+      }).catch(() => { /* carrera: otra request ya la sincronizó */ })
+    }
   }
   return db.zonaFacial.findMany({ orderBy: [{ orden: 'asc' }, { codigo: 'asc' }] })
 }

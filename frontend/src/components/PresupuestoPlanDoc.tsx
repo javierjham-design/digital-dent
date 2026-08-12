@@ -6,9 +6,15 @@ import rostroBase from '@/assets/rostro-base.jpg'
 
 const fmtCLP = fmtMonto
 
-// Path (calibrado sobre la foto base) por código de zona facial, para el mapa estético.
+// Path (calibrado sobre la foto base) y nombre visible por código de zona facial.
+// El nombre sale del catálogo CONGELADO (formato "Anatómico (genérico)"), no del
+// que trae la base: así el presupuesto muestra siempre el nombre acordado aunque la
+// clínica/demo tenga una etiqueta vieja sembrada.
 const PATH_POR_CODIGO: Record<string, string> = Object.fromEntries(
   ZONAS_FACIALES_NUCLEO.map((z) => [z.codigo, z.path]))
+const NOMBRE_POR_CODIGO: Record<string, string> = Object.fromEntries(
+  ZONAS_FACIALES_NUCLEO.map((z) => [z.codigo, z.nombreVisible]))
+const nombreZona = (codigo: string, fallback?: string) => NOMBRE_POR_CODIGO[codigo] ?? fallback ?? codigo
 
 export interface PZona { zona: { codigo: string; nombreVisible: string } }
 export interface PTrat {
@@ -25,9 +31,12 @@ const tiempoSeccion = (s: PSeccion): string | null => (
 )
 const neto = (t: PTrat) => Math.round(t.precio * (1 - (t.descuento || 0) / 100))
 const pagado = (t: PTrat) => (t.cobroItems || []).filter((ci) => ci.cobro?.estado === 'PAGADO').reduce((s, ci) => s + ci.monto, 0)
-const piezaLabel = (t: PTrat) => t.diente
-  ? `${t.diente}${t.cara ? ` (${t.cara.split('').join(',')})` : ''}`
-  : (t.cara ? t.cara : (t.notas ? t.notas.replace(/^Piezas:\s*/, '') : '—'))
+const piezaLabel = (t: PTrat) => {
+  // Estética: una acción puede cubrir varias zonas → se listan TODAS (nombre del catálogo).
+  if (t.zonas && t.zonas.length) return t.zonas.map((z) => nombreZona(z.zona.codigo, z.zona.nombreVisible)).join(', ')
+  if (t.diente) return `${t.diente}${t.cara ? ` (${t.cara.split('').join(',')})` : ''}`
+  return t.cara ? t.cara : (t.notas ? t.notas.replace(/^Piezas:\s*/, '') : '—')
+}
 
 // CSS con colores HEX (no Tailwind/oklch) embebido en el nodo: así html2canvas
 // puede capturarlo para el PDF del correo (oklch rompe html2canvas).
@@ -109,9 +118,8 @@ export function PresupuestoPlanDoc({ plan, clinica, paciente }: { plan: PPlan; c
   ]
   // Zonas faciales del plan (solo estética): únicas por código, con su nombre visible.
   const zonasTratadas = plan.area === 'ESTETICA'
-    ? Array.from(new Map(
-        todas.flatMap((t) => t.zonas ?? []).map((z) => [z.zona.codigo, z.zona.nombreVisible] as const),
-      ).entries()).map(([codigo, nombre]) => ({ codigo, nombre }))
+    ? Array.from(new Set(todas.flatMap((t) => (t.zonas ?? []).map((z) => z.zona.codigo))))
+        .map((codigo) => ({ codigo, nombre: nombreZona(codigo) }))
     : []
 
   return (
@@ -159,7 +167,7 @@ export function PresupuestoPlanDoc({ plan, clinica, paciente }: { plan: PPlan; c
           <table>
             <thead>
               <tr>
-                <th>Prestación</th><th style={{ width: 112 }}>Pieza / zona</th><th style={{ width: 64 }} className="pp-c">Dscto</th><th style={{ width: 112 }} className="pp-r">Precio</th>
+                <th>Prestación</th><th style={{ width: 210 }}>Pieza / zona</th><th style={{ width: 56 }} className="pp-c">Dscto</th><th style={{ width: 104 }} className="pp-r">Precio</th>
               </tr>
             </thead>
             <tbody>
