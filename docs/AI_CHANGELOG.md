@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-12 — Guarda de identidad de base en scripts de prod (#7 de la auditoría)
+
+Pedido de Javier (2 veces) tras el casi-accidente del 2026-08-10: un error de quoting mandó
+una operación a la base `railway` (la default de Railway) en vez de la clínica objetivo.
+
+- **Helper** `backend/src/lib/db-guard.ts`: `assertBaseActual(db, esperada)` corre
+  `SELECT current_database()` y **aborta** si la conexión no está en la base esperada, o si
+  la esperada es una base prohibida (`railway`/`postgres`/`template*`/vacía).
+  `assertControlActual(control)` deriva el nombre esperado del env (`controlDatabaseUrl`).
+  `nombreBaseDeUrl(url)` extrae el nombre del path. NO se usa en el hot-path de la API (suma
+  un roundtrip) — es exclusivo de scripts.
+- **Cableado** en los scripts de prod re-ejecutables que ESCRIBEN: `aplicar-caja-unique`,
+  `backfill-conversiones`, `reconciliar-vinculos`, `dedupe-prestaciones`, `areas-fase6`.
+  Cada uno: guarda de control al inicio + guarda por base antes de tocarla. **`migrate-tenants`
+  NO se tocó** (regla 1).
+- Test unit `test/db-guard.test.ts` (5/5): coincide/no-coincide/base-prohibida + parse de URL.
+
+Backend-only, sin schema ni runtime de la API. Verificado: typecheck be, unit 134/134.
+
+---
+
 ## 2026-08-11 — Recalibrar zonas periorbitarias ("patas de gallo")
 
 Ajuste fino pedido por Javier con el editor visual: las dos zonas `PERIORBITAL_LAT_DER/IZQ`

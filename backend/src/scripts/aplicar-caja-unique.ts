@@ -13,6 +13,7 @@
 //   tsx src/scripts/aplicar-caja-unique.ts --apply    → aplica (con rollback si algo falla).
 import { control } from '@/db/control'
 import { tenantClient, disposeTenant } from '@/db/tenant'
+import { assertBaseActual, assertControlActual } from '@/lib/db-guard'
 
 const APPLY = process.argv.includes('--apply')
 
@@ -43,12 +44,15 @@ async function dropIndices(dbName: string): Promise<void> {
 }
 
 async function main() {
+  await assertControlActual(control) // guarda: no operar si el control apunta a otra base
   const ahora = new Date()
   const clinicas = await control.clinica.findMany({
     where: { OR: [{ esDemo: false }, { demoExpiraEn: null }, { demoExpiraEn: { gt: ahora } }] },
     select: { slug: true, dbName: true },
     orderBy: { createdAt: 'asc' },
   })
+  // Guarda por base: verifica que cada cliente esté en la base esperada antes de tocarla.
+  for (const c of clinicas) await assertBaseActual(tenantClient(c.dbName), c.dbName)
   console.log(`\n${APPLY ? 'APLICAR' : 'PRE-CHEQUEO'} índices únicos Caja/SesionCaja — ${clinicas.length} base(s)\n`)
 
   // ── Fase 1: pre-chequeo de duplicados en TODAS (antes de crear nada) ──

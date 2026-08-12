@@ -13,10 +13,12 @@
 // Dry-run por defecto (no escribe). Para aplicar: --apply.
 import { control } from '@/db/control'
 import { tenantClient, disposeTenant } from '@/db/tenant'
+import { assertBaseActual, assertControlActual } from '@/lib/db-guard'
 
 const APPLY = process.argv.includes('--apply')
 
 async function main() {
+  await assertControlActual(control)
   const clinicas = await control.clinica.findMany({
     where: { OR: [{ esDemo: false }, { demoExpiraEn: null }] },
     select: { slug: true, dbName: true }, orderBy: { createdAt: 'asc' },
@@ -26,6 +28,7 @@ async function main() {
   let total = 0
   for (const c of clinicas) {
     const db = tenantClient(c.dbName)
+    await assertBaseActual(db, c.dbName)
     // Pacientes con al menos un cobro PAGADO no anulado.
     const pagados = await db.cobro.findMany({ where: { estado: 'PAGADO', anulado: false }, select: { pacienteId: true }, distinct: ['pacienteId'] })
     const pacIds = pagados.map((p) => p.pacienteId)

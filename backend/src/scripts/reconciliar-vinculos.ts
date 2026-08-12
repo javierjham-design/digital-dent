@@ -11,12 +11,14 @@
 import { control } from '@/db/control'
 import { tenantClient, disposeTenant } from '@/db/tenant'
 import { telKey, rutKey, vincularLeadPaciente } from '@/services/crm.service'
+import { assertBaseActual, assertControlActual } from '@/lib/db-guard'
 
 const APPLY = process.argv.includes('--apply')
 
 function pushMap<K, V>(m: Map<K, V[]>, k: K, v: V) { const a = m.get(k) ?? []; a.push(v); m.set(k, a) }
 
 async function main() {
+  await assertControlActual(control)
   const clinicas = await control.clinica.findMany({
     where: { OR: [{ esDemo: false }, { demoExpiraEn: null }] },
     select: { slug: true, dbName: true }, orderBy: { createdAt: 'asc' },
@@ -25,6 +27,7 @@ async function main() {
 
   for (const c of clinicas) {
     const db = tenantClient(c.dbName)
+    await assertBaseActual(db, c.dbName)
     const pacientes = await db.paciente.findMany({ select: { id: true, nombre: true, apellido: true, telefono: true, rut: true } })
     const leadsSin = await db.lead.findMany({ where: { pacienteId: null }, select: { id: true, nombre: true, apellido: true, telefono: true, rut: true, estado: true } })
 

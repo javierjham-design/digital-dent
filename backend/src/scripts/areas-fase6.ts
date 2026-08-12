@@ -27,10 +27,12 @@
 import { control } from '@/db/control'
 import { tenantClient, disposeTenant } from '@/db/tenant'
 import { MODULOS_AREA_CODES } from '@shared/constants/areas'
+import { assertBaseActual, assertControlActual } from '@/lib/db-guard'
 
 const APPLY = process.argv.includes('--apply')
 
 async function main() {
+  await assertControlActual(control)
   const clinicas = await control.clinica.findMany({
     where: { OR: [{ esDemo: false }, { demoExpiraEn: null }] },
     select: { id: true, slug: true, dbName: true, modulos: true },
@@ -40,6 +42,7 @@ async function main() {
 
   for (const c of clinicas) {
     const db = tenantClient(c.dbName)
+    await assertBaseActual(db, c.dbName)
     const cats = await db.$queryRawUnsafe<{ n: number }[]>('SELECT count(*)::int AS n FROM "CategoriaPrestacion"')
     const tieneArea = await db.$queryRawUnsafe<{ n: number }[]>(
       `SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'CategoriaPrestacion' AND column_name = 'area'`)

@@ -36,8 +36,11 @@
   lazy:** una demo/base YA sembrada conserva su lista vieja — para ver las 29 hay que usar una
   **demo/clínica nueva** (las reales aún no sembraron; siembran al habilitar estética). Migrar la
   foto a un recorte más ajustado (sin cuello) quedó como mejora opcional (requiere recalibrar zonas).
-- **Pendiente menor (no bloquea):** guarda `SELECT current_database()` en scripts de prod
-  (pedido de Javier tras el casi-accidente de quoting del 2026-08-10).
+- **✅ Guarda `SELECT current_database()` en scripts de prod — HECHA (2026-08-12).**
+  `backend/src/lib/db-guard.ts` (`assertBaseActual`/`assertControlActual`) cableada en los
+  scripts re-ejecutables que escriben (aplicar-caja-unique, backfill-conversiones,
+  reconciliar-vinculos, dedupe-prestaciones, areas-fase6). Aborta si la conexión no está en
+  la base esperada o si es una base prohibida (`railway`, etc.). `migrate-tenants` NO se tocó.
 
 - **Fecha previa:** 2026-08-10
 - **✅ ÁREAS CLÍNICAS EN PRODUCCIÓN (2026-08-10, ventana completa con Javier presente).**
