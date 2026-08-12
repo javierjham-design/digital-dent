@@ -17,15 +17,23 @@ import { ZONAS_FACIALES_NUCLEO } from '@shared/constants/zonas-faciales'
 const ZONAS_SEED = ZONAS_FACIALES_NUCLEO.map(({ codigo, nombreClinico, nombreVisible, grupo, orden }) =>
   ({ codigo, nombreClinico, nombreVisible, grupo, orden }))
 
-// Lista el catálogo de zonas del tenant; la primera vez lo siembra (lazy, como
-// listarCategorias). Solo se llega acá con el área estética habilitada.
+// Lista el catálogo de zonas del tenant. Auto-completa: siembra lo que FALTE del
+// catálogo (por código), no solo la primera vez. Así, si el catálogo cambia (se
+// agrega/renombra una zona, ej. LABIOS), las bases YA sembradas reciben las nuevas
+// al abrir el mapa, sin depender de recrear la base. skipDuplicates evita choques de
+// carrera contra el @unique de codigo. Las zonas viejas que ya no están en el catálogo
+// quedan en la base pero el frontend no las dibuja (filtra por el catálogo).
 export async function listarZonas(db: TenantClient) {
-  let zonas = await db.zonaFacial.findMany({ orderBy: [{ orden: 'asc' }, { codigo: 'asc' }] })
-  if (zonas.length === 0) {
-    await db.zonaFacial.createMany({ data: ZONAS_SEED })
-    zonas = await db.zonaFacial.findMany({ orderBy: [{ orden: 'asc' }, { codigo: 'asc' }] })
+  const existentes = await db.zonaFacial.findMany({ select: { codigo: true } })
+  const codigos = new Set(existentes.map((z) => z.codigo))
+  const faltantes = ZONAS_SEED.filter((z) => !codigos.has(z.codigo))
+  if (faltantes.length > 0) {
+    // `faltantes` ya excluye lo existente; el try/catch cubre una carrera rara (otra
+    // request sembrando a la vez → choque con @unique). No usamos skipDuplicates
+    // porque no existe en SQLite (tests). En prod (Postgres) el catch no se activa.
+    try { await db.zonaFacial.createMany({ data: faltantes }) } catch { /* ya sembradas */ }
   }
-  return zonas
+  return db.zonaFacial.findMany({ orderBy: [{ orden: 'asc' }, { codigo: 'asc' }] })
 }
 
 async function fichaDePaciente(db: TenantClient, pacienteId: string) {
