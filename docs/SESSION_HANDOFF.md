@@ -226,10 +226,8 @@ Detalle en `docs/AI_CHANGELOG.md`. Diagnóstico: solo `digital-dent` la usa (2 d
   `clariva.cl/privacidad` y `/terminos`.
 
 **Pendientes de Google (no urgentes, la app ya funciona):**
-- **Limpiar 11 citas DUPLICADAS en digital-dent** que generó una prueba de full resync
-  contra producción (antes del fix idempotente). Script listo y NO ejecutado:
-  `backend/limpieza-duplicados-google.mjs` (borra por lista explícita de 11 ids, en
-  transacción, sin tocar Google). Hay backup fresco en R2 de red. **Lo corre el usuario.**
+- ✅ **Citas duplicadas de digital-dent — RESUELTO (Javier confirmó 2026-08-12).** Ya no queda
+  nada pendiente por este lado.
 - **Decidir scope** `calendar` → `calendar.calendarlist.readonly` antes del video de
   verificación (si Google lo pide). Es 1 línea + deploy.
 - Si Google rechaza la home por "no explica el propósito", **prerenderizar** la home
