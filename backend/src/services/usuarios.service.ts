@@ -68,14 +68,16 @@ export async function listarUsuarios(db: TenantClient): Promise<UsuarioDTO[]> {
 export async function listarDoctores(db: TenantClient): Promise<DoctorDTO[]> {
   const docs = await db.user.findMany({
     where: { role: { in: ROLES_CON_AGENDA }, activo: true },
-    select: { id: true, name: true, titulo: true, email: true, especialidad: true },
+    select: { id: true, name: true, titulo: true, email: true, especialidad: true, areaDental: true, areaEstetica: true, areaMedico: true },
   })
   // Orden alfabético por apellido (última palabra del nombre, sin el título).
   const apellido = (n: string | null) => ((n ?? '').trim().split(/\s+/).pop() ?? '').toLowerCase()
   return docs
     .sort((a, b) => apellido(a.name).localeCompare(apellido(b.name), 'es'))
-    // El nombre visible lleva el título delante (ej. "Dra. Ana Pérez").
-    .map((d) => ({ id: d.id, name: conTitulo(d.titulo, d.name) || null, email: d.email, especialidad: d.especialidad }))
+    // El nombre visible lleva el título delante (ej. "Dra. Ana Pérez"). Los flags de
+    // área acompañan para que el front filtre el titular según el área del plan.
+    .map((d) => ({ id: d.id, name: conTitulo(d.titulo, d.name) || null, email: d.email, especialidad: d.especialidad,
+      areaDental: d.areaDental, areaEstetica: d.areaEstetica, areaMedico: d.areaMedico }))
 }
 
 export interface CrearUsuarioInput {

@@ -5,7 +5,15 @@ import { CITA_ESTADOS } from '@shared/constants/cita-estados'
 import { pacientesService, type FichaClinica, type ResumenPaciente, type ComentarioDTO, type MensajeDTO, type LeadSugerido } from '@/services/clinica.service'
 import { planesService, seccionesService, tratamientosService, evolucionesService, historialService, type HistorialEntry } from '@/services/clinico.service'
 import { prestacionesService, mediosPagoService, clinicaService, type MedioPagoDTO } from '@/services/catalogo.service'
-import { AREA_LABELS, type AreaClinica } from '@shared/constants/areas'
+import { AREA_LABELS, FLAG_POR_AREA, type AreaClinica } from '@shared/constants/areas'
+
+// Profesionales habilitados para un área. Un plan de un área solo lo atiende quien
+// tenga esa área activada en su ficha (Super Admin → Equipo). `incluirId` conserva
+// al titular ya asignado aunque hoy no tenga el flag (dato antiguo), para no ocultarlo.
+function doctoresDeArea(doctores: DoctorDTO[], area: AreaClinica, incluirId?: string): DoctorDTO[] {
+  const flag = FLAG_POR_AREA[area]
+  return doctores.filter((d) => Boolean(d[flag]) || d.id === incluirId)
+}
 import { GraficoFacial } from '@/components/GraficoFacial'
 import { PresupuestoPlanDoc, type PPlan } from '@/components/PresupuestoPlanDoc'
 import { elementoAPdfBase64 } from '@/lib/pdf'
@@ -729,6 +737,11 @@ function NuevoPlanModal({ doctores, areasUsuario, onClose, onCrear }: {
   const [creando, setCreando] = useState(false)
   const [err, setErr] = useState('')
 
+  // Solo los profesionales habilitados para el área elegida pueden quedar a cargo.
+  const docs = useMemo(() => doctoresDeArea(doctores, area), [doctores, area])
+  // Si al cambiar de área el profesional elegido ya no aplica, se deselecciona.
+  useEffect(() => { if (doctorId && !docs.some((d) => d.id === doctorId)) setDoctorId('') }, [docs, doctorId])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     document.addEventListener('keydown', onKey)
@@ -768,8 +781,13 @@ function NuevoPlanModal({ doctores, areasUsuario, onClose, onCrear }: {
             <select value={doctorId} onChange={(e) => { setDoctorId(e.target.value); setErr('') }} autoFocus
               className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
               <option value="">Selecciona un profesional…</option>
-              {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
+              {docs.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
             </select>
+            {docs.length === 0 && (
+              <p className="text-[11px] text-amber-600 mt-1">
+                Ningún profesional tiene habilitada el área {AREA_LABELS[area]}. Actívala en su ficha (Equipo) para poder crear el plan.
+              </p>
+            )}
           </label>
           {err && <p className="text-sm text-rose-600">{err}</p>}
         </div>
@@ -954,7 +972,7 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, s
               <span className="text-[11px] uppercase tracking-wide text-slate-400">Profesional a cargo</span>
               <select value={plan.doctorTitularId ?? ''} onChange={(e) => onProfesional(e.target.value)} className="mt-1 w-full px-2 py-1.5 border border-slate-200 rounded-lg text-sm">
                 <option value="">Sin asignar</option>
-                {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
+                {doctoresDeArea(doctores, areaPlan, plan.doctorTitularId ?? undefined).map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
               </select>
             </label>
             <button onClick={onBloquear} disabled={plan.bloqueado && !puedeDesbloquear}
@@ -1240,7 +1258,7 @@ function EvolucionModal({ accion, pacienteNombre, doctores, plan, onClose, onDon
               <span className="text-xs font-medium text-slate-500">Profesional</span>
               <select value={profesionalId} onChange={(e) => setProfesionalId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
                 <option value="">Sin asignar</option>
-                {doctores.map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
+                {doctoresDeArea(doctores, (plan.area || 'DENTAL') as AreaClinica, profesionalId || undefined).map((d) => <option key={d.id} value={d.id}>{d.name ?? d.email}</option>)}
               </select>
               {plan.doctorTitularId && profesionalId === plan.doctorTitularId && (
                 <span className="text-[11px] text-slate-400 mt-0.5 block">Por defecto: dr a cargo del plan (puedes cambiarlo).</span>

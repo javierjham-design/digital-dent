@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-11 — Titular del plan filtrado por área (solo profesionales del área)
+
+Pedido de Javier: al crear un plan, el desplegable "Profesional a cargo" mostraba TODOS
+los profesionales sin importar el área elegida. Ahora se filtra por el área: dental → los
+que tienen `areaDental` (default true, todos los dentistas); estética → solo quienes tienen
+`areaEstetica`; médico → solo `areaMedico` (si nadie la tiene, queda vacío y no se puede
+crear el plan hasta habilitarla en Equipo).
+
+- **DTO/back**: `DoctorDTO` suma `areaDental/areaEstetica/areaMedico` (opcionales);
+  `listarDoctores` los incluye en el `select` y en el map.
+- **Front** (`FichaPaciente.tsx`): helper `doctoresDeArea(doctores, area, incluirId?)`. Se
+  aplica en `NuevoPlanModal` (resetea el profesional si deja de aplicar al cambiar de área;
+  aviso ámbar si no hay ninguno), en el selector de titular del `PlanDetalleView` (área =
+  la del plan) y en `EvolucionModal`. `incluirId` conserva al titular ya asignado aunque
+  hoy no tenga el flag (dato antiguo), para no ocultarlo.
+
+Solo UI + DTO aditivo (sin cambio de schema). Verificado: typecheck be/fe, contrato,
+integración 90/90, build fe.
+
+---
+
 ## 2026-08-11 — Presupuesto estética: zonas por prestación + nombres del catálogo
 
 Ajuste del anterior. Javier notó que el imprimible/correo mostraba "—" en la columna

@@ -185,6 +185,11 @@ export interface DoctorDTO {
   name: string | null
   email: string | null
   especialidad: string | null
+  // Áreas clínicas habilitadas al profesional. Se usan para filtrar quién puede ser
+  // titular / ejecutar un plan según el área de ese plan.
+  areaDental?: boolean
+  areaEstetica?: boolean
+  areaMedico?: boolean
 }
 
 export interface UsuarioDTO {
