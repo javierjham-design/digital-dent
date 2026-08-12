@@ -17,12 +17,11 @@ import rostroBase from '@/assets/rostro-base.jpg'
 //    dibuja. Nunca los dos a la vez.
 //  · Borrar un plan/tratamiento no borra los trazos, y viceversa (sin FKs).
 //
-// ⚠️ CATÁLOGO Y GEOMETRÍA PROVISIONALES: la ÚNICA fuente de las zonas (códigos,
-// nombres y paths del placeholder) es shared/constants/zonas-faciales.ts, EN
-// REVISIÓN PROFESIONAL. La ilustración definitiva se encarga con el contrato de
-// docs/SVG_ROSTRO_CONTRATO.md: dos archivos (rostro-f/rostro-m), MISMO viewBox y
-// MISMOS ids `zona-{CODIGO}`; el SVG real reemplaza solo la geometría — cero
-// cambios de lógica.
+// La ÚNICA fuente de las zonas (códigos, nombres y paths) es
+// shared/constants/zonas-faciales.ts, CONGELADA por revisión profesional
+// (2026-08-11). Los paths están calibrados sobre la foto base licenciada
+// (rostro-base.jpg); los ids `zona-{CODIGO}` son el contrato del gráfico. Si se
+// cambia la foto, se recalibran los paths con el editor visual (tmp-rostro/).
 
 const VIEWBOX = ZONAS_VIEWBOX
 

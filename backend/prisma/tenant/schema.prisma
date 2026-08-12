@@ -378,10 +378,10 @@ model CategoriaPrestacion {
 // ── Áreas clínicas: estética facial ──────────────────────────────────────────
 
 // Catálogo de zonas faciales del tenant (equivalente del "diente" del odontograma).
-// ⚠️ PROVISIONAL: la lista vive en shared/constants/zonas-faciales.ts (ÚNICA fuente)
-// y está en revisión de un profesional del rubro — NO habilitar area_estetica a una
-// clínica real hasta congelarla (el codigo queda grabado en cada tratamiento).
-// `codigo` es la llave estable que mapea 1:1 con el id del path del SVG
+// La lista vive en shared/constants/zonas-faciales.ts (ÚNICA fuente), CONGELADA por
+// revisión profesional (2026-08-11) → apta para clínica real. Agregar zonas nuevas es
+// barato; renombrar/fusionar exige migrar datos (el codigo queda grabado en cada
+// tratamiento). `codigo` es la llave estable que mapea 1:1 con el id del path del SVG
 // (`zona-{CODIGO}`), SIN el grupo adentro (el agrupamiento por tercios es
 // presentación y puede cambiar; el código no). Lateralidad en el código
 // (_IZQ/_DER), desde la PERSPECTIVA DEL PACIENTE (su _IZQ se dibuja a la derecha
