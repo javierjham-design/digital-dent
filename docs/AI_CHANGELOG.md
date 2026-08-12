@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-08-11 — Recalibrar zonas periorbitarias ("patas de gallo")
+
+Ajuste fino pedido por Javier con el editor visual: las dos zonas `PERIORBITAL_LAT_DER/IZQ`
+estaban un poco arriba; se bajaron ~103px para calzar con las patas de gallo en la foto base.
+Solo cambian los `path` de esas dos zonas en `shared/constants/zonas-faciales.ts` (los paths
+viven en el constant y se hornean en el bundle del frontend; el backend no almacena geometría,
+su seed solo sincroniza nombres). Sin cambio de datos ni de schema. Verificado: typecheck
+be/fe, build fe. Editor/zones.json de `tmp-rostro/` quedaron en sync con el catálogo.
+
+---
+
 ## 2026-08-11 — Titular del plan filtrado por área (solo profesionales del área)
 
 Pedido de Javier: al crear un plan, el desplegable "Profesional a cargo" mostraba TODOS
