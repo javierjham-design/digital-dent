@@ -49,6 +49,13 @@ export const env = {
   encryptionKey: process.env.ENCRYPTION_KEY ?? '',
   cronSecret: process.env.CRON_SECRET ?? '',
 
+  // ── TuBot (canal WhatsApp) ─────────────────────────────────────────────────
+  // Base de la API REST de TuBot, compartida por toda la plataforma. Las
+  // credenciales (API key, connectionId, webhookSecret, plantilla) son POR CLÍNICA
+  // y viven cifradas en su Configuracion. En dev apunta al mock-tubot.
+  // Ver docs/TUBOT_WHATSAPP.md.
+  tubotBaseUrl: (process.env.TUBOT_BASE_URL ?? 'http://localhost:4020').replace(/\/$/, ''),
+
   // ── Meta Lead Ads (webhook nativo, compartido por toda la plataforma) ──────
   // La App de Meta es una sola; cada clínica autoriza su página y guarda su
   // token de página en su Configuracion. El verify token lo definimos nosotros;

@@ -5,6 +5,7 @@ import { tenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { auditAdmin } from '@/lib/audit-admin'
 import { encryptNullable, decryptNullable } from '@/lib/crypto'
+import { tubotProvider, type TubotConfig } from '@/lib/tubot'
 import { getPlanes, getPlan, getLimiteProfesionales, precioProfesionalExtra, precioPlanEnMoneda } from '@/lib/plans'
 import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/clinicas-registry.service'
 import { invalidateClinicaCache } from '@/middlewares/tenant'
@@ -433,57 +434,86 @@ export async function eliminarExtra(ctx: AuditCtx, id: string, extraId: string) 
   await auditAdmin({ ...ctx, action: 'ELIMINAR_EXTRA', targetType: 'EXTRA_SUSCRIPCION', targetId: extraId, details: { clinicaId: id } })
 }
 
-// ── WhatsApp config (en la Configuracion de la base del tenant) ───────────────
+// ── WhatsApp config por TuBot (en la Configuracion del tenant) ────────────────
+// Contrato en docs/TUBOT_WHATSAPP.md. Los secretos (apiKey, webhookSecret) van
+// cifrados. El enrutamiento (waEnabled, waNumero, waConnectionId) se denormaliza al
+// control-plane. Antes de habilitar se verifica que la plantilla esté APROBADA.
+
+const WA_TENANT_SELECT = {
+  waEnabled: true, waNumero: true, waConnectionId: true, waTemplateName: true,
+  waTemplateLang: true, waHorasAntes: true, waApiKey: true, waWebhookSecret: true,
+} as const
+
+// Arma la config del proveedor a partir de la Configuracion, tomando la apiKey
+// nueva si viene en el body (aún sin guardar) o la ya guardada (descifrada).
+function cfgTubotDe(c: { waApiKey: string | null; waTemplateName: string | null; waTemplateLang: string }, apiKeyNueva?: string): TubotConfig | null {
+  const apiKey = apiKeyNueva ?? decryptNullable(c.waApiKey)
+  if (!apiKey || !c.waTemplateName) return null
+  return { apiKey, templateName: c.waTemplateName, templateLang: c.waTemplateLang }
+}
 
 export async function getWhatsapp(id: string) {
   const { dbName } = await dbNameDe(id)
-  const c = await tenantClient(dbName).configuracion.findUnique({
-    where: { id: 'singleton' },
-    select: { waEnabled: true, waTwilioSid: true, waNumero: true, waTemplateSid: true, waHorasAntes: true, waTwilioToken: true },
-  })
-  if (!c) return { waEnabled: false, waTwilioSid: null, waNumero: null, waTemplateSid: null, waHorasAntes: 24, tokenConfigurado: false }
-  return { waEnabled: c.waEnabled, waTwilioSid: c.waTwilioSid, waNumero: c.waNumero, waTemplateSid: c.waTemplateSid, waHorasAntes: c.waHorasAntes, tokenConfigurado: Boolean(c.waTwilioToken) }
+  const c = await tenantClient(dbName).configuracion.findUnique({ where: { id: 'singleton' }, select: WA_TENANT_SELECT })
+  if (!c) return { waEnabled: false, waNumero: null, waConnectionId: null, waTemplateName: null, waTemplateLang: 'es', waHorasAntes: 24, apiKeyConfigurada: false, webhookSecretConfigurado: false }
+  return {
+    waEnabled: c.waEnabled, waNumero: c.waNumero, waConnectionId: c.waConnectionId,
+    waTemplateName: c.waTemplateName, waTemplateLang: c.waTemplateLang, waHorasAntes: c.waHorasAntes,
+    apiKeyConfigurada: Boolean(c.waApiKey), webhookSecretConfigurado: Boolean(c.waWebhookSecret),
+  }
 }
 
 export async function putWhatsapp(ctx: AuditCtx, id: string, body: Record<string, unknown>) {
   const { slug, dbName } = await dbNameDe(id)
+  const db = tenantClient(dbName)
   const waEnabled = Boolean(body.waEnabled)
   const waNumero = body.waNumero ? String(body.waNumero).trim() : null
-  if (waNumero && !/^\+\d{8,15}$/.test(waNumero)) throw badRequest('waNumero debe estar en formato E.164 (+56912345678)')
-  const waTwilioSid = body.waTwilioSid ? String(body.waTwilioSid).trim() : null
-  if (waTwilioSid && !/^AC[a-zA-Z0-9]{32}$/.test(waTwilioSid)) throw badRequest('waTwilioSid no parece un Account SID válido (AC...)')
-  const waTemplateSid = body.waTemplateSid ? String(body.waTemplateSid).trim() : null
-  if (waTemplateSid && !/^HX[a-zA-Z0-9]{32}$/.test(waTemplateSid)) throw badRequest('waTemplateSid no parece un Content SID válido (HX...)')
+  if (waNumero && !/^\+\d{8,15}$/.test(waNumero)) throw badRequest('El número emisor debe estar en formato E.164 (+56912345678)')
+  const waConnectionId = body.waConnectionId ? String(body.waConnectionId).trim() : null
+  const waTemplateName = body.waTemplateName ? String(body.waTemplateName).trim() : null
+  const waTemplateLang = body.waTemplateLang ? String(body.waTemplateLang).trim() : 'es'
   const waHorasAntes = Number(body.waHorasAntes)
-  if (!Number.isInteger(waHorasAntes) || waHorasAntes < 1 || waHorasAntes > 168) throw badRequest('waHorasAntes debe ser un entero entre 1 y 168')
-  if (waEnabled && (!waTwilioSid || !waNumero || !waTemplateSid)) throw badRequest('Para habilitar el servicio se necesitan: Account SID, número emisor y Template SID.')
+  if (!Number.isInteger(waHorasAntes) || waHorasAntes < 1 || waHorasAntes > 168) throw badRequest('Las horas de anticipación deben ser un entero entre 1 y 168')
+  const apiKeyNueva = typeof body.waApiKey === 'string' && body.waApiKey.trim() ? body.waApiKey.trim() : undefined
+  if (apiKeyNueva && !apiKeyNueva.startsWith('cnvk_')) throw badRequest('La API key de TuBot debe empezar con cnvk_')
 
-  const data: Record<string, unknown> = { waEnabled, waTwilioSid, waNumero, waTemplateSid, waHorasAntes }
-  if (typeof body.waTwilioToken === 'string' && body.waTwilioToken.trim()) data.waTwilioToken = encryptNullable(body.waTwilioToken.trim())
-  await tenantClient(dbName).configuracion.update({ where: { id: 'singleton' }, data })
-  // Denormalizamos el enrutamiento al control-plane: el webhook resuelve la
-  // clínica por su número y el cron filtra por waEnabled sin abrir cada base.
-  await control.clinica.update({ where: { id }, data: { waEnabled, waNumero } })
-  await auditAdmin({ ...ctx, action: 'CONFIGURAR_WHATSAPP', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: slug, waEnabled, waNumero } })
+  const data: Record<string, unknown> = { waEnabled, waNumero, waConnectionId, waTemplateName, waTemplateLang, waHorasAntes }
+  if (apiKeyNueva) data.waApiKey = encryptNullable(apiKeyNueva)
+  if (typeof body.waWebhookSecret === 'string' && body.waWebhookSecret.trim()) data.waWebhookSecret = encryptNullable(body.waWebhookSecret.trim())
+
+  if (waEnabled) {
+    // Al habilitar: exigimos credenciales completas + plantilla APROBADA (degrade).
+    const actual = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: WA_TENANT_SELECT })
+    const apiKeyOk = Boolean(apiKeyNueva || actual?.waApiKey)
+    const secretOk = Boolean((typeof body.waWebhookSecret === 'string' && body.waWebhookSecret.trim()) || actual?.waWebhookSecret)
+    if (!waConnectionId || !waTemplateName || !apiKeyOk || !secretOk) {
+      throw badRequest('Para habilitar se necesitan: API key, connection id, secreto del webhook y nombre de la plantilla.')
+    }
+    const cfg = cfgTubotDe({ waApiKey: actual?.waApiKey ?? null, waTemplateName, waTemplateLang }, apiKeyNueva)
+    if (!cfg) throw badRequest('Faltan credenciales para verificar la plantilla.')
+    let estado: string
+    try { estado = (await tubotProvider.estadoPlantilla(cfg)).status } catch (e) { throw badRequest(`No se pudo verificar la plantilla con TuBot: ${e instanceof Error ? e.message : 'error'}`) }
+    if (estado !== 'APPROVED') throw badRequest(`La plantilla "${waTemplateName}" está ${estado} en TuBot. No se puede habilitar hasta que Meta la apruebe.`)
+  }
+
+  await db.configuracion.update({ where: { id: 'singleton' }, data })
+  await control.clinica.update({ where: { id }, data: { waEnabled, waNumero, waConnectionId } })
+  await auditAdmin({ ...ctx, action: 'CONFIGURAR_WHATSAPP', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: slug, waEnabled, waConnectionId } })
 }
 
-// Prueba de conexión con Twilio: valida el Account SID + Auth Token guardados
-// contra la API de Twilio (sin enviar mensajes). Confirma que las credenciales
-// funcionan antes de habilitar el servicio.
+// Prueba de conexión con TuBot: consulta el estado de la plantilla de la clínica
+// (sin enviar mensajes). Confirma credenciales + aprobación antes de habilitar.
 export async function probarWhatsapp(id: string): Promise<{ ok: boolean; mensaje: string }> {
   const { dbName } = await dbNameDe(id)
-  const c = await tenantClient(dbName).configuracion.findUnique({ where: { id: 'singleton' }, select: { waTwilioSid: true, waTwilioToken: true } })
-  const sid = c?.waTwilioSid
-  const token = decryptNullable(c?.waTwilioToken ?? null)
-  if (!sid || !token) return { ok: false, mensaje: 'Faltan el Account SID y/o el Auth Token de Twilio. Guárdalos y vuelve a probar.' }
+  const c = await tenantClient(dbName).configuracion.findUnique({ where: { id: 'singleton' }, select: WA_TENANT_SELECT })
+  const cfg = c ? cfgTubotDe(c) : null
+  if (!cfg) return { ok: false, mensaje: 'Faltan la API key de TuBot y/o el nombre de la plantilla. Guárdalos y vuelve a probar.' }
   try {
-    const auth = Buffer.from(`${sid}:${token}`).toString('base64')
-    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}.json`, { headers: { Authorization: `Basic ${auth}` } })
-    const data = (await res.json().catch(() => ({}))) as { friendly_name?: string; status?: string; message?: string }
-    if (res.ok) return { ok: true, mensaje: `Conexión OK · cuenta "${data.friendly_name ?? sid}" (${data.status ?? 'activa'}).` }
-    return { ok: false, mensaje: data.message ?? `Twilio respondió ${res.status}. Revisa el SID y el Auth Token.` }
+    const { status } = await tubotProvider.estadoPlantilla(cfg)
+    if (status === 'APPROVED') return { ok: true, mensaje: `Conexión OK · plantilla "${cfg.templateName}" APROBADA.` }
+    return { ok: false, mensaje: `Conexión OK, pero la plantilla "${cfg.templateName}" está ${status}. No podrás enviar hasta que Meta la apruebe.` }
   } catch (e) {
-    return { ok: false, mensaje: `No se pudo conectar con Twilio: ${e instanceof Error ? e.message : 'error'}` }
+    return { ok: false, mensaje: `No se pudo conectar con TuBot: ${e instanceof Error ? e.message : 'error'}` }
   }
 }
 

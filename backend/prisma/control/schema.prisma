@@ -57,11 +57,12 @@ model Clinica {
   proximoCobro     DateTime?
   notasInternas    String?
 
-  // Enrutamiento de WhatsApp (denormalizado desde la Configuracion del tenant):
-  // el webhook de Twilio resuelve la clínica por su número emisor, y el cron de
-  // recordatorios filtra las clínicas con el servicio activo sin abrir cada base.
+  // Enrutamiento de WhatsApp (denormalizado desde la Configuracion del tenant): el
+  // cron de recordatorios filtra por waEnabled sin abrir cada base, y el webhook
+  // entrante de TuBot resuelve la clínica por su waConnectionId (va en la URL).
   waEnabled Boolean @default(false)
-  waNumero  String? @unique
+  waNumero  String? @unique          // número emisor (display); ya NO se usa para rutear
+  waConnectionId String? @unique     // id de conexión de TuBot → rutea /whatsapp/webhook/{connectionId}
 
   // Enrutamiento de Meta Lead Ads (denormalizado desde la Configuracion del
   // tenant): el webhook nativo de leadgen resuelve la clínica por el page_id

@@ -176,6 +176,8 @@ export interface CitaDTO {
   notas: string
   sobrecupo: boolean
   confirmadoWA: boolean
+  waDeliveryStatus?: string | null  // sent | delivered | read | failed (entrega del recordatorio)
+  waDeliveryReason?: string | null  // motivo cuando failed
   boxId?: string | null
   box?: { id: string; nombre: string } | null
 }
