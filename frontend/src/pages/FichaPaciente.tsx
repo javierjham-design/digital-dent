@@ -1923,6 +1923,14 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   // Abono libre como "pie": por plan, min(abono libre del plan, seleccionado de ese plan).
   const creditoPie = usarAbono ? detalles.reduce((s, d) => s + Math.min(d.abonoLibre ?? 0, sumSelPorPlan.get(d.id) ?? 0), 0) : 0
   const nuevoAbono = Number(abono) || 0
+  // Tope de abono libre: no se puede abonar más que el SALDO del plan elegido
+  // (presupuesto − abonado). El backend lo valida igual; esto es el aviso inmediato.
+  const planSelDet = detalles.find((d) => d.id === planId)
+  const accsPlanSel = planSelDet ? [...planSelDet.secciones.flatMap((s) => s.tratamientos), ...planSelDet.tratamientos] : []
+  const saldoPlanSel = planSelDet
+    ? Math.max(0, accsPlanSel.reduce((s, t) => s + netoTrat(t), 0) - (accsPlanSel.reduce((s, t) => s + pagadoTrat(t), 0) + (planSelDet.abonoLibre ?? 0)))
+    : 0
+  const abonoExcede = nuevoAbono > saldoPlanSel
   // Total a recaudar (dinero nuevo) = acciones − pie + abono nuevo.
   const totalSel = (sumAcciones - creditoPie) + nuevoAbono
   // Split: monto2 al segundo medio, el resto (monto1) al primero. La suma = totalSel.
@@ -2077,6 +2085,11 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
                 </select>
               )}
             </div>
+            <p className={`text-[11px] mt-2 ${abonoExcede ? 'text-rose-600 font-medium' : 'text-slate-400'}`}>
+              {abonoExcede
+                ? `El abono no puede superar el saldo del plan (${fmtCLP(saldoPlanSel)}). Si el saldo es $0, el plan ya está cubierto.`
+                : `Máximo a abonar en este plan: ${fmtCLP(saldoPlanSel)}.`}
+            </p>
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
@@ -2171,7 +2184,7 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
               <span className="text-lg font-bold text-cyan-700">{fmtCLP(totalSel)}</span>
             </div>
             {usarAbono && creditoPie > 0 && totalSel === 0 && <p className="text-[11px] text-emerald-700">Se cubre por completo con el abono libre; no se requiere pago nuevo.</p>}
-            <button onClick={recaudar} disabled={saving || (sumAcciones <= 0 && nuevoAbono <= 0) || (totalSel > 0 && requiereRef && !numeroReferencia.trim()) || (splitActivo && totalSel > 0 && (!splitValido || (requiereRef2 && !numeroReferencia2.trim())))} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
+            <button onClick={recaudar} disabled={saving || abonoExcede || (sumAcciones <= 0 && nuevoAbono <= 0) || (totalSel > 0 && requiereRef && !numeroReferencia.trim()) || (splitActivo && totalSel > 0 && (!splitValido || (requiereRef2 && !numeroReferencia2.trim())))} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
             {msg && <p className={`text-sm ${msg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{msg.t}</p>}
             <p className="text-[11px] text-slate-400">La caja debe estar abierta (ábrela en Cobros si hace falta).</p>
           </div>

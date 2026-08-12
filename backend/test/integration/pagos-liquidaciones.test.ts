@@ -12,10 +12,19 @@ let app: Express
 let A: TenantFixture
 let token = ''
 let doctorId = ''
+let prestId = ''
 
 const auth = () => ({ Authorization: `Bearer ${token}` })
 const post = (url: string, body: object) => request(app).post(`/api/v1${url}`).set(auth()).send(body)
 const get = (url: string) => request(app).get(`/api/v1${url}`).set(auth())
+
+// Plan con UNA acción de presupuesto `precio` (para que el abono libre tenga saldo
+// contra el cual validar: el tope es abono ≤ presupuesto − abonado).
+async function planConAccion(pacienteId: string, precio: number): Promise<string> {
+  const plan = await post('/planes-tratamiento', { pacienteId, doctorTitularId: doctorId })
+  await post('/tratamientos', { pacienteId, prestacionId: prestId, planId: plan.body.id, precio })
+  return plan.body.id as string
+}
 
 beforeAll(async () => {
   const seeded = await seedDosClinicas()
@@ -26,6 +35,8 @@ beforeAll(async () => {
   token = login.body.token
   const docs = await get('/doctores')
   doctorId = docs.body[0].id
+  const prest = await post('/prestaciones', { nombre: 'Prestación base abono', precio: 50000 })
+  prestId = prest.body.id
 })
 
 describe('flujo de pagos → liquidación (medios de pago, retención, caja, cobro)', () => {
@@ -293,10 +304,10 @@ describe('CRM: el primer cobro pagado convierte el lead automáticamente', () =>
     const db = tenantClient(A.dbName)
     return (await db.lead.findUnique({ where: { id: leadId }, select: { estado: true } }))?.estado
   }
-  // Cobro pagado mínimo: un abono libre al plan del paciente.
+  // Cobro pagado mínimo: un abono libre a un plan CON presupuesto (para respetar el tope).
   async function cobrarAbono(pacienteId: string, monto: number) {
-    const plan = await post('/planes-tratamiento', { pacienteId, doctorTitularId: doctorId })
-    return post('/cobros', { pacienteId, cajaId, items: [{ planId: plan.body.id, descripcion: 'Abono', monto }] })
+    const planId = await planConAccion(pacienteId, monto)
+    return post('/cobros', { pacienteId, cajaId, items: [{ planId, descripcion: 'Abono', monto }] })
   }
 
   it('primer cobro pagado → el lead pasa a CONVERTIDO', async () => {
@@ -368,8 +379,8 @@ describe('vínculo automático lead→paciente por identidad (teléfono/RUT)', (
     // El paciente paga ANTES de estar vinculado a un lead (no convierte nada aún).
     const caja = await post('/cajas', { nombre: `Caja vinc ${telN}`, usuarioIds: [A.adminId] })
     await post(`/cajas/${caja.body.id}/abrir`, { saldoApertura: 0 })
-    const plan = await post('/planes-tratamiento', { pacienteId: pac.body.id, doctorTitularId: doctorId })
-    expect((await post('/cobros', { pacienteId: pac.body.id, cajaId: caja.body.id, items: [{ planId: plan.body.id, descripcion: 'Abono', monto: 12000 }] })).status).toBe(201)
+    const planId = await planConAccion(pac.body.id, 12000)
+    expect((await post('/cobros', { pacienteId: pac.body.id, cajaId: caja.body.id, items: [{ planId, descripcion: 'Abono', monto: 12000 }] })).status).toBe(201)
     // Se resuelve el vínculo manualmente → como ya pagó, queda CONVERTIDO SIN emitir.
     const v = await post(`/pacientes/${pac.body.id}/vincular-lead`, { leadId: l1.body.id })
     expect(v.status).toBe(200)
@@ -395,8 +406,7 @@ describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, 
   })
 
   it('acepta un abono libre al plan y lo lista en los pagos del paciente (Historial)', async () => {
-    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })
-    const planId = plan.body.id
+    const planId = await planConAccion(A.pacienteId, 25000)
     const cobro = await post('/cobros', { pacienteId: A.pacienteId, cajaId, items: [{ planId, descripcion: 'Abono libre al plan', monto: 25000 }] })
     expect(cobro.status).toBe(201)
     const det = await get(`/planes-tratamiento/${planId}`)
@@ -408,15 +418,31 @@ describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, 
     expect(pagos.body.some((c: { id: string }) => c.id === cobro.body.id)).toBe(true)
   })
 
-  it('deriva el abono libre de un plan a otro plan del mismo paciente', async () => {
-    const planA = (await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })).body
-    const planB = (await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })).body
-    await post('/cobros', { pacienteId: A.pacienteId, cajaId, items: [{ planId: planA.id, descripcion: 'Abono', monto: 30000 }] })
+  it('rechaza un abono libre mayor al presupuesto del plan (tope)', async () => {
+    const planId = await planConAccion(A.pacienteId, 40000) // presupuesto $40.000
+    const r = await post('/cobros', { pacienteId: A.pacienteId, cajaId, items: [{ planId, descripcion: 'Abono libre al plan', monto: 60000 }] })
+    expect(r.status).toBe(400)
+    expect(String(r.body.error)).toMatch(/supera el saldo|máximo/i)
+    // Hasta el presupuesto sí se acepta.
+    const ok = await post('/cobros', { pacienteId: A.pacienteId, cajaId, items: [{ planId, descripcion: 'Abono libre al plan', monto: 40000 }] })
+    expect(ok.status).toBe(201)
+  })
 
-    const der = await post('/cobros/derivar-abono', { fromPlanId: planA.id, toPlanId: planB.id, monto: 20000 })
+  it('rechaza un abono libre sobre un plan sin acciones (presupuesto $0)', async () => {
+    const plan = await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })
+    const r = await post('/cobros', { pacienteId: A.pacienteId, cajaId, items: [{ planId: plan.body.id, descripcion: 'Abono', monto: 10000 }] })
+    expect(r.status).toBe(400)
+  })
+
+  it('deriva el abono libre de un plan a otro plan del mismo paciente', async () => {
+    const planAId = await planConAccion(A.pacienteId, 30000)
+    const planB = (await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })).body
+    await post('/cobros', { pacienteId: A.pacienteId, cajaId, items: [{ planId: planAId, descripcion: 'Abono', monto: 30000 }] })
+
+    const der = await post('/cobros/derivar-abono', { fromPlanId: planAId, toPlanId: planB.id, monto: 20000 })
     expect(der.status).toBe(200)
 
-    const detA = await get(`/planes-tratamiento/${planA.id}`)
+    const detA = await get(`/planes-tratamiento/${planAId}`)
     const detB = await get(`/planes-tratamiento/${planB.id}`)
     expect(detA.body.abonoLibre).toBe(10000)
     expect(detB.body.abonoLibre).toBe(20000)
@@ -426,14 +452,14 @@ describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, 
     const medio = await post('/medios-pago', { nombre: 'Tarjeta Redcompra', comision: 2, requiereReferencia: true })
     expect(medio.body.requiereReferencia).toBe(true)
     const medioPagoId = medio.body.id
-    const plan = (await post('/planes-tratamiento', { pacienteId: A.pacienteId, doctorTitularId: doctorId })).body
+    const planId = await planConAccion(A.pacienteId, 20000)
 
     // Sin referencia → rechazado
-    const sinRef = await post('/cobros', { pacienteId: A.pacienteId, cajaId, medioPagoId, items: [{ planId: plan.id, descripcion: 'Abono', monto: 10000 }] })
+    const sinRef = await post('/cobros', { pacienteId: A.pacienteId, cajaId, medioPagoId, items: [{ planId, descripcion: 'Abono', monto: 10000 }] })
     expect(sinRef.status).toBe(400)
 
     // Con referencia + boleta → OK y persiste
-    const conRef = await post('/cobros', { pacienteId: A.pacienteId, cajaId, medioPagoId, numeroReferencia: 'OP-12345', numeroBoleta: 'B-987', items: [{ planId: plan.id, descripcion: 'Abono', monto: 10000 }] })
+    const conRef = await post('/cobros', { pacienteId: A.pacienteId, cajaId, medioPagoId, numeroReferencia: 'OP-12345', numeroBoleta: 'B-987', items: [{ planId, descripcion: 'Abono', monto: 10000 }] })
     expect(conRef.status).toBe(201)
     expect(conRef.body.numeroReferencia).toBe('OP-12345')
     expect(conRef.body.numeroBoleta).toBe('B-987')

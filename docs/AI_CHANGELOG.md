@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-12 — Tope de abono libre (no abonar más que el presupuesto del plan)
+
+Pedido operativo de Javier. Dos temas del abono libre:
+
+- **Transferencia entre planes: YA EXISTÍA** end-to-end (botón "Derivar entre planes" en la
+  ficha → `DerivarAbonoModal` → `POST /cobros/derivar-abono` → `derivarAbono`, que parte los
+  `CobroItem` de abono y audita). No hizo falta desarrollarla; se documenta dónde está.
+- **Tope NUEVO**: no se puede cargar abono libre por encima del SALDO del plan (presupuesto
+  Σ neto de acciones − ya abonado). **Backend** (`cobros.service.ts`): `totalesPlan()` +
+  `validarTopeAbonoLibre()` dentro de `validarItemsCobro` → cubre cobro directo Y link Flow.
+  Los pagos a acciones del mismo cobro también consumen saldo. **Decisión de Javier: estricto**
+  — un plan SIN acciones (presupuesto $0) NO admite abono (hay que cargar las acciones primero).
+  **Frontend**: en los dos inputs de abono (Ficha → Recaudar y página Cobros) se muestra el
+  máximo y se bloquea el botón si se excede.
+- **Tests**: 2 nuevos (rechaza abono > presupuesto; rechaza abono en plan sin acciones) +
+  se ajustaron los fixtures que abonaban sobre planes vacíos (ahora crean una acción primero).
+  Integración 92/92.
+
+Verificado: typecheck be/fe, integración 92/92, build fe. Aditivo, sin schema.
+
+---
+
 ## 2026-08-12 — Guarda de identidad de base en scripts de prod (#7 de la auditoría)
 
 Pedido de Javier (2 veces) tras el casi-accidente del 2026-08-10: un error de quoting mandó

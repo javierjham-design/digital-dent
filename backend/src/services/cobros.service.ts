@@ -58,6 +58,67 @@ export interface CrearCobroInput {
 }
 export interface CobroCubiertoAbono { cubiertoConAbono: true; montoAplicado: number }
 
+// Totales de un plan para el TOPE de abono libre: presupuesto (Σ neto de sus
+// acciones), lo ya abonado (pagos a acciones + abono libre PAGADO, incluidos los
+// reasignados) y el saldo pendiente. Mismo `neto` que usa la ficha/presupuesto.
+export async function totalesPlan(db: TenantClient, planId: string): Promise<{ nombre: string; total: number; abonado: number; saldo: number }> {
+  const plan = await db.planTratamiento.findUnique({
+    where: { id: planId },
+    select: { nombre: true, tratamientos: { select: { id: true, precio: true, descuento: true } } },
+  })
+  if (!plan) throw notFound('Plan de tratamiento no encontrado')
+  const total = plan.tratamientos.reduce((s, t) => s + Math.round(t.precio * (1 - (t.descuento || 0) / 100)), 0)
+  const tratIds = plan.tratamientos.map((t) => t.id)
+  const [pagAcc, abonoLibre] = await Promise.all([
+    tratIds.length
+      ? db.cobroItem.aggregate({ where: { tratamientoId: { in: tratIds }, cobro: { estado: 'PAGADO', anulado: false } }, _sum: { monto: true } })
+      : Promise.resolve({ _sum: { monto: 0 } }),
+    db.cobroItem.aggregate({ where: { planId, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } }, _sum: { monto: true } }),
+  ])
+  const abonado = (pagAcc._sum.monto ?? 0) + (abonoLibre._sum.monto ?? 0)
+  return { nombre: plan.nombre, total, abonado, saldo: Math.max(0, total - abonado) }
+}
+
+// Impide cargar más abono libre que el SALDO pendiente del plan (presupuesto − ya
+// abonado). Un abono libre es un item con `planId` y sin `tratamientoId`. Los pagos
+// a acciones dentro del MISMO cobro también consumen saldo, así que se descuentan.
+async function validarTopeAbonoLibre(
+  db: TenantClient,
+  items: { tratamientoId?: string; planId?: string; monto: number }[],
+): Promise<void> {
+  const abonoPorPlan = new Map<string, number>()
+  for (const it of items) {
+    if (it.planId && !it.tratamientoId) abonoPorPlan.set(it.planId, (abonoPorPlan.get(it.planId) ?? 0) + Math.round(Number(it.monto)))
+  }
+  if (abonoPorPlan.size === 0) return
+
+  // Pagos a acciones de este cobro, agrupados por plan (consumen saldo también).
+  const pagoAccPorPlan = new Map<string, number>()
+  const tratIds = [...new Set(items.filter((i) => i.tratamientoId).map((i) => i.tratamientoId!))]
+  if (tratIds.length) {
+    const trats = await db.tratamiento.findMany({ where: { id: { in: tratIds } }, select: { id: true, planId: true } })
+    const planDe = new Map(trats.map((t) => [t.id, t.planId]))
+    for (const it of items) {
+      if (it.tratamientoId) {
+        const pid = planDe.get(it.tratamientoId)
+        if (pid) pagoAccPorPlan.set(pid, (pagoAccPorPlan.get(pid) ?? 0) + Math.round(Number(it.monto)))
+      }
+    }
+  }
+
+  for (const [planId, abono] of abonoPorPlan) {
+    const { nombre, total, saldo } = await totalesPlan(db, planId)
+    const permitido = saldo - (pagoAccPorPlan.get(planId) ?? 0)
+    if (abono > permitido) {
+      throw badRequest(
+        permitido <= 0
+          ? `El plan "${nombre}" no tiene saldo pendiente para abonar (presupuesto ${fmtMoney(total)}, ya cubierto). Agregá acciones al plan o revisá los pagos antes de abonar.`
+          : `El abono libre supera el saldo del plan "${nombre}". Máximo a abonar: ${fmtMoney(permitido)} (presupuesto ${fmtMoney(total)}).`,
+      )
+    }
+  }
+}
+
 // Valida los items del cobro y que TODO pago quede asociado a un plan de
 // tratamiento (acciones del plan o abono al plan). Devuelve el monto total.
 async function validarItemsCobro(
@@ -98,6 +159,7 @@ async function validarItemsCobro(
       throw badRequest('Cada pago debe asociarse a un plan de tratamiento (paga acciones del plan o registra un abono al plan).')
     }
   }
+  await validarTopeAbonoLibre(db, items) // tope: no abonar más que el saldo del plan
   return monto
 }
 

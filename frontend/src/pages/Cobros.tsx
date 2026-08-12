@@ -432,6 +432,11 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError, onComprob
   const restante = (t: TratNode) => Math.max(0, netoTrat(t) - pagadoTrat(t))
   const pendientes = acciones.filter((t) => restante(t) > 0)
   const total = Object.values(sel).reduce((s, n) => s + n, 0) + (Number(abono) || 0)
+  // Tope de abono libre: no más que el saldo del plan (presupuesto − abonado).
+  const saldoPlan = detalle
+    ? Math.max(0, acciones.reduce((s, t) => s + netoTrat(t), 0) - (acciones.reduce((s, t) => s + pagadoTrat(t), 0) + (detalle.abonoLibre ?? 0)))
+    : 0
+  const abonoExcede = (Number(abono) || 0) > saldoPlan
   const toggle = (t: TratNode) => setSel((s) => { const n = { ...s }; if (n[t.id] != null) delete n[t.id]; else n[t.id] = restante(t); return n })
 
   // Detalle legible de lo que se va a cobrar (para la confirmación).
@@ -458,6 +463,7 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError, onComprob
   function revisar() {
     setErr('')
     if (total <= 0) { setErr('Selecciona acciones del plan o ingresa un abono.'); return }
+    if (abonoExcede) { setErr(`El abono libre no puede superar el saldo del plan (${fmt(saldoPlan)}).`); return }
     if (requiereRef && !numeroReferencia.trim()) { setErr(`Ingresa el N° de referencia de la operación (${medioSel?.nombre}).`); return }
     setPaso('confirmar')
   }
@@ -562,6 +568,11 @@ function PagoModal({ cajaId, nombre, medios, onClose, onDone, onError, onComprob
                 <label className="block mb-3">
                   <span className="text-sm font-semibold text-slate-800">Abono libre al plan</span>
                   <input type="number" value={abono} onChange={(e) => setAbono(e.target.value)} placeholder="Monto" className="mt-1 w-40 px-3 py-2 border border-slate-200 rounded-xl text-sm" />
+                  <p className={`text-[11px] mt-1 ${abonoExcede ? 'text-rose-600 font-medium' : 'text-slate-400'}`}>
+                    {abonoExcede
+                      ? `El abono no puede superar el saldo del plan (${fmt(saldoPlan)}).`
+                      : `Máximo a abonar en este plan: ${fmt(saldoPlan)}.`}
+                  </p>
                 </label>
 
                 <select value={medioPagoId} onChange={(e) => setMedioPagoId(e.target.value)} className="w-full mb-2 px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500">
