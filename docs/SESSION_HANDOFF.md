@@ -7,7 +7,37 @@
 
 ## Última actualización
 
-- **Fecha:** 2026-08-10
+- **Fecha:** 2026-08-11
+- **✅ Módulo ESTÉTICA usable + optimizaciones de UX del plan (2026-08-11, todo DESPLEGADO).**
+  Sesión larga probando estética en el demo `demo-l49j1s`. Lo que salió a prod hoy:
+  - **Mapa facial con FOTO real licenciada** (comprada por Javier, `frontend/src/assets/
+    rostro-base.jpg`) + 31 zonas calibradas a mano con un editor visual propio (`tmp-rostro/
+    editor.html`, local). Reemplazó el placeholder. Trazo blanco tenue.
+  - **Super Admin**: interruptores de ÁREA por clínica (Dental/Estética/Médico) en la tarjeta
+    de módulos + **fix de pérdida de dato** en `cambiarModulos` (guardaba y borraba `area_*`;
+    ahora los preserva, con test). **Extras facturables** predefinidos: Módulo Estética /
+    Médico se cargan desde el catálogo de extras (suman al MRR); precio sugerido 14.900 CLP /
+    18 USD, ajustable — **Javier no confirmó precio final**.
+  - **Plan = UN área** (reemplaza la decisión previa "un plan mezcla áreas"): `PlanTratamiento.
+    area` (columna aditiva, default DENTAL, migrada a las 4 bases, backfill DENTAL). Se elige
+    al crear (si el profe tiene 2+ áreas), no cambia; el backend rechaza (400) acciones de
+    otra área; el detalle muestra badge + solo su diagrama/catálogo; badge en la lista.
+  - **Panel lateral de prestaciones** estilo "definir procedimiento" (drawer): abre al
+    seleccionar pieza/zona o "+ Prestación", NO bloquea el diagrama, cierra al quedar sin
+    selección; buscador + categorías + toggle una-por-cada/una-para-todas (piezas Y arcadas).
+    **Mobile**: es un bottom-sheet (55vh) que sube el diagrama debajo del header al abrir y se
+    **cierra deslizando la barra hacia abajo** (o botón "Cerrar").
+  - Áreas del usuario = intersección clínica-contratada ∩ flags del user; el admin ve todas
+    las de la clínica. Verificado en `auth.service.ts:85-88`.
+- **⚠️ ÚNICO GATE antes de estética en clínica REAL:** la lista de zonas sigue **PROVISIONAL**
+  (28-vs-32, 6 preguntas) → **no habilitar `area_estetica` a una clínica real hasta que un
+  profesional la congele** (el código de zona se graba en cada tratamiento). La UI del Super
+  Admin ya avisa esto en el toggle de Estética. Después de congelar: quitar el aviso + encargar
+  la ilustración SVG definitiva si se quiere (hoy es la foto, que ya funciona).
+- **Pendiente menor (no bloquea):** guarda `SELECT current_database()` en scripts de prod
+  (pedido de Javier tras el casi-accidente de quoting del 2026-08-10).
+
+- **Fecha previa:** 2026-08-10
 - **✅ ÁREAS CLÍNICAS EN PRODUCCIÓN (2026-08-10, ventana completa con Javier presente).**
   DENTAL/ESTETICA/MEDICO en dos niveles (módulos `area_*` por clínica ∩ booleanos por usuario),
   catálogos por área, mapa facial con 2 capas. Secuencia ejecutada: backup OK 4/4 (35,1 MB) →
