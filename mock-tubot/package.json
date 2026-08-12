@@ -1,0 +1,10 @@
+{
+  "name": "tubot-mock",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mock de TuBot (canal WhatsApp) para desarrollar la integración de Cláriva. Implementa docs/TUBOT_WHATSAPP.md. Sin dependencias.",
+  "scripts": {
+    "start": "node server.mjs"
+  }
+}
