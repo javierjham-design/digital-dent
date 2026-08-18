@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-18 — Recetas: medicamentos como lista (+) y nueva "Orden de exámenes"
+
+Pedido de Javier. En el generador de documentos:
+
+- **Medicamentos uno por uno con "+"**: los campos `MEDICAMENTOS` (receta) y `EXAMENES`
+  (orden) se cargan como **lista** (input + botón "+" o Enter, cada ítem con su nº y una × para
+  quitar), en vez de un textarea. `frontend/src/components/RecetasCertificados.tsx` (nuevo
+  `ListaEditor`, set `CAMPOS_LISTA`).
+- **Render como `<ul><li>`**: `consentimientos.service.ts` `render()` trata `LIST_KEYS`
+  (`MEDICAMENTOS`/`EXAMENES`) como lista — el valor llega con un ítem por línea y se imprime
+  como `<ul>` con **cada ítem escapado** (sin inyección de HTML). `DocumentoConsentimiento`
+  fuerza `list-style: disc` (Tailwind preflight lo quitaba en el preview).
+- **Nueva plantilla "Orden de exámenes"** (categoría `ORDEN`, `ORD-01`) con el mismo formato de
+  receta y su lista `{{EXAMENES}}`. `seedDocumentosSiFaltan` pasó a **auto-completar por código**
+  (agrega la plantilla nueva a clínicas existentes sin pisar sus ediciones, patrón self-heal).
+  Categoría `ORDEN` sumada a `CATEGORIAS` (backend) y al editor de plantillas (Consentimientos.tsx).
+
+Aditivo, sin cambio de schema (la plantilla se siembra lazy al abrir el generador). Verificado:
+typecheck be/fe, contrato, unit 134/134, integración 102/102 (recetas 4/4: auto-seed de ORD-01,
+lista escapada, orden de exámenes, lista vacía), build fe.
+
+---
+
 ## 2026-08-12 — WhatsApp: Twilio → TuBot (recordatorios por plantilla) — DESPLEGADO
 
 Reemplazo del canal de WhatsApp (Twilio → TuBot, plataforma propia). **Cambio en frío**:

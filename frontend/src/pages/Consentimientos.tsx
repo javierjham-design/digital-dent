@@ -4,7 +4,7 @@ import { ApiError } from '@/services/api'
 import { useAuth } from '@/hooks/useAuth'
 
 // Categorías de documentos (grupo DOCUMENTO). El grupo CONSENTIMIENTO usa categoría fija.
-const CATEGORIAS: [string, string][] = [['RECETA', 'Receta'], ['CERTIFICADO', 'Certificado'], ['INDICACION', 'Indicaciones'], ['OTRO', 'Otro documento']]
+const CATEGORIAS: [string, string][] = [['RECETA', 'Receta'], ['CERTIFICADO', 'Certificado'], ['INDICACION', 'Indicaciones'], ['ORDEN', 'Orden de exámenes'], ['OTRO', 'Otro documento']]
 
 const CAMPOS: [string, string][] = [
   ['nombre', 'Nombre y apellido'], ['rut', 'Documento (RUT/cédula)'], ['fechaNacimiento', 'Fecha de nacimiento'],

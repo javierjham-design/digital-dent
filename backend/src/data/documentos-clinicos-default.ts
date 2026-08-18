@@ -25,7 +25,21 @@ export const DOCUMENTOS_DEFAULT: DocumentoDefault[] = [
     html:
       `<h1>RECETA MÉDICA</h1>${cabecera}` +
       `<h3>Rp.</h3>` +
-      `<p>{{MEDICAMENTOS}}</p>` +
+      // MEDICAMENTOS es un campo de LISTA (se carga uno por uno con "+" y se imprime
+      // como <ul>). No se envuelve en <p> para no anidar la lista dentro de un párrafo.
+      `{{MEDICAMENTOS}}` +
+      `<h3>Indicaciones</h3>` +
+      `<p>{{INDICACIONES}}</p>` +
+      firmaProfesional,
+  },
+  {
+    categoria: 'ORDEN', codigo: 'ORD-01', titulo: 'Orden de exámenes', orden: 5,
+    camposRequeridos: ['nombre', 'rut'],
+    html:
+      `<h1>ORDEN DE EXÁMENES</h1>${cabecera}` +
+      `<h3>Exámenes solicitados</h3>` +
+      // EXAMENES es un campo de LISTA (uno por uno con "+" → <ul>).
+      `{{EXAMENES}}` +
       `<h3>Indicaciones</h3>` +
       `<p>{{INDICACIONES}}</p>` +
       firmaProfesional,

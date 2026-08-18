@@ -41,6 +41,10 @@ const FIRMA_SLOTS: Record<string, string> = {
 }
 const BLANK = '<span class="cl-blank"></span>'
 
+// Variables que se cargan como LISTA (una por línea desde la UI con "+") y se
+// imprimen como <ul><li>: recetas (medicamentos) y órdenes de examen (exámenes).
+const LIST_KEYS = new Set(['MEDICAMENTOS', 'EXAMENES'])
+
 // Nombres de variables auto-completadas (para distinguir de las manuales).
 const AUTO_KEYS = new Set([
   'PACIENTE_NOMBRE_COMPLETO', 'PACIENTE_RUT', 'PACIENTE_FECHA_NACIMIENTO', 'PACIENTE_EDAD', 'PACIENTE_SEXO',
@@ -111,6 +115,12 @@ function render(html: string, p: PacienteVars, prof: { nombre: string; rut: stri
     if (name in auto) return auto[name] ? dato(auto[name]) : ''
     if (name in FIRMA_SLOTS) return FIRMA_SLOTS[name]
     const v = extra[name]
+    // Campos de lista (medicamentos / exámenes): un <li> por línea (cada ítem
+    // escapado). Sin ítems → línea en blanco, como cualquier manual vacío.
+    if (LIST_KEYS.has(name)) {
+      const items = (v ?? '').split('\n').map((s) => s.trim()).filter(Boolean)
+      return items.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join('')}</ul>` : BLANK
+    }
     return v && v.trim() ? dato(v.trim()) : BLANK
   })
 }
@@ -150,16 +160,24 @@ export async function seedPlantillasSiFaltan(db: TenantClient) {
   })
 }
 
-// Precarga las plantillas base de recetas/certificados/indicaciones la primera vez.
+// Auto-completa las plantillas base de recetas/certificados/indicaciones/órdenes:
+// siembra las que FALTEN por código (no solo la primera vez). Así, al agregar una
+// plantilla base nueva (ej. "Orden de exámenes"), las clínicas YA existentes la
+// reciben al abrir el generador, SIN pisar las que ya tienen (respeta ediciones).
 export async function seedDocumentosSiFaltan(db: TenantClient) {
-  const n = await db.plantillaConsentimiento.count({ where: { categoria: { not: 'CONSENTIMIENTO' } } })
-  if (n > 0) return
-  await db.plantillaConsentimiento.createMany({
-    data: DOCUMENTOS_DEFAULT.map((t) => ({
-      categoria: t.categoria, codigo: t.codigo, titulo: t.titulo, contenidoHtml: t.html,
-      camposRequeridos: t.camposRequeridos.join(','), orden: 100 + t.orden, activo: true,
-    })),
-  })
+  const existentes = await db.plantillaConsentimiento.findMany({ where: { categoria: { not: 'CONSENTIMIENTO' } }, select: { codigo: true } })
+  const codigos = new Set(existentes.map((p) => p.codigo))
+  const faltantes = DOCUMENTOS_DEFAULT.filter((t) => !codigos.has(t.codigo))
+  if (faltantes.length === 0) return
+  // `faltantes` ya excluye lo existente; try/catch cubre una carrera rara.
+  try {
+    await db.plantillaConsentimiento.createMany({
+      data: faltantes.map((t) => ({
+        categoria: t.categoria, codigo: t.codigo, titulo: t.titulo, contenidoHtml: t.html,
+        camposRequeridos: t.camposRequeridos.join(','), orden: 100 + t.orden, activo: true,
+      })),
+    })
+  } catch { /* ya sembradas */ }
 }
 
 // categoria: 'CONSENTIMIENTO' (por defecto) o 'DOCUMENTO' (recetas/certificados/
@@ -196,7 +214,7 @@ export async function crearPlantilla(db: TenantClient, body: Record<string, unkn
     },
   })
 }
-const CATEGORIAS = ['CONSENTIMIENTO', 'RECETA', 'CERTIFICADO', 'INDICACION', 'OTRO']
+const CATEGORIAS = ['CONSENTIMIENTO', 'RECETA', 'CERTIFICADO', 'INDICACION', 'ORDEN', 'OTRO']
 export async function actualizarPlantilla(db: TenantClient, id: string, body: Record<string, unknown>) {
   const data: Record<string, unknown> = {}
   if (body.categoria !== undefined && CATEGORIAS.includes(String(body.categoria))) data.categoria = String(body.categoria)

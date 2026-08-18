@@ -18,9 +18,14 @@ const CAT: Record<string, { l: string; icon: string }> = {
   RECETA: { l: 'Receta', icon: '℞' },
   CERTIFICADO: { l: 'Certificado', icon: '📃' },
   INDICACION: { l: 'Indicaciones', icon: '📋' },
+  ORDEN: { l: 'Orden de exámenes', icon: '🧪' },
   OTRO: { l: 'Documento', icon: '📄' },
 }
 const catDe = (c?: string) => CAT[c ?? 'OTRO'] ?? CAT.OTRO
+
+// Variables que se cargan como LISTA (uno por uno con "+"); el resto son texto libre.
+// Debe coincidir con LIST_KEYS del backend (consentimientos.service.ts).
+const CAMPOS_LISTA = new Set(['MEDICAMENTOS', 'EXAMENES'])
 
 // Generador de recetas médicas, certificados e indicaciones (y documentos
 // personalizados que la clínica configure). Reutiliza el motor de plantillas de
@@ -143,10 +148,12 @@ function GenerarModal({ pacienteId, pacienteNombre, pacienteEmail, plantillas, c
 
       {prev && prev.manuales.length > 0 && (
         <div className="mb-3">
-          <p className="text-xs font-medium text-slate-500 mb-1">Contenido del documento <span className="text-slate-400">(se imprime en cursiva; deja vacío lo que no aplique)</span></p>
-          <div className="grid gap-2">
+          <p className="text-xs font-medium text-slate-500 mb-1">Contenido del documento <span className="text-slate-400">(deja vacío lo que no aplique)</span></p>
+          <div className="grid gap-3">
             {prev.manuales.map((v) => (
-              <textarea key={v.name} value={extra[v.name] ?? ''} onChange={(e) => setExtra((x) => ({ ...x, [v.name]: e.target.value }))} placeholder={v.label} rows={2} className={inp} />
+              CAMPOS_LISTA.has(v.name)
+                ? <ListaEditor key={v.name} label={v.label} value={extra[v.name] ?? ''} onChange={(val) => setExtra((x) => ({ ...x, [v.name]: val }))} />
+                : <textarea key={v.name} value={extra[v.name] ?? ''} onChange={(e) => setExtra((x) => ({ ...x, [v.name]: e.target.value }))} placeholder={v.label} rows={2} className={inp} />
             ))}
           </div>
         </div>
@@ -209,6 +216,39 @@ function VerModal({ doc, clinica, pacienteId, pacienteNombre, pacienteEmail, pue
           onClose={() => setEnviar(false)} onSent={() => notify('Documento enviado por correo')} />
       )}
     </Modal>
+  )
+}
+
+// Editor de lista: agrega ítems uno por uno con "+" (o Enter); cada uno se lista con
+// su número y una × para quitarlo. El valor se guarda como texto con UN ítem por línea
+// (el backend lo imprime como <ul>). Se usa para medicamentos (receta) y exámenes (orden).
+function ListaEditor({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  const items = value ? value.split('\n').filter((s) => s.trim()) : []
+  const [draft, setDraft] = useState('')
+  const agregar = () => { const t = draft.trim(); if (!t) return; onChange([...items, t].join('\n')); setDraft('') }
+  const quitar = (i: number) => onChange(items.filter((_, j) => j !== i).join('\n'))
+  return (
+    <div>
+      <p className="text-xs font-medium text-slate-600 mb-1">{label}</p>
+      {items.length > 0 && (
+        <ul className="mb-2 space-y-1">
+          {items.map((it, i) => (
+            <li key={i} className="flex items-center gap-2 text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
+              <span className="text-slate-400 shrink-0">{i + 1}.</span>
+              <span className="flex-1 break-words">{it}</span>
+              <button type="button" onClick={() => quitar(i)} title="Quitar" className="shrink-0 text-slate-400 hover:text-rose-600 text-lg leading-none">×</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex gap-2">
+        <input value={draft} onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregar() } }}
+          placeholder={`Agregar ${label.toLowerCase()}…`}
+          className="flex-1 px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        <button type="button" onClick={agregar} title="Agregar" className="shrink-0 w-10 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-xl font-bold leading-none">+</button>
+      </div>
+    </div>
   )
 }
 

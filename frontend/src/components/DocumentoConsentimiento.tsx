@@ -12,7 +12,7 @@ const DOC_CSS = `
 .cl-doc h1 { font-size:15px; text-align:center; margin:6px 0 12px; }
 .cl-doc h3 { font-size:12.5px; margin:12px 0 4px; padding-bottom:2px; border-bottom:1px solid #e2e8f0; }
 .cl-doc p { margin:5px 0; text-align:justify; }
-.cl-doc ul { margin:5px 0 5px 18px; padding:0; } .cl-doc li { margin:2px 0; }
+.cl-doc ul { margin:5px 0 5px 18px; padding:0; list-style: disc outside; } .cl-doc li { margin:2px 0; list-style: disc outside; }
 .cl-doc .chk { margin:3px 0; }
 .cl-dato { font-style: italic; }
 .cl-blank { display:inline-block; min-width:130px; border-bottom:1px solid #333; height:1em; }
