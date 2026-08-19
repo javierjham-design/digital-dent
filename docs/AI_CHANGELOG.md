@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-18 — FIX de deploy: railway.json a DOCKERFILE (Railpack servía 404)
+
+**Causa raíz de deploys fallidos desde el 2026-08-12.** Railway migró su builder por defecto
+de **Nixpacks → Railpack**. Los `railway.json` de los 3 servicios decían `"builder": "NIXPACKS"`
+y `"startCommand": "npm start"`. Consecuencias:
+- Los **git-deploys** buildeaban por Dockerfile (dashboard) pero Railway aplicaba
+  `startCommand: "npm start"`, que **falla** en la imagen runtime del Dockerfile de front/web
+  (el runtime hace `npm install express@^4`, generando un package.json **sin script `start`**)
+  → el contenedor no arrancaba → deploy FAILED. (El backend sí tiene `start`/`prestart`, por eso
+  aguantó más.)
+- `railway redeploy`/`railway up` respetaban `builder: NIXPACKS` → **Railpack** armaba un build
+  genérico roto que servía `{"detail":"Not Found"}` (404). Un redeploy por CLI del frontend
+  **tiró la app de las clínicas a 404 unos minutos** hasta corregirlo.
+
+**Fix (los 3 servicios):** `railway.json` → `"builder": "DOCKERFILE"` + `"dockerfilePath"`
+explícito; front/web `startCommand: "node server.mjs"`; backend mantiene `"npm start"` (necesita
+el prestart de migraciones). Verificado: BACKEND/FRONTEND/WEB Service en SUCCESS vía Dockerfile,
+los 4 subdominios + `/health` en 200, SPA real servida. **Gotcha a recordar:** no dejar
+`builder: NIXPACKS` en railway.json — Railway lo resuelve a Railpack y rompe el build.
+
+---
+
 ## 2026-08-18 — Recetas: medicamentos como lista (+) y nueva "Orden de exámenes"
 
 Pedido de Javier. En el generador de documentos:
