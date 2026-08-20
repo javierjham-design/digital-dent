@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-08-19 — Historial de pagos en Recaudación + resumen imprimible por paciente
+
+Pedido de Javier. En la pestaña **Recaudación** de la ficha, debajo del formulario de cobro,
+se agregó **"Historial de pagos recibidos"**: lista todos los pagos del paciente (N°, monto,
+medio, concepto, fecha/hora, quién recibió, Ref/Boleta; los anulados tachados) con el **total
+recibido**, y un acceso al comprobante de cada uno. (Ya existía una lista igual en la pestaña
+Historial; ahora también vive donde el usuario cobra.)
+
+- **Resumen imprimible**: botón "🖨 Imprimir resumen" → nueva página `PagosPrint`
+  (`/print/pagos/:pacienteId`) con encabezado de la clínica + paciente y una **tabla
+  fecha · N° · concepto · método · monto** con el **total recibido** (excluye anulados),
+  auto-imprime. Sirve para entregarle al paciente el detalle de sus pagos.
+
+Frontend-only (usa endpoints existentes). Verificado: typecheck fe, contrato, build fe.
+
+---
+
 ## 2026-08-19 — FIX: pago por link de Flow quedaba como "Efectivo" (medio no seteado)
 
 Al confirmarse un pago por link de Flow, el webhook marcaba el cobro PAGADO con el string

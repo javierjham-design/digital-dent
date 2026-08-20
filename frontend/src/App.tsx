@@ -26,6 +26,7 @@ import { LiquidacionPrint } from '@/pages/LiquidacionPrint'
 import { PlanPrint } from '@/pages/PlanPrint'
 import { CajaPrint } from '@/pages/CajaPrint'
 import { ComprobantePrint } from '@/pages/ComprobantePrint'
+import { PagosPrint } from '@/pages/PagosPrint'
 import { ReporteCajasPrint } from '@/pages/ReporteCajasPrint'
 import { Presupuestos } from '@/pages/Presupuestos'
 import { Reportes } from '@/pages/Reportes'
@@ -96,6 +97,7 @@ export default function App() {
           <Route path="/print/plan/:id" element={<ProtectedRoute><PlanPrint /></ProtectedRoute>} />
           <Route path="/print/caja/:cajaId/:sesionId" element={<ProtectedRoute><CajaPrint /></ProtectedRoute>} />
           <Route path="/print/cobro/:id" element={<ProtectedRoute><ComprobantePrint /></ProtectedRoute>} />
+          <Route path="/print/pagos/:pacienteId" element={<ProtectedRoute><PagosPrint /></ProtectedRoute>} />
           <Route path="/print/reporte-cajas" element={<ProtectedRoute><ReporteCajasPrint /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/agenda" replace />} />
         </Routes>

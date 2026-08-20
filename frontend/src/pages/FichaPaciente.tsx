@@ -2237,6 +2237,54 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
           onDone={(t) => { setDerivar(false); setMsg({ t, ok: true }); cargarTodo() }}
           onError={(t) => setMsg({ t, ok: false })} />
       )}
+
+      <HistorialPagos pacienteId={pacienteId} />
+    </div>
+  )
+}
+
+// Historial de pagos recibidos del paciente + acceso al resumen imprimible. Se
+// muestra en la pestaña Recaudación (debajo del formulario de cobro).
+function HistorialPagos({ pacienteId }: { pacienteId: string }) {
+  const [pagos, setPagos] = useState<PagoPaciente[]>([])
+  const [cargando, setCargando] = useState(true)
+  useEffect(() => { cobrosService.porPaciente(pacienteId).then((c) => setPagos(c as PagoPaciente[])).catch(() => {}).finally(() => setCargando(false)) }, [pacienteId])
+  const recibidos = pagos.filter((p) => !p.anulado && p.estado === 'PAGADO')
+  const total = recibidos.reduce((s, p) => s + p.monto, 0)
+  return (
+    <div className="bg-white rounded-2xl border border-slate-200 p-4">
+      <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800">Historial de pagos recibidos</h3>
+          <p className="text-xs text-slate-500">Total recibido: <span className="font-semibold text-cyan-700">{fmtCLP(total)}</span> · {recibidos.length} pago{recibidos.length === 1 ? '' : 's'}</p>
+        </div>
+        <a href={`/print/pagos/${pacienteId}`} target="_blank" rel="noopener noreferrer" className="shrink-0 px-3 py-2 border border-cyan-300 text-cyan-700 hover:bg-cyan-50 text-sm font-semibold rounded-xl">🖨 Imprimir resumen</a>
+      </div>
+      {cargando ? <p className="text-sm text-slate-400">Cargando…</p>
+        : pagos.length === 0 ? <p className="text-sm text-slate-500">Sin pagos registrados.</p> : (
+          <div className="divide-y divide-slate-100">
+            {pagos.map((p) => (
+              <div key={p.id} className={`py-2.5 flex items-center justify-between gap-3 ${p.anulado ? 'opacity-50' : ''}`}>
+                <div className="min-w-0">
+                  <p className={`text-sm font-medium text-slate-800 truncate ${p.anulado ? 'line-through' : ''}`}>
+                    #{p.numero} · {fmtCLP(p.monto)}
+                    <span className="ml-2 text-xs font-normal text-slate-500">{p.medioPago?.nombre ?? 'Efectivo'}</span>
+                    {p.anulado && <span className="ml-2 text-[11px] font-semibold text-rose-600">ANULADO</span>}
+                  </p>
+                  <p className="text-xs text-slate-500 truncate">{p.concepto}</p>
+                  <p className="text-xs text-slate-400">
+                    {p.fechaPago ? new Date(p.fechaPago).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                    {p.reciboUsuario?.name ? ` · recibió ${p.reciboUsuario.name}` : ''}
+                    {p.numeroReferencia ? ` · Ref ${p.numeroReferencia}` : ''}{p.numeroBoleta ? ` · Boleta ${p.numeroBoleta}` : ''}
+                  </p>
+                </div>
+                {!p.anulado && p.estado === 'PAGADO' && (
+                  <a href={`/print/cobro/${p.id}`} target="_blank" rel="noopener noreferrer" title="Comprobante" className="shrink-0 text-xs font-semibold text-slate-500 hover:text-slate-800">🖨</a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
     </div>
   )
 }
