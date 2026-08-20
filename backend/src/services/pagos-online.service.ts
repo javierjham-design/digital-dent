@@ -140,12 +140,19 @@ export async function procesarWebhookFlow(db: TenantClient, token: string): Prom
   await db.pagoOnline.update({ where: { id: pago.id }, data: { estado: nuevoEstado, pagadoAt: nuevoEstado === 'PAGADO' ? new Date() : null } })
   if (nuevoEstado !== 'PAGADO') return
 
-  // Si se pagó y el cobro seguía pendiente, lo marca pagado (método FLOW). La caja
-  // se concilia aparte: aquí no generamos movimiento de caja automáticamente.
+  // Si se pagó y el cobro seguía pendiente, lo marca pagado con el MEDIO "Flow" (no
+  // solo el string metodoPago): así la UI lo muestra como Flow y no como "sin medio".
+  // La caja se concilia aparte: aquí no generamos movimiento de caja automáticamente.
   if (pago.cobroId) {
     const cobro = await db.cobro.findUnique({ where: { id: pago.cobroId }, select: { estado: true, anulado: true } })
     if (cobro && !cobro.anulado && cobro.estado !== 'PAGADO') {
-      await db.cobro.update({ where: { id: pago.cobroId }, data: { estado: 'PAGADO', metodoPago: 'FLOW', fechaPago: new Date() } })
+      // Medio "Flow" (filtro en JS, no `mode:insensitive` que SQLite —los tests— no soporta).
+      const medios = await db.medioPago.findMany({ select: { id: true, nombre: true } })
+      const medioFlow = medios.find((m) => m.nombre.trim().toLowerCase() === 'flow') ?? null
+      await db.cobro.update({
+        where: { id: pago.cobroId },
+        data: { estado: 'PAGADO', metodoPago: 'FLOW', fechaPago: new Date(), ...(medioFlow ? { medioPagoId: medioFlow.id } : {}) },
+      })
       // Conversión del embudo: el pago online cuenta como cobro pagado. El helper no lanza ni
       // bloquea con Meta. Import dinámico para evitar un ciclo de módulos (pagos ↔ crm ↔ cobros).
       const { marcarConvertidoPorCobro } = await import('@/services/crm.service')

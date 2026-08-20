@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-08-19 — FIX: pago por link de Flow quedaba como "Efectivo" (medio no seteado)
+
+Al confirmarse un pago por link de Flow, el webhook marcaba el cobro PAGADO con el string
+`metodoPago='FLOW'` pero **NO** seteaba `medioPagoId` (la relación de medio, que es lo que
+muestra el comprobante) → aparecía como "Efectivo". Fix: `procesarWebhookFlow` ahora resuelve
+el medio "Flow" (filtro en JS, no `mode:insensitive` que SQLite no soporta) y setea
+`medioPagoId` + `fechaPago` (hora de confirmación) además del string. El comprobante ya
+mostraba `medioPago?.nombre ?? 'Efectivo'` y la fecha de pago → con el medio seteado sale
+"Flow" + la hora recibida.
+
+- **Backfill** `backfill-cobros-flow-medio.ts` (dry-run/--apply, con guarda de base): arregla
+  los cobros ya pagados por link de Flow antes del fix (medioPagoId null → Flow), conservando
+  su `fechaPago`. Corrido en prod para el pago de Marcia Aninat (y cualquier otro afectado).
+
+Verificado: typecheck be, integración 105/105 (+1 test del webhook con fetch mockeado).
+
+---
+
 ## 2026-08-19 — Recaudación con Flow: genera link de pago (48 h), no registra al toque
 
 Pedido de Javier: al recaudar con medio Flow, la ficha registraba el pago instantáneo (mal:
