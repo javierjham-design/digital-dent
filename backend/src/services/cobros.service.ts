@@ -234,6 +234,11 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
     if (!medioId) return { nombre: 'Efectivo', comision: 0 } // efectivo/sin medio: sin comisión
     const medio = await db.medioPago.findUnique({ where: { id: medioId } })
     if (!medio) throw badRequest(`Medio de pago ${cual} inválido`)
+    // Flow es pago ONLINE: no se "recibe" en caja. En vez de registrar un pago, hay que
+    // generar un LINK de pago para enviarle al paciente (se registra al confirmarse).
+    if (medio.nombre.trim().toLowerCase() === 'flow') {
+      throw badRequest('Flow es un pago online: genera un "Link de pago" para enviarle al paciente. El pago se registra cuando lo complete.')
+    }
     if (medio.requiereReferencia && !ref) throw badRequest(`El medio de pago "${medio.nombre}" requiere el número de referencia de la operación.`)
     return { nombre: medio.nombre, comision: montoTramo * (medio.comision / 100) }
   }

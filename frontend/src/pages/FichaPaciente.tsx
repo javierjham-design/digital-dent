@@ -1885,8 +1885,11 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
   const [msg, setMsg] = useState<{ t: string; ok: boolean } | null>(null)
   const [saving, setSaving] = useState(false)
   const [derivar, setDerivar] = useState(false)
+  const [linkFlow, setLinkFlow] = useState<{ url: string; expiraEn?: string } | null>(null)
 
   const medioSel = medios.find((m) => m.id === medioPagoId)
+  // Flow es pago ONLINE: en vez de registrar el pago, se genera un link para el paciente.
+  const esFlow = (medioSel?.nombre ?? '').trim().toLowerCase() === 'flow'
   const requiereRef = Boolean(medioSel?.requiereReferencia)
   const medioSel2 = medios.find((m) => m.id === medioPago2Id)
   const requiereRef2 = dividir && Boolean(medioSel2?.requiereReferencia)
@@ -1964,13 +1967,35 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
     setSel((s) => { const n = { ...s }; for (const t of trats) { if (marcar) n[t.id] = restante(t); else delete n[t.id] } return n })
   }
 
-  async function recaudar() {
+  // Items del cobro (acciones seleccionadas + abono libre nuevo). Lo usan tanto el
+  // registro directo como la generación del link de pago Flow.
+  function armarItems(): Record<string, unknown>[] {
     const items: Record<string, unknown>[] = []
     for (const [tid, monto] of Object.entries(sel)) if (monto > 0) {
       const t = accionesTodas.find((a) => a.id === tid)
       items.push({ tratamientoId: tid, descripcion: t?.prestacion.nombre ?? 'Acción', monto })
     }
     if (nuevoAbono > 0) items.push({ planId, descripcion: 'Abono libre al plan', monto: nuevoAbono })
+    return items
+  }
+
+  // Flow: genera un link de pago (crea un cobro PENDIENTE) para enviar al paciente.
+  // El pago se registra solo cuando el paciente lo completa (webhook). Válido 48 h.
+  async function generarLinkFlow() {
+    const items = armarItems()
+    if (items.length === 0) { setMsg({ t: 'Selecciona acciones o ingresa un abono.', ok: false }); return }
+    setSaving(true); setMsg(null); setLinkFlow(null)
+    try {
+      const r = await cobrosService.linkPago({ pacienteId, items })
+      setLinkFlow({ url: r.url, expiraEn: r.expiraEn })
+      navigator.clipboard?.writeText(r.url).catch(() => {})
+      setMsg({ t: r.reusado ? 'Ya había un link vigente: reutilizado y copiado.' : 'Link de pago generado y copiado. Envíalo al paciente.', ok: true })
+      setSel({}); setAbono(''); cargarTodo()
+    } catch (e) { setMsg({ t: e instanceof ApiError ? e.message : 'No se pudo generar el link de pago', ok: false }) } finally { setSaving(false) }
+  }
+
+  async function recaudar() {
+    const items = armarItems()
     if (items.length === 0) { setMsg({ t: 'Selecciona acciones o ingresa un abono.', ok: false }); return }
     const usarPie = usarAbono && creditoPie > 0
     // La caja solo se necesita si hay dinero nuevo por recibir (si el abono libre lo cubre todo, no).
@@ -2180,13 +2205,27 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
               </label>
             )}
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">Total a recaudar</span>
-              <span className="text-lg font-bold text-cyan-700">{fmtCLP(totalSel)}</span>
+              <span className="text-sm text-slate-500">{esFlow ? 'Monto del link' : 'Total a recaudar'}</span>
+              <span className="text-lg font-bold text-cyan-700">{fmtCLP(esFlow ? (sumAcciones + nuevoAbono) : totalSel)}</span>
             </div>
-            {usarAbono && creditoPie > 0 && totalSel === 0 && <p className="text-[11px] text-emerald-700">Se cubre por completo con el abono libre; no se requiere pago nuevo.</p>}
-            <button onClick={recaudar} disabled={saving || abonoExcede || (sumAcciones <= 0 && nuevoAbono <= 0) || (totalSel > 0 && requiereRef && !numeroReferencia.trim()) || (splitActivo && totalSel > 0 && (!splitValido || (requiereRef2 && !numeroReferencia2.trim())))} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
+            {!esFlow && usarAbono && creditoPie > 0 && totalSel === 0 && <p className="text-[11px] text-emerald-700">Se cubre por completo con el abono libre; no se requiere pago nuevo.</p>}
+            {esFlow ? (
+              <button onClick={generarLinkFlow} disabled={saving || abonoExcede || (sumAcciones <= 0 && nuevoAbono <= 0)} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Generando…' : '🔗 Generar link de pago Flow'}</button>
+            ) : (
+              <button onClick={recaudar} disabled={saving || abonoExcede || (sumAcciones <= 0 && nuevoAbono <= 0) || (totalSel > 0 && requiereRef && !numeroReferencia.trim()) || (splitActivo && totalSel > 0 && (!splitValido || (requiereRef2 && !numeroReferencia2.trim())))} className="w-full px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl">{saving ? 'Registrando…' : 'Recaudar'}</button>
+            )}
+            {linkFlow && (
+              <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3">
+                <p className="text-xs font-semibold text-cyan-800 mb-1">Link de pago (copiado) — envíaselo al paciente:</p>
+                <div className="flex gap-2">
+                  <input readOnly value={linkFlow.url} onFocus={(e) => e.currentTarget.select()} className="flex-1 min-w-0 px-2 py-1.5 text-xs border border-cyan-200 rounded-lg bg-white font-mono" />
+                  <button onClick={() => { navigator.clipboard?.writeText(linkFlow.url).then(() => setMsg({ t: 'Link copiado', ok: true })).catch(() => {}) }} className="shrink-0 px-3 rounded-lg bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-semibold">Copiar</button>
+                </div>
+                {linkFlow.expiraEn && <p className="text-[11px] text-cyan-700 mt-1">Válido hasta {new Date(linkFlow.expiraEn).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })} (48 h). Pasado ese plazo se anula y hay que generar uno nuevo.</p>}
+              </div>
+            )}
             {msg && <p className={`text-sm ${msg.ok ? 'text-emerald-600' : 'text-rose-600'}`}>{msg.t}</p>}
-            <p className="text-[11px] text-slate-400">La caja debe estar abierta (ábrela en Cobros si hace falta).</p>
+            <p className="text-[11px] text-slate-400">{esFlow ? 'El pago se registra automáticamente cuando el paciente completa el link.' : 'La caja debe estar abierta (ábrela en Cobros si hace falta).'}</p>
           </div>
         </>
       )}

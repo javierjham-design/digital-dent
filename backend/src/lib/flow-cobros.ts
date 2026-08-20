@@ -33,6 +33,7 @@ export interface CrearPagoArgs {
   email: string
   urlConfirmation: string    // webhook server-to-server
   urlReturn: string          // a dónde vuelve el paciente
+  timeoutSeg?: number        // segundos hasta que Flow expire la orden (link no pagable)
 }
 export type FlowCrearResult =
   | { ok: true; url: string; token: string; flowOrder?: string }
@@ -50,6 +51,9 @@ export async function flowCrearPago(a: CrearPagoArgs): Promise<FlowCrearResult> 
     urlConfirmation: a.urlConfirmation,
     urlReturn: a.urlReturn,
   }
+  // `timeout` (opcional en Flow): segundos hasta que la orden expire. Con esto Flow
+  // deja el link NO pagable pasadas las 48 h (además de nuestro control por expiraEn).
+  if (a.timeoutSeg && Number.isFinite(a.timeoutSeg) && a.timeoutSeg > 0) params.timeout = String(Math.round(a.timeoutSeg))
   params.s = firmar(params, a.config.secretKey!)
   try {
     const r = await fetch(`${baseUrl(a.config.sandbox)}/payment/create`, {

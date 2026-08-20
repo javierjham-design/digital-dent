@@ -465,6 +465,27 @@ describe('reglas de pagos: plan obligatorio, pagos del paciente, derivar abono, 
     expect(conRef.body.numeroBoleta).toBe('B-987')
   })
 
+  it('rechaza registrar un cobro con medio Flow (es pago online, va por link)', async () => {
+    const flow = await post('/medios-pago', { nombre: 'Flow', comision: 0 })
+    const planId = await planConAccion(A.pacienteId, 20000)
+    const r = await post('/cobros', { pacienteId: A.pacienteId, cajaId, medioPagoId: flow.body.id, items: [{ planId, descripcion: 'Abono', monto: 20000 }] })
+    expect(r.status).toBe(400)
+    expect(String(r.body.error)).toMatch(/Flow es un pago online|Link de pago/i)
+  })
+
+  it('anula un link de pago con más de 48 h y lo marca no vigente', async () => {
+    const db = tenantClient(A.dbName)
+    const cobro = await db.cobro.create({ data: { pacienteId: A.pacienteId, numero: 990001, concepto: 'link test', monto: 15000, montoNeto: 15000, estado: 'PENDIENTE' } })
+    // Pago online PENDIENTE creado hace 49 h (más que la vigencia de 48 h).
+    await db.pagoOnline.create({
+      data: { cobroId: cobro.id, pacienteId: A.pacienteId, proveedor: 'FLOW', concepto: 'x', monto: 15000, estado: 'PENDIENTE', commerceOrder: `t-${Date.now()}`, url: 'https://flow.test/x', createdAt: new Date(Date.now() - 49 * 3600 * 1000) },
+    })
+    const { listarPagosDeCobro } = await import('@/services/pagos-online.service')
+    const res = await listarPagosDeCobro(db, cobro.id)
+    expect(res[0].estado).toBe('ANULADO')
+    expect(res[0].vigente).toBe(false)
+  })
+
   it('registra un gasto (egreso) en la caja abierta y baja el saldo esperado', async () => {
     const before = await get('/cajas/resumen')
     const saldoBefore = before.body.find((c: { id: string }) => c.id === cajaId).sesionAbierta.resumen.saldoEsperado

@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-08-19 — Recaudación con Flow: genera link de pago (48 h), no registra al toque
+
+Pedido de Javier: al recaudar con medio Flow, la ficha registraba el pago instantáneo (mal:
+Flow es online, no se recibe en caja). Ahora genera un **link de pago** para enviar al paciente;
+el pago se registra cuando el paciente lo completa (webhook, ya existía).
+
+- **Backend**: `crearCobro` **rechaza** el medio "Flow" (mensaje que dirige a generar el link).
+  `crearLinkParaCobro` fija **vigencia 48 h** (`timeout` a Flow + `expiraEn` propio derivado de
+  `createdAt`, sin campo nuevo): **reutiliza** el link vigente del cobro y **anula** el expirado
+  para regenerar. `listarPagosDeCobro` anula los PENDIENTES >48 h y expone `expiraEn`/`vigente`.
+  El webhook sigue registrando cualquier pago confirmado (no se pierde plata si llega tarde).
+- **Frontend**: en la recaudación de la ficha, si el medio es **Flow** el botón pasa a
+  **"Generar link de pago Flow"** (no registra pago): muestra el link (copiado), el monto y
+  "válido 48 h". La página Cobros ya tenía su botón "Link de pago"; el registro instantáneo con
+  Flow queda bloqueado por el backend en ambos lados.
+
+Code-only (sin cambio de schema). Verificado: typecheck be/fe, contrato, unit 134/134,
+integración 104/104 (+2: rechazo de Flow instantáneo y anulación de link >48 h), build fe.
+
+---
+
 ## 2026-08-18 — FIX de deploy: railway.json a DOCKERFILE (Railpack servía 404)
 
 **Causa raíz de deploys fallidos desde el 2026-08-12.** Railway migró su builder por defecto

@@ -14,7 +14,7 @@ export const cobrosService = {
   eliminar: (id: string) => api.del<{ ok: true }>(`/cobros/${id}`),
   derivarAbono: (input: { fromPlanId: string; toPlanId: string; monto?: number }) => api.post<unknown>('/cobros/derivar-abono', input),
   linkPago: (input: { pacienteId: string; items: Record<string, unknown>[] }) =>
-    api.post<{ estado: 'ok'; url: string; cobroId: string; numero: number }>('/cobros/link-pago', input),
+    api.post<{ estado: 'ok'; url: string; cobroId: string; numero: number; expiraEn?: string; reusado?: boolean }>('/cobros/link-pago', input),
 }
 
 export interface ReporteMetodo { metodo: string; monto: number; cantidad: number }

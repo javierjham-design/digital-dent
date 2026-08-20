@@ -58,9 +58,15 @@ async function asegurarMedioFlow(db: TenantClient) {
 // backend (webhook) y del frontend (retorno del paciente).
 export interface CrearLinkOpts { apiBase: string; appBase: string; slug: string; creadoPorId?: string; urlReturn?: string; email?: string }
 export type ResultadoLinkPago =
-  | { estado: 'ok'; url: string; pagoId: string }
+  | { estado: 'ok'; url: string; pagoId: string; expiraEn: string; reusado?: boolean }
   | { estado: 'no_configurada'; mensaje: string }
   | { estado: 'error'; mensaje: string }
+
+// Un link de pago vive 48 h: pasado ese plazo se anula y hay que generar uno nuevo.
+export const LINK_VIGENCIA_MS = 48 * 60 * 60 * 1000
+const expiraDe = (createdAt: Date) => new Date(createdAt.getTime() + LINK_VIGENCIA_MS)
+const estaVigente = (p: { estado: string; createdAt: Date; url: string | null }) =>
+  p.estado === 'PENDIENTE' && Boolean(p.url) && Date.now() < expiraDe(p.createdAt).getTime()
 
 export async function crearLinkParaCobro(db: TenantClient, cobroId: string, opts: CrearLinkOpts): Promise<ResultadoLinkPago> {
   const cobro = await db.cobro.findUnique({
@@ -74,6 +80,14 @@ export async function crearLinkParaCobro(db: TenantClient, cobroId: string, opts
   const cfg = await leerFlowConfig(db)
   if (!flowConfigurado(cfg)) {
     return { estado: 'no_configurada', mensaje: 'Aún no están cargadas las credenciales de Flow de la clínica. Configúralas en Ajustes → Pagos online.' }
+  }
+
+  // ¿Ya hay un link para este cobro? Si sigue VIGENTE (dentro de las 48 h), se reutiliza
+  // en vez de crear otro. Los PENDIENTES ya EXPIRADOS se marcan ANULADO (link muerto).
+  const previos = await db.pagoOnline.findMany({ where: { cobroId: cobro.id, estado: 'PENDIENTE' }, orderBy: { createdAt: 'desc' } })
+  for (const p of previos) {
+    if (estaVigente(p)) return { estado: 'ok', url: p.url!, pagoId: p.id, expiraEn: expiraDe(p.createdAt).toISOString(), reusado: true }
+    await db.pagoOnline.update({ where: { id: p.id }, data: { estado: 'ANULADO' } }).catch(() => {})
   }
 
   // Flow exige un email válido del pagador. Prioridad: el indicado (form de la
@@ -100,6 +114,7 @@ export async function crearLinkParaCobro(db: TenantClient, cobroId: string, opts
     urlConfirmation: `${opts.apiBase}/public/pagos/flow/${opts.slug}/webhook`,
     // Retorno a una página del BACKEND (Flow vuelve por POST; el SPA no acepta POST).
     urlReturn: opts.urlReturn ?? `${opts.apiBase}/public/pagos/flow/${opts.slug}/retorno`,
+    timeoutSeg: Math.floor(LINK_VIGENCIA_MS / 1000),
   })
 
   if (!res.ok) {
@@ -107,7 +122,7 @@ export async function crearLinkParaCobro(db: TenantClient, cobroId: string, opts
     return { estado: 'error', mensaje: res.error }
   }
   await db.pagoOnline.update({ where: { id: pago.id }, data: { estado: 'PENDIENTE', url: res.url, flowToken: res.token } })
-  return { estado: 'ok', url: res.url, pagoId: pago.id }
+  return { estado: 'ok', url: res.url, pagoId: pago.id, expiraEn: expiraDe(pago.createdAt).toISOString() }
 }
 
 // Webhook de Flow: recibe el token, consulta el estado real y concilia el cobro.
@@ -158,7 +173,19 @@ export async function procesarWebhookFlow(db: TenantClient, token: string): Prom
   }
 }
 
-// Lista los pagos online de un cobro (para mostrar el estado del link).
+// Lista los pagos online de un cobro (para mostrar el estado del link). De paso
+// anula los PENDIENTES ya expirados (>48 h) para que la UI muestre el link muerto.
 export async function listarPagosDeCobro(db: TenantClient, cobroId: string) {
-  return db.pagoOnline.findMany({ where: { cobroId }, orderBy: { createdAt: 'desc' } })
+  const pagos = await db.pagoOnline.findMany({ where: { cobroId }, orderBy: { createdAt: 'desc' } })
+  const expirados = pagos.filter((p) => p.estado === 'PENDIENTE' && Date.now() >= expiraDe(p.createdAt).getTime())
+  if (expirados.length) {
+    await db.pagoOnline.updateMany({ where: { id: { in: expirados.map((p) => p.id) } }, data: { estado: 'ANULADO' } }).catch(() => {})
+  }
+  const anulados = new Set(expirados.map((p) => p.id))
+  return pagos.map((p) => ({
+    ...p,
+    estado: anulados.has(p.id) ? 'ANULADO' : p.estado,
+    expiraEn: expiraDe(p.createdAt).toISOString(),
+    vigente: estaVigente(p),
+  }))
 }
