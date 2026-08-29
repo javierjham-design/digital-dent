@@ -92,7 +92,48 @@ export function AdminClinicaDetalle() {
       <PagosCard id={c.id} moneda={c.cobro?.monedaEfectiva ?? 'CLP'} onChange={() => { flash('Pago registrado'); recargar() }} />
       <ExtrasCard id={c.id} moneda={c.cobro?.monedaEfectiva ?? 'CLP'} />
       <WhatsappCard id={c.id} onSaved={() => flash('Configuración de WhatsApp guardada')} />
+      <TubotAgendaCard id={c.id} />
     </div>
+  )
+}
+
+// Integración de AGENDA con TuBot: token dedicado por clínica (lo consume TuBot para
+// leer agenda y agendar). Se muestra en claro sólo al generarlo. Ver docs/TUBOT_AGENDA.md.
+function TubotAgendaCard({ id }: { id: string }) {
+  const [estado, setEstado] = useState<{ hasToken: boolean } | null>(null)
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState(false)
+  const cargar = () => adminService.tubot(id).then((r) => setEstado(r)).catch(() => {})
+  useEffect(() => { cargar() }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+  async function generar() {
+    if (estado?.hasToken && !confirm('Ya hay un token. Generar uno nuevo invalida el anterior. ¿Continuar?')) return
+    setBusy(true)
+    try { const r = await adminService.rotarTubotToken(id); setToken(r.token); cargar() }
+    catch { /* noop */ } finally { setBusy(false) }
+  }
+  async function revocar() {
+    if (!confirm('¿Revocar el token? TuBot dejará de poder agendar hasta generar uno nuevo.')) return
+    setBusy(true)
+    try { await adminService.revocarTubotToken(id); setToken(''); cargar() } catch { /* noop */ } finally { setBusy(false) }
+  }
+  return (
+    <Card title="Agenda TuBot — API de agendamiento">
+      <p className="text-xs text-slate-400 mb-3">Token dedicado que TuBot usa para leer la agenda y agendar (Authorization: Bearer). Base: <span className="font-mono">https://api.clariva.cl/api/v1</span>. Se muestra completo sólo al generarlo.</p>
+      {token && (
+        <div className="mb-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+          <p className="text-xs text-emerald-300 mb-1">Token generado — copialo ahora (no se vuelve a mostrar):</p>
+          <div className="flex gap-2">
+            <input readOnly value={token} onFocus={(e) => e.currentTarget.select()} className={`${inpCls} font-mono`} />
+            <button onClick={() => navigator.clipboard?.writeText(token)} className="shrink-0 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold">Copiar</button>
+          </div>
+        </div>
+      )}
+      <p className="text-sm text-slate-300 mb-3">Estado: {estado?.hasToken ? <span className="text-emerald-400 font-semibold">token configurado</span> : <span className="text-slate-500">sin token</span>}</p>
+      <div className="flex flex-wrap gap-2">
+        <button onClick={generar} disabled={busy} className={btnCls}>{estado?.hasToken ? 'Regenerar token' : 'Generar token'}</button>
+        {estado?.hasToken && <button onClick={revocar} disabled={busy} className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-50">Revocar</button>}
+      </div>
+    </Card>
   )
 }
 

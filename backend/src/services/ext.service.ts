@@ -24,6 +24,21 @@ export async function revocarApiKey(clinicaId: string) {
   return { ok: true as const }
 }
 
+// ── Token de la integración de AGENDA con TuBot (separado del CRM/MCP) ─────────
+export async function estadoTubotApiKey(clinicaId: string) {
+  const c = await control.clinica.findUnique({ where: { id: clinicaId }, select: { tubotApiKeyHash: true } })
+  return { hasToken: Boolean(c?.tubotApiKeyHash) }
+}
+export async function rotarTubotApiKey(clinicaId: string) {
+  const token = `tbk_${randomBytes(24).toString('base64url')}`
+  await control.clinica.update({ where: { id: clinicaId }, data: { tubotApiKeyHash: hashApiKey(token) } })
+  return { token } // sólo se muestra esta vez
+}
+export async function revocarTubotApiKey(clinicaId: string) {
+  await control.clinica.update({ where: { id: clinicaId }, data: { tubotApiKeyHash: null } })
+  return { ok: true as const }
+}
+
 // Estadísticas generales de la clínica para el MCP (agregados, sin PII).
 export async function estadisticasPlataforma(db: TenantClient) {
   const inicioHoy = new Date(); inicioHoy.setHours(0, 0, 0, 0)

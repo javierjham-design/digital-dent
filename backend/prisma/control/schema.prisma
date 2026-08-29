@@ -42,6 +42,11 @@ model Clinica {
   // imposible) y un @unique haría que `prisma db push` exija --accept-data-loss.
   apiKeyHash String?
 
+  // Hash (sha256) del TOKEN dedicado de la integración de AGENDA con TuBot (la API
+  // que TuBot consume para agendar). Separado de apiKeyHash (que es la key del CRM/MCP)
+  // para poder rotarlos/revocarlos por separado. Mismo criterio: no @unique.
+  tubotApiKeyHash String?
+
   // Facturación de la suscripción (gestionado por super-admin).
   cicloFacturacion String    @default("MENSUAL") // MENSUAL | ANUAL
   profesionalesExtra Int     @default(0)   // profesionales con agenda adicionales al tope del plan ($9.990 c/u al mes)
@@ -94,6 +99,7 @@ model Clinica {
   @@index([esDemo])
   @@index([activo, plan])
   @@index([apiKeyHash])
+  @@index([tubotApiKeyHash])
 }
 
 // Prospecto capturado desde la landing/demo. Queda para ventas aunque la

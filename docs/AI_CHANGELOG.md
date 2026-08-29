@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 1 — catálogo (lectura)
+
+Arranque de la integración INVERSA (TuBot lee la agenda de Cláriva y agenda solo; feedback
+al CRM por webhooks). Contrato: `docs/TUBOT_AGENDA.md` (fuente: `conversia/docs/CLARIVA.md` +
+`apps/mock-clariva`). Plan de 5 fases; **Fase 1 desplegada**:
+
+- **Auth por token dedicado** por clínica (`tbk_…`, hash en `Clinica.tubotApiKeyHash` — campo
+  de control aditivo, no-unique + índice; separado de la API key del CRM/MCP). Middleware
+  `requireTubotApiKey` (resuelve tenant por el hash, como `requireApiKey`). Gestión del token
+  en el Super Admin (card "Agenda TuBot": generar/regenerar/revocar; se muestra una vez).
+- **Endpoints de catálogo** (paths EXACTOS del contrato bajo `/api/v1`, el cliente de TuBot
+  llama `{baseUrl}/api/v1{path}`): `GET /clinics` (la clínica como única sede, tz por país),
+  `GET /professionals` (doctores/médicos activos), `GET /services` (prestaciones activas),
+  `GET /professionals/:id/services` (prestaciones por área del doctor). Mappers en
+  `services/tubot-agenda.service.ts`.
+- Sin cambio de schema de **tenant** (solo control, aditivo → prestart `control:push`).
+
+Verificado: typecheck be/fe, contrato (260 rutas), unit 134/134, integración 111/111
+(+6: auth 401 + los 4 endpoints de catálogo). Próximo: Fase 2 (availability).
+
+---
+
 ## 2026-08-19 — Historial de pagos en Recaudación + resumen imprimible por paciente
 
 Pedido de Javier. En la pestaña **Recaudación** de la ficha, debajo del formulario de cobro,

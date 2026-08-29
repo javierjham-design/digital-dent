@@ -41,7 +41,9 @@ import * as email from '@/controllers/email.controller'
 import * as consent from '@/controllers/consentimientos.controller'
 import * as doc from '@/controllers/documentos.controller'
 import * as ext from '@/controllers/ext.controller'
+import * as tubotAgenda from '@/controllers/tubot-agenda.controller'
 import { requireApiKey } from '@/middlewares/api-key'
+import { requireTubotApiKey } from '@/middlewares/tubot-agenda'
 import { requirePermiso } from '@/middlewares/permiso'
 import { requireModulo, requireModuloApiKey } from '@/middlewares/modulo'
 import { requireSuperAdmin } from '@/middlewares/auth'
@@ -213,6 +215,15 @@ apiRouter.get('/ext/leads', apiKeyScope, asyncHandler(ext.getExtLeads))
 apiRouter.get('/ext/leads/:id', apiKeyScope, asyncHandler(ext.getExtLead))
 apiRouter.get('/ext/resumen', apiKeyScope, asyncHandler(ext.getExtResumen))
 apiRouter.get('/ext/stats', apiKeyScope, asyncHandler(ext.getExtStats))
+
+// ── API de AGENDA que consume TuBot (contrato docs/TUBOT_AGENDA.md) ───────────
+// Autenticada por token dedicado por clínica. Paths EXACTOS del contrato (el
+// cliente de TuBot llama {baseUrl}/api/v1/{path}). Fase 1: catálogo de lectura.
+const tubotScope = [requireTubotApiKey]
+apiRouter.get('/clinics', tubotScope, asyncHandler(tubotAgenda.getClinics))
+apiRouter.get('/professionals', tubotScope, asyncHandler(tubotAgenda.getProfessionals))
+apiRouter.get('/professionals/:id/services', tubotScope, asyncHandler(tubotAgenda.getProfessionalServices))
+apiRouter.get('/services', tubotScope, asyncHandler(tubotAgenda.getServices))
 apiRouter.get('/crm/leads', crmTenant, asyncHandler(crm.getLeads))
 apiRouter.get('/crm/resumen', crmTenant, asyncHandler(crm.getResumen))
 apiRouter.get('/crm/campanas', crmTenant, asyncHandler(crm.getCampanas))
@@ -433,6 +444,10 @@ apiRouter.delete('/admin/clinicas/:id/extras/:extraId', sa, asyncHandler(admin.d
 apiRouter.get('/admin/clinicas/:id/whatsapp', sa, asyncHandler(admin.getWhatsapp))
 apiRouter.put('/admin/clinicas/:id/whatsapp', sa, asyncHandler(admin.putWhatsapp))
 apiRouter.post('/admin/clinicas/:id/whatsapp/probar', sa, asyncHandler(admin.postProbarWhatsapp))
+// Integración de agenda con TuBot: token dedicado por clínica (super-admin).
+apiRouter.get('/admin/clinicas/:id/tubot', sa, asyncHandler(tubotAgenda.getTubotConfig))
+apiRouter.post('/admin/clinicas/:id/tubot/token', sa, asyncHandler(tubotAgenda.postTubotToken))
+apiRouter.delete('/admin/clinicas/:id/tubot/token', sa, asyncHandler(tubotAgenda.deleteTubotToken))
 // Planes de suscripción
 apiRouter.get('/admin/planes-suscripcion', sa, asyncHandler(admin.getPlanes))
 apiRouter.post('/admin/planes-suscripcion', sa, asyncHandler(admin.postPlan))
