@@ -1,7 +1,11 @@
 import type { TenantClient } from '@/db/tenant'
 import { conTitulo } from '@shared/utils/nombre'
 import { slotsLibres } from '@/services/agenda-online.service'
+import { crearCita, editarCita, cambiarEstadoCita } from '@/services/citas.service'
+import { crearPaciente } from '@/services/pacientes.service'
 import { todayYmd, addDaysYmd } from '@/lib/tz'
+import { badRequest } from '@/lib/errors'
+import { validarRut, formatRut } from '@shared/utils/rut'
 
 // Adaptadores del modelo de Cláriva al CONTRATO de TuBot (docs/TUBOT_AGENDA.md).
 // Cada token = una clínica (un tenant); Cláriva no tiene "múltiples sedes", así que
@@ -11,6 +15,15 @@ export interface SchedClinic { id: string; name: string; address?: string; timez
 export interface SchedProfessional { id: string; name: string; specialty?: string; clinicIds?: string[] }
 export interface SchedService { id: string; name: string; durationMin: number; price?: number; currency?: string }
 export interface SchedSlot { start: string; end: string; professionalId: string; clinicId: string; serviceId?: string }
+export type SchedStatus = 'pending' | 'confirmed' | 'cancelled' | 'rescheduled' | 'completed' | 'no_show'
+export interface SchedPatient { externalId?: string; firstName: string; lastName?: string; phone: string; email?: string; documentId?: string }
+export interface SchedAppointment {
+  id: string; clinicId: string; professionalId: string; serviceId?: string
+  patient: SchedPatient; start: string; end: string; status: SchedStatus; notes?: string
+}
+export interface CreateAppointmentInput {
+  clinicId?: string; professionalId: string; serviceId?: string; patient: SchedPatient; start: string; end?: string; notes?: string
+}
 
 // Zona horaria IANA por país (Configuracion.pais). Chile por defecto.
 const TZ: Record<string, string> = {
@@ -114,4 +127,159 @@ export async function availability(
   }
   out.sort((a, b) => a.start.localeCompare(b.start))
   return out
+}
+
+// ── Fase 3: pacientes + citas (TuBot agenda de forma autónoma) ─────────────────
+
+// Estado interno de Cláriva → estado del contrato de TuBot (ver docs/TUBOT_AGENDA.md).
+const ESTADO_A_STATUS: Record<string, SchedStatus> = {
+  PENDIENTE: 'pending', CONFIRMADA: 'pending',
+  CONFIRMADO: 'confirmed', EN_ESPERA: 'confirmed', EN_ATENCION: 'confirmed',
+  ATENDIDA: 'completed', NO_ASISTIO: 'no_show', CANCELADA: 'cancelled',
+}
+
+const soloDigitos = (t?: string | null) => (t ?? '').replace(/\D/g, '')
+
+type PacienteRow = { id: string; nombre: string; apellido: string; telefono: string | null; email: string | null; rut: string | null }
+type CitaConPaciente = { id: string; doctorId: string; fecha: Date; duracion: number; estado: string; notas: string | null; paciente: PacienteRow }
+const CITA_SEL = {
+  id: true, doctorId: true, fecha: true, duracion: true, estado: true, notas: true,
+  paciente: { select: { id: true, nombre: true, apellido: true, telefono: true, email: true, rut: true } },
+} as const
+
+function toSchedPatient(p: PacienteRow): SchedPatient {
+  return { firstName: p.nombre, lastName: p.apellido || undefined, phone: p.telefono || '', email: p.email || undefined, documentId: p.rut || undefined }
+}
+
+function toAppointment(c: CitaConPaciente, slug: string, serviceId?: string): SchedAppointment {
+  return {
+    id: c.id, clinicId: slug, professionalId: c.doctorId,
+    ...(serviceId ? { serviceId } : {}),
+    patient: toSchedPatient(c.paciente),
+    start: c.fecha.toISOString(),
+    end: new Date(c.fecha.getTime() + c.duracion * 60000).toISOString(),
+    status: ESTADO_A_STATUS[c.estado] ?? 'pending',
+    notes: c.notas || undefined,
+  }
+}
+
+// El contrato manda un solo `firstName` (+ `lastName` opcional). Si no viene apellido,
+// partimos el nombre completo; como último recurso un placeholder visible que la
+// clínica pueda corregir (Paciente exige apellido no vacío).
+function partirNombre(firstName?: string, lastName?: string): { nombre: string; apellido: string } {
+  const fn = (firstName ?? '').trim()
+  const ln = (lastName ?? '').trim()
+  if (ln) return { nombre: fn || 'Paciente', apellido: ln }
+  const parts = fn.split(/\s+/).filter(Boolean)
+  if (parts.length >= 2) return { nombre: parts[0], apellido: parts.slice(1).join(' ') }
+  return { nombre: fn || 'Paciente', apellido: '(sin apellido)' }
+}
+
+async function buscarPacientePorTelefono(db: TenantClient, phone?: string): Promise<PacienteRow | null> {
+  const d = soloDigitos(phone)
+  if (d.length < 8) return null
+  const cola = d.slice(-8) // tolera diferencias de prefijo país (+56 9 vs 9…)
+  const cands = await db.paciente.findMany({
+    where: { telefono: { not: null } },
+    select: { id: true, nombre: true, apellido: true, telefono: true, email: true, rut: true },
+  })
+  return cands.find((p) => soloDigitos(p.telefono).slice(-8) === cola) ?? null
+}
+
+// Busca (por documento o teléfono) o crea el paciente. Con `actualizar`, completa
+// email/teléfono que falten (no pisa datos existentes de la ficha).
+async function resolverPaciente(db: TenantClient, patient: SchedPatient, opts: { actualizar?: boolean } = {}): Promise<PacienteRow> {
+  const rut = patient.documentId && validarRut(patient.documentId) ? formatRut(patient.documentId) : null
+  let existing: PacienteRow | null = null
+  if (rut) existing = await db.paciente.findFirst({ where: { rut }, select: { id: true, nombre: true, apellido: true, telefono: true, email: true, rut: true } })
+  if (!existing) existing = await buscarPacientePorTelefono(db, patient.phone)
+  if (existing) {
+    if (opts.actualizar) {
+      const data: Record<string, string> = {}
+      if (patient.email?.trim() && !existing.email) data.email = patient.email.trim()
+      if (patient.phone?.trim() && !existing.telefono) data.telefono = patient.phone.trim()
+      if (Object.keys(data).length) {
+        existing = await db.paciente.update({ where: { id: existing.id }, data, select: { id: true, nombre: true, apellido: true, telefono: true, email: true, rut: true } })
+      }
+    }
+    return existing
+  }
+  const { nombre, apellido } = partirNombre(patient.firstName, patient.lastName)
+  const dto = await crearPaciente(db, { nombre, apellido, telefono: patient.phone?.trim() || null, email: patient.email?.trim() || null, rut })
+  return { id: dto.id, nombre: dto.nombre, apellido: dto.apellido, telefono: dto.telefono, email: dto.email, rut: dto.rut }
+}
+
+// PUT /patients → alta/actualización por teléfono/documento.
+export async function upsertPatient(db: TenantClient, patient: SchedPatient): Promise<SchedPatient> {
+  if (!patient?.firstName?.trim() || !patient?.phone?.trim()) throw badRequest('Faltan firstName y phone')
+  return toSchedPatient(await resolverPaciente(db, patient, { actualizar: true }))
+}
+
+// POST /appointments → TuBot agenda. Duración = end−start (o la del servicio, o 30').
+// Reusa crearCita: valida horario de atención y doble reserva (conflict → 409 slot_taken).
+export async function createAppointment(db: TenantClient, slug: string, input: CreateAppointmentInput): Promise<SchedAppointment> {
+  if (!input?.professionalId || !input?.start || !input?.patient) throw badRequest('Faltan professionalId, start y patient')
+  const doctor = await db.user.findFirst({ where: { id: input.professionalId, activo: true, role: { in: ROLES_CON_AGENDA } }, select: { id: true } })
+  if (!doctor) throw badRequest('professionalId inválido')
+  const start = new Date(input.start)
+  if (Number.isNaN(start.getTime())) throw badRequest('start inválido')
+
+  let dur = 0
+  if (input.end) { const e = new Date(input.end); if (!Number.isNaN(e.getTime())) dur = Math.round((e.getTime() - start.getTime()) / 60000) }
+  if (dur <= 0 && input.serviceId) {
+    const pr = await db.prestacion.findUnique({ where: { id: input.serviceId }, select: { duracion: true } })
+    if (pr?.duracion) dur = pr.duracion
+  }
+  if (dur <= 0) dur = 30
+
+  const pac = await resolverPaciente(db, input.patient, { actualizar: true })
+  const notas = input.notes?.trim() || 'Agendada por TuBot'
+  const cita = await crearCita(db, 'TuBot', {
+    pacienteId: pac.id, doctorId: doctor.id, fecha: start.toISOString(), duracion: dur, tipo: 'CONSULTA', notas,
+  })
+  return {
+    id: cita.id, clinicId: slug, professionalId: doctor.id,
+    ...(input.serviceId ? { serviceId: input.serviceId } : {}),
+    patient: toSchedPatient(pac),
+    start: cita.inicio, end: cita.fin, status: ESTADO_A_STATUS[cita.estado] ?? 'pending', notes: cita.notas || undefined,
+  }
+}
+
+// GET /appointments/:id
+export async function getAppointment(db: TenantClient, slug: string, id: string): Promise<SchedAppointment | null> {
+  const c = await db.cita.findUnique({ where: { id }, select: CITA_SEL })
+  return c ? toAppointment(c, slug) : null
+}
+
+// PATCH /appointments/:id → reagenda/mueve (reusa editarCita: valida y maneja conflictos).
+export async function updateAppointment(db: TenantClient, slug: string, id: string, changes: Partial<CreateAppointmentInput>): Promise<SchedAppointment | null> {
+  const exists = await db.cita.findUnique({ where: { id }, select: { id: true } })
+  if (!exists) return null
+  const patch: { fecha?: string; duracion?: number; doctorId?: string; notas?: string | null } = {}
+  if (changes.start) {
+    patch.fecha = new Date(changes.start).toISOString()
+    if (changes.end) patch.duracion = Math.round((new Date(changes.end).getTime() - new Date(changes.start).getTime()) / 60000)
+  }
+  if (changes.professionalId) patch.doctorId = changes.professionalId
+  if (changes.notes !== undefined) patch.notas = changes.notes
+  await editarCita(db, id, 'TuBot', patch)
+  const c = await db.cita.findUnique({ where: { id }, select: CITA_SEL })
+  return c ? toAppointment(c, slug, changes.serviceId) : null
+}
+
+// POST /appointments/:id/{cancel|confirm|attendance} → mapea al estado interno.
+export async function setEstadoAppointment(db: TenantClient, slug: string, id: string, estado: string): Promise<SchedAppointment | null> {
+  const exists = await db.cita.findUnique({ where: { id }, select: { id: true } })
+  if (!exists) return null
+  await cambiarEstadoCita(db, id, estado, 'TuBot')
+  const c = await db.cita.findUnique({ where: { id }, select: CITA_SEL })
+  return c ? toAppointment(c, slug) : null
+}
+
+// GET /patients/:phone/appointments
+export async function patientAppointments(db: TenantClient, slug: string, phone: string): Promise<SchedAppointment[]> {
+  const pac = await buscarPacientePorTelefono(db, phone)
+  if (!pac) return []
+  const citas = await db.cita.findMany({ where: { pacienteId: pac.id }, select: CITA_SEL, orderBy: { fecha: 'desc' } })
+  return citas.map((c) => toAppointment(c, slug))
 }

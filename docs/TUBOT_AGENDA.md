@@ -45,7 +45,15 @@ CANCELADA→`cancelled`. Reagendar (PATCH) deja la cita en PENDIENTE.
   menos la ocupación (citas que ocupan + bloqueos). Sin `professionalId` → todos los
   profesionales. Rango en fechas civiles (hora clínica), acotado a hoy…hoy+62d; descarta
   slots pasados. Lógica reusada de `agenda-online.service` (`slotsLibres`).
-- ⏳ **Fase 3 — Citas (escritura, TuBot agenda solo)** + pacientes por teléfono.
+- **✅ Fase 3 — Citas (escritura, TuBot agenda solo)** + pacientes por teléfono:
+  `POST /appointments` (201 · `Idempotency-Key` best-effort en memoria · doble reserva → `409 slot_taken`),
+  `GET /appointments/:id`, `PATCH /appointments/:id` (reagenda → vuelve a `pending`),
+  `POST /appointments/:id/{cancel|confirm|attendance}` (attended:false → `no_show`),
+  `PUT /patients` (upsert por documento/teléfono; no pisa datos de la ficha),
+  `GET /patients/:phone/appointments`. Reusa `crearCita`/`editarCita`/`cambiarEstadoCita`
+  (validan horario de atención + solapamiento). El paciente se resuelve por RUT o por los
+  últimos 8 dígitos del teléfono, o se crea (`crearPaciente` → correlativo + autolink CRM).
+  Duración de la cita = `end−start`, o la del servicio, o 30'. `userName` de los logs = "TuBot".
 - ⏳ **Fase 4 — CRM** (buscar/ficha/notas de pacientes).
 - ⏳ **Fase 5 — Webhooks salientes** Cláriva→TuBot (firmados) + alta por clínica
   (`tubotConnectionId`/`tubotWebhookSecret`/`tubotEnabled` en Configuracion + `TUBOT_URL`).

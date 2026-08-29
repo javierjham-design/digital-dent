@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 3 — citas (escritura) + pacientes
+
+TuBot ya puede **agendar de forma autónoma** en Cláriva. Endpoints bajo `/api/v1`
+(token dedicado):
+- `POST /appointments` → 201 `SchedAppointment`. Resuelve/crea el paciente (por RUT o por
+  los últimos 8 dígitos del teléfono; si no existe, `crearPaciente` → correlativo + autolink
+  CRM). Duración = `end−start`, o la del servicio, o 30'. Reusa `crearCita` (valida horario de
+  atención + solapamiento). Doble reserva → **`409 {error:'slot_taken'}`**. Acepta
+  `Idempotency-Key` (caché best-effort en memoria, TTL 15', evita duplicar en reintentos de red).
+- `GET /appointments/:id` (404 si no existe), `PATCH /appointments/:id` (reagenda vía
+  `editarCita`; al mover vuelve a `pending`), `POST /appointments/:id/{cancel|confirm|attendance}`
+  (mapea a CANCELADA/CONFIRMADO/ATENDIDA|NO_ASISTIO; attended:false → `no_show`).
+- `PUT /patients` (upsert por documento/teléfono; sólo completa email/teléfono faltantes, no
+  pisa la ficha), `GET /patients/:phone/appointments`.
+- Mapeo de estados Cláriva↔contrato centralizado (`ESTADO_A_STATUS`). Logs con `userName='TuBot'`.
+
+Sin cambio de schema. Verificado: typecheck be, contrato (269 rutas), unit 134/134,
+integración 125/125 (+11: alta 201, idempotencia, 409 slot_taken, get/404, confirm, reagenda,
+attendance no_show, cancel, upsert paciente, citas por teléfono).
+
+---
+
+## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 2 — disponibilidad
+
 ## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 2 — disponibilidad
 
 `GET /availability?clinicId&professionalId&serviceId&from&to` → `SchedSlot[]`

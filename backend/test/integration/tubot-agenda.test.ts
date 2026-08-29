@@ -15,6 +15,13 @@ let doctorId = ''
 let prestacionId = ''
 const TOKEN = 'tbk_test_agenda'
 const get = (url: string, token = TOKEN) => request(app).get(`/api/v1${url}`).set('Authorization', `Bearer ${token}`)
+const post = (url: string, body: unknown, key?: string) => {
+  let r = request(app).post(`/api/v1${url}`).set('Authorization', `Bearer ${TOKEN}`)
+  if (key) r = r.set('Idempotency-Key', key)
+  return r.send(body)
+}
+const patch = (url: string, body: unknown) => request(app).patch(`/api/v1${url}`).set('Authorization', `Bearer ${TOKEN}`).send(body)
+const put = (url: string, body: unknown) => request(app).put(`/api/v1${url}`).set('Authorization', `Bearer ${TOKEN}`).send(body)
 
 beforeAll(async () => {
   const seeded = await seedDosClinicas()
@@ -120,5 +127,95 @@ describe('TuBot agenda — disponibilidad (Fase 2)', () => {
     expect(r.body.some((x: { start: string }) => x.start === inicio.toISOString())).toBe(false)
     // El slot siguiente (09:30) sí debe estar libre.
     expect(r.body.some((x: { start: string }) => x.start === new Date(inicio.getTime() + 30 * 60000).toISOString())).toBe(true)
+  })
+})
+
+describe('TuBot agenda — citas (Fase 3)', () => {
+  let apptId = ''
+  const phone = '+56987654321'
+  const day = addDaysYmd(todayYmd(), 2)
+  const start = wallClockToUtc(day, '10:00').toISOString()
+  const end = wallClockToUtc(day, '10:30').toISOString()
+
+  it('POST /appointments → 201 con SchedAppointment (crea paciente)', async () => {
+    const r = await post('/appointments', { clinicId: A.slug, professionalId: doctorId, serviceId: prestacionId, start, end, patient: { firstName: 'Ana', lastName: 'Bot', phone, email: 'ana@x.cl' } })
+    expect(r.status).toBe(201)
+    expect(r.body.id).toBeTruthy()
+    expect(r.body.professionalId).toBe(doctorId)
+    expect(r.body.clinicId).toBe(A.slug)
+    expect(r.body.serviceId).toBe(prestacionId)
+    expect(r.body.status).toBe('pending')
+    expect(r.body.start).toBe(start)
+    expect(r.body.patient.phone).toContain('987654321')
+    apptId = r.body.id
+  })
+
+  it('POST con Idempotency-Key repetido → misma cita', async () => {
+    const payload = { professionalId: doctorId, start: wallClockToUtc(day, '11:00').toISOString(), end: wallClockToUtc(day, '11:30').toISOString(), patient: { firstName: 'Ivo', lastName: 'Test', phone: '+56911112222' } }
+    const r1 = await post('/appointments', payload, 'idem-123')
+    const r2 = await post('/appointments', payload, 'idem-123')
+    expect(r1.status).toBe(201)
+    expect(r2.status).toBe(201)
+    expect(r2.body.id).toBe(r1.body.id)
+  })
+
+  it('POST mismo slot ocupado → 409 slot_taken', async () => {
+    const r = await post('/appointments', { professionalId: doctorId, start, end, patient: { firstName: 'Otro', lastName: 'Choca', phone: '+56900000000' } })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('slot_taken')
+  })
+
+  it('GET /appointments/:id', async () => {
+    const r = await get(`/appointments/${apptId}`)
+    expect(r.status).toBe(200)
+    expect(r.body.id).toBe(apptId)
+    expect(r.body.patient.firstName).toBe('Ana')
+  })
+
+  it('GET /appointments/:id inexistente → 404', async () => {
+    const r = await get('/appointments/no-existe')
+    expect(r.status).toBe(404)
+  })
+
+  it('POST /confirm → confirmed', async () => {
+    const r = await post(`/appointments/${apptId}/confirm`, {})
+    expect(r.status).toBe(200)
+    expect(r.body.status).toBe('confirmed')
+  })
+
+  it('PATCH /appointments/:id reagenda (vuelve a pending)', async () => {
+    const ns = wallClockToUtc(day, '15:00').toISOString()
+    const ne = wallClockToUtc(day, '15:30').toISOString()
+    const r = await patch(`/appointments/${apptId}`, { start: ns, end: ne })
+    expect(r.status).toBe(200)
+    expect(r.body.start).toBe(ns)
+    expect(r.body.status).toBe('pending')
+  })
+
+  it('POST /attendance attended:false → no_show', async () => {
+    const r = await post(`/appointments/${apptId}/attendance`, { attended: false })
+    expect(r.status).toBe(200)
+    expect(r.body.status).toBe('no_show')
+  })
+
+  it('POST /cancel → cancelled', async () => {
+    const r0 = await post('/appointments', { professionalId: doctorId, start: wallClockToUtc(day, '16:00').toISOString(), end: wallClockToUtc(day, '16:30').toISOString(), patient: { firstName: 'Cae', lastName: 'Cancel', phone: '+56933334444' } })
+    const r = await post(`/appointments/${r0.body.id}/cancel`, {})
+    expect(r.status).toBe(200)
+    expect(r.body.status).toBe('cancelled')
+  })
+
+  it('PUT /patients → upsert por teléfono', async () => {
+    const r = await put('/patients', { firstName: 'Ana', lastName: 'Bot', phone })
+    expect(r.status).toBe(200)
+    expect(r.body.phone).toContain('987654321')
+  })
+
+  it('GET /patients/:phone/appointments → citas del paciente', async () => {
+    const r = await get(`/patients/${encodeURIComponent(phone)}/appointments`)
+    expect(r.status).toBe(200)
+    expect(Array.isArray(r.body)).toBe(true)
+    expect(r.body.length).toBeGreaterThan(0)
+    expect(r.body.every((a: { patient: { phone: string } }) => a.patient.phone.includes('987654321'))).toBe(true)
   })
 })
