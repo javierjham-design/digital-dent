@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 2 — disponibilidad
+
+`GET /availability?clinicId&professionalId&serviceId&from&to` → `SchedSlot[]`
+(`{start,end,professionalId,clinicId,serviceId?}`, ISO 8601 UTC). Calcula los slots libres
+desde el `HorarioDoctor` de cada profesional (receso partido en dos tramos) en pasos de la
+duración del servicio (prestación) o 30' por defecto, restando la ocupación (citas que ocupan
++ bloqueos). Sin `professionalId` → todos los profesionales con agenda. Rango en fechas
+civiles (hora de la clínica), acotado a hoy…hoy+62d; descarta slots pasados; ordenado por inicio.
+
+- Reutiliza la lógica del agendamiento online: extraje `ventanasDeHorario()` (compartido con
+  `ventanasDelDia`) y agregué `slotsLibres(db, doctorId, durationMin, from, to)` en
+  `agenda-online.service.ts` (usa `busyIntervals` + `wallClockToUtc`/DST). Sin cambio de schema.
+
+Verificado: typecheck be, contrato (261 rutas), unit 134/134, integración 114/114 (+3:
+slots de 30' con clinic/professional, filtro por serviceId, y una cita que ocupa saca su slot
+dejando libre el siguiente). El refactor no rompió los tests del agendamiento online.
+
 ## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 1 — catálogo (lectura)
 
 Arranque de la integración INVERSA (TuBot lee la agenda de Cláriva y agenda solo; feedback

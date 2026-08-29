@@ -206,22 +206,56 @@ async function busyIntervals(db: TenantClient, doctorId: string, from: Date, to:
   return out
 }
 
-// Ventanas (HH:MM) de un día de la semana, según el link (horario del profesional
-// con receso partido, o las ventanas propias del link).
+// Ventanas (HH:MM) de un día de la semana a partir del HorarioDoctor (con receso
+// partido en dos tramos). Compartido por el agendamiento online y la API de TuBot.
+function ventanasDeHorario(horarios: Awaited<ReturnType<typeof listarHorarios>>, weekday: number): { ini: string; fin: string }[] {
+  const out: { ini: string; fin: string }[] = []
+  for (const h of horarios) {
+    if (h.diaSemana !== weekday || !h.activo) continue
+    if (h.recesoActivo && h.recesoInicio && h.recesoFin && h.recesoInicio < h.recesoFin) {
+      out.push({ ini: h.horaInicio, fin: h.recesoInicio }, { ini: h.recesoFin, fin: h.horaFin })
+    } else {
+      out.push({ ini: h.horaInicio, fin: h.horaFin })
+    }
+  }
+  return out
+}
+
+// Ventanas de un día de la semana, según el link (horario del profesional, o las
+// ventanas propias del link).
 function ventanasDelDia(link: Link, horarios: Awaited<ReturnType<typeof listarHorarios>>, weekday: number): { ini: string; fin: string }[] {
-  if (link.usaHorarioDoctor) {
-    const out: { ini: string; fin: string }[] = []
-    for (const h of horarios) {
-      if (h.diaSemana !== weekday || !h.activo) continue
-      if (h.recesoActivo && h.recesoInicio && h.recesoFin && h.recesoInicio < h.recesoFin) {
-        out.push({ ini: h.horaInicio, fin: h.recesoInicio }, { ini: h.recesoFin, fin: h.horaFin })
-      } else {
-        out.push({ ini: h.horaInicio, fin: h.horaFin })
+  if (link.usaHorarioDoctor) return ventanasDeHorario(horarios, weekday)
+  return link.ventanas.filter((v) => v.diaSemana === weekday).map((v) => ({ ini: v.horaInicio, fin: v.horaFin }))
+}
+
+// Slots libres de un profesional en un rango de fechas civiles (hora de Chile),
+// según su HorarioDoctor y su ocupación (citas que ocupan + bloqueos), en pasos de
+// `durationMin`. No depende de un link: lo usa la API de agenda de TuBot. Devuelve
+// instantes UTC ordenados; descarta los pasados y los que no calzan en la ventana.
+export async function slotsLibres(
+  db: TenantClient, doctorId: string, durationMin: number, fromYmd: string, toYmd: string, now = new Date(),
+): Promise<{ start: Date; end: Date }[]> {
+  const hoy = todayYmd(undefined, now)
+  const startYmd = fromYmd < hoy ? hoy : fromYmd
+  if (toYmd < startYmd) return []
+  const horarios = await listarHorarios(db, doctorId)
+  if (horarios.length === 0) return []
+  const finRango = wallClockToUtc(addDaysYmd(toYmd, 1), '00:00')
+  const busy = await busyIntervals(db, doctorId, now, finRango)
+  const out: { start: Date; end: Date }[] = []
+  for (let ymd = startYmd; ymd <= toYmd; ymd = addDaysYmd(ymd, 1)) {
+    for (const w of ventanasDeHorario(horarios, weekdayOfYmd(ymd))) {
+      const wStart = toMin(w.ini), wEnd = toMin(w.fin)
+      for (let m = wStart; m + durationMin <= wEnd; m += durationMin) {
+        const start = wallClockToUtc(ymd, fromMin(m))
+        if (start.getTime() < now.getTime()) continue
+        const end = new Date(start.getTime() + durationMin * 60000)
+        if (busy.some(([bi, bf]) => intervalsOverlap(bi, bf, start, end))) continue
+        out.push({ start, end })
       }
     }
-    return out
   }
-  return link.ventanas.filter((v) => v.diaSemana === weekday).map((v) => ({ ini: v.horaInicio, fin: v.horaFin }))
+  return out
 }
 
 export async function calcularSlots(db: TenantClient, link: Link, doctorId: string, now = new Date()) {

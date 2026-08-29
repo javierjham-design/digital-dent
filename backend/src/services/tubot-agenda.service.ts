@@ -1,13 +1,16 @@
 import type { TenantClient } from '@/db/tenant'
 import { conTitulo } from '@shared/utils/nombre'
+import { slotsLibres } from '@/services/agenda-online.service'
+import { todayYmd, addDaysYmd } from '@/lib/tz'
 
 // Adaptadores del modelo de Cláriva al CONTRATO de TuBot (docs/TUBOT_AGENDA.md).
 // Cada token = una clínica (un tenant); Cláriva no tiene "múltiples sedes", así que
-// `clinicId` == el slug de la clínica. Sólo lectura de catálogo (Fase 1).
+// `clinicId` == el slug de la clínica. Lectura de catálogo (Fase 1) + disponibilidad (Fase 2).
 
 export interface SchedClinic { id: string; name: string; address?: string; timezone: string }
 export interface SchedProfessional { id: string; name: string; specialty?: string; clinicIds?: string[] }
 export interface SchedService { id: string; name: string; durationMin: number; price?: number; currency?: string }
+export interface SchedSlot { start: string; end: string; professionalId: string; clinicId: string; serviceId?: string }
 
 // Zona horaria IANA por país (Configuracion.pais). Chile por defecto.
 const TZ: Record<string, string> = {
@@ -72,4 +75,43 @@ export async function professionalServices(db: TenantClient, professionalId: str
     orderBy: { nombre: 'asc' },
   })
   return ps.map((p) => ({ id: p.id, name: p.nombre, durationMin: p.duracion, price: p.precio, currency: 'CLP' }))
+}
+
+const YMD = /^\d{4}-\d{2}-\d{2}$/
+const MAX_DIAS = 62 // tope del rango consultable (evita barridos enormes)
+const DURACION_DEFECTO = 30
+
+// GET /availability → slots libres, según HorarioDoctor + ocupación, en pasos de la
+// duración del servicio (o 30'). Sin `professionalId` devuelve los de todos los
+// profesionales; el rango [from,to] son fechas civiles (hora de la clínica) y se
+// acota a hoy…hoy+MAX_DIAS. `start`/`end` en ISO 8601 UTC.
+export async function availability(
+  db: TenantClient, slug: string, q: { professionalId?: string; serviceId?: string; from?: string; to?: string },
+): Promise<SchedSlot[]> {
+  const from = q.from && YMD.test(q.from) ? q.from : todayYmd()
+  let to = q.to && YMD.test(q.to) ? q.to : from
+  if (to < from) to = from
+  const maxTo = addDaysYmd(from, MAX_DIAS)
+  if (to > maxTo) to = maxTo
+
+  let durationMin = DURACION_DEFECTO
+  if (q.serviceId) {
+    const p = await db.prestacion.findUnique({ where: { id: q.serviceId }, select: { duracion: true } })
+    if (p?.duracion) durationMin = p.duracion
+  }
+
+  const docs = await db.user.findMany({
+    where: { role: { in: ROLES_CON_AGENDA }, activo: true, ...(q.professionalId ? { id: q.professionalId } : {}) },
+    select: { id: true },
+  })
+
+  const out: SchedSlot[] = []
+  for (const d of docs) {
+    const libres = await slotsLibres(db, d.id, durationMin, from, to)
+    for (const s of libres) {
+      out.push({ start: s.start.toISOString(), end: s.end.toISOString(), professionalId: d.id, clinicId: slug, ...(q.serviceId ? { serviceId: q.serviceId } : {}) })
+    }
+  }
+  out.sort((a, b) => a.start.localeCompare(b.start))
+  return out
 }

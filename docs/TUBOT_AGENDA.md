@@ -39,7 +39,12 @@ CANCELADA→`cancelled`. Reagendar (PATCH) deja la cita en PENDIENTE.
 
 - **✅ Fase 1 — Catálogo (lectura)**: `GET /clinics /professionals /professionals/:id/services
   /services` + auth por token dedicado + gestión del token en el Super Admin.
-- ⏳ **Fase 2 — Disponibilidad**: `GET /availability`.
+- **✅ Fase 2 — Disponibilidad**: `GET /availability?clinicId&professionalId&serviceId&from&to`
+  → `SchedSlot[]` (`{start,end,professionalId,clinicId,serviceId?}`, `start/end` ISO 8601 UTC).
+  Slots del `HorarioDoctor` (con receso partido) en pasos de la duración del servicio (o 30'),
+  menos la ocupación (citas que ocupan + bloqueos). Sin `professionalId` → todos los
+  profesionales. Rango en fechas civiles (hora clínica), acotado a hoy…hoy+62d; descarta
+  slots pasados. Lógica reusada de `agenda-online.service` (`slotsLibres`).
 - ⏳ **Fase 3 — Citas (escritura, TuBot agenda solo)** + pacientes por teléfono.
 - ⏳ **Fase 4 — CRM** (buscar/ficha/notas de pacientes).
 - ⏳ **Fase 5 — Webhooks salientes** Cláriva→TuBot (firmados) + alta por clínica

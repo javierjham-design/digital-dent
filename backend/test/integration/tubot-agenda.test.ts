@@ -5,12 +5,14 @@ import { seedDosClinicas, type TenantFixture } from './seed'
 import { tenantClient } from './tenant-test'
 import { control } from './control-test'
 import { hashApiKey } from '@/services/ext.service'
+import { todayYmd, addDaysYmd, wallClockToUtc } from '@/lib/tz'
 
-// API de agenda que consume TuBot (Fase 1: catálogo). Auth por token dedicado
-// (Clinica.tubotApiKeyHash). Paths exactos del contrato bajo /api/v1.
+// API de agenda que consume TuBot. Auth por token dedicado (Clinica.tubotApiKeyHash).
+// Paths exactos del contrato bajo /api/v1. Fase 1 (catálogo) + Fase 2 (disponibilidad).
 let app: Express
 let A: TenantFixture
 let doctorId = ''
+let prestacionId = ''
 const TOKEN = 'tbk_test_agenda'
 const get = (url: string, token = TOKEN) => request(app).get(`/api/v1${url}`).set('Authorization', `Bearer ${token}`)
 
@@ -26,7 +28,10 @@ beforeAll(async () => {
   const doc = await db.user.create({ data: { name: 'Test Uno', titulo: 'Dr.', role: 'doctor', activo: true, especialidad: 'Odontología', email: 'doc-tubot@x.cl', password: 'x', areaDental: true } })
   doctorId = doc.id
   const cat = await db.categoriaPrestacion.create({ data: { nombre: 'Prevención TuBot', area: 'DENTAL' } })
-  await db.prestacion.create({ data: { nombre: 'Limpieza dental', precio: 15000, duracion: 30, activo: true, categoriaId: cat.id } })
+  const pres = await db.prestacion.create({ data: { nombre: 'Limpieza dental', precio: 15000, duracion: 30, activo: true, categoriaId: cat.id } })
+  prestacionId = pres.id
+  // Horario 09:00–17:00 todos los días (para tener slots en cualquier día que corra el test).
+  await db.horarioDoctor.createMany({ data: [0, 1, 2, 3, 4, 5, 6].map((diaSemana) => ({ doctorId, diaSemana, horaInicio: '09:00', horaFin: '17:00', activo: true, recesoActivo: false, sobrecupoActivo: false })) })
 })
 
 describe('TuBot agenda — auth', () => {
@@ -74,5 +79,46 @@ describe('TuBot agenda — catálogo (Fase 1)', () => {
     const r = await get(`/professionals/${doctorId}/services`)
     expect(r.status).toBe(200)
     expect(r.body.some((x: { name: string }) => x.name === 'Limpieza dental')).toBe(true)
+  })
+})
+
+describe('TuBot agenda — disponibilidad (Fase 2)', () => {
+  it('GET /availability → slots de 30 min con clinicId/professionalId', async () => {
+    const from = todayYmd()
+    const to = addDaysYmd(from, 5)
+    const r = await get(`/availability?professionalId=${doctorId}&from=${from}&to=${to}`)
+    expect(r.status).toBe(200)
+    expect(Array.isArray(r.body)).toBe(true)
+    expect(r.body.length).toBeGreaterThan(0)
+    const s = r.body[0]
+    expect(s.professionalId).toBe(doctorId)
+    expect(s.clinicId).toBe(A.slug)
+    expect((new Date(s.end).getTime() - new Date(s.start).getTime()) / 60000).toBe(30)
+    // Todos a futuro y ordenados ascendente.
+    expect(new Date(s.start).getTime()).toBeGreaterThan(Date.now())
+    const starts = r.body.map((x: { start: string }) => x.start)
+    expect(starts).toEqual([...starts].sort())
+  })
+
+  it('GET /availability?serviceId → incluye el serviceId en cada slot', async () => {
+    const from = todayYmd()
+    const to = addDaysYmd(from, 2)
+    const r = await get(`/availability?serviceId=${prestacionId}&from=${from}&to=${to}`)
+    expect(r.status).toBe(200)
+    expect(r.body.length).toBeGreaterThan(0)
+    expect(r.body.every((x: { serviceId: string }) => x.serviceId === prestacionId)).toBe(true)
+  })
+
+  it('GET /availability → una cita que ocupa saca su slot', async () => {
+    const db = tenantClient(A.dbName)
+    const from = addDaysYmd(todayYmd(), 1) // mañana, para no chocar con "ya pasó"
+    const inicio = wallClockToUtc(from, '09:00')
+    const pac = await db.paciente.create({ data: { numero: 90001, nombre: 'Bloqueo', apellido: 'Test', activo: true } })
+    await db.cita.create({ data: { pacienteId: pac.id, doctorId, fecha: inicio, duracion: 30, tipo: 'EVALUACION', estado: 'PENDIENTE', origen: 'MANUAL' } })
+    const r = await get(`/availability?professionalId=${doctorId}&from=${from}&to=${from}`)
+    expect(r.status).toBe(200)
+    expect(r.body.some((x: { start: string }) => x.start === inicio.toISOString())).toBe(false)
+    // El slot siguiente (09:30) sí debe estar libre.
+    expect(r.body.some((x: { start: string }) => x.start === new Date(inicio.getTime() + 30 * 60000).toISOString())).toBe(true)
   })
 })
