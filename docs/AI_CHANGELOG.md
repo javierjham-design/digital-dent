@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-08-29 — TuBot agenda: GET /appointments por rango + payload de webhook enriquecido
+
+Pedidos del dev de TuBot para completar la integración:
+1. **`GET /api/v1/appointments?from&to&clinicId?&professionalId?&serviceId?`** (token TuBot) →
+   arreglo de citas cuyo `start` cae en [from,to] (ISO 8601), TODOS los estados, enriquecidas con
+   `professionalName` + `clinicName`. `serviceId` no se persiste en la cita → se ignora como filtro;
+   `clinicId` = slug (un solo tenant). Sin paginación (rangos ~1 mes van directo). `listAppointments`.
+2. **Webhooks (Fase 5) ajustados a la spec**: el `data` de citas ahora tiene la MISMA forma que el
+   listado (con `professionalName`/`clinicName`); `appointment.attendance` incluye `attended` (true=
+   ATENDIDA/false=NO_ASISTIO). Unifiqué el mapper `citaToAppointment` + `CITA_FULL_SEL` en
+   `lib/tubot-webhooks.ts` (lo usan el listado y el emisor); el emisor lee la config primero y
+   sólo entonces la cita (early-out si los webhooks están apagados). `patient.updated` ya traía phone.
+
+Sin cambio de schema. Verificado: typecheck be, contrato (280 rutas), unit 134/134, integración
+139/139 (+4: 400 sin from/to, listado enriquecido en rango, filtro por profesional, attendance con
+`attended`). El resto del contrato (availability, POST 409, cancel/confirm/attendance, PUT patients)
+intacto.
+
+---
+
 ## 2026-08-29 — TuBot agenda: gestión self-serve del token/webhooks por la clínica
 
 El token de Agenda TuBot **siempre fue por clínica** (control `Clinica.tubotApiKeyHash`, scopeado);

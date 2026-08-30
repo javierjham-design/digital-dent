@@ -67,6 +67,14 @@ export async function postAppointment(req: Request, res: Response) {
   }
 }
 
+// GET /appointments?from&to&clinicId&professionalId&serviceId (Fase 6)
+export async function getAppointments(req: Request, res: Response) {
+  const q = req.query as Record<string, string | undefined>
+  res.json(await svc.listAppointments(tenantDb(req), req.clinica!.slug, {
+    from: q.from, to: q.to, professionalId: q.professionalId, serviceId: q.serviceId,
+  }))
+}
+
 export async function getAppointmentById(req: Request, res: Response) {
   const appt = await svc.getAppointment(tenantDb(req), req.clinica!.slug, req.params.id)
   if (!appt) return res.status(404).json({ error: 'not_found' })

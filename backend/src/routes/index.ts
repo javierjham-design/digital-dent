@@ -226,6 +226,7 @@ apiRouter.get('/professionals/:id/services', tubotScope, asyncHandler(tubotAgend
 apiRouter.get('/services', tubotScope, asyncHandler(tubotAgenda.getServices))
 apiRouter.get('/availability', tubotScope, asyncHandler(tubotAgenda.getAvailability))
 apiRouter.post('/appointments', tubotScope, asyncHandler(tubotAgenda.postAppointment))
+apiRouter.get('/appointments', tubotScope, asyncHandler(tubotAgenda.getAppointments))
 apiRouter.get('/appointments/:id', tubotScope, asyncHandler(tubotAgenda.getAppointmentById))
 apiRouter.patch('/appointments/:id', tubotScope, asyncHandler(tubotAgenda.patchAppointment))
 apiRouter.post('/appointments/:id/cancel', tubotScope, asyncHandler(tubotAgenda.cancelAppointment))

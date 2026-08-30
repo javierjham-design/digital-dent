@@ -6,6 +6,7 @@ import { crearPaciente, listarPacientesPaginado, obtenerPaciente, listarComentar
 import { todayYmd, addDaysYmd } from '@/lib/tz'
 import { badRequest } from '@/lib/errors'
 import { encryptNullable } from '@/lib/crypto'
+import { citaToAppointment, CITA_FULL_SEL, type CitaFullRow } from '@/lib/tubot-webhooks'
 import { validarRut, formatRut } from '@shared/utils/rut'
 
 // Adaptadores del modelo de Cláriva al CONTRATO de TuBot (docs/TUBOT_AGENDA.md).
@@ -244,6 +245,30 @@ export async function createAppointment(db: TenantClient, slug: string, input: C
     patient: toSchedPatient(pac),
     start: cita.inicio, end: cita.fin, status: ESTADO_A_STATUS[cita.estado] ?? 'pending', notes: cita.notas || undefined,
   }
+}
+
+// GET /appointments?from&to&professionalId&serviceId → citas cuyo `start` cae en
+// [from,to] (para pintar la agenda en el panel de TuBot). Devuelve TODOS los estados,
+// enriquecido con professionalName/clinicName. serviceId/clinicId: filtros opcionales
+// (serviceId no se persiste en la cita → se ignora; clinicId = slug, un solo tenant).
+export async function listAppointments(
+  db: TenantClient, slug: string, q: { from?: string; to?: string; professionalId?: string; serviceId?: string },
+): Promise<ReturnType<typeof citaToAppointment>[]> {
+  const from = q.from ? new Date(q.from) : null
+  const to = q.to ? new Date(q.to) : null
+  if (!from || Number.isNaN(from.getTime()) || !to || Number.isNaN(to.getTime())) {
+    throw badRequest('from y to (ISO 8601) son requeridos')
+  }
+  const [cfg, citas] = await Promise.all([
+    db.configuracion.findUnique({ where: { id: 'singleton' }, select: { nombre: true } }),
+    db.cita.findMany({
+      where: { fecha: { gte: from, lte: to }, ...(q.professionalId ? { doctorId: q.professionalId } : {}) },
+      select: CITA_FULL_SEL,
+      orderBy: { fecha: 'asc' },
+    }),
+  ])
+  const clinicName = cfg?.nombre ?? undefined
+  return citas.map((c) => citaToAppointment(c as CitaFullRow, { slug, clinicName }))
 }
 
 // GET /appointments/:id

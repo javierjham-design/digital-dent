@@ -263,6 +263,38 @@ describe('TuBot agenda — CRM (Fase 4)', () => {
   })
 })
 
+describe('TuBot agenda — listar citas por rango (Fase 6)', () => {
+  it('GET /appointments sin from/to → 400', async () => {
+    const r = await get('/appointments')
+    expect(r.status).toBe(400)
+  })
+
+  it('GET /appointments?from&to → citas del rango, enriquecidas', async () => {
+    const from = wallClockToUtc(addDaysYmd(todayYmd(), 1), '00:00').toISOString()
+    const to = wallClockToUtc(addDaysYmd(todayYmd(), 3), '23:59').toISOString()
+    const r = await get(`/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+    expect(r.status).toBe(200)
+    expect(Array.isArray(r.body)).toBe(true)
+    expect(r.body.length).toBeGreaterThan(0)
+    const a = r.body[0]
+    expect(a.id).toBeTruthy()
+    expect(a.clinicId).toBe(A.slug)
+    expect(a.professionalName).toContain('Test Uno') // "Dr. Test Uno"
+    expect(a.patient.firstName).toBeTruthy()
+    expect(['pending', 'confirmed', 'cancelled', 'rescheduled', 'completed', 'no_show']).toContain(a.status)
+    // Todas dentro del rango.
+    expect(r.body.every((x: { start: string }) => x.start >= from && x.start <= to)).toBe(true)
+  })
+
+  it('GET /appointments?professionalId= → filtra por profesional', async () => {
+    const from = wallClockToUtc(addDaysYmd(todayYmd(), 1), '00:00').toISOString()
+    const to = wallClockToUtc(addDaysYmd(todayYmd(), 3), '23:59').toISOString()
+    const r = await get(`/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&professionalId=${doctorId}`)
+    expect(r.status).toBe(200)
+    expect(r.body.every((x: { professionalId: string }) => x.professionalId === doctorId)).toBe(true)
+  })
+})
+
 describe('TuBot agenda — webhooks salientes (Fase 5)', () => {
   const secret = 'wh-secret-test'
   let citaId = ''
@@ -293,6 +325,23 @@ describe('TuBot agenda — webhooks salientes (Fase 5)', () => {
     expect(payload.event).toBe('appointment.created')
     expect(payload.data.id).toBe(citaId)
     expect(payload.data.status).toBe('pending')
+    fetchSpy.mockRestore()
+  })
+
+  it('appointment.attendance incluye attended + professionalName', async () => {
+    const { emitirEventoCita } = await import('@/lib/tubot-webhooks')
+    const db = tenantClient(A.dbName)
+    await db.cita.update({ where: { id: citaId }, data: { estado: 'NO_ASISTIO' } })
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }))
+    await emitirEventoCita(db, 'appointment.attendance', citaId)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const call = fetchSpy.mock.calls.find((c: any[]) => String(c[0]).includes('/webhooks/clariva/conn-abc'))
+    expect(call).toBeTruthy()
+    const payload = JSON.parse(call[1].body)
+    expect(payload.event).toBe('appointment.attendance')
+    expect(payload.data.attended).toBe(false) // NO_ASISTIO
+    expect(payload.data.status).toBe('no_show')
+    expect(payload.data.professionalName).toContain('Test Uno')
     fetchSpy.mockRestore()
   })
 

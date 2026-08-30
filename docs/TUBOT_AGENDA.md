@@ -47,6 +47,9 @@ CANCELADA→`cancelled`. Reagendar (PATCH) deja la cita en PENDIENTE.
   slots pasados. Lógica reusada de `agenda-online.service` (`slotsLibres`).
 - **✅ Fase 3 — Citas (escritura, TuBot agenda solo)** + pacientes por teléfono:
   `POST /appointments` (201 · `Idempotency-Key` best-effort en memoria · doble reserva → `409 slot_taken`),
+  `GET /appointments?from&to&clinicId?&professionalId?&serviceId?` (lista por rango de `start`,
+  TODOS los estados, enriquecida con `professionalName`/`clinicName`; `serviceId` no se persiste
+  en la cita → se ignora como filtro; `clinicId` = slug, un solo tenant),
   `GET /appointments/:id`, `PATCH /appointments/:id` (reagenda → vuelve a `pending`),
   `POST /appointments/:id/{cancel|confirm|attendance}` (attended:false → `no_show`),
   `PUT /patients` (upsert por documento/teléfono; no pisa datos de la ficha),
@@ -69,9 +72,11 @@ CANCELADA→`cancelled`. Reagendar (PATCH) deja la cita en PENDIENTE.
   confirmed|cancelled|attendance|updated, `actualizarPaciente`→patient.updated). Firma
   `X-Clariva-Signature: sha256=HMAC(secret, body)`; destino
   `${env.tubotBaseUrl}/webhooks/clariva/{connectionId}` (reusa el env de TuBot, sin var nueva).
-  Payload `{event, occurredAt, data}` con `data` = `SchedAppointment` | `SchedPatient`
-  (`clinicId` = slug, del request-context). Gestión en el Super Admin (card "Agenda TuBot" →
-  sección "Webhooks Cláriva → TuBot": connectionId + secreto + activar).
+  Payload `{event, occurredAt, data}`. `data` de citas = MISMA forma que `GET /appointments`
+  (con `professionalName`/`clinicName`); en `appointment.attendance` agrega `attended: bool`
+  (true=ATENDIDA, false=NO_ASISTIO); `patient.updated` = `{firstName, lastName?, phone, email?, documentId?}`.
+  `clinicId` = slug (request-context). Mapper compartido `citaToAppointment` en `lib/tubot-webhooks.ts`.
+  Gestión self-serve (Configuración → Agenda TuBot) o Super Admin.
 
 ## Alta de una clínica
 
