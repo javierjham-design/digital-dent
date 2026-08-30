@@ -231,6 +231,11 @@ apiRouter.patch('/appointments/:id', tubotScope, asyncHandler(tubotAgenda.patchA
 apiRouter.post('/appointments/:id/cancel', tubotScope, asyncHandler(tubotAgenda.cancelAppointment))
 apiRouter.post('/appointments/:id/confirm', tubotScope, asyncHandler(tubotAgenda.confirmAppointment))
 apiRouter.post('/appointments/:id/attendance', tubotScope, asyncHandler(tubotAgenda.attendanceAppointment))
+// Tenant self-serve: la clínica gestiona su propia conexión con TuBot (token + webhooks).
+apiRouter.get('/integraciones/tubot-agenda', configTenant, asyncHandler(tubotAgenda.getMiTubotAgenda))
+apiRouter.post('/integraciones/tubot-agenda/token', configTenant, asyncHandler(tubotAgenda.postMiTubotToken))
+apiRouter.delete('/integraciones/tubot-agenda/token', configTenant, asyncHandler(tubotAgenda.deleteMiTubotToken))
+apiRouter.put('/integraciones/tubot-agenda/webhook', configTenant, asyncHandler(tubotAgenda.putMiTubotWebhook))
 apiRouter.put('/patients', tubotScope, asyncHandler(tubotAgenda.putPatient))
 apiRouter.get('/patients', tubotScope, asyncHandler(tubotAgenda.getCrmPatients))
 apiRouter.get('/patients/:phone/appointments', tubotScope, asyncHandler(tubotAgenda.getPatientAppointments))

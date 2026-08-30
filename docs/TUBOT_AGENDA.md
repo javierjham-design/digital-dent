@@ -75,9 +75,19 @@ CANCELADA→`cancelled`. Reagendar (PATCH) deja la cita en PENDIENTE.
 
 ## Alta de una clínica
 
-1. Super Admin → clínica → **Agenda TuBot → Generar token** (`tbk_…`, copiar una vez).
+El token es **por clínica** (1 tenant = 1 token, hash en control `Clinica.tubotApiKeyHash`, scopeado a
+su base). Se gestiona por **DOS vías equivalentes** (escriben el mismo token/config):
+
+- **Self-serve (recomendado)**: la clínica, en **Configuración → Agenda TuBot** (permiso
+  "Configurar la clínica"). Endpoints `/api/v1/integraciones/tubot-agenda*` (scope `configTenant`,
+  operan sobre la clínica del JWT).
+- **Super Admin**: detalle de la clínica → card "Agenda TuBot". Endpoints
+  `/api/v1/admin/clinicas/:id/tubot*` (scope `sa`, con auditoría).
+
+Pasos:
+1. Generar el token (`tbk_…`, se muestra una vez → copiar).
 2. En TuBot: cargar `baseUrl=https://api.clariva.cl` + ese token → TuBot crea la conexión y
-   devuelve un `connectionId`.
-3. Cargar en el Super Admin (card "Agenda TuBot" → "Webhooks Cláriva → TuBot") el
-   `connectionId` + el `secreto` de la conexión (los entrega TuBot al conectar) y activar.
-   Desde ahí, cada cambio de cita/paciente en el panel se le avisa a TuBot firmado.
+   devuelve un `connectionId` + un `secret`.
+3. Cargar el `connectionId` + el `secret` en la sección de webhooks ("Avisos a TuBot" / "Webhooks
+   Cláriva → TuBot") y activar. Desde ahí, cada cambio de cita/paciente en el panel se le avisa a
+   TuBot firmado.

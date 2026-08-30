@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-08-29 — TuBot agenda: gestión self-serve del token/webhooks por la clínica
+
+El token de Agenda TuBot **siempre fue por clínica** (control `Clinica.tubotApiKeyHash`, scopeado);
+lo que faltaba era que la propia clínica lo gestionara sin depender del Super Admin. Ahora hay
+**dos vías equivalentes** (mismo token/config):
+- **Tenant self-serve**: `GET/POST(token)/DELETE(token)/PUT(webhook) /api/v1/integraciones/tubot-agenda*`
+  (scope `configTenant` = permiso "Configurar la clínica"; operan SIEMPRE sobre `req.clinica.id`, nunca
+  un `:id` ajeno). UI: nueva pestaña **"Agenda TuBot"** en Configuración (admin) — token
+  (generar/regenerar/revocar, se muestra una vez) + webhooks (connectionId/secreto/activar).
+- **Super Admin**: sin cambios de cara al usuario; su `putTubotWebhook` ahora **delega** en el core
+  compartido `tubot-agenda.service.getWebhookConfig/setWebhookConfig` (se eliminó la lógica duplicada).
+
+Sin cambio de schema (reusa las columnas `agendaWh*` de la Fase 5). Verificado: typecheck be/fe,
+contrato (279 rutas), unit 134/134, integración 135/135 (+4: 401 sin JWT, estado, generar token que
+autentica la API de TuBot y resuelve la propia clínica, habilitar webhook), build fe.
+
+---
+
 ## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 5 — webhooks salientes (Cláriva→TuBot)
 
 Cierra la integración: Cláriva le avisa a TuBot cuando algo cambia en el panel, firmado.

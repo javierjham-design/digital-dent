@@ -5,6 +5,7 @@ import { crearCita, editarCita, cambiarEstadoCita } from '@/services/citas.servi
 import { crearPaciente, listarPacientesPaginado, obtenerPaciente, listarComentarios, crearComentario } from '@/services/pacientes.service'
 import { todayYmd, addDaysYmd } from '@/lib/tz'
 import { badRequest } from '@/lib/errors'
+import { encryptNullable } from '@/lib/crypto'
 import { validarRut, formatRut } from '@shared/utils/rut'
 
 // Adaptadores del modelo de Cláriva al CONTRATO de TuBot (docs/TUBOT_AGENDA.md).
@@ -321,4 +322,28 @@ export async function crmNotes(db: TenantClient, id: string): Promise<CrmNote[]>
 export async function crmAddNote(db: TenantClient, id: string, text: string): Promise<CrmNote> {
   const n = await crearComentario(db, id, { id: 'tubot', nombre: 'TuBot' }, text)
   return toCrmNote(n)
+}
+
+// ── Config de webhooks salientes (por clínica, en su Configuracion) ────────────
+// Core compartido por el panel del tenant (self-serve) y el Super Admin.
+const AGW_SEL = { agendaWhEnabled: true, agendaWhConnectionId: true, agendaWhSecret: true } as const
+
+export async function getWebhookConfig(db: TenantClient): Promise<{ enabled: boolean; connectionId: string | null; secretConfigurado: boolean }> {
+  const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: AGW_SEL })
+  return { enabled: Boolean(c?.agendaWhEnabled), connectionId: c?.agendaWhConnectionId ?? null, secretConfigurado: Boolean(c?.agendaWhSecret) }
+}
+
+export async function setWebhookConfig(db: TenantClient, body: Record<string, unknown>): Promise<{ ok: true }> {
+  const enabled = Boolean(body.enabled)
+  const connectionId = body.connectionId ? String(body.connectionId).trim() : null
+  const secretNuevo = typeof body.secret === 'string' && body.secret.trim() ? body.secret.trim() : undefined
+  const data: Record<string, unknown> = { agendaWhEnabled: enabled, agendaWhConnectionId: connectionId }
+  if (secretNuevo) data.agendaWhSecret = encryptNullable(secretNuevo)
+  if (enabled) {
+    const actual = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: AGW_SEL })
+    const secretOk = Boolean(secretNuevo || actual?.agendaWhSecret)
+    if (!connectionId || !secretOk) throw badRequest('Para habilitar los webhooks se necesitan el connectionId y el secreto de la conexión.')
+  }
+  await db.configuracion.update({ where: { id: 'singleton' }, data })
+  return { ok: true as const }
 }

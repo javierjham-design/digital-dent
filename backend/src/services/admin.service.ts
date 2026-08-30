@@ -8,6 +8,7 @@ import { encryptNullable, decryptNullable } from '@/lib/crypto'
 import { tubotProvider, type TubotConfig } from '@/lib/tubot'
 import { getPlanes, getPlan, getLimiteProfesionales, precioProfesionalExtra, precioPlanEnMoneda } from '@/lib/plans'
 import { crearClinicaConProvision, slugify, RESERVED_SLUGS } from '@/services/clinicas-registry.service'
+import { getWebhookConfig, setWebhookConfig } from '@/services/tubot-agenda.service'
 import { invalidateClinicaCache } from '@/middlewares/tenant'
 import { esPaisValido, PAISES_LISTA } from '@shared/constants/paises'
 import { parseModulos, MODULOS, MODULOS_CODES, MODULOS_DEFAULT } from '@shared/constants/modulos'
@@ -501,34 +502,18 @@ export async function putWhatsapp(ctx: AuditCtx, id: string, body: Record<string
   await auditAdmin({ ...ctx, action: 'CONFIGURAR_WHATSAPP', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: slug, waEnabled, waConnectionId } })
 }
 
-// ── Webhooks de agenda Cláriva → TuBot (por clínica, en la Configuracion del tenant) ──
-const AGW_SEL = { agendaWhEnabled: true, agendaWhConnectionId: true, agendaWhSecret: true } as const
-
+// ── Webhooks de agenda Cláriva → TuBot (por clínica; core en tubot-agenda.service) ──
+// El tenant lo autogestiona desde su panel; acá el Super Admin usa el mismo core + auditoría.
 export async function getTubotWebhook(id: string) {
   const { dbName } = await dbNameDe(id)
-  const c = await tenantClient(dbName).configuracion.findUnique({ where: { id: 'singleton' }, select: AGW_SEL })
-  return { enabled: Boolean(c?.agendaWhEnabled), connectionId: c?.agendaWhConnectionId ?? null, secretConfigurado: Boolean(c?.agendaWhSecret) }
+  return getWebhookConfig(tenantClient(dbName))
 }
 
 export async function putTubotWebhook(ctx: AuditCtx, id: string, body: Record<string, unknown>) {
   const { slug, dbName } = await dbNameDe(id)
-  const db = tenantClient(dbName)
-  const enabled = Boolean(body.enabled)
-  const connectionId = body.connectionId ? String(body.connectionId).trim() : null
-  const secretNuevo = typeof body.secret === 'string' && body.secret.trim() ? body.secret.trim() : undefined
-
-  const data: Record<string, unknown> = { agendaWhEnabled: enabled, agendaWhConnectionId: connectionId }
-  if (secretNuevo) data.agendaWhSecret = encryptNullable(secretNuevo)
-
-  if (enabled) {
-    const actual = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: AGW_SEL })
-    const secretOk = Boolean(secretNuevo || actual?.agendaWhSecret)
-    if (!connectionId || !secretOk) throw badRequest('Para habilitar los webhooks se necesitan el connectionId y el secreto de la conexión.')
-  }
-
-  await db.configuracion.update({ where: { id: 'singleton' }, data })
-  await auditAdmin({ ...ctx, action: 'CONFIGURAR_TUBOT_WEBHOOK', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: slug, enabled, connectionId } })
-  return { ok: true as const }
+  const res = await setWebhookConfig(tenantClient(dbName), body)
+  await auditAdmin({ ...ctx, action: 'CONFIGURAR_TUBOT_WEBHOOK', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: slug, enabled: Boolean(body.enabled), connectionId: body.connectionId ? String(body.connectionId).trim() : null } })
+  return res
 }
 
 // Prueba de conexión con TuBot: consulta el estado de la plantilla de la clínica

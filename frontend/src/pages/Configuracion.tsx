@@ -5,6 +5,7 @@ import { clinicaService, mediosPagoService, type MedioPagoDTO } from '@/services
 import { usuariosService } from '@/services/equipo.service'
 import { googleService, type GoogleCalendar, type GoogleHealth } from '@/services/google.service'
 import { pagosOnlineService, type PagoOnlineConfig } from '@/services/pagos-online.service'
+import { tubotAgendaService, type TubotAgendaEstado } from '@/services/tubot-agenda.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
@@ -53,7 +54,7 @@ export function Configuracion() {
   const tabs: { key: string; label: string }[] = [
     { key: 'datos', label: 'Datos y mensajes' },
     { key: 'medios', label: 'Medios de pago' },
-    ...(esAdmin ? [{ key: 'pagos', label: 'Pagos online' }, { key: 'google', label: 'Google Calendar' }] : []),
+    ...(esAdmin ? [{ key: 'pagos', label: 'Pagos online' }, { key: 'google', label: 'Google Calendar' }, { key: 'tubot', label: 'Agenda TuBot' }] : []),
   ]
   const tabParam = searchParams.get('tab') ?? 'datos'
   const tab = tabs.some((t) => t.key === tabParam) ? tabParam : 'datos'
@@ -146,6 +147,7 @@ export function Configuracion() {
       {tab === 'medios' && <MediosPago />}
       {tab === 'pagos' && esAdmin && <PagosOnlineSection />}
       {tab === 'google' && esAdmin && <GoogleCalendarSection />}
+      {tab === 'tubot' && esAdmin && <TubotAgendaSection />}
     </div>
   )
 }
@@ -373,6 +375,88 @@ function MediosPago() {
         </label>
         <button onClick={crear} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Agregar</button>
         {msg && <span className="text-sm text-rose-600">{msg}</span>}
+      </div>
+    </div>
+  )
+}
+
+// Conexión de AGENDA con TuBot (self-serve de la clínica): token dedicado + webhooks.
+// Con esto TuBot agenda solo en tu agenda y te avisa cambios firmados.
+function TubotAgendaSection() {
+  const [estado, setEstado] = useState<TubotAgendaEstado | null>(null)
+  const [token, setToken] = useState('')
+  const [connectionId, setConnectionId] = useState('')
+  const [secret, setSecret] = useState('')
+  const [enabled, setEnabled] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const inp = 'w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500'
+  const cargar = () => tubotAgendaService.estado().then((r) => {
+    setEstado(r); setConnectionId(r.webhook.connectionId ?? ''); setEnabled(r.webhook.enabled)
+  }).catch(() => {})
+  useEffect(() => { cargar() }, [])
+  async function generar() {
+    if (estado?.hasToken && !confirm('Ya hay un token. Generar uno nuevo invalida el anterior. ¿Continuar?')) return
+    setBusy(true); setMsg('')
+    try { const r = await tubotAgendaService.generarToken(); setToken(r.token); await cargar() }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Error') } finally { setBusy(false) }
+  }
+  async function revocar() {
+    if (!confirm('¿Revocar el token? TuBot dejará de poder agendar hasta generar uno nuevo.')) return
+    setBusy(true); setMsg('')
+    try { await tubotAgendaService.revocarToken(); setToken(''); await cargar() }
+    catch (e) { setMsg(e instanceof Error ? e.message : 'Error') } finally { setBusy(false) }
+  }
+  async function guardarWebhook() {
+    setBusy(true); setMsg('')
+    try {
+      await tubotAgendaService.guardarWebhook({ enabled, connectionId: connectionId.trim() || null, secret: secret.trim() || undefined })
+      setSecret(''); await cargar(); setMsg('Guardado')
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'No se pudo guardar') } finally { setBusy(false) }
+  }
+  const btn = 'px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl'
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-200 p-6">
+        <h2 className="text-base font-semibold text-slate-900 mb-1">Token de acceso</h2>
+        <p className="text-sm text-slate-500 mb-4">TuBot usa este token para leer tu agenda y agendar. Base: <span className="font-mono text-xs">https://api.clariva.cl/api/v1</span>. Se muestra completo sólo al generarlo — copialo y pegalo en TuBot.</p>
+        {token && (
+          <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+            <p className="text-xs text-emerald-700 mb-1">Token generado — copialo ahora (no se vuelve a mostrar):</p>
+            <div className="flex gap-2">
+              <input readOnly value={token} onFocus={(e) => e.currentTarget.select()} className={`${inp} font-mono`} />
+              <button onClick={() => navigator.clipboard?.writeText(token)} className="shrink-0 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold">Copiar</button>
+            </div>
+          </div>
+        )}
+        <p className="text-sm text-slate-600 mb-3">Estado: {estado?.hasToken ? <span className="text-emerald-600 font-semibold">token configurado</span> : <span className="text-slate-400">sin token</span>}</p>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={generar} disabled={busy} className={btn}>{estado?.hasToken ? 'Regenerar token' : 'Generar token'}</button>
+          {estado?.hasToken && <button onClick={revocar} disabled={busy} className="px-4 py-2 rounded-xl text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50">Revocar</button>}
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-200 p-6">
+        <h2 className="text-base font-semibold text-slate-900 mb-1">Avisos a TuBot (webhooks)</h2>
+        <p className="text-sm text-slate-500 mb-4">Cuando conectás la clínica en TuBot, te entrega un <span className="font-mono text-xs">connectionId</span> y un secreto. Cargalos acá y activá para que cada cambio de cita/paciente en tu panel se le avise a TuBot (firmado).</p>
+        <div className="space-y-4 max-w-md">
+          <label className="block">
+            <span className="block text-sm font-medium text-slate-700 mb-1">Connection ID</span>
+            <input value={connectionId} onChange={(e) => setConnectionId(e.target.value)} placeholder="conn_…" className={inp} />
+          </label>
+          <label className="block">
+            <span className="block text-sm font-medium text-slate-700 mb-1">Secreto del webhook {estado?.webhook.secretConfigurado && <span className="text-emerald-600 font-normal">(configurado — dejá vacío para conservarlo)</span>}</span>
+            <input value={secret} onChange={(e) => setSecret(e.target.value)} type="password" placeholder={estado?.webhook.secretConfigurado ? '••••••••' : 'secreto'} className={inp} />
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="w-4 h-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />
+            Activar avisos a TuBot
+          </label>
+          <div className="flex items-center gap-3">
+            <button onClick={guardarWebhook} disabled={busy} className={btn}>Guardar</button>
+            {msg && <span className="text-xs text-slate-500">{msg}</span>}
+          </div>
+        </div>
       </div>
     </div>
   )

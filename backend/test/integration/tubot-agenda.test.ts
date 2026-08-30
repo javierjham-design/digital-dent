@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import request from 'supertest'
 import { createHmac } from 'crypto'
 import type { Express } from 'express'
-import { seedDosClinicas, type TenantFixture } from './seed'
+import { seedDosClinicas, PASSWORD, type TenantFixture } from './seed'
 import { tenantClient } from './tenant-test'
 import { control } from './control-test'
 import { hashApiKey } from '@/services/ext.service'
@@ -306,5 +306,48 @@ describe('TuBot agenda — webhooks salientes (Fase 5)', () => {
     const call = fetchSpy.mock.calls.find((c: any[]) => String(c[0]).includes('/webhooks/clariva/'))
     expect(call).toBeUndefined()
     fetchSpy.mockRestore()
+  })
+})
+
+describe('TuBot agenda — self-serve del tenant', () => {
+  let jwt = ''
+  const auth = (r: request.Test) => r.set('Authorization', `Bearer ${jwt}`)
+
+  beforeAll(async () => {
+    const r = await request(app).post('/api/v1/auth/login').send({ slug: A.slug, username: 'admin', password: PASSWORD })
+    jwt = r.body.token
+  })
+
+  it('sin JWT → 401', async () => {
+    const r = await request(app).get('/api/v1/integraciones/tubot-agenda')
+    expect(r.status).toBe(401)
+  })
+
+  it('GET estado → token + webhook de la propia clínica', async () => {
+    const r = await auth(request(app).get('/api/v1/integraciones/tubot-agenda'))
+    expect(r.status).toBe(200)
+    expect(typeof r.body.hasToken).toBe('boolean')
+    expect(r.body.webhook).toBeTruthy()
+  })
+
+  it('POST token → genera tbk_ y funciona contra la API de TuBot', async () => {
+    const gen = await auth(request(app).post('/api/v1/integraciones/tubot-agenda/token'))
+    expect(gen.status).toBe(200)
+    expect(gen.body.token).toMatch(/^tbk_/)
+    const estado = await auth(request(app).get('/api/v1/integraciones/tubot-agenda'))
+    expect(estado.body.hasToken).toBe(true)
+    // el token recién generado autentica la API de TuBot y resuelve ESTA clínica
+    const clinics = await request(app).get('/api/v1/clinics').set('Authorization', `Bearer ${gen.body.token}`)
+    expect(clinics.status).toBe(200)
+    expect(clinics.body[0].id).toBe(A.slug)
+  })
+
+  it('PUT webhook → habilita con connectionId + secreto', async () => {
+    const r = await auth(request(app).put('/api/v1/integraciones/tubot-agenda/webhook')).send({ enabled: true, connectionId: 'conn-self', secret: 'sec-self' })
+    expect(r.status).toBe(200)
+    const estado = await auth(request(app).get('/api/v1/integraciones/tubot-agenda'))
+    expect(estado.body.webhook.enabled).toBe(true)
+    expect(estado.body.webhook.connectionId).toBe('conn-self')
+    expect(estado.body.webhook.secretConfigurado).toBe(true)
   })
 })

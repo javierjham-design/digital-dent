@@ -133,3 +133,19 @@ export async function postTubotToken(req: Request, res: Response) {
 export async function deleteTubotToken(req: Request, res: Response) {
   res.json(await revocarTubotApiKey(req.params.id))
 }
+
+// ── Tenant self-serve: la propia clínica gestiona su token + webhooks ─────────
+// Operan SIEMPRE sobre la clínica del JWT (req.clinica.id), nunca sobre un :id ajeno.
+export async function getMiTubotAgenda(req: Request, res: Response) {
+  const [tok, webhook] = await Promise.all([estadoTubotApiKey(req.clinica!.id), svc.getWebhookConfig(tenantDb(req))])
+  res.json({ hasToken: tok.hasToken, webhook })
+}
+export async function postMiTubotToken(req: Request, res: Response) {
+  res.json(await rotarTubotApiKey(req.clinica!.id))
+}
+export async function deleteMiTubotToken(req: Request, res: Response) {
+  res.json(await revocarTubotApiKey(req.clinica!.id))
+}
+export async function putMiTubotWebhook(req: Request, res: Response) {
+  res.json(await svc.setWebhookConfig(tenantDb(req), req.body ?? {}))
+}
