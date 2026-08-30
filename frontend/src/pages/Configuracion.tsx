@@ -380,6 +380,9 @@ function MediosPago() {
   )
 }
 
+// URL base que TuBot pide como `baseUrl` (SIN /api/v1: el cliente lo antepone él).
+const CLARIVA_API_URL = 'https://api.clariva.cl'
+
 // Conexión de AGENDA con TuBot (self-serve de la clínica): token dedicado + webhooks.
 // Con esto TuBot agenda solo en tu agenda y te avisa cambios firmados.
 function TubotAgendaSection() {
@@ -418,8 +421,18 @@ function TubotAgendaSection() {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl border border-slate-200 p-6">
-        <h2 className="text-base font-semibold text-slate-900 mb-1">Token de acceso</h2>
-        <p className="text-sm text-slate-500 mb-4">TuBot usa este token para leer tu agenda y agendar. Base: <span className="font-mono text-xs">https://api.clariva.cl/api/v1</span>. Se muestra completo sólo al generarlo — copialo y pegalo en TuBot.</p>
+        <h2 className="text-base font-semibold text-slate-900 mb-1">Conexión con TuBot</h2>
+        <p className="text-sm text-slate-500 mb-4">En TuBot, al conectar Cláriva, pegá estos dos datos: la <span className="font-medium">URL de la API</span> y el <span className="font-medium">token</span>.</p>
+        <div className="mb-4">
+          <span className="block text-sm font-medium text-slate-700 mb-1">URL de la API (baseUrl)</span>
+          <div className="flex gap-2">
+            <input readOnly value={CLARIVA_API_URL} onFocus={(e) => e.currentTarget.select()} className={`${inp} font-mono`} />
+            <button onClick={() => navigator.clipboard?.writeText(CLARIVA_API_URL)} className="shrink-0 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold border border-slate-200">Copiar</button>
+          </div>
+          <p className="text-xs text-slate-400 mt-1">Pegá esta URL tal cual. TuBot le agrega <span className="font-mono">/api/v1</span> automáticamente (no la incluyas).</p>
+        </div>
+        <span className="block text-sm font-medium text-slate-700 mb-1">Token</span>
+        <p className="text-xs text-slate-500 mb-2">Se muestra completo sólo al generarlo — copialo y pegalo en TuBot.</p>
         {token && (
           <div className="mb-4 p-3 rounded-xl bg-emerald-50 border border-emerald-200">
             <p className="text-xs text-emerald-700 mb-1">Token generado — copialo ahora (no se vuelve a mostrar):</p>

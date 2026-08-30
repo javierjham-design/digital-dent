@@ -118,7 +118,17 @@ function TubotAgendaCard({ id }: { id: string }) {
   }
   return (
     <Card title="Agenda TuBot — API de agendamiento">
-      <p className="text-xs text-slate-400 mb-3">Token dedicado que TuBot usa para leer la agenda y agendar (Authorization: Bearer). Base: <span className="font-mono">https://api.clariva.cl/api/v1</span>. Se muestra completo sólo al generarlo.</p>
+      <p className="text-xs text-slate-400 mb-3">En TuBot, al conectar Cláriva, se cargan dos datos: la URL de la API y el token (Authorization: Bearer).</p>
+      <div className="mb-3">
+        <L>URL de la API (baseUrl)</L>
+        <div className="flex gap-2">
+          <input readOnly value="https://api.clariva.cl" onFocus={(e) => e.currentTarget.select()} className={`${inpCls} font-mono`} />
+          <button onClick={() => navigator.clipboard?.writeText('https://api.clariva.cl')} className="shrink-0 px-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold">Copiar</button>
+        </div>
+        <p className="text-[11px] text-slate-500 mt-1">Pegar tal cual. TuBot le agrega <span className="font-mono">/api/v1</span> (no incluirlo).</p>
+      </div>
+      <L>Token</L>
+      <p className="text-[11px] text-slate-500 mb-2">Se muestra completo sólo al generarlo.</p>
       {token && (
         <div className="mb-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
           <p className="text-xs text-emerald-300 mb-1">Token generado — copialo ahora (no se vuelve a mostrar):</p>
