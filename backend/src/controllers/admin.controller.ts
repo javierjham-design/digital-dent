@@ -45,6 +45,10 @@ export const getWhatsapp = async (req: Request, res: Response) => res.json(await
 export const putWhatsapp = async (req: Request, res: Response) => { await svc.putWhatsapp(audit(req), req.params.id, req.body ?? {}); res.json({ ok: true }) }
 export const postProbarWhatsapp = async (req: Request, res: Response) => res.json(await svc.probarWhatsapp(req.params.id))
 
+// ── Webhooks de agenda Cláriva → TuBot ──
+export const getTubotWebhook = async (req: Request, res: Response) => res.json(await svc.getTubotWebhook(req.params.id))
+export const putTubotWebhook = async (req: Request, res: Response) => res.json(await svc.putTubotWebhook(audit(req), req.params.id, req.body ?? {}))
+
 // ── Planes de suscripción ──
 export const getPlanes = async (_req: Request, res: Response) => res.json({ planes: await svc.listarPlanesSuscripcion() })
 export const postPlan = async (req: Request, res: Response) => res.status(201).json({ ok: true, plan: await svc.crearPlanSuscripcion(req.body ?? {}) })

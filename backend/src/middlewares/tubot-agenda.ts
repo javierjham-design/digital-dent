@@ -3,6 +3,7 @@ import { control } from '@/db/control'
 import { tenantClient } from '@/db/tenant'
 import { unauthorized, forbidden } from '@/lib/errors'
 import { hashApiKey } from '@/services/ext.service'
+import { patchRequestContext } from '@/lib/request-context'
 
 // Autenticación de la API de AGENDA que consume TuBot (contrato docs/TUBOT_AGENDA.md).
 // Token dedicado por clínica (`tbk_…`, hash en Clinica.tubotApiKeyHash), distinto de la
@@ -20,6 +21,7 @@ export async function requireTubotApiKey(req: Request, _res: Response, next: Nex
     if (!c.activo) throw forbidden('La cuenta de la clínica está suspendida.')
     req.clinica = { id: c.id, slug: c.slug, dbName: c.dbName }
     req.tenant = tenantClient(c.dbName)
+    patchRequestContext({ slug: c.slug }) // para el clinicId de los webhooks salientes
     next()
   } catch (e) {
     next(e)

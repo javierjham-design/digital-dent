@@ -5,6 +5,7 @@ import { buildXlsx, formatRUT, isoDate } from '@/lib/excel'
 import { audit } from '@/lib/audit'
 import { siguienteNumero } from '@/lib/correlativo'
 import { validarDoc, formatDoc, getPais } from '@shared/constants/paises'
+import { emitirEventoPaciente } from '@/lib/tubot-webhooks'
 import type { PacienteDTO, PacientesPagina, PacientesRecallPagina } from '@shared/types'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica
@@ -274,6 +275,7 @@ export async function actualizarPaciente(db: TenantClient, id: string, body: Rec
     if (dup) throw badRequest('Ya existe otro paciente con ese RUT en la clínica')
   }
   const p = await db.paciente.update({ where: { id }, data })
+  void emitirEventoPaciente(db, p.id)
   return toDTO(p)
 }
 

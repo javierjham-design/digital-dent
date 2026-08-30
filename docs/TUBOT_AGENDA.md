@@ -62,14 +62,22 @@ CANCELADA→`cancelled`. Reagendar (PATCH) deja la cita en PENDIENTE.
   - `GET /patients/:id/notes` → `CrmNote[]` (`{id, text, author?, createdAt}`).
   - `POST /patients/:id/notes` `{text}` → 201 `CrmNote` (autor "TuBot"; se guarda como
     ComentarioAdministrativo en el historial del paciente).
-- ⏳ **Fase 5 — Webhooks salientes** Cláriva→TuBot (firmados) + alta por clínica
-  (`tubotConnectionId`/`tubotWebhookSecret`/`tubotEnabled` en Configuracion + `TUBOT_URL`).
-  Única fase con migración de tenant → ventana con backup.
+- **✅ Fase 5 — Webhooks salientes** Cláriva→TuBot (firmados). Config por clínica en la
+  Configuracion del tenant: `agendaWhEnabled` / `agendaWhConnectionId` / `agendaWhSecret`
+  (cifrado). Se emiten best-effort (nunca hacen fallar la operación) desde los puntos de
+  mutación (`crearCita`→created, `editarCita`→rescheduled|updated, `cambiarEstadoCita`→
+  confirmed|cancelled|attendance|updated, `actualizarPaciente`→patient.updated). Firma
+  `X-Clariva-Signature: sha256=HMAC(secret, body)`; destino
+  `${env.tubotBaseUrl}/webhooks/clariva/{connectionId}` (reusa el env de TuBot, sin var nueva).
+  Payload `{event, occurredAt, data}` con `data` = `SchedAppointment` | `SchedPatient`
+  (`clinicId` = slug, del request-context). Gestión en el Super Admin (card "Agenda TuBot" →
+  sección "Webhooks Cláriva → TuBot": connectionId + secreto + activar).
 
 ## Alta de una clínica
 
 1. Super Admin → clínica → **Agenda TuBot → Generar token** (`tbk_…`, copiar una vez).
 2. En TuBot: cargar `baseUrl=https://api.clariva.cl` + ese token → TuBot crea la conexión y
    devuelve un `connectionId`.
-3. (Fase 5) Cargar en el Super Admin el `connectionId` + el `webhookSecret` (lo genera Cláriva)
-   para los webhooks salientes.
+3. Cargar en el Super Admin (card "Agenda TuBot" → "Webhooks Cláriva → TuBot") el
+   `connectionId` + el `secreto` de la conexión (los entrega TuBot al conectar) y activar.
+   Desde ahí, cada cambio de cita/paciente en el panel se le avisa a TuBot firmado.

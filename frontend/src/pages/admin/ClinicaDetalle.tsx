@@ -133,7 +133,55 @@ function TubotAgendaCard({ id }: { id: string }) {
         <button onClick={generar} disabled={busy} className={btnCls}>{estado?.hasToken ? 'Regenerar token' : 'Generar token'}</button>
         {estado?.hasToken && <button onClick={revocar} disabled={busy} className="px-4 py-2 rounded-lg text-sm font-semibold border border-slate-700 text-slate-200 hover:bg-slate-800 disabled:opacity-50">Revocar</button>}
       </div>
+      <TubotWebhookConfig id={id} />
     </Card>
+  )
+}
+
+// Webhooks salientes Cláriva→TuBot: connectionId + secreto (los entrega TuBot al
+// conectar). Al activar, cada cambio de cita/paciente en el panel se avisa firmado.
+function TubotWebhookConfig({ id }: { id: string }) {
+  const [wh, setWh] = useState<{ enabled: boolean; connectionId: string | null; secretConfigurado: boolean } | null>(null)
+  const [connectionId, setConnectionId] = useState('')
+  const [secret, setSecret] = useState('')
+  const [enabled, setEnabled] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  useEffect(() => {
+    adminService.tubotWebhook(id).then((r) => { setWh(r); setConnectionId(r.connectionId ?? ''); setEnabled(r.enabled) }).catch(() => {})
+  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+  async function guardar() {
+    setBusy(true); setMsg('')
+    try {
+      await adminService.guardarTubotWebhook(id, { enabled, connectionId: connectionId.trim() || null, secret: secret.trim() || undefined })
+      setSecret('')
+      const r = await adminService.tubotWebhook(id); setWh(r); setConnectionId(r.connectionId ?? ''); setEnabled(r.enabled)
+      setMsg('Guardado')
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Error al guardar') } finally { setBusy(false) }
+  }
+  return (
+    <div className="mt-5 pt-4 border-t border-slate-800">
+      <p className="text-sm font-semibold text-slate-200 mb-1">Webhooks Cláriva → TuBot</p>
+      <p className="text-xs text-slate-400 mb-3">Avisan a TuBot cuando una cita o paciente cambia en el panel (firmado HMAC). Cargá el <span className="font-mono">connectionId</span> y el secreto que te entrega TuBot al conectar.</p>
+      <div className="space-y-3">
+        <div>
+          <L>Connection ID</L>
+          <input value={connectionId} onChange={(e) => setConnectionId(e.target.value)} placeholder="conn_…" className={inpCls} />
+        </div>
+        <div>
+          <L>Secreto del webhook {wh?.secretConfigurado && <span className="text-emerald-400 font-normal">(configurado — dejá vacío para conservarlo)</span>}</L>
+          <input value={secret} onChange={(e) => setSecret(e.target.value)} type="password" placeholder={wh?.secretConfigurado ? '••••••••' : 'secreto'} className={inpCls} />
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-200">
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="w-4 h-4 rounded border-slate-600 bg-slate-800" />
+          Activar webhooks salientes
+        </label>
+        <div className="flex items-center gap-3">
+          <button onClick={guardar} disabled={busy} className={btnCls}>Guardar</button>
+          {msg && <span className="text-xs text-slate-400">{msg}</span>}
+        </div>
+      </div>
+    </div>
   )
 }
 

@@ -461,6 +461,8 @@ apiRouter.post('/admin/clinicas/:id/whatsapp/probar', sa, asyncHandler(admin.pos
 apiRouter.get('/admin/clinicas/:id/tubot', sa, asyncHandler(tubotAgenda.getTubotConfig))
 apiRouter.post('/admin/clinicas/:id/tubot/token', sa, asyncHandler(tubotAgenda.postTubotToken))
 apiRouter.delete('/admin/clinicas/:id/tubot/token', sa, asyncHandler(tubotAgenda.deleteTubotToken))
+apiRouter.get('/admin/clinicas/:id/tubot/webhook', sa, asyncHandler(admin.getTubotWebhook))
+apiRouter.put('/admin/clinicas/:id/tubot/webhook', sa, asyncHandler(admin.putTubotWebhook))
 // Planes de suscripción
 apiRouter.get('/admin/planes-suscripcion', sa, asyncHandler(admin.getPlanes))
 apiRouter.post('/admin/planes-suscripcion', sa, asyncHandler(admin.postPlan))

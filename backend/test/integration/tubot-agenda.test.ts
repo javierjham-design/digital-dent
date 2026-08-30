@@ -1,11 +1,15 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest'
 import request from 'supertest'
+import { createHmac } from 'crypto'
 import type { Express } from 'express'
 import { seedDosClinicas, type TenantFixture } from './seed'
 import { tenantClient } from './tenant-test'
 import { control } from './control-test'
 import { hashApiKey } from '@/services/ext.service'
 import { todayYmd, addDaysYmd, wallClockToUtc } from '@/lib/tz'
+
+// Clave de cifrado para el secreto del webhook (crypto la lee de env).
+process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'test-encryption-key-clariva-tubot-webhooks-1234'
 
 // API de agenda que consume TuBot. Auth por token dedicado (Clinica.tubotApiKeyHash).
 // Paths exactos del contrato bajo /api/v1. Fase 1 (catálogo) + Fase 2 (disponibilidad).
@@ -256,5 +260,51 @@ describe('TuBot agenda — CRM (Fase 4)', () => {
     const notes = await get(`/patients/${id}/notes`)
     expect(notes.status).toBe(200)
     expect(notes.body.some((n: { text: string }) => n.text === 'Paciente contactado por TuBot')).toBe(true)
+  })
+})
+
+describe('TuBot agenda — webhooks salientes (Fase 5)', () => {
+  const secret = 'wh-secret-test'
+  let citaId = ''
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let fetchSpy: any
+
+  beforeAll(async () => {
+    const { encryptNullable } = await import('@/lib/crypto')
+    const db = tenantClient(A.dbName)
+    await db.configuracion.update({ where: { id: 'singleton' }, data: { agendaWhEnabled: true, agendaWhConnectionId: 'conn-abc', agendaWhSecret: encryptNullable(secret) } })
+    const pac = await db.paciente.create({ data: { numero: 90050, nombre: 'Web', apellido: 'Hook', telefono: '+56955556666', activo: true } })
+    const cita = await db.cita.create({ data: { pacienteId: pac.id, doctorId, fecha: wallClockToUtc(addDaysYmd(todayYmd(), 3), '12:00'), duracion: 30, tipo: 'CONSULTA', estado: 'PENDIENTE', origen: 'MANUAL' } })
+    citaId = cita.id
+  })
+  afterAll(() => { fetchSpy?.mockRestore() })
+
+  it('emite POST firmado a /webhooks/clariva/:connectionId', async () => {
+    const { emitirEventoCita } = await import('@/lib/tubot-webhooks')
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }))
+    await emitirEventoCita(tenantClient(A.dbName), 'appointment.created', citaId)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const call = fetchSpy.mock.calls.find((c: any[]) => String(c[0]).includes('/webhooks/clariva/conn-abc'))
+    expect(call).toBeTruthy()
+    const opts = call[1]
+    expect(opts.method).toBe('POST')
+    expect(opts.headers['X-Clariva-Signature']).toBe(`sha256=${createHmac('sha256', secret).update(opts.body).digest('hex')}`)
+    const payload = JSON.parse(opts.body)
+    expect(payload.event).toBe('appointment.created')
+    expect(payload.data.id).toBe(citaId)
+    expect(payload.data.status).toBe('pending')
+    fetchSpy.mockRestore()
+  })
+
+  it('no emite si los webhooks están deshabilitados', async () => {
+    const { emitirEventoCita } = await import('@/lib/tubot-webhooks')
+    const db = tenantClient(A.dbName)
+    await db.configuracion.update({ where: { id: 'singleton' }, data: { agendaWhEnabled: false } })
+    fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 200 }))
+    await emitirEventoCita(db, 'appointment.updated', citaId)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const call = fetchSpy.mock.calls.find((c: any[]) => String(c[0]).includes('/webhooks/clariva/'))
+    expect(call).toBeUndefined()
+    fetchSpy.mockRestore()
   })
 })

@@ -7,6 +7,7 @@ import { pushCita, deleteCitaInGoogle, swallowGoogle } from '@/lib/google-sync'
 import { enviarConfirmacionHora } from '@/services/email.service'
 import { assertDentroDeAtencion } from '@/lib/atencion'
 import { conTitulo } from '@shared/utils/nombre'
+import { emitirEventoCita } from '@/lib/tubot-webhooks'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica.
 // La sincronización con Google es best-effort (fire-and-forget): nunca debe
@@ -130,6 +131,7 @@ export async function crearCita(db: TenantClient, userName: string, input: Crear
     include: INCLUDE,
   })
   void pushCita(db, cita.id).catch(swallowGoogle('pushCita'))
+  void emitirEventoCita(db, 'appointment.created', cita.id)
   // Confirmación de hora por correo con archivo de calendario (best-effort; sólo si
   // el paciente tiene email y quien agenda no destildó "enviar cita al correo").
   if (input.enviarCorreo !== false) {
@@ -221,6 +223,7 @@ export async function editarCita(db: TenantClient, id: string, userName: string,
     include: INCLUDE,
   })
   void pushCita(db, cita.id).catch(swallowGoogle('pushCita'))
+  void emitirEventoCita(db, cita.fecha.getTime() !== current.fecha.getTime() ? 'appointment.rescheduled' : 'appointment.updated', cita.id)
   return toDTO(cita)
 }
 
@@ -267,5 +270,11 @@ export async function cambiarEstadoCita(db: TenantClient, id: string, estado: st
   // Cancelar → quitar de Google; cualquier otro estado → reflejar la versión nuestra.
   if (estado === 'CANCELADA') void deleteCitaInGoogle(db, cita.id).catch(swallowGoogle('deleteCita'))
   else void pushCita(db, cita.id).catch(swallowGoogle('pushCita'))
+  // Webhook a TuBot según el estado destino (confirmar / cancelar / asistencia / otro).
+  const evento = estado === 'CONFIRMADO' ? 'appointment.confirmed'
+    : estado === 'CANCELADA' ? 'appointment.cancelled'
+    : (estado === 'ATENDIDA' || estado === 'NO_ASISTIO') ? 'appointment.attendance'
+    : 'appointment.updated'
+  void emitirEventoCita(db, evento, cita.id)
   return toDTO(cita)
 }

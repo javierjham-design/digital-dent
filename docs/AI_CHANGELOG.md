@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 5 — webhooks salientes (Cláriva→TuBot)
+
+Cierra la integración: Cláriva le avisa a TuBot cuando algo cambia en el panel, firmado.
+**Cambio de schema de tenant** (aditivo) — se corrió `tenant:initsql` + backup fresco previo;
+el prestart aplica `migrate:tenants` (sin --strict) a las bases existentes.
+
+- **Schema (Configuracion)**: `agendaWhEnabled` (bool), `agendaWhConnectionId`, `agendaWhSecret`
+  (cifrado AES-GCM). `init.sql` regenerado (guarda anti-drift verde).
+- **Emisor** `lib/tubot-webhooks.ts` (best-effort, no importa services → sin ciclos):
+  firma `X-Clariva-Signature: sha256=HMAC(secret, body)`, POST a
+  `${env.tubotBaseUrl}/webhooks/clariva/{connectionId}` (reusa el env de TuBot; sin var nueva).
+  Payload `{event, occurredAt, data}` con `data` = `SchedAppointment`|`SchedPatient`; `clinicId`
+  = slug del request-context (sembrado también en el middleware de TuBot).
+- **Puntos de emisión** (fire-and-forget): `crearCita`→`appointment.created`, `editarCita`→
+  `rescheduled|updated`, `cambiarEstadoCita`→`confirmed|cancelled|attendance|updated`,
+  `actualizarPaciente`→`patient.updated`. Cubren panel + agenda de TuBot (echo tolerado: TuBot
+  dedup por external_id).
+- **Super Admin**: sección "Webhooks Cláriva → TuBot" en la card Agenda TuBot (connectionId +
+  secreto + activar). `GET/PUT /admin/clinicas/:id/tubot/webhook` (secreto cifrado, degrade al activar).
+
+Verificado: typecheck be/fe, contrato (275 rutas), unit 134/134, integración 131/131 (+2:
+POST firmado con HMAC correcto + no-emite si está deshabilitado), build fe. Backup prod fresco
+antes del deploy (4/4 bases OK).
+
+---
+
+## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 4 — CRM (pacientes + notas)
+
 ## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 4 — CRM (pacientes + notas)
 
 Lectura de pacientes y notas para que TuBot dé/consulte feedback en el CRM. Endpoints bajo

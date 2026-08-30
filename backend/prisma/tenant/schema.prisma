@@ -53,6 +53,12 @@ model Configuracion {
   waTwilioToken String?
   waTemplateSid String?
 
+  // Webhooks de AGENDA salientes hacia TuBot (Cláriva → TuBot). Ver docs/TUBOT_AGENDA.md.
+  // La URL destino es global (env.tubotBaseUrl) + el connectionId; el secreto va cifrado.
+  agendaWhEnabled      Boolean @default(false)
+  agendaWhConnectionId String?          // id de conexión que TuBot entrega al conectar (rutea el webhook)
+  agendaWhSecret       String?          // secreto por conexión (firma X-Clariva-Signature) — CIFRADO
+
   // Google Calendar (una cuenta por clínica). Tokens cifrados.
   googleRefreshToken    String?
   googleAccessToken     String?
