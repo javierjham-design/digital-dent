@@ -7,6 +7,40 @@
 
 ## Última actualización
 
+- **Fecha:** 2026-08-29
+- **✅ Integración TuBot → Cláriva (agenda) — Fases 1–5 EN PRODUCCIÓN.** La integración
+  INVERSA de WhatsApp: acá **TuBot consume la API REST de Cláriva** para agendar de forma
+  autónoma y Cláriva le hace feedback por webhooks firmados. Contrato/mapeo/estado por fase:
+  **`docs/TUBOT_AGENDA.md`** (fuente: repo conversia `docs/CLARIVA.md` + `apps/mock-clariva`).
+  - **Auth**: token dedicado por clínica (`tbk_…`, hash en `Clinica.tubotApiKeyHash`, control-plane,
+    separado del CRM/MCP). Se genera en Super Admin → clínica → card "Agenda TuBot". Middleware
+    `requireTubotApiKey`. Endpoints EXACTOS bajo `/api/v1` (el cliente llama `{baseUrl}/api/v1{path}`).
+  - **F1 catálogo**: `GET /clinics /professionals /professionals/:id/services /services`.
+  - **F2 disponibilidad**: `GET /availability` → `SchedSlot[]` (slots del HorarioDoctor − ocupación,
+    paso = duración del servicio o 30'; reusa `slotsLibres` de `agenda-online.service`).
+  - **F3 citas (escritura)**: `POST /appointments` (201; upsert paciente por RUT/teléfono; reusa
+    `crearCita` → valida atención+solape; **409 slot_taken**; `Idempotency-Key` best-effort en
+    memoria), `GET/PATCH /appointments/:id`, `POST /:id/{cancel|confirm|attendance}`,
+    `PUT /patients`, `GET /patients/:phone/appointments`.
+  - **F4 CRM** (no estaba en CLARIVA.md, sí en los req de TuBot; shapes definidos por Cláriva):
+    `GET /patients?query&page`, `GET /patients/:id` (+appointments), `GET/POST /patients/:id/notes`.
+  - **F5 webhooks salientes** Cláriva→TuBot (firmados `X-Clariva-Signature: sha256=HMAC`):
+    `lib/tubot-webhooks.ts`, emisión best-effort desde `crearCita/editarCita/cambiarEstadoCita/
+    actualizarPaciente`. Destino `${env.tubotBaseUrl}/webhooks/clariva/{connectionId}` (reusa el
+    env de TuBot, SIN var nueva). Config por clínica en `Configuracion`: `agendaWhEnabled/
+    agendaWhConnectionId/agendaWhSecret` (cifrado) — **schema tenant aditivo aplicado a prod**
+    (backup fresco 2026-08-30 → prestart `migrate:tenants` **3/3 OK**). UI en la card Agenda TuBot.
+  - Verificado: typecheck be/fe, contrato (275 rutas), unit 134/134, integración **131/131**
+    (`test/integration/tubot-agenda.test.ts`, 26 casos), build fe. Deploys F1–F5 verificados
+    (404→401 + health 200). `clinicId` en payloads = slug (request-context, sembrado también en el
+    middleware de TuBot).
+  - **⚠️ PENDIENTE del usuario para activar en una clínica**: en Super Admin generar el token
+    `tbk_` y cargarlo en TuBot (baseUrl `https://api.clariva.cl`); TuBot devuelve un `connectionId`
+    + `secret` → cargarlos en la sección "Webhooks Cláriva → TuBot" y activar. `TUBOT_BASE_URL` ya
+    está en prod (lo usa WhatsApp); si el receptor de webhooks vive en otro host, habría que
+    parametrizarlo. Reservas del agendamiento ONLINE (reservarPublico) NO emiten webhook (usa
+    `db.cita.create` directo, no `crearCita`) — futura mejora si se necesita.
+
 - **Fecha:** 2026-08-12
 - **✅ WhatsApp: Twilio → TuBot (recordatorios por plantilla) — DESPLEGADO (2026-08-12).**
   Cambio EN FRÍO (WhatsApp apagado en las 3 clínicas, sin datos que migrar). Alcance estricto:
