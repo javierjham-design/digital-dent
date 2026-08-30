@@ -34,9 +34,13 @@
     (`test/integration/tubot-agenda.test.ts`, 26 casos), build fe. Deploys F1–F5 verificados
     (404→401 + health 200). `clinicId` en payloads = slug (request-context, sembrado también en el
     middleware de TuBot).
-  - **⚠️ PENDIENTE del usuario para activar en una clínica**: en Super Admin generar el token
-    `tbk_` y cargarlo en TuBot (baseUrl `https://api.clariva.cl`); TuBot devuelve un `connectionId`
-    + `secret` → cargarlos en la sección "Webhooks Cláriva → TuBot" y activar. `TUBOT_BASE_URL` ya
+  - **Gestión del token/webhooks por DOS vías equivalentes** (mismo token/config): **self-serve**
+    de la clínica (Configuración → pestaña "Agenda TuBot", `/api/v1/integraciones/tubot-agenda*`,
+    scope `configTenant`, opera sobre `req.clinica.id`) **y** Super Admin
+    (`/api/v1/admin/clinicas/:id/tubot*`). El token es POR CLÍNICA (no global).
+  - **⚠️ PENDIENTE del usuario para activar en una clínica**: generar el token `tbk_` (self-serve o
+    Super Admin) y cargarlo en TuBot (baseUrl `https://api.clariva.cl`); TuBot devuelve un
+    `connectionId` + `secret` → cargarlos en la sección de webhooks y activar. `TUBOT_BASE_URL` ya
     está en prod (lo usa WhatsApp); si el receptor de webhooks vive en otro host, habría que
     parametrizarlo. Reservas del agendamiento ONLINE (reservarPublico) NO emiten webhook (usa
     `db.cita.create` directo, no `crearCita`) — futura mejora si se necesita.
