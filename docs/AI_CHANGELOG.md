@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-30 — Fix (serio): ficha de paciente quedaba con datos del paciente anterior
+
+**Bug de integridad**: al navegar de un paciente a otro SIN recargar (p.ej. desde el buscador),
+el encabezado se actualizaba pero el **formulario editable** (Nombres, Apellidos, RUT, Teléfono,
+Email) seguía con los datos del paciente anterior. Como "Guardar cambios" está sobre ese form,
+se le podía **escribir a un paciente los datos de otro** en su ficha clínica. Causa: el form
+inicializa su estado local UNA sola vez desde el paciente y React reutiliza la instancia al
+cambiar el `id` de la ruta (no depender de que cada `useEffect` acierte sus deps en un archivo
+de ~2.500 líneas).
+
+- **Fix robusto**: la ficha se remonta con `key={id}` desde la ruta (`FichaPacienteRoute`,
+  extraído a su propio archivo). Al cambiar el paciente, React descarta el subárbol y TODO el
+  estado nace del paciente nuevo. `App.tsx` usa ese wrapper.
+- **Infra de tests de frontend (nueva)**: vitest + jsdom + @testing-library/react
+  (`vitest.config.ts`, script `npm --prefix frontend test`). Antes el frontend no tenía tests.
+- **Test de regresión** `FichaPacienteRoute.test.tsx`: monta con paciente A, navega a B, verifica
+  que el campo (estado capturado al montar) es de B. **Verificado que atrapa el bug**: sin el
+  `key` el test falla ("expected 'A' to be 'B'").
+
+Verificado: typecheck fe, test fe 1/1, build fe.
+
+---
+
 ## 2026-08-29 — TuBot agenda: GET /appointments por rango + payload de webhook enriquecido
 
 Pedidos del dev de TuBot para completar la integración:
