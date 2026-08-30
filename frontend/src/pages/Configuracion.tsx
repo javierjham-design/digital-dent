@@ -52,7 +52,7 @@ export function Configuracion() {
   // Pestañas (la activa vive en ?tab= para poder linkear directo). Pagos online y Google
   // solo para admin (igual que antes, cuando eran bloques con `esAdmin &&`).
   const tabs: { key: string; label: string }[] = [
-    { key: 'datos', label: 'Datos y mensajes' },
+    { key: 'datos', label: 'Configuración general' },
     { key: 'medios', label: 'Medios de pago' },
     ...(esAdmin ? [{ key: 'pagos', label: 'Pagos online' }, { key: 'google', label: 'Google Calendar' }, { key: 'tubot', label: 'Agenda TuBot' }] : []),
   ]
