@@ -37,7 +37,7 @@ function GestionMenu({ esAdmin, puedeConfig, puedeEquipo, puedePrestaciones, pue
   const it = (cond: boolean, to: string, label: string): [string, string] | null => (cond ? [to, label] : null)
   const secciones: { titulo: string; items: [string, string][] }[] = [
     { titulo: 'Clínica', items: [
-      it(esAdmin || puedeConfig, '/configuracion', 'Datos y mensajes'),
+      it(esAdmin || puedeConfig, '/configuracion', 'Configuración general'),
       it(esAdmin || puedeEquipo, '/equipo', 'Equipo'),
       it(esAdmin || puedeConfig, '/boxes', 'Boxes / Salas de atención'),
       it(esAdmin || puedePrestaciones, '/prestaciones', 'Prestaciones'),
