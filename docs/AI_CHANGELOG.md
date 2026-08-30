@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 4 — CRM (pacientes + notas)
+
+Lectura de pacientes y notas para que TuBot dé/consulte feedback en el CRM. Endpoints bajo
+`/api/v1` (token dedicado). **No** estaban en el `CLARIVA.md` canónico (que sólo cubre
+agenda) pero sí en los requerimientos de TuBot; los shapes los define Cláriva (documentados
+en `docs/TUBOT_AGENDA.md`):
+- `GET /patients?query=&page=&pageSize=` → `{items: CrmPatient[], total, page, pageSize}`
+  (reusa `listarPacientesPaginado`). `CrmPatient {id, firstName, lastName?, phone?, email?, documentId?}`.
+- `GET /patients/:id` → `CrmPatient & {appointments: SchedAppointment[]}` (404 si no existe).
+- `GET /patients/:id/notes` → `CrmNote[]` (`ComentarioAdministrativo`).
+- `POST /patients/:id/notes` `{text}` → 201 `CrmNote` (autor "TuBot", en el historial del paciente).
+
+Cuidado con el orden de rutas: `/patients/:id` va DESPUÉS de `/patients/:phone/appointments`
+y `/patients/:id/notes` (distinto nº de segmentos / literal). Sin cambio de schema.
+
+Verificado: typecheck be, contrato (273 rutas), integración 129/129 (+4: búsqueda paginada,
+ficha+citas, 404, alta+listado de notas).
+
+---
+
+## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 3 — citas (escritura) + pacientes
+
 ## 2026-08-29 — Integración TuBot→Cláriva (agenda): Fase 3 — citas (escritura) + pacientes
 
 TuBot ya puede **agendar de forma autónoma** en Cláriva. Endpoints bajo `/api/v1`

@@ -104,6 +104,25 @@ export async function getPatientAppointments(req: Request, res: Response) {
   res.json(await svc.patientAppointments(tenantDb(req), req.clinica!.slug, req.params.phone))
 }
 
+// ── Fase 4: CRM (lectura de pacientes + notas) ────────────────────────────────
+export async function getCrmPatients(req: Request, res: Response) {
+  const q = req.query as Record<string, string | undefined>
+  res.json(await svc.crmSearchPatients(tenantDb(req), {
+    query: q.query ?? q.q,
+    page: q.page ? Number(q.page) : undefined,
+    pageSize: q.pageSize ? Number(q.pageSize) : undefined,
+  }))
+}
+export async function getCrmPatient(req: Request, res: Response) {
+  res.json(await svc.crmPatient(tenantDb(req), req.clinica!.slug, req.params.id))
+}
+export async function getCrmNotes(req: Request, res: Response) {
+  res.json(await svc.crmNotes(tenantDb(req), req.params.id))
+}
+export async function postCrmNote(req: Request, res: Response) {
+  res.status(201).json(await svc.crmAddNote(tenantDb(req), req.params.id, req.body?.text))
+}
+
 // ── Super-admin: gestión del token de la integración (por clínica) ────────────
 export async function getTubotConfig(req: Request, res: Response) {
   res.json(await estadoTubotApiKey(req.params.id))

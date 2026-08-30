@@ -54,7 +54,14 @@ CANCELADA→`cancelled`. Reagendar (PATCH) deja la cita en PENDIENTE.
   (validan horario de atención + solapamiento). El paciente se resuelve por RUT o por los
   últimos 8 dígitos del teléfono, o se crea (`crearPaciente` → correlativo + autolink CRM).
   Duración de la cita = `end−start`, o la del servicio, o 30'. `userName` de los logs = "TuBot".
-- ⏳ **Fase 4 — CRM** (buscar/ficha/notas de pacientes).
+- **✅ Fase 4 — CRM** (buscar/ficha/notas de pacientes). **No** estaba en el `CLARIVA.md`
+  canónico pero sí en los requerimientos de TuBot; shapes definidos por Cláriva:
+  - `GET /patients?query=&page=&pageSize=` → `{items: CrmPatient[], total, page, pageSize}`
+    (`CrmPatient {id, firstName, lastName?, phone?, email?, documentId?}`).
+  - `GET /patients/:id` → `CrmPatient & {appointments: SchedAppointment[]}` (404 si no existe).
+  - `GET /patients/:id/notes` → `CrmNote[]` (`{id, text, author?, createdAt}`).
+  - `POST /patients/:id/notes` `{text}` → 201 `CrmNote` (autor "TuBot"; se guarda como
+    ComentarioAdministrativo en el historial del paciente).
 - ⏳ **Fase 5 — Webhooks salientes** Cláriva→TuBot (firmados) + alta por clínica
   (`tubotConnectionId`/`tubotWebhookSecret`/`tubotEnabled` en Configuracion + `TUBOT_URL`).
   Única fase con migración de tenant → ventana con backup.

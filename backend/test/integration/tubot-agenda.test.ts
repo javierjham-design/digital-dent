@@ -219,3 +219,42 @@ describe('TuBot agenda — citas (Fase 3)', () => {
     expect(r.body.every((a: { patient: { phone: string } }) => a.patient.phone.includes('987654321'))).toBe(true)
   })
 })
+
+describe('TuBot agenda — CRM (Fase 4)', () => {
+  it('GET /patients?query → búsqueda paginada', async () => {
+    const r = await get('/patients?query=Ana&page=1&pageSize=25')
+    expect(r.status).toBe(200)
+    expect(typeof r.body.total).toBe('number')
+    expect(Array.isArray(r.body.items)).toBe(true)
+    const ana = r.body.items.find((p: { firstName: string }) => p.firstName === 'Ana')
+    expect(ana).toBeTruthy()
+    expect(ana.id).toBeTruthy()
+  })
+
+  it('GET /patients/:id → ficha + citas', async () => {
+    const lista = await get('/patients?query=Ana')
+    const id = lista.body.items[0].id
+    const r = await get(`/patients/${id}`)
+    expect(r.status).toBe(200)
+    expect(r.body.id).toBe(id)
+    expect(r.body.firstName).toBe('Ana')
+    expect(Array.isArray(r.body.appointments)).toBe(true)
+  })
+
+  it('GET /patients/:id inexistente → 404', async () => {
+    const r = await get('/patients/no-existe')
+    expect(r.status).toBe(404)
+  })
+
+  it('POST + GET /patients/:id/notes → agrega y lista notas', async () => {
+    const lista = await get('/patients?query=Ana')
+    const id = lista.body.items[0].id
+    const created = await post(`/patients/${id}/notes`, { text: 'Paciente contactado por TuBot' })
+    expect(created.status).toBe(201)
+    expect(created.body.text).toBe('Paciente contactado por TuBot')
+    expect(created.body.author).toBe('TuBot')
+    const notes = await get(`/patients/${id}/notes`)
+    expect(notes.status).toBe(200)
+    expect(notes.body.some((n: { text: string }) => n.text === 'Paciente contactado por TuBot')).toBe(true)
+  })
+})

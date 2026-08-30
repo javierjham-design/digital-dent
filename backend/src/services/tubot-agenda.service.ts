@@ -2,7 +2,7 @@ import type { TenantClient } from '@/db/tenant'
 import { conTitulo } from '@shared/utils/nombre'
 import { slotsLibres } from '@/services/agenda-online.service'
 import { crearCita, editarCita, cambiarEstadoCita } from '@/services/citas.service'
-import { crearPaciente } from '@/services/pacientes.service'
+import { crearPaciente, listarPacientesPaginado, obtenerPaciente, listarComentarios, crearComentario } from '@/services/pacientes.service'
 import { todayYmd, addDaysYmd } from '@/lib/tz'
 import { badRequest } from '@/lib/errors'
 import { validarRut, formatRut } from '@shared/utils/rut'
@@ -282,4 +282,43 @@ export async function patientAppointments(db: TenantClient, slug: string, phone:
   if (!pac) return []
   const citas = await db.cita.findMany({ where: { pacienteId: pac.id }, select: CITA_SEL, orderBy: { fecha: 'desc' } })
   return citas.map((c) => toAppointment(c, slug))
+}
+
+// ── Fase 4: CRM (lectura de pacientes + notas) ─────────────────────────────────
+// No estaba en el CLARIVA.md canónico pero sí en los requerimientos de TuBot; shapes
+// definidos acá (documentados en docs/TUBOT_AGENDA.md) para que el consumidor los calce.
+
+export interface CrmPatient { id: string; firstName: string; lastName?: string; phone?: string; email?: string; documentId?: string }
+export interface CrmNote { id: string; text: string; author?: string; createdAt: string }
+
+function toCrmPatient(p: { id: string; nombre: string; apellido: string; telefono: string | null; email: string | null; rut: string | null }): CrmPatient {
+  return { id: p.id, firstName: p.nombre, lastName: p.apellido || undefined, phone: p.telefono || undefined, email: p.email || undefined, documentId: p.rut || undefined }
+}
+function toCrmNote(n: { id: string; texto: string; autorNombre: string | null; createdAt: Date }): CrmNote {
+  return { id: n.id, text: n.texto, author: n.autorNombre || undefined, createdAt: n.createdAt.toISOString() }
+}
+
+// GET /patients?query=&page=&pageSize= → búsqueda paginada (reusa el listado del CRM).
+export async function crmSearchPatients(db: TenantClient, q: { query?: string; page?: number; pageSize?: number }): Promise<{ items: CrmPatient[]; total: number; page: number; pageSize: number }> {
+  const pagina = await listarPacientesPaginado(db, { q: q.query, page: q.page, pageSize: q.pageSize })
+  return { items: pagina.items.map(toCrmPatient), total: pagina.total, page: pagina.page, pageSize: pagina.pageSize }
+}
+
+// GET /patients/:id → ficha + sus citas (404 si no existe).
+export async function crmPatient(db: TenantClient, slug: string, id: string): Promise<CrmPatient & { appointments: SchedAppointment[] }> {
+  const p = await obtenerPaciente(db, id)
+  const citas = await db.cita.findMany({ where: { pacienteId: id }, select: CITA_SEL, orderBy: { fecha: 'desc' }, take: 100 })
+  return { ...toCrmPatient(p), appointments: citas.map((c) => toAppointment(c, slug)) }
+}
+
+// GET /patients/:id/notes → comentarios administrativos (404 si el paciente no existe).
+export async function crmNotes(db: TenantClient, id: string): Promise<CrmNote[]> {
+  const notas = await listarComentarios(db, id)
+  return notas.map(toCrmNote)
+}
+
+// POST /patients/:id/notes {text} → agrega una nota al historial (autor "TuBot").
+export async function crmAddNote(db: TenantClient, id: string, text: string): Promise<CrmNote> {
+  const n = await crearComentario(db, id, { id: 'tubot', nombre: 'TuBot' }, text)
+  return toCrmNote(n)
 }
