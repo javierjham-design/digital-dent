@@ -497,7 +497,6 @@ function AgendarLeadModal({ lead, navigate, notify, onClose, onDone }: {
 }) {
   const [doctores, setDoctores] = useState<DoctorDTO[]>([])
   const [doctorId, setDoctorId] = useState('')
-  const [fechaLocal, setFechaLocal] = useState('')
   const [duracion, setDuracion] = useState(30)
   const [tipo, setTipo] = useState(lead.tratamiento || '')
   const [notas, setNotas] = useState(lead.motivo || '')
@@ -508,18 +507,12 @@ function AgendarLeadModal({ lead, navigate, notify, onClose, onDone }: {
   const [slots, setSlots] = useState<{ start: string }[]>([])
   const [cargandoSlots, setCargandoSlots] = useState(false)
   const [slotSel, setSlotSel] = useState('') // ISO del slot elegido
-  const [manual, setManual] = useState(false) // hora libre (sobrecupo / fuera de agenda)
 
   useEffect(() => { usuariosService.doctores().then((d) => { setDoctores(d); setDoctorId((prev) => prev || d[0]?.id || '') }).catch(() => {}) }, [])
-  useEffect(() => {
-    if (lead.fechaAgenda) { setFechaLocal(toLocalInput(lead.fechaAgenda)); return }
-    const d = new Date(); d.setMinutes(Math.ceil((d.getMinutes() + 1) / 15) * 15, 0, 0)
-    setFechaLocal(toLocalInput(d.toISOString()))
-  }, [lead.fechaAgenda])
 
-  // Trae los slots libres al elegir profesional o cambiar la duración (modo agenda).
+  // Trae los slots libres al elegir profesional o cambiar la duración.
   useEffect(() => {
-    if (!doctorId || manual) return
+    if (!doctorId) return
     let vivo = true
     setCargandoSlots(true); setSlots([]); setSlotSel('')
     crmService.disponibilidad(doctorId, duracion, 30)
@@ -527,7 +520,7 @@ function AgendarLeadModal({ lead, navigate, notify, onClose, onDone }: {
       .catch(() => { if (vivo) setSlots([]) })
       .finally(() => { if (vivo) setCargandoSlots(false) })
     return () => { vivo = false }
-  }, [doctorId, duracion, manual])
+  }, [doctorId, duracion])
 
   const TZ = 'America/Santiago'
   const gruposSlots = useMemo(() => {
@@ -543,12 +536,11 @@ function AgendarLeadModal({ lead, navigate, notify, onClose, onDone }: {
   }, [slots])
 
   async function agendar() {
-    const fechaISO = manual ? (fechaLocal ? new Date(fechaLocal).toISOString() : '') : slotSel
-    if (!doctorId || !fechaISO) { notify(manual ? 'Selecciona profesional, fecha y hora' : 'Selecciona profesional y un horario disponible', false); return }
+    if (!doctorId || !slotSel) { notify('Selecciona profesional y un horario disponible', false); return }
     setBusy(true)
     try {
       const r = await crmService.agendar(lead.id, {
-        doctorId, fecha: fechaISO, duracion,
+        doctorId, fecha: slotSel, duracion,
         tipo: tipo || undefined, notas: notas.trim() || undefined, sobrecupo,
       })
       setRes({ pacienteId: r.pacienteId, inicio: r.inicio })
@@ -593,40 +585,28 @@ function AgendarLeadModal({ lead, navigate, notify, onClose, onDone }: {
             ))}
           </div>
         </div>
-        {!manual ? (
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium text-slate-500">Horarios disponibles</span>
-              <button type="button" onClick={() => setManual(true)} className="text-[11px] text-cyan-600 hover:underline">Otra hora (manual)</button>
-            </div>
-            {cargandoSlots ? (
-              <p className="text-xs text-slate-400 py-3">Buscando disponibilidad…</p>
-            ) : gruposSlots.length === 0 ? (
-              <p className="text-xs text-slate-400 py-3">Sin horas disponibles en los próximos 30 días para este profesional (revisa su horario de atención) o <button type="button" onClick={() => setManual(true)} className="text-cyan-600 hover:underline">ingresa una hora manualmente</button>.</p>
-            ) : (
-              <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-xl p-2 space-y-2">
-                {gruposSlots.map(([dia, horas]) => (
-                  <div key={dia}>
-                    <p className="text-[11px] font-semibold text-slate-500 capitalize mb-1">{dia}</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {horas.map((h) => (
-                        <button key={h.iso} type="button" onClick={() => setSlotSel(h.iso)}
-                          className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${slotSel === h.iso ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-200 text-slate-700 hover:border-cyan-400'}`}>{h.hora}</button>
-                      ))}
-                    </div>
+        <div>
+          <span className="block text-xs font-medium text-slate-500 mb-1">Horarios disponibles</span>
+          {cargandoSlots ? (
+            <p className="text-xs text-slate-400 py-3">Buscando disponibilidad…</p>
+          ) : gruposSlots.length === 0 ? (
+            <p className="text-xs text-slate-400 py-3">Sin horas disponibles en los próximos 30 días para este profesional. Revisa su horario de atención en la configuración de agenda, o prueba con otro profesional o duración.</p>
+          ) : (
+            <div className="max-h-56 overflow-y-auto border border-slate-200 rounded-xl p-2 space-y-2">
+              {gruposSlots.map(([dia, horas]) => (
+                <div key={dia}>
+                  <p className="text-[11px] font-semibold text-slate-500 capitalize mb-1">{dia}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {horas.map((h) => (
+                      <button key={h.iso} type="button" onClick={() => setSlotSel(h.iso)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border ${slotSel === h.iso ? 'bg-cyan-600 border-cyan-600 text-white' : 'border-slate-200 text-slate-700 hover:border-cyan-400'}`}>{h.hora}</button>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : (
-          <label className="block">
-            <span className="text-xs font-medium text-slate-500 flex items-center justify-between">Fecha y hora
-              <button type="button" onClick={() => setManual(false)} className="text-[11px] text-cyan-600 hover:underline font-normal">Ver disponibilidad</button>
-            </span>
-            <input type="datetime-local" value={fechaLocal} onChange={(e) => setFechaLocal(e.target.value)} className={inp} />
-          </label>
-        )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
         <label className="block"><span className="text-xs font-medium text-slate-500">Motivo</span>
           <select value={tipo} onChange={(e) => setTipo(e.target.value)} className={inp}>
             <option value="">Consulta</option>
@@ -640,7 +620,7 @@ function AgendarLeadModal({ lead, navigate, notify, onClose, onDone }: {
       </div>
       <div className="flex gap-2 pt-4">
         <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
-        <button onClick={agendar} disabled={busy || (manual ? !fechaLocal : !slotSel)} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{busy ? 'Agendando…' : 'Agendar cita'}</button>
+        <button onClick={agendar} disabled={busy || !slotSel} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{busy ? 'Agendando…' : 'Agendar cita'}</button>
       </div>
     </Modal>
   )
