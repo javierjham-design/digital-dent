@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-08-31 — Agendar desde el CRM: elegir sobre la disponibilidad real (no fecha libre)
+
+El modal "Agendar hora" del CRM tenía un `datetime-local` libre: no mostraba la agenda real,
+así que se podían elegir horas ocupadas o fuera del horario de atención. Ahora muestra los
+**slots libres** del profesional (del más cercano al más lejano) para elegir; al agendar se crea
+la cita y se dispara igual la señal **Schedule** a Meta (flujo `/crm/leads/:id/agendar` intacto).
+
+- **Backend**: `GET /api/v1/agenda/disponibilidad?doctorId&durationMin&dias` (scope `tenant`) →
+  `{ slots:[{start,end}] }`, reusando `slotsLibres` (HorarioDoctor − ocupación, en pasos de la
+  duración; hoy…hoy+dias, cap 60). `agenda.controller.getDisponibilidad`.
+- **Frontend** (`Crm.tsx`, modal Agendar): al elegir profesional/duración trae los slots y los
+  muestra agrupados por día (hora de Chile), clickeables; el botón "Agendar cita" se habilita al
+  elegir uno. Fallback "Otra hora (manual)" conserva el `datetime-local` (sobrecupo / fuera de
+  agenda). Cambiar la duración recalcula los slots.
+- **Tests de frontend**: se agregó infra vitest+jsdom+testing-library en una tanda previa; este
+  cambio se cubre con test de integración backend.
+
+Verificado: typecheck be/fe, contrato (281 rutas), unit 134/134, integración 143/143
+(+4: `agenda-disponibilidad.test.ts` — 401 sin JWT, 400 sin doctorId, slots ordenados de 30m,
+respeta 60m), fe test 1/1, build fe.
+
+---
+
 ## 2026-08-30 — Fix (serio): ficha de paciente quedaba con datos del paciente anterior
 
 **Bug de integridad**: al navegar de un paciente a otro SIN recargar (p.ej. desde el buscador),

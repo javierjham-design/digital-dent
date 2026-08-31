@@ -61,6 +61,9 @@ export const crmService = {
   convertir: (id: string) => api.post<{ pacienteId: string; yaExistia: boolean }>(`/crm/leads/${id}/convertir`, {}),
   agendar: (id: string, body: { doctorId: string; fecha: string; duracion?: number; tipo?: string; notas?: string; sobrecupo?: boolean }) =>
     api.post<{ pacienteId: string; citaId: string; inicio: string }>(`/crm/leads/${id}/agendar`, body),
+  // Slots libres de un profesional (agenda real) para elegir la hora al agendar.
+  disponibilidad: (doctorId: string, durationMin: number, dias = 30) =>
+    api.get<{ slots: { start: string; end: string }[] }>(`/agenda/disponibilidad?doctorId=${encodeURIComponent(doctorId)}&durationMin=${durationMin}&dias=${dias}`),
   eliminar: (id: string) => api.del<{ ok: true }>(`/crm/leads/${id}`),
   config: () => api.get<CrmConfig>('/crm/config'),
   guardarConfig: (patch: Record<string, unknown>) => api.patch<CrmConfig>('/crm/config', patch),

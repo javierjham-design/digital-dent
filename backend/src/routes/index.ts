@@ -12,7 +12,7 @@ import {
 import { getCitas, postCita, patchCita, deleteCita, patchEstado, getLogsCita } from '@/controllers/citas.controller'
 import * as box from '@/controllers/boxes.controller'
 import { getUsuarios, getDoctores, getCupoProfesionales, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
-import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo } from '@/controllers/agenda.controller'
+import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo, getDisponibilidad } from '@/controllers/agenda.controller'
 import {
   getPrestaciones, postPrestacion, patchPrestacion, deletePrestacion, postDedupePrestaciones,
   getCategorias, postCategoria, patchCategoria, postReordenarCategorias, deleteCategoria,
@@ -178,6 +178,7 @@ apiRouter.patch('/usuarios/:id', tenant, asyncHandler(patchUsuario)) // self o a
 // ── Horarios (convertido a database-per-tenant) ──────────────────────────────
 apiRouter.get('/horarios', tenant, asyncHandler(getHorarios))
 apiRouter.post('/horarios', tenant, asyncHandler(postHorarios))
+apiRouter.get('/agenda/disponibilidad', tenant, asyncHandler(getDisponibilidad))
 
 // ── Agendamiento online: links (admin) + reservas ────────────────────────────
 apiRouter.get('/agenda-links', agendaTenant, asyncHandler(agendaOnline.getLinks))
