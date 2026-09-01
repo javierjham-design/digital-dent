@@ -5,6 +5,32 @@
 
 ---
 
+## 2026-09-01 — Fix (delicado, pagos): borrar una acción pagada dejaba el pago huérfano
+
+**Incidente (Patricio Mora #2843, digital-dent):** al eliminar una acción clínica PAGADA y
+recrearla dividida, el pago "desapareció" y el plan quedó en deuda falsa. **Causa raíz:**
+`eliminarTratamiento` hacía `DELETE` del Tratamiento; la FK `CobroItem.tratamientoId` es
+`ON DELETE SET NULL`, así que los pagos DIRECTOS a esa acción quedaban con `tratamientoId=NULL`
+y, si no tenían `planId`, **huérfanos** (sin acción NI plan) → invisibles para `totalesPlan()`
+(que suma por `tratamientoId ∈ plan` o `planId = plan`). Los abonos libres (con `planId`) sí se
+recuperaban solos.
+
+- **Fix de código** (`tratamientos.service.ts:eliminarTratamiento`): antes de borrar, en una
+  transacción, los CobroItem de la acción se CONVIERTEN en **abono libre del plan**
+  (`tratamientoId→null, planId=plan`). Si la acción no está en un plan y tiene pagos, se
+  **bloquea** el borrado (no hay a dónde reasignar sin perder el dinero). Test de regresión
+  `eliminar-tratamiento-abono.test.ts` (2 casos).
+- **Corrección de datos en prod** (backup fresco previo 2026-09-01 → transacción, 1 fila, guardas
+  + aserción): el item huérfano `cmtai5fre…` ($949.000, Cobro #146) se re-vinculó como abono libre
+  del plan "Diseño Sonrisa". Verificado: abono libre $0→$949.000, plan sin huérfanos, saldo $0.
+  Scripts `backend/src/scripts/diag-cobros.ts` (solo-lectura) y `fix-cobro-huerfano.ts` (one-off).
+
+Verificado: typecheck be, unit 134/134, integración 145/145. PENDIENTE (acordado con el usuario):
+(a) mostrar/usar el abono libre DENTRO del plan de tratamiento (hoy solo se ve en Recaudación),
+(b) escanear otros pacientes de digital-dent por el mismo patrón de item huérfano.
+
+---
+
 ## 2026-08-31 — Agendar desde el CRM: elegir sobre la disponibilidad real (no fecha libre)
 
 El modal "Agendar hora" del CRM tenía un `datetime-local` libre: no mostraba la agenda real,

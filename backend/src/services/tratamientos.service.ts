@@ -375,10 +375,26 @@ export async function eliminarTratamiento(db: TenantClient, actorId: string, id:
     throw forbidden('Solo un administrador puede eliminar una acción ya realizada (queda registrada en la ficha).')
   }
   await assertPlanDesbloqueado(db, t.planId)
-  await db.tratamiento.delete({ where: { id } })
+
+  // No perder pagos al borrar: los CobroItem de esta acción se CONVIERTEN en abono
+  // libre del plan (tratamientoId→null, planId=plan) antes de borrar. Si no fuera así,
+  // la FK ON DELETE SET NULL los dejaría huérfanos (sin acción NI plan) → dinero
+  // invisible y el plan aparece en deuda falsa (incidente 2026-09, Patricio Mora).
+  // Si la acción NO está en un plan y tiene pagos, se bloquea el borrado (no hay a
+  // dónde reasignar el crédito sin perderlo).
+  await db.$transaction(async (tx) => {
+    if (t.planId) {
+      await tx.cobroItem.updateMany({ where: { tratamientoId: id }, data: { tratamientoId: null, planId: t.planId } })
+    } else {
+      const pagos = await tx.cobroItem.count({ where: { tratamientoId: id, cobro: { estado: 'PAGADO', anulado: false } } })
+      if (pagos > 0) throw badRequest('Esta acción tiene pagos y no pertenece a un plan. Muévela a un plan antes de eliminarla para no perder el abono.')
+    }
+    await tx.tratamiento.delete({ where: { id } })
+  })
+
   await audit(db, actorId, {
     accion: 'ELIMINAR', entidad: 'Tratamiento', entidadId: id, pacienteId: t.ficha.pacienteId,
-    resumen: `Eliminó la acción "${t.prestacion.nombre}"${t.diente ? ` · pieza ${t.diente}` : ''}`,
+    resumen: `Eliminó la acción "${t.prestacion.nombre}"${t.diente ? ` · pieza ${t.diente}` : ''} (sus pagos quedaron como abono libre del plan)`,
     datosPrevios: { estado: t.estado, precio: t.precio, descuento: t.descuento, diente: t.diente },
   })
 }
