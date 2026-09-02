@@ -1,26 +1,26 @@
-// Corrección PUNTUAL (one-off) del incidente de Patricio Mora (#2843, digital-dent):
-// el pago huérfano de $949.000 (item sin acción ni plan tras borrar una acción pagada)
-// se re-vincula como ABONO LIBRE del plan "Diseño Sonrisa". 1 sola fila, con guardas
-// estrictas + aserción de count===1 en transacción. Con DRY_RUN=1 solo simula.
+// Corrección PUNTUAL (one-off) de un CobroItem "huérfano" (pagado, sin acción ni plan
+// tras borrar una acción pagada): se re-vincula como ABONO LIBRE de un plan. 1 sola
+// fila, con guardas estrictas + aserción count===1 en transacción. DRY_RUN=1 simula.
 //   railway run -s Postgres bash -c 'cd backend && TENANT_DB_SERVER_URL="$DATABASE_PUBLIC_URL" \
-//     DB=clariva_t_digital_dent DRY_RUN=1 npx tsx src/scripts/fix-cobro-huerfano.ts'
+//     DB=clariva_t_digital_dent ITEM=<id> PLAN=<id> PACIENTE=<id> MONTO=<n> DRY_RUN=1 \
+//     npx tsx src/scripts/fix-cobro-huerfano.ts'
 import { tenantClient } from '@/db/tenant'
 
 const dbName = process.env.DB || 'clariva_t_digital_dent'
 const DRY = process.env.DRY_RUN === '1'
-
-const ITEM_ID = 'cmtai5fre028p62p2cvxp3i92'          // CobroItem huérfano
-const PLAN_ID = 'cmsyqpu8a01ku3b07ky98mdtw'          // Plan "Diseño Sonrisa"
-const PACIENTE_ID = 'cmp39qvrk02th99l7ozvv3omt'      // Patricio Hernán Mora Castillo #2843
-const MONTO = 949000
+const ITEM_ID = process.env.ITEM || ''
+const PLAN_ID = process.env.PLAN || ''
+const PACIENTE_ID = process.env.PACIENTE || ''
+const MONTO = Number(process.env.MONTO || 0)
 
 const clp = (n: number) => '$' + Math.round(n).toLocaleString('es-CL')
 
 async function main() {
+  if (!ITEM_ID || !PLAN_ID || !PACIENTE_ID || !MONTO) throw new Error('Faltan ITEM/PLAN/PACIENTE/MONTO')
   const db = tenantClient(dbName)
 
-  const abonoLibreAntes = await db.cobroItem.aggregate({ where: { planId: PLAN_ID, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } }, _sum: { monto: true } })
-  console.log(`Abono libre del plan ANTES: ${clp(abonoLibreAntes._sum.monto ?? 0)}`)
+  const antes = await db.cobroItem.aggregate({ where: { planId: PLAN_ID, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } }, _sum: { monto: true } })
+  console.log(`Abono libre del plan ANTES: ${clp(antes._sum.monto ?? 0)}`)
 
   await db.$transaction(async (tx) => {
     const item = await tx.cobroItem.findUnique({
@@ -38,8 +38,7 @@ async function main() {
     if (!plan) throw new Error('ABORTO: el plan no existe')
     if (plan.pacienteId !== PACIENTE_ID) throw new Error('ABORTO: el plan es de otro paciente')
 
-    console.log(`Item ${item.id} (Cobro #${item.cobro.numero}, ${clp(item.monto)}) → abono libre del plan "${plan.nombre}"`)
-
+    console.log(`Item ${item.id} (Cobro #${item.cobro.numero}, ${clp(item.monto)}) → abono libre del plan "${plan.nombre}" (${plan.id})`)
     if (DRY) { console.log('DRY_RUN: no se escribe. Guardas OK.'); return }
 
     const r = await tx.cobroItem.updateMany({
@@ -50,8 +49,8 @@ async function main() {
     console.log('✓ 1 fila actualizada.')
   })
 
-  const abonoLibreDespues = await db.cobroItem.aggregate({ where: { planId: PLAN_ID, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } }, _sum: { monto: true } })
-  console.log(`Abono libre del plan DESPUÉS: ${clp(abonoLibreDespues._sum.monto ?? 0)}`)
+  const despues = await db.cobroItem.aggregate({ where: { planId: PLAN_ID, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } }, _sum: { monto: true } })
+  console.log(`Abono libre del plan DESPUÉS: ${clp(despues._sum.monto ?? 0)}`)
 
   await db.$disconnect()
 }
