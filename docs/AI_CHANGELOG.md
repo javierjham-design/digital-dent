@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-09-02 — Abono libre visible en el plan · buscador de Prestaciones · +2 huérfanos corregidos
+
+- **Abono libre en el plan de tratamiento** (pedido del usuario: antes solo se veía en
+  Recaudación): en el resumen financiero del plan (`FichaPaciente.tsx`) ahora hay un callout
+  **"Abono libre disponible"** + una línea "· del cual abono libre" cuando `plan.abonoLibre > 0`.
+  El backend ya lo exponía (`obtenerPlan` devuelve `abonoLibre` y auto-aplica el crédito a las
+  acciones realizadas al abrir el plan) — faltaba mostrarlo. "Usable": se aplica solo al marcar
+  una acción como realizada (auto-reconciliación idempotente ya existente).
+- **Buscador de Prestaciones** (`Prestaciones.tsx`): input que filtra por nombre/sección
+  (insensible a acentos/mayúsculas) y muestra los resultados en lista plana editable de todas las
+  secciones, para encontrar y modificar rápido.
+- **Datos (prod, con backup):** el escaneo global (`scan-huerfanos.ts`) encontró 2 huérfanos más
+  además de Patricio → corregidos como abono libre: **Marco Jara #6711** ($60.000 → plan de 13
+  acciones) y **Lorna Anriquez #3** ($5.000 → "Plan de tratamiento 1"). Scan final: **0 huérfanos**
+  en digital-dent (total recuperado $1.014.000).
+
+Verificado: typecheck fe, build fe. (El fix de código anti-recurrencia se desplegó el 2026-09-01.)
+
+---
+
 ## 2026-09-01 — Fix (delicado, pagos): borrar una acción pagada dejaba el pago huérfano
 
 **Incidente (Patricio Mora #2843, digital-dent):** al eliminar una acción clínica PAGADA y

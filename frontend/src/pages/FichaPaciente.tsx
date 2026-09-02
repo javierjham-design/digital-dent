@@ -963,8 +963,19 @@ function PlanDetalleView({ plan, prestaciones, doctores, pacienteId, areaPlan, s
                 <p className="text-xl font-bold text-rose-600 font-mono">{fmtCLP(deuda)}</p>
               </div>
             )}
+            {/* Abono libre: crédito del paciente en el plan sin acción asignada. Se
+                aplica solo a las acciones al realizarlas. Visible también acá (no solo
+                en Recaudación) para que se vea y se pueda usar desde el plan. */}
+            {(plan.abonoLibre ?? 0) > 0 && (
+              <div className="mb-3 rounded-xl bg-emerald-50 border border-emerald-200 px-3 py-2 text-center">
+                <p className="text-[11px] uppercase tracking-wide text-emerald-600 font-semibold">Abono libre disponible</p>
+                <p className="text-xl font-bold text-emerald-700 font-mono">{fmtCLP(plan.abonoLibre ?? 0)}</p>
+                <p className="text-[10px] text-emerald-600/80 mt-0.5">Crédito sin acción asignada. Se aplica automáticamente al marcar una acción como realizada.</p>
+              </div>
+            )}
             <Linea l="Realizado" v={fmtCLP(fin.realizado)} />
             <Linea l="Abonado" v={fmtCLP(abonado)} />
+            {(plan.abonoLibre ?? 0) > 0 && <Linea l="· del cual abono libre" v={fmtCLP(plan.abonoLibre ?? 0)} />}
             <Linea l="Saldo por abonar" v={fmtCLP(saldo)} destacado={saldo > 0} />
           </div>
           <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
