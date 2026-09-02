@@ -8,6 +8,7 @@ import { fmtMonto } from '@/lib/money'
 
 const fmtCLP = fmtMonto
 const SIN = '__sin__'
+const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
 
 export function Prestaciones() {
   const { user } = useAuth()
@@ -27,6 +28,7 @@ export function Prestaciones() {
   const [form, setForm] = useState({ nombre: '', categoriaId: '', precio: '', duracion: '30' })
   const [nuevaSeccion, setNuevaSeccion] = useState('')
   const [busy, setBusy] = useState(false)
+  const [q, setQ] = useState('') // buscador de prestaciones
 
   function cargar() {
     if (!area) return
@@ -76,6 +78,15 @@ export function Prestaciones() {
   }
   const sinCat = porCat.get(SIN) ?? []
 
+  // Buscador: filtra por nombre o sección (insensible a acentos/mayúsculas). Cuando
+  // hay búsqueda, se muestran los resultados en una lista plana (de todas las
+  // secciones) para encontrar y editar rápido la prestación buscada.
+  const needle = norm(q.trim())
+  const buscando = needle.length >= 1
+  const filtrados = buscando
+    ? items.filter((p) => norm(p.nombre).includes(needle) || (p.categoria ? norm(p.categoria).includes(needle) : false))
+    : []
+
   if (!puedeGestionar) return <p className="text-slate-500 text-sm max-w-md">No tienes acceso a la gestión de prestaciones. Pídele a un administrador el permiso <span className="font-medium">“Gestionar prestaciones”</span>.</p>
 
   return (
@@ -102,6 +113,14 @@ export function Prestaciones() {
           ))}
         </div>
       )}
+
+      {/* Buscador de prestaciones */}
+      <div className="mb-5 relative sm:max-w-md">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar prestación por nombre…"
+          className="w-full pl-9 pr-8 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">🔍</span>
+        {q && <button onClick={() => setQ('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm" title="Limpiar">✕</button>}
+      </div>
 
       {error && <p className="mb-4 text-sm text-rose-600">{error}</p>}
 
@@ -132,7 +151,17 @@ export function Prestaciones() {
         </div>
       )}
 
-      {cargando ? <p className="text-slate-500 text-sm">Cargando…</p> : (
+      {cargando ? <p className="text-slate-500 text-sm">Cargando…</p> : buscando ? (
+        // Resultados de búsqueda: lista plana (todas las secciones), editable directo.
+        <div>
+          <p className="text-xs text-slate-400 mb-2">{filtrados.length} resultado{filtrados.length === 1 ? '' : 's'} para “{q.trim()}”</p>
+          <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100">
+            {filtrados.length === 0
+              ? <p className="px-5 py-4 text-sm text-slate-400">Sin resultados. Probá con otra palabra{areas.length > 1 ? ' o cambiá de área' : ''}.</p>
+              : filtrados.map((p) => <PrestacionFila key={p.id} p={p} cats={cats} correr={correr} />)}
+          </div>
+        </div>
+      ) : (
         <div className="space-y-5">
           {cats.map((c, i) => (
             <Seccion key={c.id} cat={c} idx={i} total={cats.length} puedeGestionar={puedeGestionar}
