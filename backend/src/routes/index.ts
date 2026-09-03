@@ -125,6 +125,8 @@ apiRouter.get('/google/callback', asyncHandler(googlec.getCallback))
 apiRouter.post('/google/sync', asyncHandler(googlec.postSync))
 // Backup manual: cron-secret (timingSafeEqual) o super-admin. Sin requireAuth (valida inline).
 apiRouter.post('/admin/backups/run', asyncHandler(backups.postBackupRun))
+// Backfill del nombre del formulario en leads de Meta históricos (cron-secret / super-admin; valida inline).
+apiRouter.post('/admin/crm/backfill-formularios', asyncHandler(meta.postBackfillFormularios))
 
 // ── Google Calendar (sesión de clínica, database-per-tenant) ─────────────────
 apiRouter.get('/google/health', tenant, asyncHandler(googlec.getHealth))

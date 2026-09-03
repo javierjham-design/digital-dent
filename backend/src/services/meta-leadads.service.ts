@@ -316,3 +316,50 @@ export async function reprocesarLead(db: ReturnType<typeof tenantClient>, leadge
 }
 
 function safeJson(s: string): unknown { try { return JSON.parse(s) } catch { return s } }
+
+// ── Backfill del nombre del formulario para leads de Meta históricos ──────────
+// Para leads con leadgenId y sin formularioNombre: toma el form_id del historial de
+// ingresos si está, o lo re-consulta a Graph por el leadgen_id (funciona ≤90 días;
+// los más viejos Meta ya no los devuelve). Resuelve el nombre y lo guarda. Con
+// `dry` no escribe: solo devuelve el conteo por formulario (los "números").
+function formIdDeIngresos(raw: string | null): string | undefined {
+  if (!raw) return undefined
+  try {
+    const arr = JSON.parse(raw)
+    if (Array.isArray(arr)) for (let i = arr.length - 1; i >= 0; i--) { const f = arr[i]?.formId; if (f) return String(f) }
+  } catch { /* ignore */ }
+  return undefined
+}
+
+export interface BackfillFormResult {
+  total: number; resueltos: number; expirados: number; sinFormulario: number; dry: boolean
+  porFormulario: { formId: string; nombre: string; count: number }[]
+}
+export async function backfillFormularios(db: ReturnType<typeof tenantClient>, opts: { dry?: boolean } = {}): Promise<BackfillFormResult> {
+  const cfg = await getMetaLeadAdsConfig(db)
+  if (!cfg.pageToken) throw new Error('La clínica no tiene token de página de Meta configurado.')
+  const leads = await db.lead.findMany({
+    where: { leadgenId: { not: null }, formularioNombre: null },
+    select: { id: true, leadgenId: true, ingresos: true },
+  })
+  const porForm = new Map<string, { nombre: string; count: number }>()
+  let resueltos = 0, expirados = 0, sinFormulario = 0
+  for (const l of leads) {
+    if (!l.leadgenId) continue
+    let formId = formIdDeIngresos(l.ingresos)
+    if (!formId) {
+      const g = await fetchGraph(l.leadgenId, cfg.pageToken, 'form_id')
+      if (!g.ok || !g.lead?.form_id) { expirados++; continue } // leadgen expiró (>90d) u otro error
+      formId = g.lead.form_id
+    }
+    const nombre = await traerNombreFormulario(formId, cfg.pageToken)
+    if (!nombre) { sinFormulario++; continue }
+    resueltos++
+    const cur = porForm.get(formId) ?? { nombre, count: 0 }; cur.count++; porForm.set(formId, cur)
+    if (!opts.dry) await db.lead.update({ where: { id: l.id }, data: { formularioId: formId, formularioNombre: nombre } })
+  }
+  return {
+    total: leads.length, resueltos, expirados, sinFormulario, dry: !!opts.dry,
+    porFormulario: [...porForm.entries()].map(([formId, v]) => ({ formId, nombre: v.nombre, count: v.count })).sort((a, b) => b.count - a.count),
+  }
+}

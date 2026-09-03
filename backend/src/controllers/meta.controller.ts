@@ -1,5 +1,10 @@
 import type { Request, Response } from 'express'
 import * as svc from '@/services/meta-leadads.service'
+import { control } from '@/db/control'
+import { tenantClient } from '@/db/tenant'
+import { cronSecretValido } from '@/lib/cron-auth'
+import { verifyToken } from '@/services/auth.service'
+import { forbidden, unauthorized, notFound } from '@/lib/errors'
 import { log, serializeError } from '@/lib/logger'
 import { captureError } from '@/lib/observability'
 
@@ -30,4 +35,22 @@ export function postMetaWebhook(req: Request, res: Response) {
     log.error('meta-leadads: procesamiento async del webhook falló', { err: serializeError(e) })
     captureError(e, { route: 'webhook meta-leadads' })
   })
+}
+
+// POST /admin/crm/backfill-formularios?slug=&dry=1 — completa el nombre del formulario
+// en leads de Meta históricos (uno o todos los tenants). Auth: x-cron-secret o
+// super-admin (igual que el backup). `dry=1` = solo cuenta, no escribe.
+export async function postBackfillFormularios(req: Request, res: Response) {
+  if (!cronSecretValido(req.headers['x-cron-secret'])) {
+    const auth = req.headers.authorization
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null
+    if (!token) throw unauthorized('Requiere x-cron-secret o sesión de super-admin.')
+    if (!verifyToken(token).isPlatformAdmin) throw forbidden('Requiere super-administrador.')
+  }
+  const slug = String(req.query.slug ?? '').trim()
+  const dry = req.query.dry === '1' || req.body?.dry === true
+  if (!slug) throw notFound('Indica ?slug= de la clínica.')
+  const c = await control.clinica.findFirst({ where: { slug }, select: { dbName: true } })
+  if (!c) throw notFound('Clínica no encontrada.')
+  res.json(await svc.backfillFormularios(tenantClient(c.dbName), { dry }))
 }
