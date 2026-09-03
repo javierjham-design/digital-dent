@@ -346,39 +346,46 @@ async function pMap<T>(items: T[], concurrency: number, fn: (item: T) => Promise
 }
 
 export interface BackfillFormResult {
-  total: number; resueltos: number; expirados: number; sinFormulario: number; dry: boolean
+  total: number; resueltos: number; expirados: number; sinFormulario: number; dry: boolean; rateLimited: boolean
   porFormulario: { formId: string; nombre: string; count: number }[]
   errorFormulario?: string // muestra del último error de Graph al resolver un formulario (diagnóstico)
 }
-export async function backfillFormularios(db: ReturnType<typeof tenantClient>, opts: { dry?: boolean; limit?: number } = {}): Promise<BackfillFormResult> {
+// Backfill best-effort del nombre del formulario. `dias` acota a leads recientes (los
+// >90 días Meta ya no los devuelve, y así no se gasta el rate limit de la app). Corta
+// si Graph responde rate limit (#4) — se reintenta más tarde.
+export async function backfillFormularios(db: ReturnType<typeof tenantClient>, opts: { dry?: boolean; limit?: number; dias?: number } = {}): Promise<BackfillFormResult> {
   const cfg = await getMetaLeadAdsConfig(db)
   if (!cfg.pageToken) throw new Error('La clínica no tiene token de página de Meta configurado.')
   const pageToken = cfg.pageToken
   const leads = await db.lead.findMany({
-    where: { leadgenId: { not: null }, formularioNombre: null },
+    where: {
+      leadgenId: { not: null }, formularioNombre: null,
+      ...(opts.dias ? { createdAt: { gte: new Date(Date.now() - opts.dias * 86400_000) } } : {}),
+    },
     select: { id: true, leadgenId: true, ingresos: true },
     orderBy: { createdAt: 'desc' }, // recientes primero (más chance de estar dentro de los 90 días)
     ...(opts.limit ? { take: opts.limit } : {}),
   })
   ultimoErrorFormulario = undefined
   const porForm = new Map<string, { nombre: string; count: number }>()
-  let resueltos = 0, expirados = 0, sinFormulario = 0
-  await pMap(leads, 8, async (l) => {
-    if (!l.leadgenId) return
+  let resueltos = 0, expirados = 0, sinFormulario = 0, rateLimited = false
+  await pMap(leads, 3, async (l) => {
+    if (rateLimited || !l.leadgenId) return
     let formId = formIdDeIngresos(l.ingresos)
     if (!formId) {
       const g = await fetchGraph(l.leadgenId, pageToken, 'form_id')
-      if (!g.ok || !g.lead?.form_id) { expirados++; return } // leadgen expiró (>90d) u otro error
+      if (!g.ok) { if (g.error?.code === 4) rateLimited = true; expirados++; return } // #4 = rate limit; resto = expiró
+      if (!g.lead?.form_id) { expirados++; return }
       formId = g.lead.form_id
     }
     const nombre = await traerNombreFormulario(formId, pageToken)
-    if (!nombre) { sinFormulario++; return }
+    if (!nombre) { if (/code=4|request limit/i.test(ultimoErrorFormulario ?? '')) rateLimited = true; sinFormulario++; return }
     resueltos++
     const cur = porForm.get(formId) ?? { nombre, count: 0 }; cur.count++; porForm.set(formId, cur)
     if (!opts.dry) await db.lead.update({ where: { id: l.id }, data: { formularioId: formId, formularioNombre: nombre } })
   })
   return {
-    total: leads.length, resueltos, expirados, sinFormulario, dry: !!opts.dry,
+    total: leads.length, resueltos, expirados, sinFormulario, dry: !!opts.dry, rateLimited,
     porFormulario: [...porForm.entries()].map(([formId, v]) => ({ formId, nombre: v.nombre, count: v.count })).sort((a, b) => b.count - a.count),
     ...(sinFormulario > 0 && ultimoErrorFormulario ? { errorFormulario: ultimoErrorFormulario } : {}),
   }
