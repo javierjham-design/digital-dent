@@ -74,7 +74,7 @@ function exportarExcel(rows: Lead[], nombre: string) {
     ['RUT', (l) => l.rut ?? ''],
     ['Estado', (l) => estadoCfg(l.estado).l],
     ['Origen', (l) => origenCfg(l.origen).l],
-    ['Formulario', (l) => l.formularioNombre ?? ''],
+    ['Formulario (ID)', (l) => l.formularioId ?? ''],
     ['Campaña', (l) => campanaDe(l)],
     ['Motivo', (l) => l.motivo ?? ''],
     ['Tratamiento', (l) => l.tratamiento ?? ''],
@@ -261,8 +261,7 @@ export function Crm() {
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <p className="font-semibold text-slate-800 truncate">{l.nombre} {l.apellido ?? ''}</p>
                       <span className={`${chip} ${oc.c}`}>{oc.l}</span>
-                      {l.formularioNombre && <span className={`${chip} bg-sky-100 text-sky-700`} title="Formulario de origen">📋 {l.formularioNombre}</span>}
-                      {(l.campanaKey || l.campana) && <span className={`${chip} bg-indigo-100 text-indigo-700`} title="Campaña">🎯 {campanaDe(l)}</span>}
+                      {(l.campanaKey || l.campana) && <span className={`${chip} bg-indigo-100 text-indigo-700`} title="Campaña / formulario">🎯 {campanaDe(l)}</span>}
                       {l.esReingreso && <span className={`${chip} bg-amber-100 text-amber-700`} title={`Volvió a consultar${l.ultimoIngresoAt ? ` · ${fecha(l.ultimoIngresoAt)}` : ''}`}>↩ Reingreso{(l.vecesIngresado ?? 1) > 2 ? ` ×${l.vecesIngresado}` : ''}</span>}
                       {l.sinGestionar && <span className={`${chip} bg-rose-100 text-rose-700`}>⏰ Sin gestionar{l.ultimaGestionAt ? ` · ${diasDesde(l.ultimaGestionAt)}d` : ''}</span>}
                       {agendoOnline(l) && <span className={`${chip} bg-emerald-100 text-emerald-700`}>Agendó online</span>}
@@ -360,8 +359,8 @@ function LeadDetalle({ lead, waPlantilla, clinicaNombre, onClose, onChanged, not
         <Row k="RUT" v={full.rut ?? '—'} />
         <Row k="Motivo" v={full.motivo ?? '—'} />
         <Row k="Origen" v={full.origen} />
-        {full.formularioNombre && <Row k="Formulario" v={full.formularioNombre} />}
-        {full.campana && <Row k="Campaña" v={full.campana} />}
+        {full.formularioId && <Row k="Formulario (ID)" v={full.formularioId} />}
+        {full.campana && <Row k="Campaña / formulario" v={campanaDe(full)} />}
         {full.utmCampaign && <Row k="UTM campaign" v={full.utmCampaign} />}
         {full.utmSource && <Row k="UTM source" v={`${full.utmSource}${full.utmMedium ? ` / ${full.utmMedium}` : ''}`} />}
         {full.fechaAgenda && <Row k="Hora agendada" v={fecha(full.fechaAgenda)} />}

@@ -57,7 +57,7 @@ export async function backfillFormulariosTodasLasClinicas(): Promise<void> {
         const r = await backfillFormularios(tenantClient(c.dbName), { dias: 90, max: 60 })
         if (r.rateLimited) backfillCooldownUntil = Date.now() + BACKFILL_COOLDOWN_MS
         if (r.resueltos > 0 || r.rateLimited || r.error) {
-          log.info('mantenimiento: backfill formularios Meta', { clinica: c.slug, via: r.via, resueltos: r.resueltos, sinResolver: r.sinResolver, rateLimited: r.rateLimited, error: r.error })
+          log.info('mantenimiento: backfill formularios Meta', { clinica: c.slug, resueltos: r.resueltos, sinResolver: r.sinResolver, rateLimited: r.rateLimited, error: r.error })
         }
       } catch (e) {
         log.error('mantenimiento: backfill formularios Meta falló', { clinica: c.slug, err: serializeError(e) })
