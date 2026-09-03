@@ -70,23 +70,23 @@ async function fetchGraph(leadgenId: string, pageToken: string, fields: string):
 // Caché por form_id (los nombres cambian rara vez) para no llamar a Graph por cada lead.
 const formNameCache = new Map<string, { name: string; at: number }>()
 const FORM_NAME_TTL = 6 * 3600_000
-async function traerNombreFormulario(formId: string | undefined, pageToken: string): Promise<string | undefined> {
-  if (!formId) return undefined
+async function traerNombreFormulario(formId: string | undefined, pageToken: string): Promise<{ name?: string; error?: GraphError }> {
+  if (!formId) return {}
   const hit = formNameCache.get(formId)
-  if (hit && Date.now() - hit.at < FORM_NAME_TTL) return hit.name || undefined
+  if (hit && Date.now() - hit.at < FORM_NAME_TTL) return { name: hit.name || undefined }
   try {
     const url = `${graphBase()}/${encodeURIComponent(formId)}?fields=name&access_token=${encodeURIComponent(pageToken)}`
     const r = await fetch(url)
-    const d = (await r.json().catch(() => ({}))) as { name?: string; error?: { message?: string; code?: number } }
+    const d = (await r.json().catch(() => ({}))) as { name?: string; error?: { message?: string; code?: number; error_subcode?: number } }
     if (!r.ok || !d.name) {
       log.warn('meta-leadads: no se pudo resolver el nombre del formulario', { form_id: formId, status: r.status, code: d.error?.code, message: d.error?.message })
-      return undefined
+      return { error: { message: d.error?.message ?? `Graph ${r.status}`, code: d.error?.code, subcode: d.error?.error_subcode } }
     }
     formNameCache.set(formId, { name: d.name, at: Date.now() })
-    return d.name
+    return { name: d.name }
   } catch (e) {
     log.warn('meta-leadads: error resolviendo nombre del formulario', { form_id: formId, err: serializeError(e) })
-    return undefined
+    return { error: { message: e instanceof Error ? e.message : 'error de red' } }
   }
 }
 
@@ -216,7 +216,7 @@ async function ejecutarPipeline(
   const { camposExtra, ...persona } = mapearFieldData(graph.field_data)
   const extraJson = Object.keys(camposExtra).length ? JSON.stringify(camposExtra) : undefined
   const formId = graph.form_id ?? args.formId
-  const formularioNombre = await traerNombreFormulario(formId, args.pageToken)
+  const formularioNombre = (await traerNombreFormulario(formId, args.pageToken)).name
 
   const r = await ingestarLeadMeta(db, {
     nombre: persona.nombre, apellido: persona.apellido, telefono: persona.telefono, email: persona.email, rut: persona.rut,
@@ -418,16 +418,17 @@ export async function backfillFormularios(db: ReturnType<typeof tenantClient>, o
   if (forms.error.code === 4) return { ...base, total: pend.length, sinResolver: pend.length, rateLimited: true, via: 'forms', error: forms.error.message }
 
   // ── Fallback por-lead (throttled): el token no puede listar formularios ──
-  let resueltos = 0, rateLimited = false, err: string | undefined = forms.error.message
+  let resueltos = 0, rateLimited = false, err: string | undefined
   await pMap(pend, 2, async (l) => {
     if (rateLimited || !l.leadgenId) return
     const g = await fetchGraph(l.leadgenId, pageToken, 'form_id')
-    if (!g.ok || !g.lead?.form_id) { if (g.error?.code === 4) { rateLimited = true; err = g.error.message } return } // #4 rate limit; resto expiró
+    if (!g.ok) { err = `form_id: ${g.error?.message ?? '?'}`; if (g.error?.code === 4) rateLimited = true; return }
+    if (!g.lead?.form_id) return // el leadgen expiró/no trae form (edge)
     const formId = g.lead.form_id
-    const nombre = await traerNombreFormulario(formId, pageToken)
-    if (!nombre) return
-    resueltos++; tally(formId, nombre)
-    if (!opts.dry) await db.lead.update({ where: { id: l.id }, data: { formularioId: formId, formularioNombre: nombre } })
+    const nm = await traerNombreFormulario(formId, pageToken)
+    if (!nm.name) { err = `name: ${nm.error?.message ?? '?'}`; if (nm.error?.code === 4) rateLimited = true; return }
+    resueltos++; tally(formId, nm.name)
+    if (!opts.dry) await db.lead.update({ where: { id: l.id }, data: { formularioId: formId, formularioNombre: nm.name } })
   })
   return {
     total: pend.length, resueltos, sinResolver: pend.length - resueltos, formularios: porForm.size, dry: !!opts.dry, rateLimited, via: 'per-lead',
