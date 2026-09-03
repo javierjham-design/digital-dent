@@ -91,6 +91,24 @@ describe('backfillFormularios (reverse-lookup)', () => {
     expect(l?.formularioNombre).toBeNull() // dry no escribió
   })
 
+  it('fallback por-lead cuando no se pueden listar formularios (#200)', async () => {
+    const db = tenantClient(A.dbName)
+    await db.lead.create({ data: { nombre: 'PL', origen: 'META_FORM', leadgenId: 'lgpl' } })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
+      const url = String(input)
+      if (url.includes('/leadgen_forms')) return jsonResp({ error: { message: 'Requires pages_manage_ads permission', code: 200 } }, 403)
+      if (url.includes('lgpl') && url.includes('fields=form_id')) return jsonResp({ id: 'lgpl', form_id: 'FPL' })
+      if (url.includes('/FPL') && url.includes('fields=name')) return jsonResp({ name: 'Campaña PorLead' })
+      return jsonResp({ data: [] })
+    })
+    const { backfillFormularios } = await import('@/services/meta-leadads.service')
+    const r = await backfillFormularios(db, { dias: 3650 })
+    expect(r.via).toBe('per-lead')
+    const l = await db.lead.findFirst({ where: { leadgenId: 'lgpl' }, select: { formularioNombre: true, formularioId: true } })
+    expect(l?.formularioNombre).toBe('Campaña PorLead'); expect(l?.formularioId).toBe('FPL')
+  })
+
   it('marca rateLimited cuando Graph responde #4', async () => {
     const db = tenantClient(A.dbName)
     await db.lead.create({ data: { nombre: 'RL', origen: 'META_FORM', leadgenId: 'lgrl' } })

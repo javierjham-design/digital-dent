@@ -355,57 +355,82 @@ async function listarFormulariosPagina(pageId: string, pageToken: string): Promi
   return err ? { error: err } : out
 }
 
+// Pool de concurrencia acotada.
+async function pMap<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let i = 0
+  const worker = async () => { while (i < items.length) { const idx = i++; await fn(items[idx]) } }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+}
+
 export interface BackfillFormResult {
   total: number; resueltos: number; sinResolver: number; formularios: number; dry: boolean; rateLimited: boolean
   porFormulario: { formId: string; nombre: string; count: number }[]
+  via?: 'forms' | 'per-lead'
   error?: string
 }
-export async function backfillFormularios(db: ReturnType<typeof tenantClient>, opts: { dry?: boolean; dias?: number } = {}): Promise<BackfillFormResult> {
+// `dias` acota a leads recientes (los >90 días Meta ya no los devuelve); `max` acota
+// el lote por corrida (para no gastar el rate limit de la app de una). Intenta la vía
+// eficiente (lista de formularios de la página); si el token no tiene permiso para
+// listarlos (#200 pages_manage_ads), cae a por-lead throttled. Corta en rate limit (#4).
+export async function backfillFormularios(db: ReturnType<typeof tenantClient>, opts: { dry?: boolean; dias?: number; max?: number } = {}): Promise<BackfillFormResult> {
   const base: BackfillFormResult = { total: 0, resueltos: 0, sinResolver: 0, formularios: 0, dry: !!opts.dry, rateLimited: false, porFormulario: [] }
   const cfg = await getMetaLeadAdsConfig(db)
   if (!cfg.pageToken || !cfg.pageId) return { ...base, error: 'La clínica no tiene Page ID / token de Meta.' }
+  const pageToken = cfg.pageToken
 
-  // 1) Leads pendientes (con leadgen y sin nombre de formulario): leadgen_id → lead.id.
   const pend = await db.lead.findMany({
     where: { leadgenId: { not: null }, formularioNombre: null, ...(opts.dias ? { createdAt: { gte: new Date(Date.now() - opts.dias * 86400_000) } } : {}) },
     select: { id: true, leadgenId: true },
+    orderBy: { createdAt: 'desc' }, // recientes primero
+    ...(opts.max ? { take: opts.max } : {}),
   })
   if (pend.length === 0) return base
   const byLeadgen = new Map<string, string>()
   for (const l of pend) if (l.leadgenId) byLeadgen.set(l.leadgenId, l.id)
-
-  // 2) Formularios de la página (id → nombre).
-  const forms = await listarFormulariosPagina(cfg.pageId, cfg.pageToken)
-  if ('error' in forms) {
-    return { ...base, total: pend.length, sinResolver: pend.length, rateLimited: forms.error.code === 4, error: forms.error.message }
-  }
-
-  // 3) Por cada formulario, recorrer sus leads (≤90 días) y matchear por leadgen_id.
   const porForm = new Map<string, { nombre: string; count: number }>()
-  let resueltos = 0, rateLimited = false, err: string | undefined
-  for (const form of forms) {
-    if (byLeadgen.size === 0) break // ya resolvimos todos los pendientes
-    const idsDelForm: string[] = []
-    const e = await paginarGraph(
-      `${graphBase()}/${encodeURIComponent(form.id)}/leads?fields=id&limit=200&access_token=${encodeURIComponent(cfg.pageToken)}`,
-      (data) => {
-        for (const l of data as { id?: string }[]) {
-          const lg = l.id ? String(l.id) : ''
-          const leadId = lg && byLeadgen.get(lg)
-          if (leadId) { idsDelForm.push(leadId); byLeadgen.delete(lg) }
-        }
-      },
-    )
-    if (e) { err = e.message; if (e.code === 4) { rateLimited = true; break } continue }
-    if (idsDelForm.length) {
-      porForm.set(form.id, { nombre: form.name, count: idsDelForm.length })
-      resueltos += idsDelForm.length
-      if (!opts.dry) await db.lead.updateMany({ where: { id: { in: idsDelForm } }, data: { formularioId: form.id, formularioNombre: form.name } })
+  const tally = (formId: string, nombre: string) => { const c = porForm.get(formId) ?? { nombre, count: 0 }; c.count++; porForm.set(formId, c) }
+
+  // ── Vía eficiente: lista de formularios de la página → leads de cada uno ──
+  const forms = await listarFormulariosPagina(cfg.pageId, pageToken)
+  if (!('error' in forms)) {
+    let resueltos = 0, rateLimited = false, err: string | undefined
+    for (const form of forms) {
+      if (byLeadgen.size === 0) break
+      const ids: string[] = []
+      const e = await paginarGraph(
+        `${graphBase()}/${encodeURIComponent(form.id)}/leads?fields=id&limit=200&access_token=${encodeURIComponent(pageToken)}`,
+        (data) => { for (const l of data as { id?: string }[]) { const lg = l.id ? String(l.id) : ''; const leadId = lg && byLeadgen.get(lg); if (leadId) { ids.push(leadId); byLeadgen.delete(lg) } } },
+      )
+      if (e) { err = e.message; if (e.code === 4) { rateLimited = true; break } continue }
+      if (ids.length) {
+        porForm.set(form.id, { nombre: form.name, count: ids.length }); resueltos += ids.length
+        if (!opts.dry) await db.lead.updateMany({ where: { id: { in: ids } }, data: { formularioId: form.id, formularioNombre: form.name } })
+      }
+    }
+    return {
+      total: pend.length, resueltos, sinResolver: byLeadgen.size, formularios: forms.length, dry: !!opts.dry, rateLimited, via: 'forms',
+      porFormulario: [...porForm.entries()].map(([formId, v]) => ({ formId, nombre: v.nombre, count: v.count })).sort((a, b) => b.count - a.count),
+      ...(err ? { error: err } : {}),
     }
   }
 
+  // Si listar formularios ya topó el rate limit, no seguimos por-lead (gastaría más).
+  if (forms.error.code === 4) return { ...base, total: pend.length, sinResolver: pend.length, rateLimited: true, via: 'forms', error: forms.error.message }
+
+  // ── Fallback por-lead (throttled): el token no puede listar formularios ──
+  let resueltos = 0, rateLimited = false, err: string | undefined = forms.error.message
+  await pMap(pend, 2, async (l) => {
+    if (rateLimited || !l.leadgenId) return
+    const g = await fetchGraph(l.leadgenId, pageToken, 'form_id')
+    if (!g.ok || !g.lead?.form_id) { if (g.error?.code === 4) { rateLimited = true; err = g.error.message } return } // #4 rate limit; resto expiró
+    const formId = g.lead.form_id
+    const nombre = await traerNombreFormulario(formId, pageToken)
+    if (!nombre) return
+    resueltos++; tally(formId, nombre)
+    if (!opts.dry) await db.lead.update({ where: { id: l.id }, data: { formularioId: formId, formularioNombre: nombre } })
+  })
   return {
-    total: pend.length, resueltos, sinResolver: byLeadgen.size, formularios: forms.length, dry: !!opts.dry, rateLimited,
+    total: pend.length, resueltos, sinResolver: pend.length - resueltos, formularios: porForm.size, dry: !!opts.dry, rateLimited, via: 'per-lead',
     porFormulario: [...porForm.entries()].map(([formId, v]) => ({ formId, nombre: v.nombre, count: v.count })).sort((a, b) => b.count - a.count),
     ...(err ? { error: err } : {}),
   }
