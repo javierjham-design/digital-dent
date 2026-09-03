@@ -30,6 +30,7 @@ const ORIGENES: Record<string, { l: string; c: string }> = {
   INSTAGRAM: { l: 'Instagram', c: 'bg-pink-100 text-pink-700' },
   FORMULARIO: { l: 'Formulario', c: 'bg-sky-100 text-sky-700' },
   AGENDA_ONLINE: { l: 'Link online', c: 'bg-cyan-100 text-cyan-700' },
+  TUBOT: { l: 'TuBot', c: 'bg-blue-100 text-blue-700' },
   MANUAL: { l: 'Manual', c: 'bg-slate-100 text-slate-600' },
   OTRO: { l: 'Otro', c: 'bg-slate-100 text-slate-600' },
 }

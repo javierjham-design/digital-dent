@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto'
 import type { TenantClient } from '@/db/tenant'
 import { conTitulo } from '@shared/utils/nombre'
 import { slotsLibres } from '@/services/agenda-online.service'
+import { buscarLeadParaReserva, dispararEtapaCrmMeta, dispararScheduleMeta } from '@/services/crm.service'
 import { crearCita, editarCita, cambiarEstadoCita } from '@/services/citas.service'
 import { crearPaciente, listarPacientesPaginado, obtenerPaciente, listarComentarios, crearComentario } from '@/services/pacientes.service'
 import { todayYmd, addDaysYmd } from '@/lib/tz'
@@ -239,11 +241,63 @@ export async function createAppointment(db: TenantClient, slug: string, input: C
   const cita = await crearCita(db, 'TuBot', {
     pacienteId: pac.id, doctorId: doctor.id, fecha: start.toISOString(), duracion: dur, tipo: 'CONSULTA', notas,
   })
+
+  // CRM + señal Meta "Schedule" AUTÓNOMA (best-effort; jamás hace fallar la cita).
+  // La cita agendada por el bot cierra el embudo igual que la agenda online: se
+  // vincula/crea el lead y el Schedule sale por UNA vía según su origen.
+  await vincularLeadYSchedule(db, pac, { id: cita.id, inicio: cita.inicio }).catch(() => {})
+
   return {
     id: cita.id, clinicId: slug, professionalId: doctor.id,
     ...(input.serviceId ? { serviceId: input.serviceId } : {}),
     patient: toSchedPatient(pac),
     start: cita.inicio, end: cita.fin, status: ESTADO_A_STATUS[cita.estado] ?? 'pending', notes: cita.notas || undefined,
+  }
+}
+
+// Cierra el embudo del CRM cuando TuBot agenda: avanza (o crea) el lead a AGENDADO
+// y dispara la conversión "Schedule" a Meta por UNA SOLA VÍA, igual que la agenda
+// online: lead del Formulario Instantáneo (leadgenId) → dataset de CRM; lead de
+// landing/otro → CAPI web del pixel. dispararScheduleMeta ya es idempotente
+// (scheduleCapiEnviado) y valida config/llaves de match.
+async function vincularLeadYSchedule(db: TenantClient, pac: PacienteRow, cita: { id: string; inicio: string }) {
+  const fechaCita = new Date(cita.inicio)
+  const existente = await buscarLeadParaReserva(db, { rut: pac.rut, telefono: pac.telefono, email: pac.email })
+  let lead
+  if (existente) {
+    // PROGRESIÓN: el contacto ya era lead (campaña/landing/form) y ahora el bot le
+    // agendó → avanza a AGENDADO conservando atribución. No degradar CONVERTIDO.
+    const esLeadgen = Boolean(existente.leadgenId)
+    lead = await db.lead.update({
+      where: { id: existente.id },
+      data: {
+        estado: existente.estado === 'CONVERTIDO' ? existente.estado : 'AGENDADO',
+        pacienteId: existente.pacienteId ?? pac.id, citaId: cita.id,
+        fechaAgenda: fechaCita, agendaFuente: 'TuBot', ultimaGestionAt: new Date(),
+        telefono: existente.telefono ?? pac.telefono, email: existente.email ?? pac.email, rut: existente.rut ?? pac.rut,
+        // Reset del Schedule landing SOLO para leads no-Meta (los de Form van al dataset CRM).
+        ...(esLeadgen ? {} : { scheduleEventId: randomUUID(), scheduleCapiEnviado: false }),
+        notas: { create: { tipo: 'SISTEMA', texto: 'Cita agendada por TuBot (asistente IA)' } },
+      },
+    })
+  } else {
+    // Contacto nuevo sin lead previo (llegó directo por WhatsApp): se registra en el
+    // CRM como lead TUBOT ya AGENDADO para que el embudo y el Schedule queden completos.
+    lead = await db.lead.create({
+      data: {
+        nombre: pac.nombre, apellido: pac.apellido, telefono: pac.telefono, email: pac.email, rut: pac.rut,
+        origen: 'TUBOT', estado: 'AGENDADO', pacienteId: pac.id, citaId: cita.id,
+        fechaAgenda: fechaCita, agendaFuente: 'TuBot',
+        scheduleEventId: randomUUID(), scheduleCapiEnviado: false, metaEnviado: false,
+        ultimoIngresoAt: new Date(), ultimoOrigen: 'TUBOT',
+        notas: { create: { tipo: 'SISTEMA', texto: 'Cita agendada por TuBot (asistente IA)' } },
+      },
+    })
+  }
+  if (lead.leadgenId) {
+    void dispararEtapaCrmMeta(db, lead.id, 'Schedule')
+  } else {
+    void dispararScheduleMeta(db, lead)
   }
 }
 

@@ -224,6 +224,50 @@ describe('TuBot agenda — citas (Fase 3)', () => {
   })
 })
 
+describe('TuBot agenda — señal CRM/Meta al agendar (Schedule autónomo)', () => {
+  const day = addDaysYmd(todayYmd(), 3)
+
+  it('cita de contacto NUEVO → crea lead TUBOT en AGENDADO vinculado a la cita', async () => {
+    const r = await post('/appointments', { professionalId: doctorId, start: wallClockToUtc(day, '09:00').toISOString(), end: wallClockToUtc(day, '09:30').toISOString(), patient: { firstName: 'Nadia', lastName: 'SinLead', phone: '+56955556666' } })
+    expect(r.status).toBe(201)
+    const db = tenantClient(A.dbName)
+    const lead = await db.lead.findFirst({ where: { telefono: { contains: '55556666' } } })
+    expect(lead).toBeTruthy()
+    expect(lead!.origen).toBe('TUBOT')
+    expect(lead!.estado).toBe('AGENDADO')
+    expect(lead!.citaId).toBe(r.body.id)
+    expect(lead!.fechaAgenda).toBeTruthy()
+    expect(lead!.agendaFuente).toBe('TuBot')
+    // Vía CAPI web (sin leadgenId): queda el event_id listo para el Schedule.
+    expect(lead!.scheduleEventId).toBeTruthy()
+  })
+
+  it('lead EXISTENTE (campaña) → avanza a AGENDADO sin duplicar y conserva atribución', async () => {
+    const db = tenantClient(A.dbName)
+    await db.lead.create({ data: { nombre: 'Pedro', apellido: 'Campania', telefono: '+56977778888', origen: 'META', estado: 'CONTACTADO', utmCampaign: 'protesis-sep' } })
+    const r = await post('/appointments', { professionalId: doctorId, start: wallClockToUtc(day, '10:00').toISOString(), end: wallClockToUtc(day, '10:30').toISOString(), patient: { firstName: 'Pedro', lastName: 'Campania', phone: '+56977778888' } })
+    expect(r.status).toBe(201)
+    const leads = await db.lead.findMany({ where: { telefono: { contains: '77778888' } } })
+    expect(leads.length).toBe(1) // progresión, no duplicado
+    expect(leads[0].estado).toBe('AGENDADO')
+    expect(leads[0].origen).toBe('META') // atribución original intacta
+    expect(leads[0].utmCampaign).toBe('protesis-sep')
+    expect(leads[0].citaId).toBe(r.body.id)
+    expect(leads[0].agendaFuente).toBe('TuBot')
+  })
+
+  it('lead de Formulario Meta (leadgenId) → avanza SIN tocar el Schedule landing (va por dataset CRM)', async () => {
+    const db = tenantClient(A.dbName)
+    await db.lead.create({ data: { nombre: 'Flor', apellido: 'Form', telefono: '+56966667777', origen: 'META', estado: 'NUEVO', leadgenId: '999888777666' } })
+    const r = await post('/appointments', { professionalId: doctorId, start: wallClockToUtc(day, '11:00').toISOString(), end: wallClockToUtc(day, '11:30').toISOString(), patient: { firstName: 'Flor', lastName: 'Form', phone: '+56966667777' } })
+    expect(r.status).toBe(201)
+    const lead = await db.lead.findFirst({ where: { telefono: { contains: '66667777' } } })
+    expect(lead!.estado).toBe('AGENDADO')
+    expect(lead!.citaId).toBe(r.body.id)
+    expect(lead!.scheduleEventId).toBeNull() // no se resetea: su Schedule sale por el dataset CRM
+  })
+})
+
 describe('TuBot agenda — CRM (Fase 4)', () => {
   it('GET /patients?query → búsqueda paginada', async () => {
     const r = await get('/patients?query=Ana&page=1&pageSize=25')
