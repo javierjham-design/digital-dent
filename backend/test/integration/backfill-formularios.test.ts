@@ -98,8 +98,10 @@ describe('backfillFormularios (reverse-lookup)', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: any) => {
       const url = String(input)
       if (url.includes('/leadgen_forms')) return jsonResp({ error: { message: 'Requires pages_manage_ads permission', code: 200 } }, 403)
-      if (url.includes('lgpl') && url.includes('fields=form_id')) return jsonResp({ id: 'lgpl', form_id: 'FPL' })
-      if (url.includes('/FPL') && url.includes('fields=name')) return jsonResp({ name: 'Campaña PorLead' })
+      if (url.includes('lgpl') && url.includes('fields=form_id')) return jsonResp({ id: 'lgpl', form_id: 'FPL' }) // descubrir form_id (muestra)
+      if (url.includes('/FPL') && url.includes('fields=name')) return jsonResp({ name: 'Campaña PorLead' })           // nombre del form
+      if (url.includes('/FPL/leads')) return jsonResp({ data: [{ id: 'lgpl' }] })                                    // reverse-lookup
+      if (url.includes('fields=form_id')) return jsonResp({ id: 'x' }) // otros leads de la muestra: sin form_id
       return jsonResp({ data: [] })
     })
     const { backfillFormularios } = await import('@/services/meta-leadads.service')

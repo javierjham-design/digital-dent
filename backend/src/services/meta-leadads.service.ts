@@ -388,7 +388,6 @@ export async function backfillFormularios(db: ReturnType<typeof tenantClient>, o
   const byLeadgen = new Map<string, string>()
   for (const l of pend) if (l.leadgenId) byLeadgen.set(l.leadgenId, l.id)
   const porForm = new Map<string, { nombre: string; count: number }>()
-  const tally = (formId: string, nombre: string) => { const c = porForm.get(formId) ?? { nombre, count: 0 }; c.count++; porForm.set(formId, c) }
 
   // ── Vía eficiente: lista de formularios de la página → leads de cada uno ──
   const forms = await listarFormulariosPagina(cfg.pageId, pageToken)
@@ -414,24 +413,42 @@ export async function backfillFormularios(db: ReturnType<typeof tenantClient>, o
     }
   }
 
-  // Si listar formularios ya topó el rate limit, no seguimos por-lead (gastaría más).
+  // Si listar formularios ya topó el rate limit, no seguimos (gastaría más).
   if (forms.error.code === 4) return { ...base, total: pend.length, sinResolver: pend.length, rateLimited: true, via: 'forms', error: forms.error.message }
 
-  // ── Fallback por-lead (throttled): el token no puede listar formularios ──
-  let resueltos = 0, rateLimited = false, err: string | undefined
-  await pMap(pend, 2, async (l) => {
+  // ── Fallback (el token no puede LISTAR formularios, #200): descubrimos los form_ids
+  // desde una MUESTRA de pendientes (pocas llamadas) y luego hacemos reverse-lookup por
+  // formulario (`/{form_id}/leads` sí funciona con leads_retrieval). Así un puñado de
+  // llamadas resuelve TODOS los leads de cada formulario (el nombre va cacheado). ──
+  let rateLimited = false, err: string | undefined
+  const formIds = new Set<string>()
+  await pMap(pend.slice(0, 25), 2, async (l) => {
     if (rateLimited || !l.leadgenId) return
     const g = await fetchGraph(l.leadgenId, pageToken, 'form_id')
     if (!g.ok) { err = `form_id: ${g.error?.message ?? '?'}`; if (g.error?.code === 4) rateLimited = true; return }
-    if (!g.lead?.form_id) return // el leadgen expiró/no trae form (edge)
-    const formId = g.lead.form_id
-    const nm = await traerNombreFormulario(formId, pageToken)
-    if (!nm.name) { err = `name: ${nm.error?.message ?? '?'}`; if (nm.error?.code === 4) rateLimited = true; return }
-    resueltos++; tally(formId, nm.name)
-    if (!opts.dry) await db.lead.update({ where: { id: l.id }, data: { formularioId: formId, formularioNombre: nm.name } })
+    if (g.lead?.form_id) formIds.add(g.lead.form_id)
   })
+
+  let resueltos = 0
+  if (!rateLimited) {
+    for (const formId of formIds) {
+      if (byLeadgen.size === 0) break
+      const nm = await traerNombreFormulario(formId, pageToken)
+      if (!nm.name) { err = `name: ${nm.error?.message ?? '?'}`; if (nm.error?.code === 4) { rateLimited = true; break } continue }
+      const ids: string[] = []
+      const e = await paginarGraph(
+        `${graphBase()}/${encodeURIComponent(formId)}/leads?fields=id&limit=200&access_token=${encodeURIComponent(pageToken)}`,
+        (data) => { for (const x of data as { id?: string }[]) { const lg = x.id ? String(x.id) : ''; const leadId = lg && byLeadgen.get(lg); if (leadId) { ids.push(leadId); byLeadgen.delete(lg) } } },
+      )
+      if (e) { err = `leads: ${e.message}`; if (e.code === 4) { rateLimited = true; break } continue }
+      if (ids.length) {
+        porForm.set(formId, { nombre: nm.name, count: (porForm.get(formId)?.count ?? 0) + ids.length }); resueltos += ids.length
+        if (!opts.dry) await db.lead.updateMany({ where: { id: { in: ids } }, data: { formularioId: formId, formularioNombre: nm.name } })
+      }
+    }
+  }
   return {
-    total: pend.length, resueltos, sinResolver: pend.length - resueltos, formularios: porForm.size, dry: !!opts.dry, rateLimited, via: 'per-lead',
+    total: pend.length, resueltos, sinResolver: byLeadgen.size, formularios: formIds.size, dry: !!opts.dry, rateLimited, via: 'per-lead',
     porFormulario: [...porForm.entries()].map(([formId, v]) => ({ formId, nombre: v.nombre, count: v.count })).sort((a, b) => b.count - a.count),
     ...(err ? { error: err } : {}),
   }

@@ -40,7 +40,13 @@ export async function dedupePrestacionesTodasLasClinicas(): Promise<void> {
 // (backlog + reintentos ante fallos de ingesta), en TODAS las clínicas con Lead Ads.
 // Idempotente y barato en estado estable (si no hay leads pendientes, NO llama a
 // Graph). Best-effort: nunca hace fallar nada. Se corre al arrancar y cada 30 min.
+// BACKOFF: si Meta responde rate limit (#4), se toma una pausa (para que el límite de
+// la app se resetee) en vez de seguir golpeando cada 30 min (lo que lo mantendría
+// caliente y nunca resolvería). El lote por corrida es acotado (`max`).
+let backfillCooldownUntil = 0
+const BACKFILL_COOLDOWN_MS = 90 * 60_000
 export async function backfillFormulariosTodasLasClinicas(): Promise<void> {
+  if (Date.now() < backfillCooldownUntil) return // en pausa por rate limit reciente
   try {
     const clinicas = await control.clinica.findMany({
       where: { metaLeadAdsEnabled: true, activo: true },
@@ -48,10 +54,8 @@ export async function backfillFormulariosTodasLasClinicas(): Promise<void> {
     })
     for (const c of clinicas) {
       try {
-        // Lote acotado por corrida (para no gastar el rate limit de Meta de una); la
-        // corrida cada 30 min va avanzando. `dias` evita gastar llamadas en leads viejos
-        // que Meta ya no devuelve (>90 días).
-        const r = await backfillFormularios(tenantClient(c.dbName), { dias: 90, max: 100 })
+        const r = await backfillFormularios(tenantClient(c.dbName), { dias: 90, max: 60 })
+        if (r.rateLimited) backfillCooldownUntil = Date.now() + BACKFILL_COOLDOWN_MS
         if (r.resueltos > 0 || r.rateLimited || r.error) {
           log.info('mantenimiento: backfill formularios Meta', { clinica: c.slug, via: r.via, resueltos: r.resueltos, sinResolver: r.sinResolver, rateLimited: r.rateLimited, error: r.error })
         }
