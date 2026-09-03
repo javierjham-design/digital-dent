@@ -5,6 +5,26 @@
 
 ---
 
+## 2026-09-03 — CRM: nombre del formulario de origen (leads de Meta)
+
+Los leads de Meta Lead Ads no dejaban ver de qué **formulario/campaña** venían. Ahora se
+captura y muestra el **nombre del formulario**.
+
+- **Schema tenant** (aditivo): `Lead.formularioId` + `Lead.formularioNombre`. `init.sql`
+  regenerado; el prestart aplica `migrate:tenants` (backup fresco previo).
+- **Ingesta** (`meta-leadads.service`): tras traer el lead de Graph, se resuelve el nombre del
+  formulario con `GET /{form_id}?fields=name` (con el page token, caché por form_id 6 h,
+  best-effort). Se pasa a `ingestarLeadMeta` → `crearLead` lo guarda; en reingreso se completa
+  con el formulario del último toque.
+- **CRM UI** (`Crm.tsx`): fila **"Formulario"** en el detalle del lead + chip 📋 en la lista +
+  columna "Formulario" en el export. Tipo `Lead` del frontend actualizado.
+- Aplica a leads NUEVOS (y a los que se reprocesen). Los históricos no se backfillean solos.
+
+Verificado: typecheck be/fe, contrato (281 rutas), unit 134/134, integración 147/147
+(+2: nuevo lead guarda formularioNombre/Id; reingreso completa el del último toque), build fe.
+
+---
+
 ## 2026-09-02 — Abono libre visible en el plan · buscador de Prestaciones · +2 huérfanos corregidos
 
 - **Abono libre en el plan de tratamiento** (pedido del usuario: antes solo se veía en

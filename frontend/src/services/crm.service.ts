@@ -13,7 +13,7 @@ export interface Lead {
   referrer: string | null; landing: string | null; tituloPagina: string | null; pantalla: string | null; locale: string | null
   primeraVisita: string | null; ultimaVisita: string | null; fechaAgenda: string | null; agendaFuente: string | null; asistio: boolean | null
   metaEventId: string | null; metaEnviado: boolean; scheduleEventId: string | null; scheduleCapiEnviado: boolean
-  leadgenId?: string | null; metaCrmEtapas?: string | null
+  leadgenId?: string | null; formularioId?: string | null; formularioNombre?: string | null; metaCrmEtapas?: string | null
   pacienteId: string | null; citaId: string | null; responsableId: string | null; createdAt: string
   ultimaGestionAt?: string; sinGestionar?: boolean
   campanaKey?: string; campanaLabel?: string

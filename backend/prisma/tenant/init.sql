@@ -835,6 +835,8 @@ CREATE TABLE "Lead" (
     "metaEventId" TEXT,
     "metaEnviado" BOOLEAN NOT NULL DEFAULT false,
     "leadgenId" TEXT,
+    "formularioId" TEXT,
+    "formularioNombre" TEXT,
     "camposExtra" TEXT,
     "metaCrmEtapas" TEXT,
     "crmScheduleEnviado" BOOLEAN NOT NULL DEFAULT false,

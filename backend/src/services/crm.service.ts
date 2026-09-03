@@ -519,6 +519,7 @@ export interface CrearLeadInput {
   nombre: string; apellido?: string; telefono?: string; email?: string; rut?: string
   motivo?: string; tratamiento?: string; piezasReemplazar?: string; tiempoDesdePerdida?: string
   origen?: string; campana?: string; externalId?: string; leadgenId?: string
+  formularioId?: string; formularioNombre?: string
   utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmTerm?: string
   fbclid?: string; ctwaClid?: string; gclid?: string; msclkid?: string; ttclid?: string
   twclid?: string; liFatId?: string; igclid?: string; dclid?: string
@@ -605,7 +606,8 @@ export async function crearLead(
       tratamiento: clean(input.tratamiento), piezasReemplazar: clean(input.piezasReemplazar),
       tiempoDesdePerdida: clean(input.tiempoDesdePerdida),
       origen: (input.origen || 'FORMULARIO').toUpperCase(), campana: clean(input.campana),
-      externalId: clean(input.externalId), leadgenId: clean(input.leadgenId), camposExtra: clean(input.camposExtra),
+      externalId: clean(input.externalId), leadgenId: clean(input.leadgenId),
+      formularioId: clean(input.formularioId), formularioNombre: clean(input.formularioNombre), camposExtra: clean(input.camposExtra),
       utmSource: clean(input.utmSource), utmMedium: clean(input.utmMedium), utmCampaign: clean(input.utmCampaign),
       utmContent: clean(input.utmContent), utmTerm: clean(input.utmTerm),
       fbclid: clean(input.fbclid), ctwaClid: clean(input.ctwaClid), gclid: clean(input.gclid),
@@ -660,7 +662,7 @@ export async function crearLead(
 export interface IngestaMetaInput {
   nombre: string; apellido?: string; telefono?: string; email?: string; rut?: string
   motivo?: string; tratamiento?: string; camposExtra?: string
-  leadgenId: string; formId?: string; adId?: string; adsetId?: string; campaignId?: string; pageId?: string
+  leadgenId: string; formId?: string; formularioNombre?: string; adId?: string; adsetId?: string; campaignId?: string; pageId?: string
 }
 export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput, ctx?: { ip?: string; userAgent?: string }) {
   const leadgenId = clean(input.leadgenId)
@@ -692,6 +694,9 @@ export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput
         : `Nueva captura Formulario Meta dentro del ciclo vigente (leadgen ${leadgenId}). Sin nuevo reingreso.` } },
     }
     if (!existente.leadgenId) data.leadgenId = leadgenId // atar la llave sin pisar otra existente
+    // Nombre/id del formulario del ÚLTIMO toque (para diferenciar campañas en el CRM).
+    if (clean(input.formId)) data.formularioId = clean(input.formId)
+    if (clean(input.formularioNombre)) data.formularioNombre = clean(input.formularioNombre)
     if (!existente.telefono && clean(input.telefono)) data.telefono = clean(input.telefono)
     if (!existente.email && clean(input.email)) data.email = clean(input.email)
     if (!existente.rut && clean(input.rut)) data.rut = clean(input.rut)
@@ -714,6 +719,7 @@ export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput
     nombre: input.nombre, apellido: input.apellido, telefono: input.telefono, email: input.email, rut: input.rut,
     motivo: input.motivo, tratamiento: input.tratamiento, camposExtra: input.camposExtra,
     origen: 'META_FORM', leadgenId,
+    formularioId: input.formId, formularioNombre: input.formularioNombre,
     utmSource: 'meta', utmMedium: 'paid',
     utmCampaign: utmCampaign ?? undefined, utmTerm: utmTerm ?? undefined, utmContent: utmContent ?? undefined,
   }, { ip: ctx?.ip, userAgent: ctx?.userAgent, emitirMeta: false })

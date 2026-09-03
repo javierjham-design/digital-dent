@@ -65,6 +65,28 @@ async function fetchGraph(leadgenId: string, pageToken: string, fields: string):
   }
 }
 
+// Nombre del Formulario Instantáneo (form_id → name) vía Graph, para diferenciar
+// campañas en el CRM. Best-effort: si falla, se ingresa el lead igual sin nombre.
+// Caché por form_id (los nombres cambian rara vez) para no llamar a Graph por cada lead.
+const formNameCache = new Map<string, { name: string; at: number }>()
+const FORM_NAME_TTL = 6 * 3600_000
+async function traerNombreFormulario(formId: string | undefined, pageToken: string): Promise<string | undefined> {
+  if (!formId) return undefined
+  const hit = formNameCache.get(formId)
+  if (hit && Date.now() - hit.at < FORM_NAME_TTL) return hit.name || undefined
+  try {
+    const url = `${graphBase()}/${encodeURIComponent(formId)}?fields=name&access_token=${encodeURIComponent(pageToken)}`
+    const r = await fetch(url)
+    const d = (await r.json().catch(() => ({}))) as { name?: string; error?: unknown }
+    if (!r.ok || !d.name) { log.warn('meta-leadads: no se pudo resolver el nombre del formulario', { form_id: formId, status: r.status }); return undefined }
+    formNameCache.set(formId, { name: d.name, at: Date.now() })
+    return d.name
+  } catch (e) {
+    log.warn('meta-leadads: error resolviendo nombre del formulario', { form_id: formId, err: serializeError(e) })
+    return undefined
+  }
+}
+
 async function traerLeadDeGraph(leadgenId: string, pageToken: string): Promise<GraphFetch> {
   const primero = await fetchGraph(leadgenId, pageToken, FIELDS_LEADGEN)
   // Tolerancia: si Graph rechaza un campo inválido (#100 "nonexisting field"),
@@ -190,12 +212,14 @@ async function ejecutarPipeline(
   const graph = g.lead
   const { camposExtra, ...persona } = mapearFieldData(graph.field_data)
   const extraJson = Object.keys(camposExtra).length ? JSON.stringify(camposExtra) : undefined
+  const formId = graph.form_id ?? args.formId
+  const formularioNombre = await traerNombreFormulario(formId, args.pageToken)
 
   const r = await ingestarLeadMeta(db, {
     nombre: persona.nombre, apellido: persona.apellido, telefono: persona.telefono, email: persona.email, rut: persona.rut,
     motivo: persona.motivo, camposExtra: extraJson,
     leadgenId: args.leadgenId,
-    formId: graph.form_id ?? args.formId,
+    formId, formularioNombre,
     adId: graph.ad_id ?? args.adId,
     // Conjunto de anuncios: al leer el nodo leadgen es adset_id; el webhook lo trae
     // como adgroup_id (args.adsetId). Se guarda en utmTerm (nivel de optimización).
