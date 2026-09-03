@@ -331,33 +331,44 @@ function formIdDeIngresos(raw: string | null): string | undefined {
   return undefined
 }
 
+// Pool de concurrencia acotada (las llamadas a Graph son el cuello; secuencial no
+// termina a tiempo para ~1000 leads).
+async function pMap<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
+  let i = 0
+  const worker = async () => { while (i < items.length) { const idx = i++; await fn(items[idx]) } }
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+}
+
 export interface BackfillFormResult {
   total: number; resueltos: number; expirados: number; sinFormulario: number; dry: boolean
   porFormulario: { formId: string; nombre: string; count: number }[]
 }
-export async function backfillFormularios(db: ReturnType<typeof tenantClient>, opts: { dry?: boolean } = {}): Promise<BackfillFormResult> {
+export async function backfillFormularios(db: ReturnType<typeof tenantClient>, opts: { dry?: boolean; limit?: number } = {}): Promise<BackfillFormResult> {
   const cfg = await getMetaLeadAdsConfig(db)
   if (!cfg.pageToken) throw new Error('La clínica no tiene token de página de Meta configurado.')
+  const pageToken = cfg.pageToken
   const leads = await db.lead.findMany({
     where: { leadgenId: { not: null }, formularioNombre: null },
     select: { id: true, leadgenId: true, ingresos: true },
+    orderBy: { createdAt: 'desc' }, // recientes primero (más chance de estar dentro de los 90 días)
+    ...(opts.limit ? { take: opts.limit } : {}),
   })
   const porForm = new Map<string, { nombre: string; count: number }>()
   let resueltos = 0, expirados = 0, sinFormulario = 0
-  for (const l of leads) {
-    if (!l.leadgenId) continue
+  await pMap(leads, 8, async (l) => {
+    if (!l.leadgenId) return
     let formId = formIdDeIngresos(l.ingresos)
     if (!formId) {
-      const g = await fetchGraph(l.leadgenId, cfg.pageToken, 'form_id')
-      if (!g.ok || !g.lead?.form_id) { expirados++; continue } // leadgen expiró (>90d) u otro error
+      const g = await fetchGraph(l.leadgenId, pageToken, 'form_id')
+      if (!g.ok || !g.lead?.form_id) { expirados++; return } // leadgen expiró (>90d) u otro error
       formId = g.lead.form_id
     }
-    const nombre = await traerNombreFormulario(formId, cfg.pageToken)
-    if (!nombre) { sinFormulario++; continue }
+    const nombre = await traerNombreFormulario(formId, pageToken)
+    if (!nombre) { sinFormulario++; return }
     resueltos++
     const cur = porForm.get(formId) ?? { nombre, count: 0 }; cur.count++; porForm.set(formId, cur)
     if (!opts.dry) await db.lead.update({ where: { id: l.id }, data: { formularioId: formId, formularioNombre: nombre } })
-  }
+  })
   return {
     total: leads.length, resueltos, expirados, sinFormulario, dry: !!opts.dry,
     porFormulario: [...porForm.entries()].map(([formId, v]) => ({ formId, nombre: v.nombre, count: v.count })).sort((a, b) => b.count - a.count),
