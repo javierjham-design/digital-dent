@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-09-03 — Nombre del formulario Meta: backfill eficiente (reverse-lookup) + automático
+
+El backfill lead-por-lead pegaba en el **rate limit de la app de Meta** (`#4`, ~1000 llamadas
+para digital-dent). Rehecho al revés + automático para que quede funcional sin intervención.
+
+- **Reverse-lookup** (`meta-leadads.service.backfillFormularios`): en vez de preguntar el
+  formulario lead-por-lead, pide la LISTA de formularios de la página
+  (`/{pageId}/leadgen_forms?fields=id,name`) y los LEADS de cada formulario (`/{formId}/leads`,
+  paginado) y mapea por `leadgen_id`. Pocas llamadas → no revienta el rate limit. Meta solo
+  devuelve ~90 días (los más viejos quedan `sinResolver`). Corta si detecta `#4` (reintenta luego).
+- **Automático** (`lib/maintenance.backfillFormulariosTodasLasClinicas` + `index.ts`): corre al
+  arrancar y **cada 30 min** para TODAS las clínicas con Lead Ads. Idempotente y barato en estado
+  estable (si no hay leads pendientes, NO llama a Graph). Se auto-repara si la ingesta falló o si
+  Meta estaba con rate limit. Endpoint manual `/admin/crm/backfill-formularios?slug=&dry=1` sigue.
+- **UI**: la etiqueta 📋 del formulario va inmediatamente al lado del chip META_FORM en la lista.
+- Leads NUEVOS ya traen el nombre en la ingesta (el webhook trae `form_id`; nombre cacheado 6 h).
+
+Verificado: typecheck be, contrato (282 rutas), unit 134/134, integración 151/151 (+4:
+`backfill-formularios.test.ts` — mapeo por leadgen_id, paginación, dry no escribe, rateLimited #4).
+
+---
+
 ## 2026-09-03 — CRM: nombre del formulario de origen (leads de Meta)
 
 Los leads de Meta Lead Ads no dejaban ver de qué **formulario/campaña** venían. Ahora se

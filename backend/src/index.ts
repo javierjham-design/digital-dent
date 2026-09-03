@@ -3,7 +3,7 @@ import { createApp } from '@/app'
 import { env } from '@/config/env'
 import { log, serializeError } from '@/lib/logger'
 import { captureError, flushSentry } from '@/lib/observability'
-import { dedupePrestacionesTodasLasClinicas } from '@/lib/maintenance'
+import { dedupePrestacionesTodasLasClinicas, backfillFormulariosTodasLasClinicas } from '@/lib/maintenance'
 
 // Errores de proceso: antes se caían sin dejar rastro. Ahora se loguean y se
 // reportan a Sentry. Una promesa rechazada sin catch NO tumba el server (se
@@ -27,5 +27,11 @@ app.listen(env.port, () => {
   // todas las clínicas. Se puede desactivar con DISABLE_STARTUP_MAINTENANCE=1.
   if (process.env.DISABLE_STARTUP_MAINTENANCE !== '1') {
     void dedupePrestacionesTodasLasClinicas()
+    // Completa el nombre del formulario de origen en leads de Meta: al arrancar y
+    // cada 30 min. Idempotente y barato (si no hay leads pendientes no llama a Graph);
+    // se auto-repara si la ingesta falló o si Meta estaba con rate limit.
+    void backfillFormulariosTodasLasClinicas()
+    const t = setInterval(() => void backfillFormulariosTodasLasClinicas(), 30 * 60_000)
+    t.unref?.()
   }
 })

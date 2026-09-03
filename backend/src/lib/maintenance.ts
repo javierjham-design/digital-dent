@@ -5,6 +5,7 @@
 import { control } from '@/db/control'
 import { tenantClient, disposeTenant } from '@/db/tenant'
 import { dedupePrestaciones } from '@/services/catalogo.service'
+import { backfillFormularios } from '@/services/meta-leadads.service'
 import { log, serializeError } from '@/lib/logger'
 
 export async function dedupePrestacionesTodasLasClinicas(): Promise<void> {
@@ -32,5 +33,32 @@ export async function dedupePrestacionesTodasLasClinicas(): Promise<void> {
       : `mantenimiento: ${totalEliminadas} prestación(es) duplicada(s) eliminada(s) en total`)
   } catch (e) {
     log.error('mantenimiento: no se pudo deduplicar prestaciones', { err: serializeError(e) })
+  }
+}
+
+// Completa el NOMBRE del formulario de origen en leads de Meta que aún no lo tienen
+// (backlog + reintentos ante fallos de ingesta), en TODAS las clínicas con Lead Ads.
+// Idempotente y barato en estado estable (si no hay leads pendientes, NO llama a
+// Graph). Best-effort: nunca hace fallar nada. Se corre al arrancar y cada 30 min.
+export async function backfillFormulariosTodasLasClinicas(): Promise<void> {
+  try {
+    const clinicas = await control.clinica.findMany({
+      where: { metaLeadAdsEnabled: true, activo: true },
+      select: { slug: true, dbName: true },
+    })
+    for (const c of clinicas) {
+      try {
+        const r = await backfillFormularios(tenantClient(c.dbName), { dias: 120 })
+        if (r.resueltos > 0 || r.rateLimited || r.error) {
+          log.info('mantenimiento: backfill formularios Meta', { clinica: c.slug, resueltos: r.resueltos, sinResolver: r.sinResolver, rateLimited: r.rateLimited, error: r.error })
+        }
+      } catch (e) {
+        log.error('mantenimiento: backfill formularios Meta falló', { clinica: c.slug, err: serializeError(e) })
+      } finally {
+        await disposeTenant(c.dbName)
+      }
+    }
+  } catch (e) {
+    log.error('mantenimiento: backfill formularios Meta (global) falló', { err: serializeError(e) })
   }
 }

@@ -70,7 +70,6 @@ async function fetchGraph(leadgenId: string, pageToken: string, fields: string):
 // Caché por form_id (los nombres cambian rara vez) para no llamar a Graph por cada lead.
 const formNameCache = new Map<string, { name: string; at: number }>()
 const FORM_NAME_TTL = 6 * 3600_000
-let ultimoErrorFormulario: string | undefined // diagnóstico: último error al resolver un formulario
 async function traerNombreFormulario(formId: string | undefined, pageToken: string): Promise<string | undefined> {
   if (!formId) return undefined
   const hit = formNameCache.get(formId)
@@ -80,14 +79,12 @@ async function traerNombreFormulario(formId: string | undefined, pageToken: stri
     const r = await fetch(url)
     const d = (await r.json().catch(() => ({}))) as { name?: string; error?: { message?: string; code?: number } }
     if (!r.ok || !d.name) {
-      ultimoErrorFormulario = `status=${r.status} code=${d.error?.code ?? '?'} ${d.error?.message ?? ''}`.trim()
       log.warn('meta-leadads: no se pudo resolver el nombre del formulario', { form_id: formId, status: r.status, code: d.error?.code, message: d.error?.message })
       return undefined
     }
     formNameCache.set(formId, { name: d.name, at: Date.now() })
     return d.name
   } catch (e) {
-    ultimoErrorFormulario = e instanceof Error ? e.message : 'error de red'
     log.warn('meta-leadads: error resolviendo nombre del formulario', { form_id: formId, err: serializeError(e) })
     return undefined
   }
@@ -323,70 +320,93 @@ export async function reprocesarLead(db: ReturnType<typeof tenantClient>, leadge
 
 function safeJson(s: string): unknown { try { return JSON.parse(s) } catch { return s } }
 
-// ── Backfill del nombre del formulario para leads de Meta históricos ──────────
-// Para leads con leadgenId y sin formularioNombre: toma el form_id del historial de
-// ingresos si está, o lo re-consulta a Graph por el leadgen_id (funciona ≤90 días;
-// los más viejos Meta ya no los devuelve). Resuelve el nombre y lo guarda. Con
-// `dry` no escribe: solo devuelve el conteo por formulario (los "números").
-function formIdDeIngresos(raw: string | null): string | undefined {
-  if (!raw) return undefined
-  try {
-    const arr = JSON.parse(raw)
-    if (Array.isArray(arr)) for (let i = arr.length - 1; i >= 0; i--) { const f = arr[i]?.formId; if (f) return String(f) }
-  } catch { /* ignore */ }
-  return undefined
+// ── Backfill del nombre del formulario (reverse-lookup, eficiente) ────────────
+// En vez de preguntar el formulario lead-por-lead (rate limit de la app de Meta),
+// pedimos la LISTA de formularios de la página y los LEADS de cada formulario, y
+// mapeamos por leadgen_id. Pocas llamadas, respeta el rate limit. Meta solo devuelve
+// los últimos ~90 días (los más viejos quedan sin resolver). Idempotente.
+
+// Sigue el `paging.next` de una respuesta de Graph hasta agotar. `onPage(data[])`
+// por cada página. Devuelve el error de Graph si falla (para detectar rate limit #4).
+async function paginarGraph(urlInicial: string, onPage: (data: unknown[]) => void): Promise<GraphError | null> {
+  let url: string | null = urlInicial
+  let guard = 0
+  while (url && guard++ < 1000) {
+    let d: { data?: unknown[]; paging?: { next?: string }; error?: { message?: string; code?: number; error_subcode?: number } }
+    try {
+      const r = await fetch(url)
+      d = (await r.json().catch(() => ({}))) as typeof d
+      if (!r.ok || d.error) return { message: d.error?.message ?? `Graph ${r.status}`, code: d.error?.code, subcode: d.error?.error_subcode }
+    } catch (e) {
+      return { message: e instanceof Error ? e.message : 'error de red con Graph' }
+    }
+    if (Array.isArray(d.data)) onPage(d.data)
+    url = d.paging?.next ?? null
+  }
+  return null
 }
 
-// Pool de concurrencia acotada (las llamadas a Graph son el cuello; secuencial no
-// termina a tiempo para ~1000 leads).
-async function pMap<T>(items: T[], concurrency: number, fn: (item: T) => Promise<void>): Promise<void> {
-  let i = 0
-  const worker = async () => { while (i < items.length) { const idx = i++; await fn(items[idx]) } }
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker))
+async function listarFormulariosPagina(pageId: string, pageToken: string): Promise<{ id: string; name: string }[] | { error: GraphError }> {
+  const out: { id: string; name: string }[] = []
+  const url = `${graphBase()}/${encodeURIComponent(pageId)}/leadgen_forms?fields=id,name&limit=100&access_token=${encodeURIComponent(pageToken)}`
+  const err = await paginarGraph(url, (data) => {
+    for (const f of data as { id?: string; name?: string }[]) if (f.id) out.push({ id: String(f.id), name: f.name ?? String(f.id) })
+  })
+  return err ? { error: err } : out
 }
 
 export interface BackfillFormResult {
-  total: number; resueltos: number; expirados: number; sinFormulario: number; dry: boolean; rateLimited: boolean
+  total: number; resueltos: number; sinResolver: number; formularios: number; dry: boolean; rateLimited: boolean
   porFormulario: { formId: string; nombre: string; count: number }[]
-  errorFormulario?: string // muestra del último error de Graph al resolver un formulario (diagnóstico)
+  error?: string
 }
-// Backfill best-effort del nombre del formulario. `dias` acota a leads recientes (los
-// >90 días Meta ya no los devuelve, y así no se gasta el rate limit de la app). Corta
-// si Graph responde rate limit (#4) — se reintenta más tarde.
-export async function backfillFormularios(db: ReturnType<typeof tenantClient>, opts: { dry?: boolean; limit?: number; dias?: number } = {}): Promise<BackfillFormResult> {
+export async function backfillFormularios(db: ReturnType<typeof tenantClient>, opts: { dry?: boolean; dias?: number } = {}): Promise<BackfillFormResult> {
+  const base: BackfillFormResult = { total: 0, resueltos: 0, sinResolver: 0, formularios: 0, dry: !!opts.dry, rateLimited: false, porFormulario: [] }
   const cfg = await getMetaLeadAdsConfig(db)
-  if (!cfg.pageToken) throw new Error('La clínica no tiene token de página de Meta configurado.')
-  const pageToken = cfg.pageToken
-  const leads = await db.lead.findMany({
-    where: {
-      leadgenId: { not: null }, formularioNombre: null,
-      ...(opts.dias ? { createdAt: { gte: new Date(Date.now() - opts.dias * 86400_000) } } : {}),
-    },
-    select: { id: true, leadgenId: true, ingresos: true },
-    orderBy: { createdAt: 'desc' }, // recientes primero (más chance de estar dentro de los 90 días)
-    ...(opts.limit ? { take: opts.limit } : {}),
+  if (!cfg.pageToken || !cfg.pageId) return { ...base, error: 'La clínica no tiene Page ID / token de Meta.' }
+
+  // 1) Leads pendientes (con leadgen y sin nombre de formulario): leadgen_id → lead.id.
+  const pend = await db.lead.findMany({
+    where: { leadgenId: { not: null }, formularioNombre: null, ...(opts.dias ? { createdAt: { gte: new Date(Date.now() - opts.dias * 86400_000) } } : {}) },
+    select: { id: true, leadgenId: true },
   })
-  ultimoErrorFormulario = undefined
+  if (pend.length === 0) return base
+  const byLeadgen = new Map<string, string>()
+  for (const l of pend) if (l.leadgenId) byLeadgen.set(l.leadgenId, l.id)
+
+  // 2) Formularios de la página (id → nombre).
+  const forms = await listarFormulariosPagina(cfg.pageId, cfg.pageToken)
+  if ('error' in forms) {
+    return { ...base, total: pend.length, sinResolver: pend.length, rateLimited: forms.error.code === 4, error: forms.error.message }
+  }
+
+  // 3) Por cada formulario, recorrer sus leads (≤90 días) y matchear por leadgen_id.
   const porForm = new Map<string, { nombre: string; count: number }>()
-  let resueltos = 0, expirados = 0, sinFormulario = 0, rateLimited = false
-  await pMap(leads, 3, async (l) => {
-    if (rateLimited || !l.leadgenId) return
-    let formId = formIdDeIngresos(l.ingresos)
-    if (!formId) {
-      const g = await fetchGraph(l.leadgenId, pageToken, 'form_id')
-      if (!g.ok) { if (g.error?.code === 4) rateLimited = true; expirados++; return } // #4 = rate limit; resto = expiró
-      if (!g.lead?.form_id) { expirados++; return }
-      formId = g.lead.form_id
+  let resueltos = 0, rateLimited = false, err: string | undefined
+  for (const form of forms) {
+    if (byLeadgen.size === 0) break // ya resolvimos todos los pendientes
+    const idsDelForm: string[] = []
+    const e = await paginarGraph(
+      `${graphBase()}/${encodeURIComponent(form.id)}/leads?fields=id&limit=200&access_token=${encodeURIComponent(cfg.pageToken)}`,
+      (data) => {
+        for (const l of data as { id?: string }[]) {
+          const lg = l.id ? String(l.id) : ''
+          const leadId = lg && byLeadgen.get(lg)
+          if (leadId) { idsDelForm.push(leadId); byLeadgen.delete(lg) }
+        }
+      },
+    )
+    if (e) { err = e.message; if (e.code === 4) { rateLimited = true; break } continue }
+    if (idsDelForm.length) {
+      porForm.set(form.id, { nombre: form.name, count: idsDelForm.length })
+      resueltos += idsDelForm.length
+      if (!opts.dry) await db.lead.updateMany({ where: { id: { in: idsDelForm } }, data: { formularioId: form.id, formularioNombre: form.name } })
     }
-    const nombre = await traerNombreFormulario(formId, pageToken)
-    if (!nombre) { if (/code=4|request limit/i.test(ultimoErrorFormulario ?? '')) rateLimited = true; sinFormulario++; return }
-    resueltos++
-    const cur = porForm.get(formId) ?? { nombre, count: 0 }; cur.count++; porForm.set(formId, cur)
-    if (!opts.dry) await db.lead.update({ where: { id: l.id }, data: { formularioId: formId, formularioNombre: nombre } })
-  })
+  }
+
   return {
-    total: leads.length, resueltos, expirados, sinFormulario, dry: !!opts.dry, rateLimited,
+    total: pend.length, resueltos, sinResolver: byLeadgen.size, formularios: forms.length, dry: !!opts.dry, rateLimited,
     porFormulario: [...porForm.entries()].map(([formId, v]) => ({ formId, nombre: v.nombre, count: v.count })).sort((a, b) => b.count - a.count),
-    ...(sinFormulario > 0 && ultimoErrorFormulario ? { errorFormulario: ultimoErrorFormulario } : {}),
+    ...(err ? { error: err } : {}),
   }
 }
