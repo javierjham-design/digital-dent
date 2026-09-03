@@ -54,5 +54,7 @@ export async function postBackfillFormularios(req: Request, res: Response) {
   if (!slug) throw notFound('Indica ?slug= de la clínica.')
   const c = await control.clinica.findFirst({ where: { slug }, select: { dbName: true } })
   if (!c) throw notFound('Clínica no encontrada.')
+  const probe = String(req.query.probe ?? '').trim()
+  if (probe) return res.json(await svc.probarFormulario(tenantClient(c.dbName), probe))
   res.json(await svc.backfillFormularios(tenantClient(c.dbName), { dry, dias, max }))
 }

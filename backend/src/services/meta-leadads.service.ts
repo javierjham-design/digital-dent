@@ -320,6 +320,29 @@ export async function reprocesarLead(db: ReturnType<typeof tenantClient>, leadge
 
 function safeJson(s: string): unknown { try { return JSON.parse(s) } catch { return s } }
 
+// Diagnóstico: prueba qué puede el page token sobre un form_id (para elegir la vía).
+export async function probarFormulario(db: ReturnType<typeof tenantClient>, formId: string) {
+  const cfg = await getMetaLeadAdsConfig(db)
+  if (!cfg.pageToken || !cfg.pageId) return { error: 'sin pageId/token' }
+  const t = cfg.pageToken
+  const probe = async (path: string) => {
+    try {
+      const r = await fetch(`${graphBase()}/${path}${path.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(t)}`)
+      const d = await r.json().catch(() => ({}))
+      return { status: r.status, body: JSON.stringify(d).slice(0, 240) }
+    } catch (e) { return { error: e instanceof Error ? e.message : 'net' } }
+  }
+  const f = encodeURIComponent(formId)
+  return {
+    formId,
+    name: await probe(`${f}?fields=name`),
+    idField: await probe(`${f}?fields=id`),
+    def: await probe(`${f}`),
+    leads1: await probe(`${f}/leads?fields=id,created_time&limit=1`),
+    formLeadgen: await probe(`${encodeURIComponent(cfg.pageId)}?fields=name`),
+  }
+}
+
 // ── Backfill del nombre del formulario (reverse-lookup, eficiente) ────────────
 // En vez de preguntar el formulario lead-por-lead (rate limit de la app de Meta),
 // pedimos la LISTA de formularios de la página y los LEADS de cada formulario, y
