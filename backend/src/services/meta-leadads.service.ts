@@ -70,6 +70,7 @@ async function fetchGraph(leadgenId: string, pageToken: string, fields: string):
 // Caché por form_id (los nombres cambian rara vez) para no llamar a Graph por cada lead.
 const formNameCache = new Map<string, { name: string; at: number }>()
 const FORM_NAME_TTL = 6 * 3600_000
+let ultimoErrorFormulario: string | undefined // diagnóstico: último error al resolver un formulario
 async function traerNombreFormulario(formId: string | undefined, pageToken: string): Promise<string | undefined> {
   if (!formId) return undefined
   const hit = formNameCache.get(formId)
@@ -77,11 +78,16 @@ async function traerNombreFormulario(formId: string | undefined, pageToken: stri
   try {
     const url = `${graphBase()}/${encodeURIComponent(formId)}?fields=name&access_token=${encodeURIComponent(pageToken)}`
     const r = await fetch(url)
-    const d = (await r.json().catch(() => ({}))) as { name?: string; error?: unknown }
-    if (!r.ok || !d.name) { log.warn('meta-leadads: no se pudo resolver el nombre del formulario', { form_id: formId, status: r.status }); return undefined }
+    const d = (await r.json().catch(() => ({}))) as { name?: string; error?: { message?: string; code?: number } }
+    if (!r.ok || !d.name) {
+      ultimoErrorFormulario = `status=${r.status} code=${d.error?.code ?? '?'} ${d.error?.message ?? ''}`.trim()
+      log.warn('meta-leadads: no se pudo resolver el nombre del formulario', { form_id: formId, status: r.status, code: d.error?.code, message: d.error?.message })
+      return undefined
+    }
     formNameCache.set(formId, { name: d.name, at: Date.now() })
     return d.name
   } catch (e) {
+    ultimoErrorFormulario = e instanceof Error ? e.message : 'error de red'
     log.warn('meta-leadads: error resolviendo nombre del formulario', { form_id: formId, err: serializeError(e) })
     return undefined
   }
@@ -342,6 +348,7 @@ async function pMap<T>(items: T[], concurrency: number, fn: (item: T) => Promise
 export interface BackfillFormResult {
   total: number; resueltos: number; expirados: number; sinFormulario: number; dry: boolean
   porFormulario: { formId: string; nombre: string; count: number }[]
+  errorFormulario?: string // muestra del último error de Graph al resolver un formulario (diagnóstico)
 }
 export async function backfillFormularios(db: ReturnType<typeof tenantClient>, opts: { dry?: boolean; limit?: number } = {}): Promise<BackfillFormResult> {
   const cfg = await getMetaLeadAdsConfig(db)
@@ -353,6 +360,7 @@ export async function backfillFormularios(db: ReturnType<typeof tenantClient>, o
     orderBy: { createdAt: 'desc' }, // recientes primero (más chance de estar dentro de los 90 días)
     ...(opts.limit ? { take: opts.limit } : {}),
   })
+  ultimoErrorFormulario = undefined
   const porForm = new Map<string, { nombre: string; count: number }>()
   let resueltos = 0, expirados = 0, sinFormulario = 0
   await pMap(leads, 8, async (l) => {
@@ -372,5 +380,6 @@ export async function backfillFormularios(db: ReturnType<typeof tenantClient>, o
   return {
     total: leads.length, resueltos, expirados, sinFormulario, dry: !!opts.dry,
     porFormulario: [...porForm.entries()].map(([formId, v]) => ({ formId, nombre: v.nombre, count: v.count })).sort((a, b) => b.count - a.count),
+    ...(sinFormulario > 0 && ultimoErrorFormulario ? { errorFormulario: ultimoErrorFormulario } : {}),
   }
 }
