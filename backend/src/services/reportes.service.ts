@@ -34,9 +34,12 @@ export async function reportePacientes(db: TenantClient, q: Q): Promise<ReporteR
   return { buffer, filenameBase: 'pacientes' }
 }
 
-export async function reporteCitas(db: TenantClient, q: Q): Promise<ReporteResult> {
+// Consulta cruda de citas para el rango/estado dado. Reutilizada por el reporte
+// XLSX y por la herramienta ocupacion_agenda del asistente (misma definición de
+// negocio, distinto armado de salida).
+export async function citasDatos(db: TenantClient, q: Q) {
   const { desde, hasta } = parseDateRange(q.desde, q.hasta)
-  const citas = await db.cita.findMany({
+  return db.cita.findMany({
     where: {
       ...(desde || hasta ? { fecha: { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } } : {}),
       ...(q.estado ? { estado: q.estado } : {}),
@@ -44,6 +47,10 @@ export async function reporteCitas(db: TenantClient, q: Q): Promise<ReporteResul
     include: { paciente: { select: { nombre: true, apellido: true, rut: true, telefono: true } }, doctor: { select: { name: true } } },
     orderBy: { fecha: 'asc' },
   })
+}
+
+export async function reporteCitas(db: TenantClient, q: Q): Promise<ReporteResult> {
+  const citas = await citasDatos(db, q)
   const buffer = buildXlsx(citas, [
     { header: 'Fecha', width: 12, value: (c) => isoDate(c.fecha) },
     { header: 'Hora', width: 8, value: (c) => isoDateTime(c.fecha).slice(11) },
@@ -157,18 +164,24 @@ export async function reporteLiquidaciones(db: TenantClient, q: Q): Promise<Repo
   return { buffer, filenameBase: 'liquidaciones' }
 }
 
-export async function reporteCaja(db: TenantClient, q: Q): Promise<ReporteResult> {
+// Consulta cruda de movimientos de caja. Reutilizada por el reporte XLSX y por la
+// herramienta cuadre_caja del asistente.
+export async function movimientosCajaDatos(db: TenantClient, q: Q) {
   const { desde, hasta } = parseDateRange(q.desde, q.hasta)
   const filtroFecha = (desde || hasta) ? { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } : null
-  const movs = await db.movimientoCaja.findMany({
+  return db.movimientoCaja.findMany({
     where: { ...(q.cajaId ? { cajaId: q.cajaId } : {}), ...(filtroFecha ? { fecha: filtroFecha } : {}) },
     include: {
       caja: { select: { nombre: true } },
       user: { select: { name: true, email: true } },
-      cobro: { select: { numero: true, paciente: { select: { nombre: true, apellido: true } } } },
+      cobro: { select: { numero: true, medioPago: { select: { nombre: true } }, metodoPago: true, paciente: { select: { nombre: true, apellido: true } } } },
     },
     orderBy: { fecha: 'desc' },
   })
+}
+
+export async function reporteCaja(db: TenantClient, q: Q): Promise<ReporteResult> {
+  const movs = await movimientosCajaDatos(db, q)
   const buffer = buildXlsx(movs, [
     { header: 'Fecha', width: 16, value: (m) => isoDate(m.fecha) },
     { header: 'Caja', width: 18, value: (m) => m.caja.nombre },
@@ -185,17 +198,22 @@ export async function reporteCaja(db: TenantClient, q: Q): Promise<ReporteResult
   return { buffer, filenameBase: 'movimientos-caja' }
 }
 
-export async function reporteMorosos(db: TenantClient, q: Q): Promise<ReporteResult> {
-  const diasMin = Number(q.diasMin ?? 0)
+export interface MorosoRow {
+  paciente: { id: string; nombre: string; apellido: string; rut: string | null; telefono: string | null; email: string | null }
+  montoTotal: number; cobrosCount: number; cobroMasAntiguo: Date; diasMora: number
+}
+
+// Definición de negocio "moroso": paciente con cobros en estado PENDIENTE.
+// Agrupa por paciente, suma el monto adeudado y calcula los días de mora desde
+// el cobro pendiente más antiguo. Reutilizada por el reporte XLSX y por las
+// herramientas pacientes_inactivos_con_saldo del asistente.
+export async function morososDatos(db: TenantClient, diasMin = 0): Promise<MorosoRow[]> {
   const cobros = await db.cobro.findMany({
     where: { estado: 'PENDIENTE' },
     include: { paciente: { select: { id: true, nombre: true, apellido: true, rut: true, telefono: true, email: true } } },
   })
   const ahora = Date.now()
-  const porPaciente = new Map<string, {
-    paciente: { id: string; nombre: string; apellido: string; rut: string | null; telefono: string | null; email: string | null }
-    montoTotal: number; cobrosCount: number; cobroMasAntiguo: Date
-  }>()
+  const porPaciente = new Map<string, Omit<MorosoRow, 'diasMora'>>()
   for (const c of cobros) {
     const prev = porPaciente.get(c.paciente.id)
     if (prev) {
@@ -206,10 +224,14 @@ export async function reporteMorosos(db: TenantClient, q: Q): Promise<ReporteRes
       porPaciente.set(c.paciente.id, { paciente: c.paciente, montoTotal: c.monto, cobrosCount: 1, cobroMasAntiguo: c.createdAt })
     }
   }
-  const rows = Array.from(porPaciente.values())
+  return Array.from(porPaciente.values())
     .map((r) => ({ ...r, diasMora: Math.floor((ahora - r.cobroMasAntiguo.getTime()) / (1000 * 60 * 60 * 24)) }))
     .filter((r) => r.diasMora >= diasMin)
     .sort((a, b) => b.diasMora - a.diasMora)
+}
+
+export async function reporteMorosos(db: TenantClient, q: Q): Promise<ReporteResult> {
+  const rows = await morososDatos(db, Number(q.diasMin ?? 0))
   const buffer = buildXlsx(rows, [
     { header: 'Paciente', width: 28, value: (r) => `${r.paciente.nombre} ${r.paciente.apellido}` },
     { header: 'RUT', width: 14, value: (r) => formatRUT(r.paciente.rut) },

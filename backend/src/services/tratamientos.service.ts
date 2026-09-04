@@ -54,6 +54,35 @@ const TRAT_INCLUDE = {
   _count: { select: { liquidacionItems: true } },
 } as const
 
+// ── Totales de un plan (definición de negocio única) ─────────────────────────
+// El neto de una acción es precio × (1 − descuento/100), redondeado. El total del
+// plan suma los netos de las acciones NO canceladas. "Abonado" = pagos de cobros
+// PAGADO imputados a acciones + abono libre del plan (CobroItem sin tratamiento).
+// El saldo es total − abonado. "Sin pago" = abonado 0; "sin ejecución" = ninguna
+// acción COMPLETADA. Misma lógica que usa listarPlanes para el estado financiero;
+// la reutilizan las herramientas planes_sin_pago / planes_sin_ejecucion del asistente.
+export interface TratamientoParaTotal {
+  estado: string
+  precio: number
+  descuento: number
+  cobroItems: { monto: number; cobro: { estado: string } }[]
+}
+export interface TotalesPlan { total: number; abonado: number; saldo: number; tieneEjecucion: boolean }
+
+export function totalesDePlan(tratamientos: TratamientoParaTotal[], abonoLibre = 0): TotalesPlan {
+  let total = 0
+  let pagadoAcciones = 0
+  let tieneEjecucion = false
+  for (const t of tratamientos) {
+    if (t.estado === 'COMPLETADO') tieneEjecucion = true
+    if (t.estado === 'CANCELADO') continue
+    total += Math.round(t.precio * (1 - (t.descuento || 0) / 100))
+    for (const it of t.cobroItems) if (it.cobro.estado === 'PAGADO') pagadoAcciones += it.monto
+  }
+  const abonado = pagadoAcciones + abonoLibre
+  return { total, abonado, saldo: total - abonado, tieneEjecucion }
+}
+
 // ── Planes ───────────────────────────────────────────────────────────────────
 
 export async function listarPlanes(db: TenantClient, pacienteId: string) {

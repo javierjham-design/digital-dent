@@ -367,14 +367,20 @@ export async function renombrarCampana(db: TenantClient, key: string, label: str
   return listarCampanas(db)
 }
 
-export async function resumenCrm(db: TenantClient) {
+// `rango` (opcional, aditivo) acota el embudo por fecha de ingreso del lead
+// (createdAt). Sin rango, el comportamiento es el histórico (todos los leads):
+// el endpoint /crm/resumen sigue igual; el rango lo usa la herramienta embudo_crm.
+export async function resumenCrm(db: TenantClient, rango?: { gte?: Date; lte?: Date }) {
   const dias = await getDiasSinGestion(db)
   const cutoff = new Date(Date.now() - dias * 86400_000)
+  const filtroFecha = rango && (rango.gte || rango.lte)
+    ? { createdAt: { ...(rango.gte ? { gte: rango.gte } : {}), ...(rango.lte ? { lte: rango.lte } : {}) } }
+    : {}
   const [porEstado, porOrigen, sinGestionar, reingresos] = await Promise.all([
-    db.lead.groupBy({ by: ['estado'], _count: { _all: true } }),
-    db.lead.groupBy({ by: ['origen'], _count: { _all: true } }),
-    db.lead.count({ where: { estado: { in: ESTADOS_ABIERTOS }, ultimaGestionAt: { lt: cutoff } } }),
-    db.lead.count({ where: { vecesIngresado: { gt: 1 } } }),
+    db.lead.groupBy({ by: ['estado'], _count: { _all: true }, where: filtroFecha }),
+    db.lead.groupBy({ by: ['origen'], _count: { _all: true }, where: filtroFecha }),
+    db.lead.count({ where: { ...filtroFecha, estado: { in: ESTADOS_ABIERTOS }, ultimaGestionAt: { lt: cutoff } } }),
+    db.lead.count({ where: { ...filtroFecha, vecesIngresado: { gt: 1 } } }),
   ])
   const total = porEstado.reduce((s, r) => s + r._count._all, 0)
   return {
