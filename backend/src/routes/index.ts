@@ -42,6 +42,8 @@ import * as consent from '@/controllers/consentimientos.controller'
 import * as doc from '@/controllers/documentos.controller'
 import * as ext from '@/controllers/ext.controller'
 import * as tubotAgenda from '@/controllers/tubot-agenda.controller'
+import * as asistente from '@/controllers/asistente.controller'
+import { requireAsistenteHabilitado } from '@/middlewares/asistente'
 import { requireApiKey } from '@/middlewares/api-key'
 import { requireTubotApiKey } from '@/middlewares/tubot-agenda'
 import { requirePermiso } from '@/middlewares/permiso'
@@ -74,6 +76,8 @@ const prestacionesTenant = [requireAuth, requireTenant, requirePermiso('puedeGes
 // Reportes (descargas XLSX con datos sensibles: nómina de pacientes, cobros, morosos):
 // admin o usuario con el permiso "puedeVerReportes".
 const reportesTenant = [requireAuth, requireTenant, requirePermiso('puedeVerReportes')]
+// Asistente de IA (módulo asignable 'asistente' + interruptor global ASISTENTE_ENABLED).
+const asistenteTenant = [requireAuth, requireTenant, requireModulo('asistente'), requireAsistenteHabilitado]
 
 // Subida de archivos en memoria (import de pacientes XLSX, máx 5MB).
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } })
@@ -486,3 +490,12 @@ apiRouter.get('/reportes/tratamientos', reportesTenant, asyncHandler(reportes.ge
 apiRouter.get('/reportes/liquidaciones', reportesTenant, asyncHandler(reportes.getLiquidaciones))
 apiRouter.get('/reportes/caja', reportesTenant, asyncHandler(reportes.getCaja))
 apiRouter.get('/reportes/morosos', reportesTenant, asyncHandler(reportes.getMorosos))
+
+// ── Asistente de IA (solo lectura; módulo 'asistente' + ASISTENTE_ENABLED) ────
+apiRouter.get('/asistente/estado', asistenteTenant, asyncHandler(asistente.getEstado))
+apiRouter.get('/asistente/sesiones', asistenteTenant, asyncHandler(asistente.getSesiones))
+apiRouter.post('/asistente/sesiones', asistenteTenant, asyncHandler(asistente.postSesion))
+apiRouter.get('/asistente/sesiones/:id', asistenteTenant, asyncHandler(asistente.getSesion))
+apiRouter.delete('/asistente/sesiones/:id', asistenteTenant, asyncHandler(asistente.deleteSesion))
+apiRouter.post('/asistente/sesiones/:id/mensajes', asistenteTenant, asyncHandler(asistente.postMensaje))
+apiRouter.get('/asistente/resultados/:id/xlsx', asistenteTenant, asyncHandler(asistente.getResultadoXlsx))

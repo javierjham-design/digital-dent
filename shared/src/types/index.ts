@@ -1,6 +1,9 @@
 // DTOs compartidos entre frontend y backend. Son la forma serializada (JSON)
 // que viaja por la API — NO los modelos Prisma (que viven solo en el backend).
 
+// DTOs del Asistente de IA (etapa 1).
+export * from './asistente'
+
 export type Rol = 'admin' | 'doctor' | 'staff'
 
 export interface SessionUserDTO {

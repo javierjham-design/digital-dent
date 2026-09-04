@@ -351,3 +351,8 @@ export const crearLiquidacionSchema = z.object({
   doctorId: z.string().min(1),
   periodo: z.string().regex(/^\d{4}-\d{2}$/, 'periodo debe ser YYYY-MM'),
 })
+
+// Asistente de IA: mensaje del usuario en un turno.
+export const mensajeAsistenteSchema = z.object({
+  texto: z.string().trim().min(1, 'escribe una consulta').max(2000),
+})

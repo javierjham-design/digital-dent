@@ -50,6 +50,7 @@ export interface ResultadoUI {
 
 export interface ResultadoTurno {
   mensajeId: string
+  createdAt: Date
   contenido: string
   resultados: ResultadoUI[]
   cifrasNoVerificadas: string[]
@@ -91,7 +92,10 @@ export async function ejecutarTurno(p: ParamsTurno): Promise<ResultadoTurno> {
   // ── Seudonimizar la pregunta y guardarla ───────────────────────────────────
   const indice: PacienteIndice[] = await db.paciente.findMany({ where: { activo: true }, select: { id: true, nombre: true, apellido: true } })
   const preguntaSeud = haciaModelo(texto, indice, mapa)
+  const previos = await db.asistenteMensaje.count({ where: { sesionId } })
   await db.asistenteMensaje.create({ data: { sesionId, rol: 'user', contenido: preguntaSeud } })
+  // Título de la sesión = primera pregunta (seudonimizada), acotada.
+  const tituloNuevo = previos === 0 ? preguntaSeud.slice(0, 80) : undefined
 
   const herramientas = herramientasVisibles(REGISTRO, ctx)
   const herramientasModelo = herramientas.map((h) => ({ nombre: h.nombre, descripcion: h.descripcion, inputSchema: jsonSchemaDe(h.parametros) }))
@@ -164,7 +168,7 @@ export async function ejecutarTurno(p: ParamsTurno): Promise<ResultadoTurno> {
       select: { id: true },
     }),
   ))
-  await db.asistenteSesion.update({ where: { id: sesionId }, data: { mapaCifrado: mapa.guardar() } })
+  await db.asistenteSesion.update({ where: { id: sesionId }, data: { mapaCifrado: mapa.guardar(), ...(tituloNuevo ? { titulo: tituloNuevo } : {}) } })
   await auditar(db, { userId: actor.userId, sesionId, mensajeId: msgAsistente.id, modelo, uso, iteraciones, herramientas: [...usadas], estado, latenciaMs: Date.now() - t0 })
 
   // ── Rehidratar para el usuario ─────────────────────────────────────────────
@@ -180,7 +184,7 @@ export async function ejecutarTurno(p: ParamsTurno): Promise<ResultadoTurno> {
     totalFilas: r.totalFilas,
   }))
 
-  return { mensajeId: msgAsistente.id, contenido, resultados: resultadosUI, cifrasNoVerificadas, estado }
+  return { mensajeId: msgAsistente.id, createdAt: msgAsistente.createdAt, contenido, resultados: resultadosUI, cifrasNoVerificadas, estado }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -243,7 +247,7 @@ async function construirSistema(db: TenantClient, ctx: CtxHerramienta, nombresHe
   ].join('\n')
 }
 
-async function construirResolver(db: TenantClient, mapa: MapaSeudonimos): Promise<ResolverNombre> {
+export async function construirResolver(db: TenantClient, mapa: MapaSeudonimos): Promise<ResolverNombre> {
   const pacIds = mapa.idsPorTipo('paciente')
   const leadIds = mapa.idsPorTipo('lead')
   const [pacientes, leads] = await Promise.all([

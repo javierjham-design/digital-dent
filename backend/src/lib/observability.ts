@@ -21,6 +21,14 @@ export function redactPII(s: string): string {
     .replace(/\$\s?\d{1,3}(?:[.,]\d{3})+/g, '[monto-redactado]')
 }
 
+// Claves que NUNCA deben viajar a Sentry (contenido del asistente y datos de
+// paciente en filas/mensajes). Se borran si aparecen en extra/contexts.
+const CLAVES_SENSIBLES = ['texto', 'contenido', 'filas', 'mensajes']
+function stripClavesSensibles(obj: Record<string, unknown> | undefined | null): void {
+  if (!obj || typeof obj !== 'object') return
+  for (const k of CLAVES_SENSIBLES) if (k in obj) delete obj[k]
+}
+
 export function initSentry(): void {
   const dsn = process.env.SENTRY_DSN?.trim()
   if (!dsn) return
@@ -64,6 +72,11 @@ export function initSentry(): void {
       for (const b of event.breadcrumbs ?? []) {
         if (typeof b.message === 'string') b.message = redactPII(b.message)
       }
+      // Asistente de IA: aunque no mandamos pregunta/respuesta/resultados a Sentry,
+      // borramos por si acaso estas claves de cualquier extra/context adjunto (ni
+      // el texto del usuario ni el del asistente ni las filas deben capturarse).
+      stripClavesSensibles(event.extra)
+      for (const c of Object.values(event.contexts ?? {})) stripClavesSensibles(c as Record<string, unknown>)
       return event
     },
   })

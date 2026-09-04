@@ -169,6 +169,12 @@ function aBloqueSdk(b: BloqueEntrada): Anthropic.ContentBlockParam {
   }
 }
 
+// Fábrica: el resto del código pide el proveedor por acá. Los tests inyectan un
+// ProveedorFalso con setProveedorAsistente sin tocar env ni el SDK real.
+let override: ProveedorModelo | null = null
+export function setProveedorAsistente(p: ProveedorModelo | null): void { override = p }
+export function crearProveedor(): ProveedorModelo { return override ?? new ProveedorAnthropic() }
+
 // ── Implementación falsa (tests) ─────────────────────────────────────────────
 
 // Devuelve respuestas guionadas en orden. Guarda lo recibido para que los tests
