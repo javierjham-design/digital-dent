@@ -9,7 +9,7 @@ export const MARCA_CIERRA = '⟦/nv⟧'
 
 // Números con formato chileno: monto con $, miles con puntos, o porcentaje con coma.
 // Se ignoran enteros "pelados" (años, conteos sueltos) para no marcar de más.
-const CIFRA_RE = /\$\s?\d[\d.]*(?:,\d+)?|\b\d{1,3}(?:\.\d{3})+(?:,\d+)?\b|\b\d+(?:,\d+)?%/g
+const CIFRA_RE = /\$\s?\d{1,3}(?:\.\d{3})*(?:,\d+)?|\b\d{1,3}(?:\.\d{3})+(?:,\d+)?\b|\b\d+(?:,\d+)?%/g
 
 // "$1.234.567" → 1234567 ; "12,5%" → 12.5 ; "1.234" → 1234
 function parseCifra(s: string): number {

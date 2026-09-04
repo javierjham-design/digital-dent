@@ -8,8 +8,7 @@ import { pacientesInactivosConSaldo, produccionPorProfesional, cuadreCaja } from
 import { ocupacionAgenda } from './agenda'
 import { embudoCrm } from './crm'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const REGISTRO: Herramienta<any>[] = [
+export const REGISTRO: Herramienta[] = [
   buscarPaciente,
   fichaResumen,
   planesSinPago,

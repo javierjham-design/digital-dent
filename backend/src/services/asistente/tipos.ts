@@ -40,7 +40,8 @@ export interface RequisitosHerramienta {
 // ejecutar (token desconocido = error, sin consultar).
 export interface TokenParametro { campo: string; tipo: TipoEntidad }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// P por defecto `any`: las herramientas concretas fijan su tipo de parámetros;
+// el registro es heterogéneo (el marco valida con zod en runtime).
 export interface Herramienta<P = any> {
   nombre: string
   descripcion: string
