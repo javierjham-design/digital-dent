@@ -5,6 +5,40 @@
 
 ---
 
+## 2026-09-04 — Asistente de IA (etapa 1/4): backend de solo lectura, apagado por defecto
+
+Módulo nuevo `backend/src/services/asistente/`: recibe una pregunta, la **seudonimiza**
+(ningún nombre/RUT/teléfono/correo sale de Cláriva), la manda al modelo con las
+herramientas que el usuario puede usar, ejecuta esas herramientas contra `tenantDb(req)`,
+verifica las cifras, guarda todo seudonimizado y responde rehidratado. Detrás del módulo de
+clínica `asistente` (ninguna lo tiene) + env `ASISTENTE_ENABLED` (arranca en `false`).
+Arquitectura completa en `docs/ASISTENTE_IA.md`.
+
+- **Módulo/rutas**: `asistente` en `shared/constants/modulos.ts` (grupo aparte, **fuera de
+  MODULOS_DEFAULT**); cadena `asistenteTenant` + `requireAsistenteHabilitado` (503 global);
+  7 endpoints `/api/v1/asistente/*` (estado, sesiones CRUD, mensajes, resultado→xlsx).
+- **Schema tenant (aditivo)**: `AsistenteSesion` (mapa token→id cifrado), `AsistenteMensaje`,
+  `AsistenteResultado`, `AsistenteAuditoria` (uso/costo, sin contenido). JSON como String
+  (SQLite). `init.sql` regenerado (guarda `init-sql-sync` verde).
+- **Proveedor**: dep nueva `@anthropic-ai/sdk`, única frontera en `proveedor.ts` (interfaz
+  `ProveedorModelo` + `ProveedorAnthropic` + `ProveedorFalso`); tabla de precios + costo.
+- **Seudonimización** (`seudonimo.ts`): menciones `@[..](pac:id)`, RUT/correo/teléfono→
+  `[DATO_OCULTO]`, índice de nombres→`PAC_n`; mapa cifrado (`lib/crypto`) por sesión.
+- **Marco + 9 herramientas** reusando services (reportes/tratamientos/crm refactorizados
+  para separar consulta de armado de Excel; `totalesDePlan` como definición única).
+- **Orquestador**: límites duros (por usuario/clínica/día y USD/mes, en hora de la clínica),
+  bucle tool-use (parallel), timeouts 15 s/herramienta y 60 s/turno, verificación de cifras,
+  auditoría siempre; errores del proveedor → 503 (nunca se reenvía su mensaje).
+- **Observabilidad**: el scrubber de Sentry borra `texto`/`contenido`/`filas`/`mensajes`.
+- **Decisión confirmada con el usuario (2026-09-04)**: API de Anthropic directa detrás de
+  `ProveedorModelo` (TuBot y console fuera del camino del dato; GPT queda abierto para más
+  adelante vía la interfaz). Default de modelo `claude-sonnet-4-6` (los IDs `sonnet-5`/
+  `opus-5` del diseño original no existen aún; la tabla de precios los contempla igual).
+- **Verificación**: typecheck, `test` (149), `test:integration` (161, incluye la suite nueva
+  del asistente con `ProveedorFalso` y aserción de cero-PII), `test:contract` (289 rutas) verdes.
+- **Pendiente de despliegue**: backup fresco → `migrate:tenants --strict` → deploy; en
+  Railway `ASISTENTE_ENABLED=false` y ninguna clínica con el módulo. Etapa 2 = frontend + piloto.
+
 ## 2026-09-03 — Nombre del formulario Meta: backfill eficiente (reverse-lookup) + automático
 
 El backfill lead-por-lead pegaba en el **rate limit de la app de Meta** (`#4`, ~1000 llamadas

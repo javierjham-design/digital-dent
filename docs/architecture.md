@@ -69,6 +69,19 @@ super-admin), `backend` en `api.clariva.cl`. Ver `docs/cutover.md`.
 5. **Errores**: los services lanzan `AppError(status, msg)`; el middleware de
    errores los traduce a `{ error }` sin filtrar internals.
 
+## Asistente de IA (solo lectura)
+
+`backend/src/services/asistente/` es un módulo transversal que responde preguntas en
+lenguaje natural sobre los datos de una clínica **sin abrir superficie nueva en Postgres**:
+accede a la base solo vía `tenantDb(req)` y los services existentes. La frontera con el
+proveedor del modelo está aislada tras la interfaz `ProveedorModelo` (`proveedor.ts`, único
+que importa `@anthropic-ai/sdk`), de modo que cambiar de proveedor no toca el resto.
+**Ningún dato identificable de paciente cruza esa frontera**: pacientes y leads salen como
+tokens `PAC_n`/`LEAD_n` (mapa cifrado por sesión) y vuelven rehidratados al responder.
+Detrás del módulo de clínica `asistente` (asignable, fuera de `MODULOS_DEFAULT`) y del
+interruptor global `ASISTENTE_ENABLED`, con límites de costo duros por usuario/clínica.
+Detalle completo en `docs/ASISTENTE_IA.md`.
+
 ## Autenticación
 
 - El backend emite **JWT** propio (`POST /api/v1/auth/login`), con login dual
