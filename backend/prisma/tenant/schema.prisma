@@ -20,44 +20,44 @@ datasource db {
 
 // Perfil + integraciones de la clínica (singleton por base).
 model Configuracion {
-  id        String  @id @default("singleton")
-  nombre    String  @default("Mi clínica")
-  rut       String?
-  direccion String  @default("")
-  ciudad    String  @default("Temuco")
-  telefono  String  @default("")
-  whatsapp  String  @default("") // WhatsApp de la clínica (para derivar al paciente tras reservar online)
-  email     String  @default("")
-  logoUrl   String?
-  mensajeWA String  @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
+  id               String  @id @default("singleton")
+  nombre           String  @default("Mi clínica")
+  rut              String?
+  direccion        String  @default("")
+  ciudad           String  @default("Temuco")
+  telefono         String  @default("")
+  whatsapp         String  @default("") // WhatsApp de la clínica (para derivar al paciente tras reservar online)
+  email            String  @default("")
+  logoUrl          String?
+  mensajeWA        String  @default("Hola {nombre}, te escribimos de *{clinica}* para confirmar tu cita el {fecha} en {direccion}.")
   // Mensaje base para escribir a un lead del CRM por WhatsApp (primer contacto).
-  mensajeWACrm String @default("Hola {nombre}, te contactamos de *{clinica}*. ¿Cómo podemos ayudarte?")
+  mensajeWACrm     String  @default("Hola {nombre}, te contactamos de *{clinica}*. ¿Cómo podemos ayudarte?")
   // Mensaje que el paciente envía por WhatsApp tras reservar online ({dia}/{hora} automáticos).
-  mensajeReservaWA String @default("¡Hola! Ya agendé mi hora para el {dia} a las {hora} h. Quedo atento/a a la confirmación.")
+  mensajeReservaWA String  @default("¡Hola! Ya agendé mi hora para el {dia} a las {hora} h. Quedo atento/a a la confirmación.")
 
   // WhatsApp por TuBot (recordatorio/confirmación por plantilla). Ver docs/TUBOT_WHATSAPP.md.
   // Los secretos van cifrados (AES-256-GCM).
   waEnabled       Boolean @default(false)
-  waNumero        String?          // número emisor (E.164): sólo display/identificación
+  waNumero        String? // número emisor (E.164): sólo display/identificación
   waHorasAntes    Int     @default(24)
-  waApiKey        String?          // API key de TuBot (cnvk_…) — CIFRADA
-  waConnectionId  String?          // id de conexión de TuBot: rutea el webhook entrante al tenant
-  waWebhookSecret String?          // secreto por conexión (verifica X-Tubot-Signature) — CIFRADO
-  waTemplateName  String?          // nombre de la plantilla aprobada de esta clínica
+  waApiKey        String? // API key de TuBot (cnvk_…) — CIFRADA
+  waConnectionId  String? // id de conexión de TuBot: rutea el webhook entrante al tenant
+  waWebhookSecret String? // secreto por conexión (verifica X-Tubot-Signature) — CIFRADO
+  waTemplateName  String? // nombre de la plantilla aprobada de esta clínica
   waTemplateLang  String  @default("es")
   // DEPRECADOS (Twilio). Inertes a propósito: NO se dropean porque migrate-tenants NO
   // borra columnas sin --accept-data-loss (regla 1) y no vale gastar un DDL manual en
   // cosmética. Si alguna vez hay otra ventana de DDL por algo real, se van de garrón.
   // No leer ni escribir estas tres.
-  waTwilioSid   String?
-  waTwilioToken String?
-  waTemplateSid String?
+  waTwilioSid     String?
+  waTwilioToken   String?
+  waTemplateSid   String?
 
   // Webhooks de AGENDA salientes hacia TuBot (Cláriva → TuBot). Ver docs/TUBOT_AGENDA.md.
   // La URL destino es global (env.tubotBaseUrl) + el connectionId; el secreto va cifrado.
   agendaWhEnabled      Boolean @default(false)
-  agendaWhConnectionId String?          // id de conexión que TuBot entrega al conectar (rutea el webhook)
-  agendaWhSecret       String?          // secreto por conexión (firma X-Clariva-Signature) — CIFRADO
+  agendaWhConnectionId String? // id de conexión que TuBot entrega al conectar (rutea el webhook)
+  agendaWhSecret       String? // secreto por conexión (firma X-Clariva-Signature) — CIFRADO
 
   // Google Calendar (una cuenta por clínica). Tokens cifrados.
   googleRefreshToken    String?
@@ -77,28 +77,28 @@ model Configuracion {
   // Marketing / Meta (CRM). Pixel ID es público (se inyecta en el navegador);
   // el token de Conversions API es secreto (server-side). crmToken autentica el
   // endpoint público de captación de formularios web.
-  metaEnabled   Boolean @default(false)
-  metaPixelId   String?
-  metaCapiToken String?
-  metaTestCode  String?
-  metaTestCodeHasta DateTime? // el test_event_code SOLO se aplica hasta esta fecha (auto-expira ~2h); pasado eso, se ignora y los eventos vuelven a contar
+  metaEnabled         Boolean   @default(false)
+  metaPixelId         String?
+  metaCapiToken       String?
+  metaTestCode        String?
+  metaTestCodeHasta   DateTime? // el test_event_code SOLO se aplica hasta esta fecha (auto-expira ~2h); pasado eso, se ignora y los eventos vuelven a contar
   // Integración de CRM (Conversions API para "Leads de conversión"): dataset y
   // token PROPIOS de cada clínica, DISTINTOS del pixel/token web de arriba (el
   // dataset de CRM es otro objeto de Meta). El token va encriptado (write-only).
-  metaCrmEnabled     Boolean @default(false)
-  metaCrmDatasetId   String?
-  metaCrmAccessToken String? // encriptado con lib/crypto (nunca se devuelve en claro)
+  metaCrmEnabled      Boolean   @default(false)
+  metaCrmDatasetId    String?
+  metaCrmAccessToken  String? // encriptado con lib/crypto (nunca se devuelve en claro)
   // Recepción NATIVA de leads del Formulario Instantáneo (webhook leadgen). La
   // clínica autoriza su página de Facebook y guarda su token de página (larga
   // duración, encriptado). El page_id enruta el webhook a esta clínica.
-  metaLeadAdsEnabled  Boolean @default(false)
+  metaLeadAdsEnabled  Boolean   @default(false)
   metaPageId          String?
   metaPageAccessToken String? // token de página encriptado (write-only)
   metaLeadAdsUltimo   String? // JSON con el último lead recibido (diagnóstico de la UI)
-  crmToken      String?
-  crmDiasSinGestion Int @default(4) // umbral de días para alertar leads sin gestionar
-  crmCampanas   String? // JSON { [claveCampaña]: "Nombre visible" } — renombres de campaña (para no mostrar la URL)
-  pais          String @default("CL") // país de operación (documento/teléfono/moneda); lo fija el super-admin
+  crmToken            String?
+  crmDiasSinGestion   Int       @default(4) // umbral de días para alertar leads sin gestionar
+  crmCampanas         String? // JSON { [claveCampaña]: "Nombre visible" } — renombres de campaña (para no mostrar la URL)
+  pais                String    @default("CL") // país de operación (documento/teléfono/moneda); lo fija el super-admin
 
   // Cobro online a PACIENTES vía Flow (el dinero cae en la cuenta de la clínica,
   // por eso las credenciales son de la clínica). El secretKey se guarda CIFRADO
@@ -121,10 +121,10 @@ model EmailEnviado {
   id               String   @id @default(cuid())
   para             String
   asunto           String
-  tipo             String   // CONFIRMACION_HORA | PRESUPUESTO | CONSENTIMIENTO | DOCUMENTO | COMPROBANTE | PLAN | DEUDA | OTRO
+  tipo             String // CONFIRMACION_HORA | PRESUPUESTO | CONSENTIMIENTO | DOCUMENTO | COMPROBANTE | PLAN | DEUDA | OTRO
   pacienteId       String?
   estado           String   @default("ENVIADO") // ENVIADO | ERROR
-  providerId       String?  // id del proveedor (Resend)
+  providerId       String? // id del proveedor (Resend)
   error            String?
   enviadoPorId     String?
   enviadoPorNombre String?
@@ -135,20 +135,20 @@ model EmailEnviado {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  name          String?
-  titulo        String    @default("") // Dr. | Dra. | Prof. | "" (se muestra delante del nombre)
-  email         String?   @unique
-  username      String?   @unique
-  password      String
-  role          String    @default("staff") // admin | doctor | staff
-  rut           String?   @unique
-  especialidad  String?
-  telefono      String?
-  activo        Boolean   @default(true)
+  id                String    @id @default(cuid())
+  name              String?
+  titulo            String    @default("") // Dr. | Dra. | Prof. | "" (se muestra delante del nombre)
+  email             String?   @unique
+  username          String?   @unique
+  password          String
+  role              String    @default("staff") // admin | doctor | staff
+  rut               String?   @unique
+  especialidad      String?
+  telefono          String?
+  activo            Boolean   @default(true)
   passwordChangedAt DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   puedeRecibirPagos           Boolean @default(false)
   puedeModificarPrecio        Boolean @default(false)
@@ -177,58 +177,58 @@ model User {
   googleSyncToken  String?
   googleSyncedAt   DateTime?
 
-  citas              Cita[]            @relation("DoctorCitas")
-  tratamientos       Tratamiento[]     @relation("DoctorTratamientos")
+  citas              Cita[]                  @relation("DoctorCitas")
+  tratamientos       Tratamiento[]           @relation("DoctorTratamientos")
   contratos          Contrato[]
   montosFijos        MontoFijoPrestacion[]
   liquidaciones      Liquidacion[]
   horarios           HorarioDoctor[]
-  cobrosRecibidos    Cobro[]           @relation("CobroUsuario")
-  evolucionesCreadas Evolucion[]       @relation("AutorEvolucion")
-  planesTitulares    PlanTratamiento[] @relation("DoctorTitularPlanes")
+  cobrosRecibidos    Cobro[]                 @relation("CobroUsuario")
+  evolucionesCreadas Evolucion[]             @relation("AutorEvolucion")
+  planesTitulares    PlanTratamiento[]       @relation("DoctorTitularPlanes")
   cajas              CajaUsuario[]
-  movimientosCaja    MovimientoCaja[]  @relation("MovimientoUsuario")
-  bloqueosAgenda     BloqueoAgenda[]   @relation("DoctorBloqueos")
+  movimientosCaja    MovimientoCaja[]        @relation("MovimientoUsuario")
+  bloqueosAgenda     BloqueoAgenda[]         @relation("DoctorBloqueos")
   linksAgenda        LinkAgenda[]
   linksAgendaProf    LinkAgendaProfesional[]
 }
 
 model Paciente {
-  id               String    @id @default(cuid())
-  numero           Int?      @unique
-  rut              String?   @unique
-  otroDocId        String?
-  nombre           String
-  apellido         String
-  nombreSocial     String?
-  fechaNacimiento  DateTime?
-  genero           String?
-  sexo             String?
-  nacionalidad     String?
-  migrante         String?
-  puebloOriginario String?
-  telefono         String?
-  telefonoFijo     String?
-  email            String?
-  direccion        String?
-  ciudad           String?
-  comuna           String?
-  prevision        String?
-  actividad        String?
-  empleador        String?
-  apoderado        String?
-  rutApoderado     String?
-  referencia       String?
-  tipoPaciente     String?
-  numeroInterno    String?
-  alergias         String?
-  antecedentes     String?
-  observaciones    String?
+  id                 String    @id @default(cuid())
+  numero             Int?      @unique
+  rut                String?   @unique
+  otroDocId          String?
+  nombre             String
+  apellido           String
+  nombreSocial       String?
+  fechaNacimiento    DateTime?
+  genero             String?
+  sexo               String?
+  nacionalidad       String?
+  migrante           String?
+  puebloOriginario   String?
+  telefono           String?
+  telefonoFijo       String?
+  email              String?
+  direccion          String?
+  ciudad             String?
+  comuna             String?
+  prevision          String?
+  actividad          String?
+  empleador          String?
+  apoderado          String?
+  rutApoderado       String?
+  referencia         String?
+  tipoPaciente       String?
+  numeroInterno      String?
+  alergias           String?
+  antecedentes       String?
+  observaciones      String?
   contactoEmergencia String?
   telefonoEmergencia String?
-  activo           Boolean   @default(true)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  activo             Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   citas            Cita[]
   fichaClinica     FichaClinica?
@@ -268,37 +268,37 @@ model MensajePaciente {
 }
 
 model Cita {
-  id           String   @id @default(cuid())
-  pacienteId   String
-  doctorId     String
-  fecha        DateTime
-  duracion     Int      @default(30)
-  estado       String   @default("PENDIENTE")
-  tipo         String?
-  notas        String?
-  sala         String?
-  boxId        String?  // box/sala de atención (opcional; null = sin box asignado)
-  sobrecupo    Boolean  @default(false)
-  confirmadoWA Boolean  @default(false)
-  origen       String?  // null = interna; "ONLINE" = reserva pública del paciente
-  linkAgendaId String?  // link de agendamiento online que la generó
-  abonoRequerido Boolean @default(false) // la reserva online exigía un abono (pago previo)
-  abonoPagado    Boolean @default(false) // el abono fue confirmado por la pasarela (Flow)
-  reservaRevisada Boolean @default(false) // reserva online ya aceptada por la clínica (sale de "por confirmar"; sigue Agendada)
-  googleEventId   String?
-  googleSyncedAt  DateTime?
-  googleSyncError String?
-  waMessageSid     String?  // id del mensaje SALIENTE que devolvió TuBot (correlaciona la respuesta)
-  waDeliveryStatus String?  // sent | delivered | read | failed (evento "status" de TuBot)
-  waDeliveryReason String?  // motivo cuando failed (número inválido, bloqueó a la clínica…)
-  waReenvios       Int      @default(0) // reenvíos MANUALES: el envío auto usa n=1; el manual n=2+
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  paciente     Paciente @relation(fields: [pacienteId], references: [id])
-  doctor       User     @relation("DoctorCitas", fields: [doctorId], references: [id])
-  box          Box?     @relation(fields: [boxId], references: [id])
-  logs         CitaLog[]
-  mensajes     MensajePaciente[]
+  id               String            @id @default(cuid())
+  pacienteId       String
+  doctorId         String
+  fecha            DateTime
+  duracion         Int               @default(30)
+  estado           String            @default("PENDIENTE")
+  tipo             String?
+  notas            String?
+  sala             String?
+  boxId            String? // box/sala de atención (opcional; null = sin box asignado)
+  sobrecupo        Boolean           @default(false)
+  confirmadoWA     Boolean           @default(false)
+  origen           String? // null = interna; "ONLINE" = reserva pública del paciente
+  linkAgendaId     String? // link de agendamiento online que la generó
+  abonoRequerido   Boolean           @default(false) // la reserva online exigía un abono (pago previo)
+  abonoPagado      Boolean           @default(false) // el abono fue confirmado por la pasarela (Flow)
+  reservaRevisada  Boolean           @default(false) // reserva online ya aceptada por la clínica (sale de "por confirmar"; sigue Agendada)
+  googleEventId    String?
+  googleSyncedAt   DateTime?
+  googleSyncError  String?
+  waMessageSid     String? // id del mensaje SALIENTE que devolvió TuBot (correlaciona la respuesta)
+  waDeliveryStatus String? // sent | delivered | read | failed (evento "status" de TuBot)
+  waDeliveryReason String? // motivo cuando failed (número inválido, bloqueó a la clínica…)
+  waReenvios       Int               @default(0) // reenvíos MANUALES: el envío auto usa n=1; el manual n=2+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  paciente         Paciente          @relation(fields: [pacienteId], references: [id])
+  doctor           User              @relation("DoctorCitas", fields: [doctorId], references: [id])
+  box              Box?              @relation(fields: [boxId], references: [id])
+  logs             CitaLog[]
+  mensajes         MensajePaciente[]
 
   @@index([googleEventId])
   @@index([waMessageSid])
@@ -313,7 +313,7 @@ model WaEventoEntrante {
   id            String   @id @default(cuid())
   providerMsgId String   @unique
   citaId        String?
-  tipo          String   // button | text | status
+  tipo          String // button | text | status
   createdAt     DateTime @default(now())
 }
 
@@ -328,50 +328,50 @@ model CitaLog {
 }
 
 model FichaClinica {
-  id                String        @id @default(cuid())
-  pacienteId        String        @unique
-  grupoSanguineo    String?
-  fumador           Boolean       @default(false)
-  embarazada        Boolean       @default(false)
-  diabetico         Boolean       @default(false)
-  hipertenso        Boolean       @default(false)
-  cardiopatia       Boolean       @default(false)
-  anticoagulantes   Boolean       @default(false)
-  medicamentos      String?
-  notasClinicas     String?
-  alertasMedicas    String?
-  enfermedadesNotas String?
-  motivoAtencion    String?
-  impresionMedica   String?
+  id                 String        @id @default(cuid())
+  pacienteId         String        @unique
+  grupoSanguineo     String?
+  fumador            Boolean       @default(false)
+  embarazada         Boolean       @default(false)
+  diabetico          Boolean       @default(false)
+  hipertenso         Boolean       @default(false)
+  cardiopatia        Boolean       @default(false)
+  anticoagulantes    Boolean       @default(false)
+  medicamentos       String?
+  notasClinicas      String?
+  alertasMedicas     String?
+  enfermedadesNotas  String?
+  motivoAtencion     String?
+  impresionMedica    String?
   resumenDiagnostico String?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
-  paciente          Paciente      @relation(fields: [pacienteId], references: [id])
-  tratamientos      Tratamiento[]
-  odontograma       Diente[]
-  zonasFaciales     ZonaFicha[]
-  dibujoFacial      DibujoFacial?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  paciente           Paciente      @relation(fields: [pacienteId], references: [id])
+  tratamientos       Tratamiento[]
+  odontograma        Diente[]
+  zonasFaciales      ZonaFicha[]
+  dibujoFacial       DibujoFacial?
 }
 
 model Diente {
-  id     String       @id @default(cuid())
+  id      String       @id @default(cuid())
   fichaId String
-  numero Int
-  cara   String?
-  estado String       @default("SANO")
-  color  String?
-  notas  String?
-  ficha  FichaClinica @relation(fields: [fichaId], references: [id])
+  numero  Int
+  cara    String?
+  estado  String       @default("SANO")
+  color   String?
+  notas   String?
+  ficha   FichaClinica @relation(fields: [fichaId], references: [id])
 
   @@unique([fichaId, numero, cara])
 }
 
 model Prestacion {
-  id               String            @id @default(cuid())
+  id               String                @id @default(cuid())
   nombre           String
   descripcion      String?
   precio           Float
-  duracion         Int               @default(30)
+  duracion         Int                   @default(30)
   // `categoria` (string) es una COPIA DERIVADA del nombre de la categoría, mantenida
   // por compatibilidad. La fuente de verdad es `categoriaId`: con secciones homónimas
   // en áreas distintas ("General" dental y "General" estética), el nombre solo es
@@ -379,8 +379,8 @@ model Prestacion {
   // el string se elimina en una tanda posterior (ver AI_CHANGELOG).
   categoria        String?
   categoriaId      String?
-  categoriaRef     CategoriaPrestacion? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
-  activo           Boolean           @default(true)
+  categoriaRef     CategoriaPrestacion?  @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  activo           Boolean               @default(true)
   tratamientos     Tratamiento[]
   itemsPresupuesto ItemPresupuesto[]
   montosFijos      MontoFijoPrestacion[]
@@ -391,14 +391,14 @@ model Prestacion {
 // ordenar las secciones y marcar las NO liquidables (laboratorios/insumos que no
 // se pagan al profesional y no cuentan en la liquidación).
 model CategoriaPrestacion {
-  id           String  @id @default(cuid())
+  id           String       @id @default(cuid())
   nombre       String
   // Área clínica de la sección (DENTAL | ESTETICA | MEDICO). Las prestaciones
   // HEREDAN el área de su categoría (no se etiquetan una por una). Todas las
   // categorías existentes quedan DENTAL por el default.
-  area         String  @default("DENTAL")
-  orden        Int     @default(0)
-  noLiquidable Boolean @default(false)
+  area         String       @default("DENTAL")
+  orden        Int          @default(0)
+  noLiquidable Boolean      @default(false)
   prestaciones Prestacion[]
 
   // Unicidad POR ÁREA: "General" dental y "General" estética son secciones
@@ -419,15 +419,15 @@ model CategoriaPrestacion {
 // del espectador). Tres nombres separados: el clínico (ficha/historia) y el
 // visible (presupuesto de la paciente) pueden cambiar sin tocar datos.
 model ZonaFacial {
-  id            String  @id @default(cuid())
-  codigo        String  @unique
+  id            String            @id @default(cuid())
+  codigo        String            @unique
   nombreClinico String
   nombreVisible String
-  grupo         String  // TERCIO_SUPERIOR | TERCIO_MEDIO | TERCIO_INFERIOR | GLOBAL
-  orden         Int     @default(0)
-  activo        Boolean @default(true)
-  fichas       ZonaFicha[]
-  tratamientos TratamientoZona[]
+  grupo         String // TERCIO_SUPERIOR | TERCIO_MEDIO | TERCIO_INFERIOR | GLOBAL
+  orden         Int               @default(0)
+  activo        Boolean           @default(true)
+  fichas        ZonaFicha[]
+  tratamientos  TratamientoZona[]
 }
 
 // Estado clínico por zona de cada ficha (espejo de Diente para estética).
@@ -477,32 +477,32 @@ model DibujoFacial {
 }
 
 model Tratamiento {
-  id              String           @id @default(cuid())
-  fichaId         String
-  planId          String?
-  seccionId       String?
-  prestacionId    String
-  doctorId        String?
-  diente          Int?
-  cara            String?
-  estado          String           @default("PLANIFICADO")
-  precio          Float
-  descuento       Float            @default(0)
-  notas           String?
-  paraCobro       Boolean          @default(false) // marcada con el "carrito" para incluirla en la próxima recaudación
-  fecha           DateTime         @default(now())
-  fechaCompletado DateTime?
-  ficha           FichaClinica     @relation(fields: [fichaId], references: [id])
-  plan            PlanTratamiento? @relation(fields: [planId], references: [id], onDelete: SetNull)
-  seccion         SeccionPlan?     @relation(fields: [seccionId], references: [id], onDelete: SetNull)
-  prestacion      Prestacion       @relation(fields: [prestacionId], references: [id])
-  doctor          User?            @relation("DoctorTratamientos", fields: [doctorId], references: [id])
+  id               String            @id @default(cuid())
+  fichaId          String
+  planId           String?
+  seccionId        String?
+  prestacionId     String
+  doctorId         String?
+  diente           Int?
+  cara             String?
+  estado           String            @default("PLANIFICADO")
+  precio           Float
+  descuento        Float             @default(0)
+  notas            String?
+  paraCobro        Boolean           @default(false) // marcada con el "carrito" para incluirla en la próxima recaudación
+  fecha            DateTime          @default(now())
+  fechaCompletado  DateTime?
+  ficha            FichaClinica      @relation(fields: [fichaId], references: [id])
+  plan             PlanTratamiento?  @relation(fields: [planId], references: [id], onDelete: SetNull)
+  seccion          SeccionPlan?      @relation(fields: [seccionId], references: [id], onDelete: SetNull)
+  prestacion       Prestacion        @relation(fields: [prestacionId], references: [id])
+  doctor           User?             @relation("DoctorTratamientos", fields: [doctorId], references: [id])
   liquidacionItems LiquidacionItem[]
-  cobroItems      CobroItem[]
-  evoluciones     Evolucion[]
+  cobroItems       CobroItem[]
+  evoluciones      Evolucion[]
   // Zonas faciales (solo tratamientos estéticos; N zonas, UN precio). Un
   // tratamiento dental usa diente/cara; uno médico no usa ninguno de los tres.
-  zonas           TratamientoZona[]
+  zonas            TratamientoZona[]
 }
 
 model PlanTratamiento {
@@ -512,7 +512,7 @@ model PlanTratamiento {
   nombre          String        @default("Plan de tratamiento")
   area            String        @default("DENTAL") // DENTAL | ESTETICA | MEDICO — un plan = un área; solo admite acciones de esa área
   estado          String        @default("ACTIVO")
-  bloqueado       Boolean       @default(false)  // bloqueo al imprimir; desbloquear para editar
+  bloqueado       Boolean       @default(false) // bloqueo al imprimir; desbloquear para editar
   notas           String?
   fechaInicio     DateTime?
   createdAt       DateTime      @default(now())
@@ -529,7 +529,7 @@ model SeccionPlan {
   titulo            String          @default("Sección")
   orden             Int             @default(0)
   fechaTentativa    DateTime?
-  diasDesdeAnterior Int?            // cantidad de tiempo estimado (se interpreta según tiempoUnidad)
+  diasDesdeAnterior Int? // cantidad de tiempo estimado (se interpreta según tiempoUnidad)
   tiempoUnidad      String          @default("DIAS") // DIAS | SEMANAS | MESES
   notas             String?
   plan              PlanTratamiento @relation(fields: [planId], references: [id], onDelete: Cascade)
@@ -557,12 +557,12 @@ model AuditLog {
   fecha        DateTime @default(now())
   userId       String?
   userNombre   String?
-  accion       String   // CREAR | EDITAR | EVOLUCIONAR | ELIMINAR
-  entidad      String   // Paciente | FichaClinica | Evolucion | Tratamiento | PlanTratamiento | Cobro
+  accion       String // CREAR | EDITAR | EVOLUCIONAR | ELIMINAR
+  entidad      String // Paciente | FichaClinica | Evolucion | Tratamiento | PlanTratamiento | Cobro
   entidadId    String?
   pacienteId   String?
   resumen      String
-  datosPrevios String?  // estado anterior (JSON) en ediciones/borrados
+  datosPrevios String? // estado anterior (JSON) en ediciones/borrados
 
   @@index([pacienteId, fecha])
 }
@@ -605,46 +605,46 @@ model MedioPago {
 }
 
 model Cobro {
-  id               String     @id @default(cuid())
-  pacienteId       String
-  numero           Int        @unique
-  concepto         String
-  monto            Float
-  montoNeto        Float?
-  comisionMonto    Float?
-  estado           String     @default("PENDIENTE")
-  medioPagoId      String?
-  metodoPago       String?
+  id                String           @id @default(cuid())
+  pacienteId        String
+  numero            Int              @unique
+  concepto          String
+  monto             Float
+  montoNeto         Float?
+  comisionMonto     Float?
+  estado            String           @default("PENDIENTE")
+  medioPagoId       String?
+  metodoPago        String?
   // Pago DIVIDIDO en un segundo medio: monto2 va al medioPago2, el resto (monto − monto2)
   // al medioPago principal. La suma siempre iguala el total del cobro (acciones/abono).
-  medioPago2Id     String?
-  monto2           Float?
+  medioPago2Id      String?
+  monto2            Float?
   numeroReferencia2 String?
-  reciboUsuarioId  String?
-  cajaId           String?
-  fechaPago        DateTime?
-  notas            String?
-  numeroReferencia String?    // N° de operación (obligatorio en pagos con tarjeta)
-  numeroBoleta     String?    // N° de boleta (opcional, cualquier pago)
-  anulado          Boolean    @default(false)
-  motivoAnulacion  String?
-  anuladoAt        DateTime?
-  anuladoPorId     String?
-  anuladoPorNombre String?
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
-  paciente         Paciente   @relation(fields: [pacienteId], references: [id])
-  medioPago        MedioPago? @relation("CobroMedio",  fields: [medioPagoId],  references: [id])
-  medioPago2       MedioPago? @relation("CobroMedio2", fields: [medioPago2Id], references: [id])
-  reciboUsuario    User?      @relation("CobroUsuario", fields: [reciboUsuarioId], references: [id])
-  caja             Caja?      @relation(fields: [cajaId], references: [id])
-  items            CobroItem[]
-  movimientos      MovimientoCaja[]
-  pagosOnline      PagoOnline[]
+  reciboUsuarioId   String?
+  cajaId            String?
+  fechaPago         DateTime?
+  notas             String?
+  numeroReferencia  String? // N° de operación (obligatorio en pagos con tarjeta)
+  numeroBoleta      String? // N° de boleta (opcional, cualquier pago)
+  anulado           Boolean          @default(false)
+  motivoAnulacion   String?
+  anuladoAt         DateTime?
+  anuladoPorId      String?
+  anuladoPorNombre  String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  paciente          Paciente         @relation(fields: [pacienteId], references: [id])
+  medioPago         MedioPago?       @relation("CobroMedio", fields: [medioPagoId], references: [id])
+  medioPago2        MedioPago?       @relation("CobroMedio2", fields: [medioPago2Id], references: [id])
+  reciboUsuario     User?            @relation("CobroUsuario", fields: [reciboUsuarioId], references: [id])
+  caja              Caja?            @relation(fields: [cajaId], references: [id])
+  items             CobroItem[]
+  movimientos       MovimientoCaja[]
+  pagosOnline       PagoOnline[]
 }
 
 model Caja {
-  id           String       @id @default(cuid())
+  id           String           @id @default(cuid())
   // @unique es la red de seguridad del correlativo (lo asigna siguienteNumero con
   // advisory lock; un duplicado ahora falla ruidoso en vez de pasar en silencio).
   // El @default(0) quedó INERTE a propósito: los 3 paths de inserción (crearCaja,
@@ -652,13 +652,13 @@ model Caja {
   // cajas. NO se quita porque sacarlo obliga a un `db push --accept-data-loss` sobre
   // bases productivas (regla 1 de CLAUDE.md: migrate-tenants nunca usa ese flag). Con el
   // @unique, aunque algo insertara sin numero, el segundo 0 rebotaría contra el constraint.
-  numero       Int          @unique @default(0)
-  nombre       String       @unique
+  numero       Int              @unique @default(0)
+  nombre       String           @unique
   descripcion  String?
-  saldoInicial Float        @default(0)
-  activo       Boolean      @default(true)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  saldoInicial Float            @default(0)
+  activo       Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
   usuarios     CajaUsuario[]
   movimientos  MovimientoCaja[]
   cobros       Cobro[]
@@ -666,30 +666,30 @@ model Caja {
 }
 
 model SesionCaja {
-  id               String    @id @default(cuid())
+  id               String           @id @default(cuid())
   // @unique como red del correlativo de aperturas (mismo criterio que Caja.numero de
   // arriba). @default(0) inerte: abrirSesionCore setea numero explícito y ningún seed crea
   // sesiones; se conserva para no forzar un push --accept-data-loss sobre bases productivas.
-  numero           Int       @unique @default(0)
+  numero           Int              @unique @default(0)
   cajaId           String
-  estado           String    @default("ABIERTA")
-  saldoApertura    Float     @default(0)
+  estado           String           @default("ABIERTA")
+  saldoApertura    Float            @default(0)
   abiertaPorId     String
   abiertaPorNombre String?
-  abiertaAt        DateTime  @default(now())
+  abiertaAt        DateTime         @default(now())
   cerradaPorId     String?
   cerradaPorNombre String?
   cerradaAt        DateTime?
   saldoEsperado    Float?
-  saldoReal        Float?    // efectivo CONTADO al cerrar
-  diferencia       Float?    // saldoReal - saldoEsperado (cuadrada / a favor / en contra)
-  efectivoRetirado Float?    // efectivo que se retira de la caja al cerrar (depósito/entrega)
-  efectivoDejado   Float?    // efectivo que queda en la caja para la próxima apertura
+  saldoReal        Float? // efectivo CONTADO al cerrar
+  diferencia       Float? // saldoReal - saldoEsperado (cuadrada / a favor / en contra)
+  efectivoRetirado Float? // efectivo que se retira de la caja al cerrar (depósito/entrega)
+  efectivoDejado   Float? // efectivo que queda en la caja para la próxima apertura
   totalIngresos    Float?
   totalEgresos     Float?
   observaciones    String?
-  createdAt        DateTime  @default(now())
-  caja             Caja      @relation(fields: [cajaId], references: [id])
+  createdAt        DateTime         @default(now())
+  caja             Caja             @relation(fields: [cajaId], references: [id])
   movimientos      MovimientoCaja[]
 
   @@index([cajaId, estado])
@@ -699,8 +699,8 @@ model SesionCaja {
 model CajaUsuario {
   cajaId String
   userId String
-  caja   Caja @relation(fields: [cajaId], references: [id], onDelete: Cascade)
-  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  caja   Caja   @relation(fields: [cajaId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@id([cajaId, userId])
 }
@@ -736,15 +736,15 @@ model MovimientoCaja {
 model PagoOnline {
   id            String    @id @default(cuid())
   cobroId       String?
-  citaId        String?   // si el pago es el abono de una reserva online, la cita a confirmar
+  citaId        String? // si el pago es el abono de una reserva online, la cita a confirmar
   pacienteId    String?
   proveedor     String    @default("FLOW")
   concepto      String
   monto         Float
   estado        String    @default("CREADO") // CREADO | PENDIENTE | PAGADO | RECHAZADO | ANULADO
   commerceOrder String?   @unique // orden que enviamos a Flow (idempotencia/conciliación)
-  flowToken     String?   // token que devuelve Flow
-  url           String?   // URL de pago para el paciente
+  flowToken     String? // token que devuelve Flow
+  url           String? // URL de pago para el paciente
   email         String?
   pagadoAt      DateTime?
   creadoPorId   String?
@@ -760,7 +760,7 @@ model CobroItem {
   id            String       @id @default(cuid())
   cobroId       String
   tratamientoId String?
-  planId        String?      // abono libre a un plan (sin acción específica)
+  planId        String? // abono libre a un plan (sin acción específica)
   descripcion   String
   monto         Float
   cobro         Cobro        @relation(fields: [cobroId], references: [id], onDelete: Cascade)
@@ -805,19 +805,19 @@ model MontoFijoPrestacion {
 }
 
 model Liquidacion {
-  id             String            @id @default(cuid())
+  id             String               @id @default(cuid())
   doctorId       String
   contratoId     String
   periodo        String
-  totalBruto     Float             @default(0)
-  totalLiquidado Float             @default(0)
-  estado         String            @default("BORRADOR")
+  totalBruto     Float                @default(0)
+  totalLiquidado Float                @default(0)
+  estado         String               @default("BORRADOR")
   notas          String?
   fechaPago      DateTime?
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-  doctor         User              @relation(fields: [doctorId], references: [id])
-  contrato       Contrato          @relation(fields: [contratoId], references: [id])
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+  doctor         User                 @relation(fields: [doctorId], references: [id])
+  contrato       Contrato             @relation(fields: [contratoId], references: [id])
   items          LiquidacionItem[]
   adjuntos       LiquidacionAdjunto[]
 }
@@ -827,8 +827,8 @@ model Liquidacion {
 model LiquidacionAdjunto {
   id              String      @id @default(cuid())
   liquidacionId   String
-  tipo            String      // FACTURA | COMPROBANTE
-  nombre          String      // nombre original del archivo
+  tipo            String // FACTURA | COMPROBANTE
+  nombre          String // nombre original del archivo
   mime            String
   size            Int
   data            Bytes
@@ -851,11 +851,11 @@ model LiquidacionItem {
   precioTratamiento  Float
   porcentajeAplicado Float?
   montoFijoAplicado  Float?
-  montoPagado        Float       @default(0)  // lo que el paciente pagó por la acción
-  comisionAplicada   Float       @default(0)  // comisión del medio de pago descontada
-  medioPago          String?                  // medio(s) de pago de la acción
-  montoLiquidado     Float                    // total pagado al profesional (neto)
-  origenCalculo      String?                  // PORCENTAJE | MONTO_FIJO | MONTO_FIJO_PRESTACION
+  montoPagado        Float       @default(0) // lo que el paciente pagó por la acción
+  comisionAplicada   Float       @default(0) // comisión del medio de pago descontada
+  medioPago          String? // medio(s) de pago de la acción
+  montoLiquidado     Float // total pagado al profesional (neto)
+  origenCalculo      String? // PORCENTAJE | MONTO_FIJO | MONTO_FIJO_PRESTACION
   liquidacion        Liquidacion @relation(fields: [liquidacionId], references: [id])
   tratamiento        Tratamiento @relation(fields: [tratamientoId], references: [id])
 }
@@ -883,13 +883,13 @@ model HorarioDoctor {
 // Box / sala de atención (opcional y configurable: Box, Pabellón, Estética…). Si
 // la clínica no configura ninguno, la agenda funciona igual (citas "sin box").
 model Box {
-  id        String   @id @default(cuid())
+  id        String          @id @default(cuid())
   nombre    String
-  tipo      String?  // etiqueta libre informativa (Box, Pabellón, Estética…)
-  orden     Int      @default(0)
-  activo    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  tipo      String? // etiqueta libre informativa (Box, Pabellón, Estética…)
+  orden     Int             @default(0)
+  activo    Boolean         @default(true)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
   citas     Cita[]
   horarios  HorarioDoctor[]
 
@@ -897,19 +897,19 @@ model Box {
 }
 
 model BloqueoAgenda {
-  id            String   @id @default(cuid())
-  doctorId      String
-  inicio        DateTime
-  fin           DateTime
-  motivo        String?
-  createdById   String?
-  createdByName String?
+  id              String    @id @default(cuid())
+  doctorId        String
+  inicio          DateTime
+  fin             DateTime
+  motivo          String?
+  createdById     String?
+  createdByName   String?
   googleEventId   String?
   googleSyncedAt  DateTime?
   googleSyncError String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  doctor        User     @relation("DoctorBloqueos", fields: [doctorId], references: [id], onDelete: Cascade)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  doctor          User      @relation("DoctorBloqueos", fields: [doctorId], references: [id], onDelete: Cascade)
 
   @@index([doctorId, inicio])
   @@index([googleEventId])
@@ -919,25 +919,25 @@ model BloqueoAgenda {
 // profesional, con un tipo/etiqueta y duración fijos. La disponibilidad es
 // híbrida: usa el horario del profesional, o ventanas exclusivas propias.
 model LinkAgenda {
-  id                  String   @id @default(cuid())
-  token               String   @unique          // identificador público en la URL
+  id                  String                  @id @default(cuid())
+  token               String                  @unique // identificador público en la URL
   nombre              String
   descripcion         String?
   doctorId            String
-  tipoCita            String   @default("EVALUACION") // se guarda en Cita.tipo
-  comentarioCita      String?  // comentario fijo que se agrega a la cita (origen/campaña, ej. "Promoción Limpieza")
-  duracionMin         Int      @default(30)
-  usaHorarioDoctor    Boolean  @default(true)   // false → usa solo sus ventanas
-  anticipacionHoras   Int      @default(12)     // antelación mínima para reservar
-  diasMaxFuturo       Int      @default(30)     // ventana de reserva hacia adelante
-  requierePago        Boolean  @default(false)  // exige un abono (vía Flow) para confirmar la hora
-  montoAbono          Int      @default(0)      // monto del abono en la moneda local (CLP)
+  tipoCita            String                  @default("EVALUACION") // se guarda en Cita.tipo
+  comentarioCita      String? // comentario fijo que se agrega a la cita (origen/campaña, ej. "Promoción Limpieza")
+  duracionMin         Int                     @default(30)
+  usaHorarioDoctor    Boolean                 @default(true) // false → usa solo sus ventanas
+  anticipacionHoras   Int                     @default(12) // antelación mínima para reservar
+  diasMaxFuturo       Int                     @default(30) // ventana de reserva hacia adelante
+  requierePago        Boolean                 @default(false) // exige un abono (vía Flow) para confirmar la hora
+  montoAbono          Int                     @default(0) // monto del abono en la moneda local (CLP)
   mensajeConfirmacion String?
   color               String?
-  activo              Boolean  @default(true)
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-  doctor              User     @relation(fields: [doctorId], references: [id])
+  activo              Boolean                 @default(true)
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  doctor              User                    @relation(fields: [doctorId], references: [id])
   ventanas            LinkAgendaVentana[]
   profesionales       LinkAgendaProfesional[]
 
@@ -961,9 +961,9 @@ model LinkAgendaProfesional {
 model LinkAgendaVentana {
   id         String     @id @default(cuid())
   linkId     String
-  diaSemana  Int        // 0=domingo … 6=sábado
-  horaInicio String     // "15:00"
-  horaFin    String     // "18:00"
+  diaSemana  Int // 0=domingo … 6=sábado
+  horaInicio String // "15:00"
+  horaFin    String // "18:00"
   link       LinkAgenda @relation(fields: [linkId], references: [id], onDelete: Cascade)
 
   @@index([linkId])
@@ -971,74 +971,74 @@ model LinkAgendaVentana {
 
 // CRM: prospecto captado por formulario web, campaña de Meta, reserva online, etc.
 model Lead {
-  id            String     @id @default(cuid())
-  nombre        String
-  apellido      String?
-  telefono      String?
-  email         String?
-  rut           String?
-  motivo        String?
-  tratamiento   String?    // tratamiento de interés (Implantes, Ortodoncia, etc.)
-  piezasReemplazar   String? // dato dental de la campaña (piezas a reemplazar)
-  tiempoDesdePerdida String? // hace cuánto perdió la(s) pieza(s)
-  estado        String     @default("NUEVO")      // NUEVO | CONTACTADO | AGENDADO | CONVERTIDO | PERDIDO
-  origen        String     @default("FORMULARIO")  // FORMULARIO | META | INSTAGRAM | AGENDA_ONLINE | MANUAL | OTRO
-  campana       String?
-  externalId    String?    // id externo del lead — mejora el Event Match Quality de Meta
-  utmSource     String?
-  utmMedium     String?
-  utmCampaign   String?
-  utmContent    String?
-  utmTerm       String?
+  id                  String     @id @default(cuid())
+  nombre              String
+  apellido            String?
+  telefono            String?
+  email               String?
+  rut                 String?
+  motivo              String?
+  tratamiento         String? // tratamiento de interés (Implantes, Ortodoncia, etc.)
+  piezasReemplazar    String? // dato dental de la campaña (piezas a reemplazar)
+  tiempoDesdePerdida  String? // hace cuánto perdió la(s) pieza(s)
+  estado              String     @default("NUEVO") // NUEVO | CONTACTADO | AGENDADO | CONVERTIDO | PERDIDO
+  origen              String     @default("FORMULARIO") // FORMULARIO | META | INSTAGRAM | AGENDA_ONLINE | MANUAL | OTRO
+  campana             String?
+  externalId          String? // id externo del lead — mejora el Event Match Quality de Meta
+  utmSource           String?
+  utmMedium           String?
+  utmCampaign         String?
+  utmContent          String?
+  utmTerm             String?
   // Click-ids por plataforma (multi-canal)
-  fbclid        String?
-  ctwaClid      String?    // Click-to-WhatsApp (Meta)
-  gclid         String?    // Google Ads
-  msclkid       String?    // Microsoft Ads
-  ttclid        String?    // TikTok
-  twclid        String?    // X / Twitter
-  liFatId       String?    // LinkedIn
-  igclid        String?    // Instagram
-  dclid         String?    // Google Display / DV360
-  fbp           String?
-  fbc           String?
-  referrer      String?
-  landing       String?
-  tituloPagina  String?
-  pantalla      String?    // resolución de pantalla (px)
-  locale        String?
-  ip            String?
-  userAgent     String?
-  primeraVisita DateTime?
-  ultimaVisita  DateTime?
-  fechaAgenda   DateTime?  // fecha/hora de la cita agendada
-  agendaFuente  String?    // fuente del agendamiento (link, recepción, etc.)
-  asistio       Boolean?   // asistió a la cita (null = desconocido)
-  pacienteId    String?    // si se convierte en paciente
-  citaId        String?    // si agenda una cita
-  responsableId String?    // usuario a cargo del seguimiento
-  metaEventId   String?    // id de evento (Lead) para deduplicar con el Pixel del navegador
-  metaEnviado   Boolean    @default(false)
-  leadgenId     String?    // leadgen_id del Formulario Instantáneo de Meta (llave para atar Schedule → Leads de conversión)
-  formularioId     String? // id del Formulario Instantáneo de Meta (form_id)
-  formularioNombre String? // NOMBRE del formulario de origen (se resuelve vía Graph) — para diferenciar campañas en el CRM
-  camposExtra   String?    // JSON con los campos del Formulario Meta que no mapearon a un campo conocido (no se pierden)
-  metaCrmEtapas String?    // etapas de CRM ya emitidas al dataset de Meta (CSV, ej. "lead_1,Schedule_1") — idempotencia
-  crmScheduleEnviado Boolean @default(false) // Schedule CRM confirmado en el dataset (SEPARADO de scheduleCapiEnviado del landing)
+  fbclid              String?
+  ctwaClid            String? // Click-to-WhatsApp (Meta)
+  gclid               String? // Google Ads
+  msclkid             String? // Microsoft Ads
+  ttclid              String? // TikTok
+  twclid              String? // X / Twitter
+  liFatId             String? // LinkedIn
+  igclid              String? // Instagram
+  dclid               String? // Google Display / DV360
+  fbp                 String?
+  fbc                 String?
+  referrer            String?
+  landing             String?
+  tituloPagina        String?
+  pantalla            String? // resolución de pantalla (px)
+  locale              String?
+  ip                  String?
+  userAgent           String?
+  primeraVisita       DateTime?
+  ultimaVisita        DateTime?
+  fechaAgenda         DateTime? // fecha/hora de la cita agendada
+  agendaFuente        String? // fuente del agendamiento (link, recepción, etc.)
+  asistio             Boolean? // asistió a la cita (null = desconocido)
+  pacienteId          String? // si se convierte en paciente
+  citaId              String? // si agenda una cita
+  responsableId       String? // usuario a cargo del seguimiento
+  metaEventId         String? // id de evento (Lead) para deduplicar con el Pixel del navegador
+  metaEnviado         Boolean    @default(false)
+  leadgenId           String? // leadgen_id del Formulario Instantáneo de Meta (llave para atar Schedule → Leads de conversión)
+  formularioId        String? // id del Formulario Instantáneo de Meta (form_id)
+  formularioNombre    String? // NOMBRE del formulario de origen (se resuelve vía Graph) — para diferenciar campañas en el CRM
+  camposExtra         String? // JSON con los campos del Formulario Meta que no mapearon a un campo conocido (no se pierden)
+  metaCrmEtapas       String? // etapas de CRM ya emitidas al dataset de Meta (CSV, ej. "lead_1,Schedule_1") — idempotencia
+  crmScheduleEnviado  Boolean    @default(false) // Schedule CRM confirmado en el dataset (SEPARADO de scheduleCapiEnviado del landing)
   // Reingreso de contactos: un lead cuyo teléfono/email ya existía no se duplica,
   // sino que "vuelve a entrar". El CRM ordena por ultimoIngresoAt para subirlo al tope.
-  ultimoIngresoAt DateTime? // fecha del último ingreso (creación o reingreso). Orden del listado.
-  vecesIngresado  Int       @default(1) // cuántas veces ingresó este contacto (1 = solo el original)
-  ingresos        String?   // JSON array: historial de toques (fecha, origen, campaña, ids de atribución)
-  ultimoOrigen    String?   // atribución de ÚLTIMO toque (no pisa la original del primer toque)
-  ultimaCampana   String?
-  ultimoLeadgenId String?
-  scheduleEventId     String?  // event_id del evento Schedule (dedup con el Pixel)
-  scheduleCapiEnviado Boolean @default(false)
-  ultimaGestionAt DateTime @default(now()) // última gestión HUMANA (nota, cambio de estado, agendar…), no escrituras del sistema
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  notas         LeadNota[]
+  ultimoIngresoAt     DateTime? // fecha del último ingreso (creación o reingreso). Orden del listado.
+  vecesIngresado      Int        @default(1) // cuántas veces ingresó este contacto (1 = solo el original)
+  ingresos            String? // JSON array: historial de toques (fecha, origen, campaña, ids de atribución)
+  ultimoOrigen        String? // atribución de ÚLTIMO toque (no pisa la original del primer toque)
+  ultimaCampana       String?
+  ultimoLeadgenId     String?
+  scheduleEventId     String? // event_id del evento Schedule (dedup con el Pixel)
+  scheduleCapiEnviado Boolean    @default(false)
+  ultimaGestionAt     DateTime   @default(now()) // última gestión HUMANA (nota, cambio de estado, agendar…), no escrituras del sistema
+  createdAt           DateTime   @default(now())
+  updatedAt           DateTime   @updatedAt
+  notas               LeadNota[]
 
   @@index([estado, createdAt])
   @@index([estado, ultimaGestionAt])
@@ -1064,9 +1064,9 @@ model LeadNota {
 model PlantillaConsentimiento {
   id               String   @id @default(cuid())
   categoria        String   @default("CONSENTIMIENTO") // CONSENTIMIENTO | RECETA | CERTIFICADO | INDICACION | OTRO
-  codigo           String   // DD-CI-01, etc.
+  codigo           String // DD-CI-01, etc.
   titulo           String
-  contenidoHtml    String   // HTML con variables {{...}}
+  contenidoHtml    String // HTML con variables {{...}}
   camposRequeridos String   @default("nombre,rut,fechaNacimiento") // CSV de campos del paciente exigidos
   activo           Boolean  @default(true)
   orden            Int      @default(0)
@@ -1081,27 +1081,27 @@ model PlantillaConsentimiento {
 // Consentimiento GENERADO para un paciente. Guarda el snapshot exacto firmado
 // (integridad legal). Solo un admin puede eliminarlo (queda auditado).
 model Consentimiento {
-  id               String   @id @default(cuid())
-  pacienteId       String
-  plantillaId      String?
-  categoria        String   @default("CONSENTIMIENTO") // CONSENTIMIENTO | RECETA | CERTIFICADO | INDICACION | OTRO
-  codigo           String
-  titulo           String
-  contenidoHtml    String   // snapshot renderizado (con datos del paciente)
-  estado           String   @default("BORRADOR") // BORRADOR | FIRMADO
-  firmaTipo        String?  // MANUAL | DIGITAL
-  firmaPacienteImg String?  // dataURL de la firma digital
-  firmadoNombre    String?
-  firmadoDocumento String?
-  firmadoAt        DateTime?
-  generadoPorId    String?  // usuario que operó la generación (auditoría)
+  id                String    @id @default(cuid())
+  pacienteId        String
+  plantillaId       String?
+  categoria         String    @default("CONSENTIMIENTO") // CONSENTIMIENTO | RECETA | CERTIFICADO | INDICACION | OTRO
+  codigo            String
+  titulo            String
+  contenidoHtml     String // snapshot renderizado (con datos del paciente)
+  estado            String    @default("BORRADOR") // BORRADOR | FIRMADO
+  firmaTipo         String? // MANUAL | DIGITAL
+  firmaPacienteImg  String? // dataURL de la firma digital
+  firmadoNombre     String?
+  firmadoDocumento  String?
+  firmadoAt         DateTime?
+  generadoPorId     String? // usuario que operó la generación (auditoría)
   generadoPorNombre String?
-  responsableId    String?  // profesional con agenda responsable clínico del consentimiento
+  responsableId     String? // profesional con agenda responsable clínico del consentimiento
   responsableNombre String?
-  planId           String?  // plan de tratamiento asociado
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  paciente         Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+  planId            String? // plan de tratamiento asociado
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  paciente          Paciente  @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
 
   @@index([pacienteId, createdAt])
   @@index([estado])
@@ -1113,10 +1113,10 @@ model Consentimiento {
 model DocumentoPaciente {
   id              String   @id @default(cuid())
   pacienteId      String
-  tipo            String   // PERIAPICAL | BITEWING_IZQ | BITEWING_DER | PANORAMICA | TELERRADIOGRAFIA | CBCT | FOTO | INFORME | OTRO
-  dientes         String?  // CSV FDI de las piezas que aparecen (periapicales/bitewings)
+  tipo            String // PERIAPICAL | BITEWING_IZQ | BITEWING_DER | PANORAMICA | TELERRADIOGRAFIA | CBCT | FOTO | INFORME | OTRO
+  dientes         String? // CSV FDI de las piezas que aparecen (periapicales/bitewings)
   descripcion     String?
-  nombre          String   // nombre original del archivo
+  nombre          String // nombre original del archivo
   mime            String
   size            Int
   data            Bytes
@@ -1126,4 +1126,79 @@ model DocumentoPaciente {
   paciente        Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
 
   @@index([pacienteId, createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ASISTENTE DE IA (etapa 1: solo lectura)
+//  Aquí vive dato del paciente en forma SEUDONIMIZADA: el mapa token→id va
+//  cifrado (lib/crypto), y mensajes/resultados guardan tokens (PAC_n/LEAD_n),
+//  no nombres/RUT. La auditoría no guarda contenido, solo métricas de uso/costo.
+//  Documentado en docs/ASISTENTE_IA.md (supresión y contrato con la clínica).
+//  JSON se guarda como String (igual que Lead.camposExtra) porque la suite de
+//  integración corre en SQLite.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Una conversación del asistente, propiedad de un usuario de la clínica.
+model AsistenteSesion {
+  id          String   @id @default(cuid())
+  userId      String
+  titulo      String   @default("Nueva consulta") // seudonimizado
+  mapaCifrado String? // AES-256-GCM del mapa token→id de la sesión (lib/crypto)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+// Un turno de la conversación (pregunta del usuario o respuesta del asistente),
+// guardado seudonimizado. `herramientas` = JSON con nombre/parámetros/filas/ms.
+model AsistenteMensaje {
+  id           String   @id @default(cuid())
+  sesionId     String
+  rol          String // 'user' | 'assistant'
+  contenido    String // seudonimizado
+  herramientas String? // JSON: [{ nombre, parametros, totalFilas, ms }]
+  createdAt    DateTime @default(now())
+
+  @@index([sesionId, createdAt])
+}
+
+// Resultado tabular de una herramienta (para la UI y el Excel). Filas
+// seudonimizadas, acotadas a ASISTENTE_MAX_FILAS_RESULTADO.
+model AsistenteResultado {
+  id          String   @id @default(cuid())
+  sesionId    String
+  mensajeId   String
+  herramienta String
+  parametros  String // JSON
+  columnas    String // JSON: [{ clave, etiqueta, tipo }]
+  filas       String // JSON: array de filas (seudonimizadas)
+  totalFilas  Int
+  createdAt   DateTime @default(now())
+
+  @@index([sesionId])
+}
+
+// Una fila por turno, SIEMPRE (también en error). Sin contenido: solo uso/costo.
+// De acá se calculan los límites (por usuario/día, por clínica/día, USD/mes).
+model AsistenteAuditoria {
+  id                  String   @id @default(cuid())
+  userId              String
+  sesionId            String
+  mensajeId           String?
+  modelo              String
+  herramientas        String // JSON: nombres de herramientas usadas en el turno
+  iteraciones         Int
+  tokensEntrada       Int
+  tokensSalida        Int
+  tokensCacheLeidos   Int
+  tokensCacheEscritos Int
+  costoUsd            Float
+  latenciaMs          Int
+  estado              String // 'ok' | 'error' | 'limite' | 'sin_herramienta'
+  error               String?
+  createdAt           DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
 }

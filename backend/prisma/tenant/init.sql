@@ -929,6 +929,67 @@ CREATE TABLE "DocumentoPaciente" (
     CONSTRAINT "DocumentoPaciente_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "AsistenteSesion" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "titulo" TEXT NOT NULL DEFAULT 'Nueva consulta',
+    "mapaCifrado" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AsistenteSesion_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AsistenteMensaje" (
+    "id" TEXT NOT NULL,
+    "sesionId" TEXT NOT NULL,
+    "rol" TEXT NOT NULL,
+    "contenido" TEXT NOT NULL,
+    "herramientas" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AsistenteMensaje_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AsistenteResultado" (
+    "id" TEXT NOT NULL,
+    "sesionId" TEXT NOT NULL,
+    "mensajeId" TEXT NOT NULL,
+    "herramienta" TEXT NOT NULL,
+    "parametros" TEXT NOT NULL,
+    "columnas" TEXT NOT NULL,
+    "filas" TEXT NOT NULL,
+    "totalFilas" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AsistenteResultado_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AsistenteAuditoria" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "sesionId" TEXT NOT NULL,
+    "mensajeId" TEXT,
+    "modelo" TEXT NOT NULL,
+    "herramientas" TEXT NOT NULL,
+    "iteraciones" INTEGER NOT NULL,
+    "tokensEntrada" INTEGER NOT NULL,
+    "tokensSalida" INTEGER NOT NULL,
+    "tokensCacheLeidos" INTEGER NOT NULL,
+    "tokensCacheEscritos" INTEGER NOT NULL,
+    "costoUsd" DOUBLE PRECISION NOT NULL,
+    "latenciaMs" INTEGER NOT NULL,
+    "estado" TEXT NOT NULL,
+    "error" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AsistenteAuditoria_pkey" PRIMARY KEY ("id")
+);
+
 -- CreateIndex
 CREATE INDEX "EmailEnviado_pacienteId_createdAt_idx" ON "EmailEnviado"("pacienteId", "createdAt");
 
@@ -1081,6 +1142,21 @@ CREATE INDEX "Consentimiento_estado_idx" ON "Consentimiento"("estado");
 
 -- CreateIndex
 CREATE INDEX "DocumentoPaciente_pacienteId_createdAt_idx" ON "DocumentoPaciente"("pacienteId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "AsistenteSesion_userId_updatedAt_idx" ON "AsistenteSesion"("userId", "updatedAt");
+
+-- CreateIndex
+CREATE INDEX "AsistenteMensaje_sesionId_createdAt_idx" ON "AsistenteMensaje"("sesionId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "AsistenteResultado_sesionId_idx" ON "AsistenteResultado"("sesionId");
+
+-- CreateIndex
+CREATE INDEX "AsistenteAuditoria_createdAt_idx" ON "AsistenteAuditoria"("createdAt");
+
+-- CreateIndex
+CREATE INDEX "AsistenteAuditoria_userId_createdAt_idx" ON "AsistenteAuditoria"("userId", "createdAt");
 
 -- AddForeignKey
 ALTER TABLE "ComentarioAdministrativo" ADD CONSTRAINT "ComentarioAdministrativo_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;

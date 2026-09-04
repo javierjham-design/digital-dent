@@ -20,7 +20,16 @@ const MODULOS_AREAS: ModuloDef[] = [
   { code: 'area_medico', nombre: 'Área médica', descripcion: 'Catálogo y fichas del área médica.' },
 ]
 
-export const MODULOS: ModuloDef[] = [...MODULOS_BASE, ...MODULOS_AREAS]
+// Asistente de IA (módulo asignable, aparte). Separado de MODULOS_BASE para que
+// NO entre en MODULOS_DEFAULT: ninguna clínica lo tiene por defecto; se enciende
+// caso por caso desde el super-admin, y además hay un interruptor global de env
+// (ASISTENTE_ENABLED). Al estar en MODULOS, la tarjeta del super-admin lo muestra
+// y sanitizarModulos lo acepta sin más cambios.
+const MODULOS_ASISTENTE: ModuloDef[] = [
+  { code: 'asistente', nombre: 'Asistente de IA', descripcion: 'Consultas en lenguaje natural sobre los datos de la clínica (solo lectura), con seudonimización de pacientes y límites de costo.' },
+]
+
+export const MODULOS: ModuloDef[] = [...MODULOS_BASE, ...MODULOS_AREAS, ...MODULOS_ASISTENTE]
 
 export const MODULOS_CODES = MODULOS.map((m) => m.code)
 // Default de una clínica nueva: los módulos base, SIN áreas (el área inicial la

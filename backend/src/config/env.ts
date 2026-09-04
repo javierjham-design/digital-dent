@@ -49,6 +49,30 @@ export const env = {
   encryptionKey: process.env.ENCRYPTION_KEY ?? '',
   cronSecret: process.env.CRON_SECRET ?? '',
 
+  // ── Asistente de IA (etapa 1: solo lectura, apagado por defecto) ───────────
+  // Interruptor global: ASISTENTE_ENABLED arranca en false y el módulo por
+  // clínica (código 'asistente') empieza sin habilitar en ninguna. La API key
+  // es obligatoria SOLO si el asistente está encendido (se valida al construir
+  // el proveedor, no acá, para que el arranque apagado no requiera la key).
+  // Los límites de costo son duros y viven en el backend (ver decisión #10).
+  asistente: {
+    enabled: process.env.ASISTENTE_ENABLED === 'true' || process.env.ASISTENTE_ENABLED === '1',
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY ?? '',
+    model: process.env.ASISTENTE_MODEL ?? 'claude-sonnet-4-6',
+    maxIteraciones: Number(process.env.ASISTENTE_MAX_ITERACIONES ?? 6),
+    maxTokensSalida: Number(process.env.ASISTENTE_MAX_TOKENS_SALIDA ?? 1500),
+    timeoutMs: Number(process.env.ASISTENTE_TIMEOUT_MS ?? 45_000),
+    limiteUsuarioDia: Number(process.env.ASISTENTE_LIMITE_USUARIO_DIA ?? 60),
+    limiteClinicaDia: Number(process.env.ASISTENTE_LIMITE_CLINICA_DIA ?? 300),
+    limiteClinicaMesUsd: Number(process.env.ASISTENTE_LIMITE_CLINICA_MES_USD ?? 40),
+    maxFilasModelo: Number(process.env.ASISTENTE_MAX_FILAS_MODELO ?? 200),
+    maxFilasResultado: Number(process.env.ASISTENTE_MAX_FILAS_RESULTADO ?? 5000),
+    // Sobrescribe la tabla de precios en código (USD por millón de tokens),
+    // por si el modelo configurado no está en la tabla por defecto. JSON:
+    // { "<modelo>": { "entrada": n, "salida": n, "cacheLeida": n, "cacheEscrita": n } }
+    preciosJson: process.env.ASISTENTE_PRECIOS_JSON ?? '',
+  },
+
   // ── TuBot (canal WhatsApp) ─────────────────────────────────────────────────
   // Base de la API REST de TuBot, compartida por toda la plataforma. Las
   // credenciales (API key, connectionId, webhookSecret, plantilla) son POR CLÍNICA
