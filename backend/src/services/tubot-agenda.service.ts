@@ -103,7 +103,7 @@ const DURACION_DEFECTO = 30
 // profesionales; el rango [from,to] son fechas civiles (hora de la clínica) y se
 // acota a hoy…hoy+MAX_DIAS. `start`/`end` en ISO 8601 UTC.
 export async function availability(
-  db: TenantClient, slug: string, q: { professionalId?: string; serviceId?: string; from?: string; to?: string },
+  db: TenantClient, slug: string, q: { professionalId?: string; serviceId?: string; from?: string; to?: string; durationMin?: string },
 ): Promise<SchedSlot[]> {
   const from = q.from && YMD.test(q.from) ? q.from : todayYmd()
   let to = q.to && YMD.test(q.to) ? q.to : from
@@ -116,6 +116,11 @@ export async function availability(
     const p = await db.prestacion.findUnique({ where: { id: q.serviceId }, select: { duracion: true } })
     if (p?.duracion) durationMin = p.duracion
   }
+  // Duración EXPLÍCITA del consumidor (p.ej. TuBot con citas de 15'): la grilla se
+  // calcula con ese paso, así los huecos de 15' entre citas (09:30, 10:00…) SÍ
+  // aparecen como disponibles — con paso 30 esos espacios se perdían.
+  const durOverride = Number(q.durationMin)
+  if (Number.isFinite(durOverride) && durOverride >= 5 && durOverride <= 240) durationMin = Math.round(durOverride)
 
   const docs = await db.user.findMany({
     where: { role: { in: ROLES_CON_AGENDA }, activo: true, ...(q.professionalId ? { id: q.professionalId } : {}) },

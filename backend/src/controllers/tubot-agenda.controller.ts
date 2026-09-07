@@ -24,11 +24,11 @@ export async function getProfessionalServices(req: Request, res: Response) {
   res.json(await svc.professionalServices(tenantDb(req), req.params.id))
 }
 
-// GET /availability?clinicId&professionalId&serviceId&from&to (Fase 2)
+// GET /availability?clinicId&professionalId&serviceId&from&to&durationMin (Fase 2)
 export async function getAvailability(req: Request, res: Response) {
   const q = req.query as Record<string, string | undefined>
   res.json(await svc.availability(tenantDb(req), req.clinica!.slug, {
-    professionalId: q.professionalId, serviceId: q.serviceId, from: q.from, to: q.to,
+    professionalId: q.professionalId, serviceId: q.serviceId, from: q.from, to: q.to, durationMin: q.durationMin,
   }))
 }
 

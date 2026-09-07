@@ -111,6 +111,18 @@ describe('TuBot agenda — disponibilidad (Fase 2)', () => {
     expect(starts).toEqual([...starts].sort())
   })
 
+  it('GET /availability?durationMin=15 → grilla de 15 min (los huecos cortos aparecen)', async () => {
+    const from = todayYmd()
+    const to = addDaysYmd(from, 3)
+    const r = await get(`/availability?professionalId=${doctorId}&from=${from}&to=${to}&durationMin=15`)
+    expect(r.status).toBe(200)
+    expect(r.body.length).toBeGreaterThan(0)
+    // Todos los slots duran 15' y hay pasos de 15 (p.ej. 09:00 y 09:15 el mismo día).
+    expect(r.body.every((x: { start: string; end: string }) => (new Date(x.end).getTime() - new Date(x.start).getTime()) / 60000 === 15)).toBe(true)
+    const mins = new Set(r.body.map((x: { start: string }) => new Date(x.start).getUTCMinutes() % 30))
+    expect(mins.has(15) || mins.has(45)).toBe(true) // existen inicios a los :15/:45 (paso 15, no 30)
+  })
+
   it('GET /availability?serviceId → incluye el serviceId en cada slot', async () => {
     const from = todayYmd()
     const to = addDaysYmd(from, 2)
