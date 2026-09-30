@@ -142,6 +142,22 @@ describe('zod → JSON Schema', () => {
   })
 })
 
+describe('mapeo a formato OpenAI (Chat Completions)', () => {
+  it('assistant con tool_use → tool_calls; user con tool_result → role:tool aparte', async () => {
+    const { aMensajesOpenAI } = await import('@/services/asistente/proveedor')
+    const asis = aMensajesOpenAI({ rol: 'assistant', contenido: [{ tipo: 'texto', texto: 'ok' }, { tipo: 'tool_use', id: 'call_1', nombre: 'x', input: { a: 1 } }] })
+    expect(asis).toHaveLength(1)
+    expect(asis[0].role).toBe('assistant')
+    // @ts-expect-error tool_calls existe en el assistant message
+    expect(asis[0].tool_calls[0]).toMatchObject({ id: 'call_1', type: 'function', function: { name: 'x' } })
+
+    const user = aMensajesOpenAI({ rol: 'user', contenido: [{ tipo: 'texto', texto: 'hola' }, { tipo: 'tool_result', toolUseId: 'call_1', contenido: '{"filas":[]}' }] })
+    expect(user.map((m) => m.role)).toEqual(['user', 'tool'])
+    // @ts-expect-error tool_call_id existe en el tool message
+    expect(user[1].tool_call_id).toBe('call_1')
+  })
+})
+
 describe('límites de costo', () => {
   beforeAll(() => {
     process.env.ASISTENTE_LIMITE_USUARIO_DIA = '60'

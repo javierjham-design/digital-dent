@@ -2,6 +2,7 @@
 // SDK de Anthropic: el resto del asistente habla con la interfaz `ProveedorModelo`
 // y tipos propios, para poder cambiar de proveedor (p.ej. a OpenAI) sin rediseñar.
 import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { env } from '@/config/env'
 
 // ── Tipos agnósticos del proveedor ───────────────────────────────────────────
@@ -68,6 +69,11 @@ const PRECIOS_DEFAULT: Record<string, PrecioModelo> = {
   'claude-fable-5': { entrada: 10, salida: 50, cacheLeida: 1.00, cacheEscrita: 12.50 },
   'claude-sonnet-5': { entrada: 2, salida: 10, cacheLeida: 0.20, cacheEscrita: 2.50 },
   'claude-opus-5': { entrada: 5, salida: 25, cacheLeida: 0.50, cacheEscrita: 6.25 },
+  // OpenAI (verificar contra la doc de OpenAI al ajustar). gpt-4o-mini: entrada
+  // 0,15 / salida 0,60 / entrada cacheada 0,075 por millón; OpenAI no cobra
+  // escritura de caché aparte (es automática), por eso cacheEscrita 0.
+  'gpt-4o-mini': { entrada: 0.15, salida: 0.60, cacheLeida: 0.075, cacheEscrita: 0 },
+  'gpt-4.1-mini': { entrada: 0.40, salida: 1.60, cacheLeida: 0.10, cacheEscrita: 0 },
 }
 
 export function tablaPrecios(): Record<string, PrecioModelo> {
@@ -169,11 +175,87 @@ function aBloqueSdk(b: BloqueEntrada): Anthropic.ContentBlockParam {
   }
 }
 
-// Fábrica: el resto del código pide el proveedor por acá. Los tests inyectan un
-// ProveedorFalso con setProveedorAsistente sin tocar env ni el SDK real.
+// ── Implementación real (OpenAI, Chat Completions) ───────────────────────────
+
+export class ProveedorOpenAI implements ProveedorModelo {
+  readonly modelo: string
+  private client: OpenAI
+
+  constructor() {
+    if (!env.asistente.openaiApiKey) throw new Error('OPENAI_API_KEY no está configurada.')
+    this.modelo = env.asistente.model
+    this.client = new OpenAI({ apiKey: env.asistente.openaiApiKey, timeout: env.asistente.timeoutMs, maxRetries: 1 })
+  }
+
+  async generar(req: SolicitudModelo): Promise<RespuestaModelo> {
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [{ role: 'system', content: req.sistema }]
+    for (const m of req.mensajes) messages.push(...aMensajesOpenAI(m))
+    const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = req.herramientas.map((h) => ({
+      type: 'function',
+      function: { name: h.nombre, description: h.descripcion, parameters: h.inputSchema },
+    }))
+
+    const resp = await this.client.chat.completions.create({
+      model: this.modelo,
+      max_tokens: req.maxTokens,
+      messages,
+      ...(tools.length ? { tools } : {}),
+    })
+
+    const choice = resp.choices[0]
+    const bloques: BloqueSalida[] = []
+    if (choice?.message.content) bloques.push({ tipo: 'texto', texto: choice.message.content })
+    for (const tc of choice?.message.tool_calls ?? []) {
+      if (tc.type !== 'function') continue
+      let input: unknown = {}
+      try { input = JSON.parse(tc.function.arguments || '{}') } catch { input = {} }
+      bloques.push({ tipo: 'tool_use', id: tc.id, nombre: tc.function.name, input })
+    }
+    // OpenAI cachea el prefijo automáticamente: los tokens cacheados vienen en
+    // prompt_tokens_details.cached_tokens; la "entrada" a precio completo es el resto.
+    const cacheLeidos = resp.usage?.prompt_tokens_details?.cached_tokens ?? 0
+    return {
+      bloques,
+      stopReason: choice?.finish_reason ?? null,
+      uso: {
+        entrada: (resp.usage?.prompt_tokens ?? 0) - cacheLeidos,
+        salida: resp.usage?.completion_tokens ?? 0,
+        cacheLeidos,
+        cacheEscritos: 0,
+      },
+    }
+  }
+}
+
+// Un MensajeModelo (con bloques) → mensajes de Chat Completions. Los tool_result
+// van como mensajes role:'tool' aparte (OpenAI no los admite dentro de user).
+export function aMensajesOpenAI(m: MensajeModelo): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+  if (m.rol === 'assistant') {
+    const texto = m.contenido.filter((b): b is Extract<BloqueEntrada, { tipo: 'texto' }> => b.tipo === 'texto').map((b) => b.texto).join('\n')
+    const toolCalls = m.contenido.filter((b): b is Extract<BloqueEntrada, { tipo: 'tool_use' }> => b.tipo === 'tool_use')
+      .map((b) => ({ id: b.id, type: 'function' as const, function: { name: b.nombre, arguments: JSON.stringify(b.input ?? {}) } }))
+    const msg: OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam = { role: 'assistant', content: texto || null }
+    if (toolCalls.length) msg.tool_calls = toolCalls
+    return [msg]
+  }
+  // rol 'user': separa texto (role:user) de tool_result (role:tool).
+  const out: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = []
+  const textos = m.contenido.filter((b): b is Extract<BloqueEntrada, { tipo: 'texto' }> => b.tipo === 'texto').map((b) => b.texto)
+  if (textos.length) out.push({ role: 'user', content: textos.join('\n') })
+  for (const b of m.contenido) {
+    if (b.tipo === 'tool_result') out.push({ role: 'tool', tool_call_id: b.toolUseId, content: b.contenido })
+  }
+  return out
+}
+
+// Fábrica: el resto del código pide el proveedor por acá. Elige por env
+// (ASISTENTE_PROVEEDOR). Los tests inyectan un ProveedorFalso con setProveedorAsistente.
 let override: ProveedorModelo | null = null
 export function setProveedorAsistente(p: ProveedorModelo | null): void { override = p }
-export function crearProveedor(): ProveedorModelo { return override ?? new ProveedorAnthropic() }
+export function crearProveedor(): ProveedorModelo {
+  if (override) return override
+  return env.asistente.proveedor === 'anthropic' ? new ProveedorAnthropic() : new ProveedorOpenAI()
+}
 
 // ── Implementación falsa (tests) ─────────────────────────────────────────────
 

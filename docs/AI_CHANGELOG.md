@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-09-07 — Asistente de IA: proveedor OpenAI (gpt-4o-mini) por costo, seleccionable por env
+
+Javier eligió montarlo con **gpt-4o-mini** (más económico). Gracias a la interfaz
+`ProveedorModelo` fue un cambio aislado, sin tocar seudonimización/herramientas/orquestador.
+
+- **`ProveedorOpenAI`** en `services/asistente/proveedor.ts` (dep nueva `openai`): mapea los
+  tipos agnósticos a Chat Completions (tool_use→`tool_calls`, tool_result→mensajes `role:tool`),
+  lee `usage` (incl. `prompt_tokens_details.cached_tokens` para la caché automática de OpenAI).
+- **`ASISTENTE_PROVEEDOR`** (`openai` por defecto | `anthropic`) elige el proveedor; `OPENAI_API_KEY`
+  nueva; `ASISTENTE_MODEL` por defecto `gpt-4o-mini` (o `claude-sonnet-4-6` si anthropic).
+  Precios de `gpt-4o-mini`/`gpt-4.1-mini` en la tabla (override por `ASISTENTE_PRECIOS_JSON`).
+- La frontera sigue siendo el único archivo que importa un SDK de modelo; se puede A/B por
+  config en el piloto (etapa 2) y en las preguntas doradas (etapa 3) para decidir si mini alcanza.
+- **Cumplimiento**: el acuerdo de datos/ZDR ahora es con **OpenAI** (por defecto). La
+  seudonimización protege igual: nada identificable sale de Cláriva.
+- Verde: typecheck, `test` (16 del asistente, incl. mapeo a OpenAI), `test:integration` (asistente 8), lint 0.
+
 ## 2026-09-04 — Asistente de IA (etapa 1/4): backend de solo lectura, apagado por defecto
 
 Módulo nuevo `backend/src/services/asistente/`: recibe una pregunta, la **seudonimiza**

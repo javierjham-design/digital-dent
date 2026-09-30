@@ -24,9 +24,12 @@ services/asistente/orquestador.ejecutarTurno
    7. rehidrata (seudonimo.desdeModelo) y responde { mensaje, resultados, cifrasNoVerificadas }
 ```
 
-- **El proveedor es la única frontera con el SDK** (`services/asistente/proveedor.ts`).
-  Interfaz `ProveedorModelo`; `ProveedorAnthropic` (real) y `ProveedorFalso` (tests).
-  Cambiar a otro proveedor (OpenAI) es implementar la interfaz; nada más se toca.
+- **El proveedor es la única frontera con los SDKs** (`services/asistente/proveedor.ts`,
+  único que importa `@anthropic-ai/sdk` y `openai`). Interfaz `ProveedorModelo`;
+  `ProveedorOpenAI` y `ProveedorAnthropic` (reales) + `ProveedorFalso` (tests). El
+  proveedor se elige por env `ASISTENTE_PROVEEDOR` (**default `openai` = gpt-4o-mini**,
+  el más económico); cambiar de uno a otro es una variable, sin tocar código. La
+  seudonimización es la misma para cualquier proveedor.
 - **Aislamiento**: el asistente accede a la base **solo** vía `tenantDb(req)` (los
   services existentes). No abre conexiones, roles ni pools nuevos.
 
@@ -87,8 +90,10 @@ re-verifica al ejecutar (mismas reglas que `middlewares/permiso.ts` y `modulo.ts
 | Env | Default | Qué |
 |---|---|---|
 | `ASISTENTE_ENABLED` | `false` | interruptor GLOBAL (503 si off) |
-| `ANTHROPIC_API_KEY` | — | obligatoria solo si está encendido |
-| `ASISTENTE_MODEL` | `claude-sonnet-4-6` | modelo del proveedor |
+| `ASISTENTE_PROVEEDOR` | `openai` | `openai` (gpt-4o-mini) o `anthropic` |
+| `OPENAI_API_KEY` | — | obligatoria si proveedor=openai y está encendido |
+| `ANTHROPIC_API_KEY` | — | obligatoria si proveedor=anthropic y está encendido |
+| `ASISTENTE_MODEL` | según proveedor | default `gpt-4o-mini` / `claude-sonnet-4-6` |
 | `ASISTENTE_MAX_ITERACIONES` | 6 | tope de vueltas de tool-use por turno |
 | `ASISTENTE_MAX_TOKENS_SALIDA` | 1500 | max_tokens de la respuesta |
 | `ASISTENTE_TIMEOUT_MS` | 45000 | timeout de la llamada al proveedor (1 reintento) |
@@ -100,11 +105,13 @@ re-verifica al ejecutar (mismas reglas que `middlewares/permiso.ts` y `modulo.ts
 | `ASISTENTE_PRECIOS_JSON` | — | override de la tabla de precios |
 
 Constantes en código (no env): timeout por herramienta 15 s, por turno 60 s, historial 20
-mensajes. **Modelo/precios**: la tabla incluye los IDs reales de hoy
-(`claude-sonnet-4-6` 3/15/0,30/3,75, `claude-opus-4-8` 5/25/0,50/6,25, `claude-haiku-4-5`
-1/5/0,10/1,25, `claude-fable-5` 10/50/1/12,5 — USD/millón entrada/salida/caché-leída/
-caché-escrita) y también las claves `claude-sonnet-5`/`claude-opus-5` del diseño original,
-por si esos IDs existen y se setean por env. "Sonnet 5 / Opus 5" del diseño ≈ estos.
+mensajes. **Modelo/precios** (USD/millón entrada/salida/caché-leída/caché-escrita, override
+con `ASISTENTE_PRECIOS_JSON`): OpenAI `gpt-4o-mini` 0,15/0,60/0,075/0 (default, el más
+económico) y `gpt-4.1-mini` 0,40/1,60/0,10/0 — OpenAI cachea el prefijo solo y no cobra la
+escritura; verificar contra la doc de OpenAI al ajustar. Anthropic `claude-sonnet-4-6`
+3/15/0,30/3,75, `claude-opus-4-8` 5/25/0,50/6,25, `claude-haiku-4-5` 1/5/0,10/1,25,
+`claude-fable-5` 10/50/1/12,5; más las claves `claude-sonnet-5`/`claude-opus-5` del diseño
+original por si esos IDs existen ("Sonnet 5 / Opus 5" ≈ estos).
 
 ## Runbook: cómo apagar el asistente
 
@@ -117,6 +124,8 @@ por si esos IDs existen y se setean por env. "Sonnet 5 / Opus 5" del diseño ≈
 
 El mapa cifrado, el historial y la auditoría viven en la base del tenant y se documentan
 acá como lugares donde vive dato del paciente. Pendiente del usuario (no del código):
-acuerdo de tratamiento de datos con Anthropic y verificación de retención cero (ZDR) de la
-organización antes de encender en una clínica productiva. El `mcp-server/` existente sigue
-mandando leads identificables a Claude Desktop: deuda documentada, fuera de estas etapas.
+acuerdo de tratamiento de datos + retención cero (ZDR) **con el proveedor que se use**
+(OpenAI por defecto; Anthropic si se cambia `ASISTENTE_PROVEEDOR`) antes de encender en una
+clínica productiva. Nota: aunque nada identificable sale de Cláriva (seudonimización), la
+conversación seudonimizada sí viaja al proveedor. El `mcp-server/` existente sigue mandando
+leads identificables a Claude Desktop: deuda documentada, fuera de estas etapas.

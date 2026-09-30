@@ -31,12 +31,12 @@ Arquitectura y runbook en `docs/ASISTENTE_IA.md`; decisiones fijas en
 ### Verificación (local, verde)
 `typecheck` · `test` (149) · `test:integration` (161) · `test:contract` (289 rutas) · lint 0.
 
-### Decisión confirmada con Javier (2026-09-04)
-Motor = **API de Anthropic directa detrás de `ProveedorModelo`**. TuBot y el console de
-Claude/GPT quedan **fuera del camino del dato** (protección de datos: nada identificable sale
-de Cláriva). GPT queda abierto para más adelante implementando la interfaz, sin rediseñar.
-Default de modelo `claude-sonnet-4-6`; los IDs `sonnet-5`/`opus-5` del diseño original no
-existen aún en el catálogo, pero la tabla de precios los contempla por si se setean por env.
+### Decisión confirmada con Javier (2026-09-07)
+Motor detrás de `ProveedorModelo` (TuBot y el console quedan **fuera del camino del dato**).
+Proveedor elegido: **OpenAI `gpt-4o-mini`** por costo (`ASISTENTE_PROVEEDOR=openai`, default).
+Anthropic queda disponible cambiando la env (`ASISTENTE_PROVEEDOR=anthropic`). La
+seudonimización protege igual con cualquier proveedor. Se decide con datos (piloto + preguntas
+doradas) si mini alcanza o hay que subir de modelo — es una variable, no código.
 
 ## PENDIENTE (próxima sesión / Javier)
 
@@ -44,8 +44,10 @@ existen aún en el catálogo, pero la tabla de precios los contempla por si se s
    endpoint con `x-cron-secret`) → confirmar OK → `npm run migrate:tenants -- --strict` →
    deploy. En Railway dejar `ASISTENTE_ENABLED=false` y **ninguna** clínica con el módulo.
    Smoke: `GET /api/v1/asistente/estado` con sesión válida → **503**.
-2. **Prerrequisito de Javier antes de la etapa 2**: cargar `ANTHROPIC_API_KEY` en Railway
-   (backend) y gestionar con Anthropic el acuerdo de tratamiento de datos + retención cero (ZDR).
+2. **Prerrequisito de Javier antes de la etapa 2**: cargar `OPENAI_API_KEY` en Railway
+   (backend; proveedor por defecto es OpenAI/gpt-4o-mini) y gestionar con OpenAI el acuerdo de
+   tratamiento de datos + retención cero (ZDR). (Si se cambia a Anthropic: `ANTHROPIC_API_KEY`
+   + `ASISTENTE_PROVEEDOR=anthropic`.)
 3. **Etapa 2** (frontend + piloto en una demo): prompt en `docs/PROMPT_ASISTENTE_IA.md`.
 
 ## Contexto que no cambió

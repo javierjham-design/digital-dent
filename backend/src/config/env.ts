@@ -59,8 +59,13 @@ export const env = {
   // límites son dinámicos (los tests los togglean; en prod se fijan por env).
   asistente: {
     get enabled() { return process.env.ASISTENTE_ENABLED === 'true' || process.env.ASISTENTE_ENABLED === '1' },
+    // Proveedor del modelo: 'openai' (gpt-4o-mini, más económico) por defecto, o
+    // 'anthropic'. La frontera está en services/asistente/proveedor.ts.
+    get proveedor(): 'openai' | 'anthropic' { return process.env.ASISTENTE_PROVEEDOR === 'anthropic' ? 'anthropic' : 'openai' },
     get anthropicApiKey() { return process.env.ANTHROPIC_API_KEY ?? '' },
-    get model() { return process.env.ASISTENTE_MODEL ?? 'claude-sonnet-4-6' },
+    get openaiApiKey() { return process.env.OPENAI_API_KEY ?? '' },
+    // Modelo por defecto según el proveedor (override explícito con ASISTENTE_MODEL).
+    get model() { return process.env.ASISTENTE_MODEL ?? (this.proveedor === 'anthropic' ? 'claude-sonnet-4-6' : 'gpt-4o-mini') },
     get maxIteraciones() { return Number(process.env.ASISTENTE_MAX_ITERACIONES ?? 6) },
     get maxTokensSalida() { return Number(process.env.ASISTENTE_MAX_TOKENS_SALIDA ?? 1500) },
     get timeoutMs() { return Number(process.env.ASISTENTE_TIMEOUT_MS ?? 45_000) },
