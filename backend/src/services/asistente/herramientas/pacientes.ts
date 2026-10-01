@@ -151,3 +151,30 @@ const COLS_SPC = [
   { clave: 'ultimaVisita', etiqueta: 'Última visita', tipo: 'fecha' as const },
   { clave: 'citasTotales', etiqueta: 'Citas totales', tipo: 'entero' as const },
 ]
+
+// 11) pacientes_nuevos(desde, hasta): listado de pacientes registrados en el período.
+export const pacientesNuevos: Herramienta<{ desde: string; hasta: string }> = {
+  nombre: 'pacientes_nuevos',
+  descripcion: 'Lista de pacientes registrados (nuevos) dentro del período (desde/hasta), con su fecha de registro, edad y sexo.',
+  parametros: z.object({ desde: ymd, hasta: ymd }),
+  identidad: [{ columna: 'paciente', tipo: 'paciente' }],
+  async ejecutar(ctx, { desde, hasta }) {
+    const r = rangoUtc(desde, hasta, ctx.tz)
+    const pacientes = await ctx.db.paciente.findMany({
+      where: { activo: true, createdAt: { gte: r.gte, lte: r.lte } },
+      select: { id: true, createdAt: true, fechaNacimiento: true, sexo: true },
+      orderBy: { createdAt: 'desc' },
+    })
+    return {
+      columnas: [
+        { clave: 'paciente', etiqueta: 'Paciente', tipo: 'paciente' },
+        { clave: 'registrado', etiqueta: 'Registrado', tipo: 'fecha' },
+        { clave: 'edad', etiqueta: 'Edad', tipo: 'entero' },
+        { clave: 'sexo', etiqueta: 'Sexo', tipo: 'texto' },
+      ],
+      filas: pacientes.map((p) => ({ paciente: p.id, registrado: p.createdAt, edad: edadEnAnios(p.fechaNacimiento), sexo: p.sexo ?? null })),
+      totalFilas: pacientes.length,
+      resumen: { pacientes: pacientes.length },
+    }
+  },
+}

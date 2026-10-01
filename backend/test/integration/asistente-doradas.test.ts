@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { seedDosClinicas } from './seed'
 import { tenantClient } from './tenant-test'
 import { compilar, type Consulta } from '@/services/asistente/compilador'
-import { pacientesSinProximaCita } from '@/services/asistente/herramientas/pacientes'
+import { pacientesSinProximaCita, pacientesNuevos } from '@/services/asistente/herramientas/pacientes'
 import type { CtxHerramienta } from '@/services/asistente/tipos'
 import { CLINIC_TZ, wallClockToUtc, todayYmd } from '@/lib/tz'
 
@@ -25,8 +25,8 @@ beforeAll(async () => {
   const db = tenantClient(dbName)
   const doc = await db.user.findFirst({ where: { role: 'doctor' }, select: { id: true } })
   docId = doc!.id
-  const a = await db.paciente.create({ data: { nombre: 'PacUno', apellido: 'Test', activo: true } })
-  const b = await db.paciente.create({ data: { nombre: 'PacDos', apellido: 'Test', activo: true } })
+  const a = await db.paciente.create({ data: { nombre: 'PacUno', apellido: 'Test', activo: true, createdAt: at('2026-09-01') } })
+  const b = await db.paciente.create({ data: { nombre: 'PacDos', apellido: 'Test', activo: true, createdAt: at('2026-09-02') } })
   pacA = a.id; pacB = b.id
   const medio = await db.medioPago.create({ data: { nombre: 'Efectivo' } })
   medioId = medio.id
@@ -136,6 +136,13 @@ describe('preguntas doradas — dinero y otros', () => {
   it('tratamientos_monto (neto) = 280.000', async () => {
     expect((await filas(q({ metrica: 'tratamientos_monto' })))[0].valor).toBe(280000)
   })
+  it('pacientes_nuevos (registrados en sept) = 2', async () => {
+    expect((await filas(q({ metrica: 'pacientes_nuevos' })))[0].valor).toBe(2)
+  })
+  it('citas_atendidas = 3; minutos atendidos = 90', async () => {
+    expect((await filas(q({ metrica: 'citas_atendidas' })))[0].valor).toBe(3)
+    expect((await filas(q({ metrica: 'citas_minutos_atendidos' })))[0].valor).toBe(90)
+  })
   it('métrica inexistente → error', async () => {
     await expect(filas(q({ metrica: 'no_existe' }))).rejects.toThrow()
   })
@@ -152,5 +159,11 @@ describe('preguntas doradas — pacientes sin próxima cita', () => {
     expect(res.filas).toHaveLength(2)
     expect(ids).toContain(pacA)
     expect(ids).toContain(pacB)
+  })
+  it('pacientes_nuevos (tool) lista los 2 registrados en septiembre', async () => {
+    const ctx = { db: tenantClient(dbName), userId: 'x', role: 'admin', esPlatformAdmin: false, esAdminClinica: true, permisos: {}, modulos: ['asistente'], hoy: todayYmd(CLINIC_TZ), tz: CLINIC_TZ } as CtxHerramienta
+    const res = await pacientesNuevos.ejecutar(ctx, { desde: '2026-09-01', hasta: '2026-09-30' })
+    expect(res.filas).toHaveLength(2)
+    expect(res.filas.map((f) => f.paciente)).toEqual(expect.arrayContaining([pacA, pacB]))
   })
 })

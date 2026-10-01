@@ -22,7 +22,7 @@ export type FilaCruda = Record<string, unknown>
 export interface MetricaDef {
   clave: string
   etiqueta: string // descripción en lenguaje natural para el modelo
-  modelo: 'cobro' | 'cita' | 'planTratamiento' | 'tratamiento' | 'lead' | 'movimientoCaja'
+  modelo: 'cobro' | 'cita' | 'planTratamiento' | 'tratamiento' | 'lead' | 'movimientoCaja' | 'paciente'
   campoFecha: string
   agregacion: Agregacion
   // Para sum/avg: campos a traer y función que calcula el valor por fila.
@@ -76,6 +76,33 @@ export const CATALOGO: MetricaDef[] = [
       { clave: 'paciente', etiqueta: 'por paciente', tipo: 'paciente', campo: 'pacienteId' },
       ...TIEMPO('fecha'),
     ],
+  },
+  {
+    clave: 'citas_atendidas', etiqueta: 'Cantidad de citas atendidas (el paciente asistió)', modelo: 'cita',
+    campoFecha: 'fecha', agregacion: 'count', where: { estado: 'ATENDIDA' },
+    etiquetaValor: 'Atendidas', tipoValor: 'entero',
+    dimensiones: [
+      { clave: 'profesional', etiqueta: 'por profesional', tipo: 'profesional', campo: 'doctorId' },
+      { clave: 'box', etiqueta: 'por box', tipo: 'box', campo: 'boxId' },
+      { clave: 'paciente', etiqueta: 'por paciente', tipo: 'paciente', campo: 'pacienteId' },
+      ...TIEMPO('fecha'),
+    ],
+  },
+  {
+    clave: 'citas_minutos_atendidos', etiqueta: 'Minutos atendidos (suma de duración de citas atendidas; dividí por 60 para horas)', modelo: 'cita',
+    campoFecha: 'fecha', agregacion: 'sum', selectValor: ['duracion'], valor: (f) => Number(f.duracion ?? 0),
+    where: { estado: 'ATENDIDA' }, etiquetaValor: 'Minutos', tipoValor: 'entero',
+    dimensiones: [
+      { clave: 'profesional', etiqueta: 'por profesional', tipo: 'profesional', campo: 'doctorId' },
+      { clave: 'box', etiqueta: 'por box', tipo: 'box', campo: 'boxId' },
+      ...TIEMPO('fecha'),
+    ],
+  },
+  {
+    clave: 'pacientes_nuevos', etiqueta: 'Cantidad de pacientes nuevos (registrados en el período)', modelo: 'paciente',
+    campoFecha: 'createdAt', agregacion: 'count', where: { activo: true },
+    etiquetaValor: 'Pacientes', tipoValor: 'entero',
+    dimensiones: [...TIEMPO('createdAt')],
   },
   {
     clave: 'citas_canceladas', etiqueta: 'Cantidad de citas canceladas (inasistencias)', modelo: 'cita',
