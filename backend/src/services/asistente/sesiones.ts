@@ -97,7 +97,7 @@ export async function obtenerSesion(db: TenantClient, userId: string, sesionId: 
   const resolver = await construirResolver(db, mapa)
   const [mensajesRaw, resultadosRaw] = await Promise.all([
     db.asistenteMensaje.findMany({ where: { sesionId }, orderBy: { createdAt: 'asc' }, select: { id: true, rol: true, contenido: true, createdAt: true } }),
-    db.asistenteResultado.findMany({ where: { sesionId }, orderBy: { createdAt: 'asc' }, select: { id: true, herramienta: true, parametros: true, columnas: true, filas: true, totalFilas: true } }),
+    db.asistenteResultado.findMany({ where: { sesionId }, orderBy: { createdAt: 'asc' }, select: { id: true, mensajeId: true, herramienta: true, parametros: true, columnas: true, filas: true, totalFilas: true } }),
   ])
   const mensajes: MensajeAsistenteDTO[] = mensajesRaw.map((m) => ({
     id: m.id, rol: m.rol === 'assistant' ? 'assistant' : 'user',
@@ -124,7 +124,7 @@ export async function enviarMensaje(db: TenantClient, auth: JwtPayload, sesionId
   const r = await ejecutarTurno({ db, actor, sesionId, texto, proveedor: crearProveedor() })
   return {
     mensaje: { id: r.mensajeId, rol: 'assistant', contenido: r.contenido, createdAt: r.createdAt.toISOString() },
-    resultados: r.resultados.map((res) => ({ id: res.id, herramienta: res.herramienta, parametros: res.parametros, columnas: res.columnas as ColumnaAsistenteDTO[], filas: res.filas, totalFilas: res.totalFilas })),
+    resultados: r.resultados.map((res) => ({ id: res.id, mensajeId: r.mensajeId, herramienta: res.herramienta, parametros: res.parametros, columnas: res.columnas as ColumnaAsistenteDTO[], filas: res.filas, totalFilas: res.totalFilas })),
     cifrasNoVerificadas: r.cifrasNoVerificadas,
   }
 }
@@ -132,12 +132,12 @@ export async function enviarMensaje(db: TenantClient, auth: JwtPayload, sesionId
 // ── Export a Excel de un resultado ────────────────────────────────────────────
 
 function hidratarResultado(
-  r: { id: string; herramienta: string; parametros: string; columnas: string; filas: string; totalFilas: number },
+  r: { id: string; mensajeId: string; herramienta: string; parametros: string; columnas: string; filas: string; totalFilas: number },
   mapa: MapaSeudonimos, resolver: ResolverNombre,
 ): ResultadoAsistenteDTO {
   const columnas = JSON.parse(r.columnas) as ColumnaAsistenteDTO[]
   const filas = rehidratarFilas(JSON.parse(r.filas) as Fila[], identidadDe(columnas), mapa, resolver)
-  return { id: r.id, herramienta: r.herramienta, parametros: JSON.parse(r.parametros), columnas, filas, totalFilas: r.totalFilas }
+  return { id: r.id, mensajeId: r.mensajeId, herramienta: r.herramienta, parametros: JSON.parse(r.parametros), columnas, filas, totalFilas: r.totalFilas }
 }
 
 function celdaExcel(tipo: ColumnaAsistenteDTO['tipo'], v: unknown): string | number | null {
@@ -148,7 +148,7 @@ function celdaExcel(tipo: ColumnaAsistenteDTO['tipo'], v: unknown): string | num
 }
 
 export async function xlsxResultado(db: TenantClient, userId: string, resultadoId: string): Promise<{ buffer: Buffer; filenameBase: string }> {
-  const r = await db.asistenteResultado.findUnique({ where: { id: resultadoId }, select: { id: true, sesionId: true, herramienta: true, parametros: true, columnas: true, filas: true, totalFilas: true } })
+  const r = await db.asistenteResultado.findUnique({ where: { id: resultadoId }, select: { id: true, mensajeId: true, sesionId: true, herramienta: true, parametros: true, columnas: true, filas: true, totalFilas: true } })
   if (!r) throw notFound('Resultado no encontrado')
   const s = await db.asistenteSesion.findFirst({ where: { id: r.sesionId, userId }, select: { mapaCifrado: true } })
   if (!s) throw notFound('Resultado no encontrado')

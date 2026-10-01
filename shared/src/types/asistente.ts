@@ -15,6 +15,7 @@ export interface EstadoAsistenteDTO {
 
 export interface ResultadoAsistenteDTO {
   id: string
+  mensajeId: string
   herramienta: string
   parametros: unknown
   columnas: ColumnaAsistenteDTO[]
