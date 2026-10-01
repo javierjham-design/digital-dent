@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-10-01 — Asistente de IA: fix estado real de cita + herramienta "sin próxima cita" + fecha
+
+Correcciones salidas del piloto real con GPT-4o-mini:
+- **Fecha**: el prompt ahora ancla HOY/año-en-curso de forma explícita (gpt-4o-mini resolvía
+  "este año" como 2023). Resuelto.
+- **BUG de estado de cita**: las herramientas usaban `'REALIZADA'`, que **no existe** (los
+  estados reales son `ATENDIDA` / `NO_ASISTIO` / `CANCELADA` / `PENDIENTE`). "Última visita" y
+  "atendidas" salían vacías con datos reales. Corregido a `ATENDIDA`; `ocupacion_agenda`
+  ahora distingue atendidas / inasistencias (`NO_ASISTIO`) / canceladas.
+- **Herramienta nueva `pacientes_sin_proxima_cita(desde,hasta)`**: pacientes que vinieron en
+  el período y no tienen cita futura agendada (vinieron a diagnóstico y no dejaron seguimiento).
+  Es un listado con condición de existencia, no una agregación → va como herramienta curada.
+- Verde: typecheck, unit (16), integración asistente (27, incl. dorada del tool nuevo), contrato, lint 0.
+
 ## 2026-10-01 — Asistente de IA: etapa 3 (capa semántica) + selector de modelo por clínica
 
 Disparado por una prueba real: una pregunta ("pacientes con una sola cita en septiembre")

@@ -62,13 +62,15 @@ Las herramientas no dejan estas definiciones al prompt; están en código:
 - **Inactividad** (pacientes_inactivos_con_saldo) = medida contra la última cita REALIZADA.
 - **Producción** (por profesional) = neto de acciones COMPLETADAS con `fechaCompletado`
   en el rango; **pagado** = cobros PAGADO imputados a esas acciones.
-- **Inasistencia** (ocupacion_agenda) = cita `CANCELADA` (la agenda no modela un estado
-  "no-show" aparte). El desglose por box queda para la etapa 3 (capa semántica).
+- **Estados de cita** reales: `ATENDIDA` (asistió), `NO_ASISTIO` (no llegó), `CANCELADA`,
+  `PENDIENTE`. "Atendida/última visita" = `ATENDIDA`; **inasistencia** (ocupacion_agenda,
+  horas perdidas) = `NO_ASISTIO`. El desglose por box queda para la etapa 3 (capa semántica).
 - Cortes de fecha en **hora de la clínica** (`lib/tz`, `America/Santiago`).
 
 ## Herramientas (etapa 1)
 
-`buscar_paciente`, `ficha_resumen`, `planes_sin_pago`, `planes_sin_ejecucion`,
+`buscar_paciente`, `ficha_resumen`, `pacientes_sin_proxima_cita` (vinieron en el período y
+no tienen cita futura — diagnóstico sin seguimiento), `planes_sin_pago`, `planes_sin_ejecucion`,
 `pacientes_inactivos_con_saldo`, `produccion_por_profesional` (gestor de liquidaciones o
 el propio doctor), `cuadre_caja` (`puedeGestionarCajas`), `ocupacion_agenda`,
 `embudo_crm` (módulo `crm` + `puedeGestionarCrm`). `planes_*` e inactivos exigen
