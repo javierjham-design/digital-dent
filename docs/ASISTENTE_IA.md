@@ -113,6 +113,17 @@ escritura; verificar contra la doc de OpenAI al ajustar. Anthropic `claude-sonne
 `claude-fable-5` 10/50/1/12,5; más las claves `claude-sonnet-5`/`claude-opus-5` del diseño
 original por si esos IDs existen ("Sonnet 5 / Opus 5" ≈ estos).
 
+## UI (etapa 2)
+
+Pantalla `/asistente` (`frontend/src/pages/Asistente.tsx`, service en
+`frontend/src/services/asistente.service.ts`). Entrada en **Gestión → Análisis**, visible solo
+si la clínica tiene el módulo `asistente`. Chat con lista de sesiones propias (nueva/borrar),
+caja de texto que se bloquea mientras corre el turno (hasta 60 s), **menciones `@`** (buscador
+de pacientes → inserta `@[Nombre](pac:id)`), resultados como **tablas tipadas** (dinero/fecha/
+paciente rehidratado) paginadas con **Exportar a Excel** y "Cómo se calculó", y las **cifras no
+verificadas atenuadas** (parsea los marcadores `⟦nv⟧…⟦/nv⟧` que pone `verificacion.ts`).
+Sugerencias iniciales según las herramientas disponibles para el usuario.
+
 ## Runbook: cómo apagar el asistente
 
 - **Para una clínica**: super-admin → quitar el módulo `asistente` de la clínica

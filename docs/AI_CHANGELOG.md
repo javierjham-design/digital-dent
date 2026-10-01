@@ -5,6 +5,29 @@
 
 ---
 
+## 2026-10-01 — Asistente de IA (etapa 2/4): pantalla de chat (frontend)
+
+Frontend del asistente sobre el backend de la etapa 1. Pantalla `/asistente` con chat,
+tablas exportables y menciones de pacientes. Deploy confirmado (BACKEND venía de la etapa 1;
+el frontend tomó el push).
+
+- **`frontend/src/services/asistente.service.ts`**: 5 endpoints (estado, sesiones CRUD,
+  mensajes) + descarga xlsx (patrón de `reportes.service`).
+- **`frontend/src/pages/Asistente.tsx`**: lista de sesiones propias (nueva/borrar), chat,
+  caja de texto que se bloquea mientras corre el turno ("Consultando la base…", hasta 60 s);
+  **menciones `@`** (buscador de pacientes → inserta `@[Nombre](pac:id)` que el backend
+  entiende); resultados como **tablas tipadas** (dinero `$1.234.567`, fecha es-CL, paciente
+  rehidratado), paginadas (50/pág), **Exportar a Excel**, desplegable "Cómo se calculó", y
+  **cifras no verificadas atenuadas** (parsea los marcadores `⟦nv⟧`); sugerencias iniciales
+  según las herramientas disponibles; estados de error 429/503/403/404; responsive.
+- Ruta `/asistente` + entrada en **Gestión → Análisis**, gated por módulo `asistente`.
+- Backend: `mensajeId` agregado a `ResultadoAsistenteDTO` (para asociar cada tabla a su
+  mensaje al cargar el historial).
+- Verde: typecheck FE/BE, build FE, `test:contract` (289 rutas / 240 llamadas), integración (8), lint 0.
+- **Pendiente (piloto)**: activar el módulo en una **demo** desde el super-admin y probar las
+  9 herramientas con GPT-4o-mini, anotando el costo real por consulta en `AsistenteAuditoria`;
+  recién después confirmar en digital-dent.
+
 ## 2026-09-07 — Asistente de IA: proveedor OpenAI (gpt-4o-mini) por costo, seleccionable por env
 
 Javier eligió montarlo con **gpt-4o-mini** (más económico). Gracias a la interfaz

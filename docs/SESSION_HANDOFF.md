@@ -3,14 +3,22 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: Asistente de IA — etapa 1/4 (backend, solo lectura)
+## Último trabajo: Asistente de IA — etapas 1 y 2 DESPLEGADAS (falta el piloto)
 
-**Hecho y verde localmente. Falta el despliegue (abajo).** Es el backend del Asistente de
-IA: responde preguntas en lenguaje natural sobre los datos de una clínica, solo lectura,
-con seudonimización de pacientes y límites de costo duros. Apagado por defecto y reversible.
-Arquitectura y runbook en `docs/ASISTENTE_IA.md`; decisiones fijas en
-`docs/PROMPT_ASISTENTE_IA.md` (sección "Decisiones de diseño"). Etapas 2 (frontend + piloto),
-3 (capa semántica) y 4 (SQL RO, condicional) siguen pendientes, con sus prompts en ese doc.
+**Backend (etapa 1) + frontend (etapa 2) en producción, con GPT-4o-mini.** Responde
+preguntas en lenguaje natural sobre los datos de una clínica, solo lectura, con
+seudonimización de pacientes y límites de costo duros. Pantalla `/asistente` (chat, tablas
+exportables, menciones `@`). **Encendido a nivel API** (`ASISTENTE_ENABLED=true` +
+`OPENAI_API_KEY` cargadas en Railway/BACKEND). Arquitectura y runbook en `docs/ASISTENTE_IA.md`;
+decisiones fijas en `docs/PROMPT_ASISTENTE_IA.md`. Faltan el **piloto**, la etapa 3 (capa
+semántica) y la 4 (SQL RO, condicional).
+
+**Deploy/infra (aprendido el 2026-10-01):** el auto-deploy de Railway funciona (push a `arch`
+o `master` dispara). Los servicios reales son **BACKEND** (`fb40b407`, dominio
+backend-production-4f47 / api.clariva.cl), **FRONTEND**, **WEB Service**; hay crons y Postgres.
+El servicio viejo **`digital-dent`** (monolito, deploya de `master`, port 8080) da FAILED y es
+vestigial — Javier lo iba a borrar. Railway CLI logueado como javier.jham@gmail.com, proyecto
+`amused-recreation`.
 
 ### Qué quedó en el repo (todo commiteado en `arch`)
 - `shared/src/constants/modulos.ts`: módulo `asistente` (grupo aparte, **fuera de
@@ -40,15 +48,17 @@ doradas) si mini alcanza o hay que subir de modelo — es una variable, no códi
 
 ## PENDIENTE (próxima sesión / Javier)
 
-1. **Desplegar etapa 1** (sigue apagada, es seguro): backup fresco (`npm run backup` o el
-   endpoint con `x-cron-secret`) → confirmar OK → `npm run migrate:tenants -- --strict` →
-   deploy. En Railway dejar `ASISTENTE_ENABLED=false` y **ninguna** clínica con el módulo.
-   Smoke: `GET /api/v1/asistente/estado` con sesión válida → **503**.
-2. **Prerrequisito de Javier antes de la etapa 2**: cargar `OPENAI_API_KEY` en Railway
-   (backend; proveedor por defecto es OpenAI/gpt-4o-mini) y gestionar con OpenAI el acuerdo de
-   tratamiento de datos + retención cero (ZDR). (Si se cambia a Anthropic: `ANTHROPIC_API_KEY`
-   + `ASISTENTE_PROVEEDOR=anthropic`.)
-3. **Etapa 2** (frontend + piloto en una demo): prompt en `docs/PROMPT_ASISTENTE_IA.md`.
+1. **Piloto en una demo**: desde el super-admin, activar el módulo `asistente` en una **demo**
+   (no en digital-dent todavía), entrar a `/asistente` y probar las 9 herramientas con
+   GPT-4o-mini. Anotar en `docs/ASISTENTE_IA.md` qué respondió bien/mal y el **costo por
+   consulta** que aparece en `AsistenteAuditoria`. Recién después, confirmar en digital-dent.
+   (Nota: digital-dent ya tiene el módulo encendido y `ASISTENTE_ENABLED=true`, así que su
+   asistente está vivo a nivel API; al ser solo lectura es de bajo riesgo.)
+2. **Etapa 3 — capa semántica** (`consultar_metricas`): la que lo hace "análisis completo".
+   Con el piloto se evalúa si `gpt-4o-mini` alcanza o hay que subir de modelo (una env).
+   Prompt en `docs/PROMPT_ASISTENTE_IA.md`.
+3. **ZDR/datos con OpenAI**: confirmar acuerdo de tratamiento de datos + retención con OpenAI
+   antes de uso intensivo con una clínica productiva (trámite, no código).
 
 ## Contexto que no cambió
 Database-per-tenant (control + `clariva_t_<slug>`), Railway auto-deploy desde `arch`,
