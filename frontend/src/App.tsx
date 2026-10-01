@@ -30,6 +30,7 @@ import { PagosPrint } from '@/pages/PagosPrint'
 import { ReporteCajasPrint } from '@/pages/ReporteCajasPrint'
 import { Presupuestos } from '@/pages/Presupuestos'
 import { Reportes } from '@/pages/Reportes'
+import { Asistente } from '@/pages/Asistente'
 import { Ayuda } from '@/pages/Ayuda'
 import { AdminDashboard } from '@/pages/admin/Dashboard'
 import { AdminClinicas } from '@/pages/admin/Clinicas'
@@ -76,6 +77,7 @@ export default function App() {
             <Route path="/recetas-documentos" element={<Consentimientos grupoInicial="DOCUMENTO" />} />
             <Route path="/suscripcion" element={<Suscripcion />} />
             <Route path="/reportes" element={<Reportes />} />
+            <Route path="/asistente" element={<Asistente />} />
             <Route path="/liquidaciones" element={<LiquidacionesEntrada />} />
             <Route path="/mis-liquidaciones" element={<Navigate to="/liquidaciones" replace />} />
             <Route path="/prestaciones" element={<Prestaciones />} />

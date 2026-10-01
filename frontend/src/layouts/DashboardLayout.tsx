@@ -20,11 +20,11 @@ const linkCls = ({ isActive }: { isActive: boolean }) =>
 // Menú "Gestión": agrupa la configuración y el back-office en secciones (Clínica,
 // Documentos, Captación, Dinero, Análisis, Cuenta), respetando el permiso de cada ítem.
 // Una sección sin ningún ítem visible no muestra su título.
-function GestionMenu({ esAdmin, puedeConfig, puedeEquipo, puedePrestaciones, puedeCajas, puedeVerReportes, modAgenda }: { esAdmin: boolean; puedeConfig: boolean; puedeEquipo: boolean; puedePrestaciones: boolean; puedeCajas: boolean; puedeVerReportes: boolean; modAgenda: boolean }) {
+function GestionMenu({ esAdmin, puedeConfig, puedeEquipo, puedePrestaciones, puedeCajas, puedeVerReportes, modAgenda, modAsistente }: { esAdmin: boolean; puedeConfig: boolean; puedeEquipo: boolean; puedePrestaciones: boolean; puedeCajas: boolean; puedeVerReportes: boolean; modAgenda: boolean; modAsistente: boolean }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
-  const rutas = ['/configuracion', '/equipo', '/boxes', '/prestaciones', '/consentimientos', '/recetas-documentos', '/agendamiento-online', '/gestion-cajas', '/liquidaciones', '/mis-liquidaciones', '/reportes', '/suscripcion']
+  const rutas = ['/configuracion', '/equipo', '/boxes', '/prestaciones', '/consentimientos', '/recetas-documentos', '/agendamiento-online', '/gestion-cajas', '/liquidaciones', '/mis-liquidaciones', '/reportes', '/asistente', '/suscripcion']
   const activo = rutas.some((r) => pathname.startsWith(r))
 
   useEffect(() => {
@@ -56,6 +56,9 @@ function GestionMenu({ esAdmin, puedeConfig, puedeEquipo, puedePrestaciones, pue
     ].filter((x): x is [string, string] => x !== null) },
     { titulo: 'Análisis', items: [
       it(esAdmin || puedeVerReportes, '/reportes', 'Reportes'),
+      // Visible si la clínica tiene el módulo; el permiso por herramienta lo
+      // resuelve el backend (siempre hay al menos una herramienta disponible).
+      it(modAsistente, '/asistente', 'Asistente de IA'),
     ].filter((x): x is [string, string] => x !== null) },
     { titulo: 'Cuenta', items: [
       it(esAdmin, '/suscripcion', 'Suscripción y pagos'),
@@ -159,6 +162,7 @@ export function DashboardLayout() {
   const mods = user?.modulos ?? []
   const modCrm = mods.includes('crm')
   const modAgenda = mods.includes('agendamiento_online')
+  const modAsistente = mods.includes('asistente')
   return (
     <div className="min-h-screen">
       <header className="bg-white border-b border-slate-100 sticky top-0 z-30 px-4 py-2 flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -181,7 +185,7 @@ export function DashboardLayout() {
           {/* CRM es trabajo diario (leads sin gestionar): va anclado en el header, no
               escondido en el desplegable. Misma condición de visibilidad que antes. */}
           {modCrm && (esAdmin || puedeCrm) && <NavLink to="/crm" className={linkCls}>CRM · Leads</NavLink>}
-          <GestionMenu esAdmin={esAdmin} puedeConfig={puedeConfig} puedeEquipo={puedeEquipo} puedePrestaciones={puedePrestaciones} puedeCajas={puedeCajas} puedeVerReportes={puedeVerReportes} modAgenda={modAgenda} />
+          <GestionMenu esAdmin={esAdmin} puedeConfig={puedeConfig} puedeEquipo={puedeEquipo} puedePrestaciones={puedePrestaciones} puedeCajas={puedeCajas} puedeVerReportes={puedeVerReportes} modAgenda={modAgenda} modAsistente={modAsistente} />
           <NavLink to="/ayuda" className={linkCls}>Ayuda</NavLink>
         </nav>
       </header>
