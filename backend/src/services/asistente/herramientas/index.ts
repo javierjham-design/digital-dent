@@ -7,6 +7,7 @@ import { planesSinPago, planesSinEjecucion } from './planes'
 import { pacientesInactivosConSaldo, produccionPorProfesional, cuadreCaja } from './finanzas'
 import { ocupacionAgenda } from './agenda'
 import { embudoCrm } from './crm'
+import { consultarMetricas } from './metricas'
 
 export const REGISTRO: Herramienta[] = [
   buscarPaciente,
@@ -18,6 +19,7 @@ export const REGISTRO: Herramienta[] = [
   cuadreCaja,
   ocupacionAgenda,
   embudoCrm,
+  consultarMetricas,
 ]
 
 export function herramientaPorNombre(nombre: string): Herramienta | undefined {

@@ -87,10 +87,18 @@ export async function ejecutarHerramienta(
     throw new ErrorHerramienta('No se pudo completar la consulta.')
   }
 
-  // 5) Acotar filas guardadas y 6) seudonimizar columnas de identidad.
+  // 5) Acotar filas y 6) seudonimizar columnas de identidad. La identidad es la
+  // declarada por la herramienta MÁS cualquier columna de tipo 'paciente' del
+  // resultado (así la capa semántica agrupada por paciente se tokeniza sola).
+  const identidad = [
+    ...h.identidad,
+    ...res.columnas
+      .filter((c) => c.tipo === 'paciente' && !h.identidad.some((i) => i.columna === c.clave))
+      .map((c) => ({ columna: c.clave, tipo: 'paciente' as const })),
+  ]
   const totalFilas = res.totalFilas ?? res.filas.length
   const acotadas = res.filas.slice(0, env.asistente.maxFilasResultado)
-  const filas = seudonimizarFilas(acotadas, h.identidad, mapa)
+  const filas = seudonimizarFilas(acotadas, identidad, mapa)
 
   return {
     herramienta: h.nombre,
@@ -99,7 +107,7 @@ export async function ejecutarHerramienta(
     filas,
     totalFilas,
     resumen: res.resumen,
-    identidad: h.identidad,
+    identidad,
     ms: Date.now() - t0,
   }
 }

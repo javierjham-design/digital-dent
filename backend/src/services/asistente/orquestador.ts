@@ -15,6 +15,7 @@ import { REGISTRO, herramientaPorNombre } from './herramientas'
 import { herramientasVisibles, ejecutarHerramienta, jsonSchemaDe } from './marco'
 import { ErrorHerramienta, type CtxHerramienta, type ResultadoEjecutado, type Columna } from './tipos'
 import { contadores, limiteSuperado } from './limites'
+import { metricasVisibles } from './catalogo'
 import { verificarCifras } from './verificacion'
 import {
   calcularCostoUsd, type ProveedorModelo, type MensajeModelo, type BloqueEntrada, type BloqueSalida, type UsoTokens,
@@ -230,6 +231,10 @@ async function construirSistema(db: TenantClient, ctx: CtxHerramienta, nombresHe
   const profs = doctores.map((d) => `- ${d.id} — ${d.name ?? 'Profesional'}${d.especialidad ? ` (${d.especialidad})` : ''}`).join('\n') || '- (sin profesionales cargados)'
   const listaBoxes = boxes.map((b) => b.nombre).join(', ') || '(sin boxes)'
   const listaMedios = medios.map((m) => m.nombre).join(', ') || '(sin medios de pago)'
+  // Catálogo de métricas visibles para este usuario (vocabulario de consultar_metricas).
+  const metricas = nombresHerramientas.includes('consultar_metricas')
+    ? metricasVisibles(ctx).map((m) => `  · ${m.clave}: ${m.etiqueta}. Dimensiones: ${m.dimensiones.map((d) => d.clave).join(', ')}.`).join('\n')
+    : ''
   return [
     `Sos el asistente de datos de "${config?.nombre ?? 'la clínica'}", una clínica ${rubro} en Chile. Respondés en español de Chile, claro y breve.`,
     'Reglas:',
@@ -244,6 +249,7 @@ async function construirSistema(db: TenantClient, ctx: CtxHerramienta, nombresHe
     profs,
     `Boxes: ${listaBoxes}.`,
     `Medios de pago: ${listaMedios}.`,
+    ...(metricas ? ['', 'Métricas disponibles en consultar_metricas (clave: qué mide · dimensiones para agrupar):', metricas, 'Filtros: período (desde/hasta) obligatorio; filtros de igualdad sobre estado/origen/profesional/box; filtroValor para "exactamente/al menos N".'] : []),
   ].join('\n')
 }
 

@@ -17,16 +17,33 @@ function parseCifra(s: string): number {
   return Number(limpio)
 }
 
+const MAX_BASE = 60 // tope de cifras base para no explotar el O(n²) de las comparaciones
+
 function numerosConocidos(resultados: ResultadoEjecutado[]): Set<number> {
-  const set = new Set<number>()
+  const base = new Set<number>()
   const add = (v: unknown) => {
     const n = typeof v === 'number' ? v : NaN
-    if (Number.isFinite(n)) { set.add(n); set.add(Math.round(n)) }
+    if (Number.isFinite(n)) { base.add(n); base.add(Math.round(n)) }
   }
   for (const r of resultados) {
     add(r.totalFilas)
     if (r.resumen) for (const v of Object.values(r.resumen)) { add(v); if (typeof v === 'string') add(Number(v)) }
     for (const fila of r.filas) for (const v of Object.values(fila)) add(v)
+  }
+  // Comparaciones: diferencias y porcentajes entre pares de cifras del turno
+  // (para "este período vs el anterior"). Acotado a MAX_BASE para no explotar.
+  const set = new Set(base)
+  const vals = [...base].slice(0, MAX_BASE)
+  for (const a of vals) {
+    for (const b of vals) {
+      if (a === b) continue
+      set.add(a - b)
+      set.add(Math.round(a - b))
+      if (b !== 0) {
+        set.add(Math.round((a / b) * 100)) // a es % de b
+        set.add(Math.round(((a - b) / b) * 100)) // variación %
+      }
+    }
   }
   return set
 }

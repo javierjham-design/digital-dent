@@ -115,14 +115,14 @@ describe('verificación de cifras', () => {
 describe('filtro de herramientas por permisos (3 roles)', () => {
   const nombres = (l: { nombre: string }[]) => l.map((h) => h.nombre).sort()
 
-  it('admin con módulo crm ve las 9', () => {
+  it('admin con módulo crm ve las 10 (incluye consultar_metricas)', () => {
     const l = herramientasVisibles(REGISTRO, ctx({ role: 'admin', esAdminClinica: true, modulos: ['asistente', 'crm'] }))
-    expect(l).toHaveLength(9)
+    expect(l).toHaveLength(10)
   })
 
-  it('recepcionista (staff sin permisos) no ve caja, reportes ni crm', () => {
+  it('recepcionista (staff sin permisos) no ve caja, reportes ni crm; sí la capa semántica', () => {
     const l = herramientasVisibles(REGISTRO, ctx({ role: 'staff' }))
-    expect(nombres(l)).toEqual(['buscar_paciente', 'ficha_resumen', 'ocupacion_agenda'])
+    expect(nombres(l)).toEqual(['buscar_paciente', 'consultar_metricas', 'ficha_resumen', 'ocupacion_agenda'])
     expect(nombres(l)).not.toContain('cuadre_caja')
   })
 
