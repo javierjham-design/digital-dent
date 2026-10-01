@@ -3,15 +3,17 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: Asistente de IA — etapas 1 y 2 DESPLEGADAS (falta el piloto)
+## Último trabajo: Asistente de IA — etapas 1, 2 y 3 DESPLEGADAS + selector de modelo
 
-**Backend (etapa 1) + frontend (etapa 2) en producción, con GPT-4o-mini.** Responde
-preguntas en lenguaje natural sobre los datos de una clínica, solo lectura, con
-seudonimización de pacientes y límites de costo duros. Pantalla `/asistente` (chat, tablas
-exportables, menciones `@`). **Encendido a nivel API** (`ASISTENTE_ENABLED=true` +
-`OPENAI_API_KEY` cargadas en Railway/BACKEND). Arquitectura y runbook en `docs/ASISTENTE_IA.md`;
-decisiones fijas en `docs/PROMPT_ASISTENTE_IA.md`. Faltan el **piloto**, la etapa 3 (capa
-semántica) y la 4 (SQL RO, condicional).
+**Backend + frontend + capa semántica en producción, con GPT-4o-mini.** Responde preguntas
+en lenguaje natural sobre los datos de una clínica (solo lectura), con seudonimización,
+límites de costo y la **capa semántica** (`consultar_metricas`: catálogo de métricas/
+dimensiones → consulta estructurada → Prisma, sin SQL libre) que cubre preguntas no previstas
+(ej. "pacientes con 1 sola cita en septiembre"). Pantalla `/asistente` (chat, tablas, Excel,
+menciones `@`). **El super-admin ajusta el modelo por clínica** (tarjeta "Asistente de IA —
+modelo"). Encendido a nivel API (`ASISTENTE_ENABLED=true` + `OPENAI_API_KEY` en Railway/BACKEND).
+Arquitectura/runbook en `docs/ASISTENTE_IA.md`; decisiones fijas en `docs/PROMPT_ASISTENTE_IA.md`.
+Falta el **piloto** (y la etapa 4 SQL RO es condicional — solo si la 3 se queda corta).
 
 **Deploy/infra (aprendido el 2026-10-01):** el auto-deploy de Railway funciona (push a `arch`
 o `master` dispara). Los servicios reales son **BACKEND** (`fb40b407`, dominio
@@ -54,11 +56,14 @@ doradas) si mini alcanza o hay que subir de modelo — es una variable, no códi
    consulta** que aparece en `AsistenteAuditoria`. Recién después, confirmar en digital-dent.
    (Nota: digital-dent ya tiene el módulo encendido y `ASISTENTE_ENABLED=true`, así que su
    asistente está vivo a nivel API; al ser solo lectura es de bajo riesgo.)
-2. **Etapa 3 — capa semántica** (`consultar_metricas`): la que lo hace "análisis completo".
-   Con el piloto se evalúa si `gpt-4o-mini` alcanza o hay que subir de modelo (una env).
-   Prompt en `docs/PROMPT_ASISTENTE_IA.md`.
+2. **Ajuste de modelo según el piloto**: si gpt-4o-mini elige mal las métricas, subir esa
+   clínica desde el super-admin (tarjeta "Asistente de IA — modelo") a gpt-4.1-mini / gpt-4o /
+   Claude. Las preguntas doradas (`test/integration/asistente-doradas.test.ts`) fijan las
+   definiciones de negocio del compilador.
 3. **ZDR/datos con OpenAI**: confirmar acuerdo de tratamiento de datos + retención con OpenAI
    antes de uso intensivo con una clínica productiva (trámite, no código).
+4. **Etapa 4 (SQL RO) — CONDICIONAL**: solo si `AsistenteAuditoria` sigue mostrando
+   `sin_herramienta` que el catálogo no cubra. Si no hay evidencia, no se hace.
 
 ## Contexto que no cambió
 Database-per-tenant (control + `clariva_t_<slug>`), Railway auto-deploy desde `arch`,

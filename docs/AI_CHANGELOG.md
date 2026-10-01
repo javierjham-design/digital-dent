@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-10-01 — Asistente de IA: etapa 3 (capa semántica) + selector de modelo por clínica
+
+Disparado por una prueba real: una pregunta ("pacientes con una sola cita en septiembre")
+que ninguna de las 9 herramientas curadas cubría (salió `sin_herramienta`). Se construyó la
+capa semántica (la que hace "análisis de verdad") y, a pedido, un selector de modelo por
+clínica en el super-admin.
+
+- **Etapa 3 — `consultar_metricas`** (`catalogo.ts` + `compilador.ts` + `herramientas/metricas.ts`):
+  catálogo de 9 métricas con definición de negocio fija + dimensiones (profesional/box/medio/
+  estado/origen/prestación/paciente/tiempo) + permiso por métrica. El modelo emite una
+  consulta estructurada validada contra el catálogo y compilada a Prisma (sin SQL libre):
+  `findMany` acotado + agregación en memoria, buckets de tiempo en hora de la clínica, y
+  `filtroValor` (HAVING) para "exactamente/al menos N". El marco deriva la identidad de las
+  columnas `paciente`; el vocabulario se filtra por permiso en el prompt de sistema.
+  `verificarCifras` ahora acepta diferencias y porcentajes entre cifras del turno.
+  **Preguntas doradas**: 18 casos contra el compilador (incluye la pregunta del usuario).
+- **Selector de modelo por clínica** (super-admin): `Clinica.asistenteProveedor/asistenteModelo`
+  en control (null = default global); `PATCH /admin/clinicas/:id/asistente` + tarjeta en
+  ClinicaDetalle; `MODELOS_ASISTENTE` en shared (gpt-4o-mini/gpt-4.1-mini/gpt-4o/haiku/sonnet/
+  opus). El proveedor se construye con el override de la clínica por turno. Permite subir de
+  modelo sin tocar código si gpt-4o-mini elige mal.
+- **Prompt**: respuesta más clara cuando no hay herramienta (ofrece lo más parecido, sin tecnicismos).
+- Verde: typecheck FE/BE, unit (16 asistente), integración (180), `test:contract` (290), build FE, lint 0.
+
 ## 2026-10-01 — Asistente de IA (etapa 2/4): pantalla de chat (frontend)
 
 Frontend del asistente sobre el backend de la etapa 1. Pantalla `/asistente` con chat,

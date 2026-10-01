@@ -113,6 +113,39 @@ escritura; verificar contra la doc de OpenAI al ajustar. Anthropic `claude-sonne
 `claude-fable-5` 10/50/1/12,5; más las claves `claude-sonnet-5`/`claude-opus-5` del diseño
 original por si esos IDs existen ("Sonnet 5 / Opus 5" ≈ estos).
 
+## Capa semántica (etapa 3)
+
+Herramienta `consultar_metricas` para preguntas que las 9 curadas no cubren, **sin SQL
+libre**. El modelo emite una consulta estructurada (métrica + dimensiones + filtros +
+período + `filtroValor`) que se valida contra un **catálogo** (`catalogo.ts`) y se compila
+(`compilador.ts`) a `findMany` acotado + agregación en memoria sobre `tenantDb`.
+
+- **Catálogo** (fuente de verdad, `catalogo.ts`): métricas con definición de negocio fija —
+  `cobros_total`/`cobros_cantidad` (PAGADO, no anulado, por fechaPago), `citas_cantidad`,
+  `citas_canceladas`, `planes_cantidad`, `tratamientos_ejecutados` (COMPLETADO),
+  `tratamientos_monto` (neto = precio×(1−desc/100)), `leads_cantidad`, `caja_ingresos`.
+  Dimensiones: profesional, box, medio de pago, estado, origen, prestación, paciente, y
+  tiempo (día/semana/mes en hora de la clínica). **Permiso por métrica** (mismas reglas).
+- **Filtros**: período obligatorio; igualdad sobre estado/origen/profesional/box; y
+  `filtroValor` (HAVING sobre el valor agregado) para "exactamente/al menos N" — p.ej.
+  *pacientes con exactamente 1 cita en septiembre* = `citas_cantidad` + dimensión `paciente`
+  + `filtroValor {op:"eq",valor:1}`.
+- El vocabulario de métricas que ve el modelo se **filtra por permiso** en el prompt de
+  sistema. Si se agrupa por `paciente`, la columna va tokenizada (el marco deriva la
+  identidad de las columnas de tipo `paciente`).
+- **Preguntas doradas** (`test/integration/asistente-doradas.test.ts`): 18 casos de valores
+  conocidos contra el compilador (sin modelo) — la red que detecta si una definición de
+  negocio cambió sin querer. Reversión: quitar `consultarMetricas` del registro (una línea).
+
+## Modelo por clínica (super-admin)
+
+El super-admin puede fijar el modelo del asistente **por clínica** (tarjeta "Asistente de IA
+— modelo" en el detalle de la clínica, visible si tiene el módulo). Se guarda en control
+(`Clinica.asistenteProveedor`/`asistenteModelo`); null = default global (env). El proveedor
+se deriva del modelo (`shared/constants/asistente-modelos.ts`). Permite subir una clínica a
+un modelo más capaz (gpt-4.1-mini, gpt-4o, Claude) si gpt-4o-mini elige mal, sin tocar código.
+El orquestador resuelve el override al crear el proveedor del turno.
+
 ## UI (etapa 2)
 
 Pantalla `/asistente` (`frontend/src/pages/Asistente.tsx`, service en
