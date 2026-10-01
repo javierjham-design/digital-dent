@@ -69,8 +69,9 @@ Las herramientas no dejan estas definiciones al prompt; están en código:
 
 ## Herramientas (etapa 1)
 
-`buscar_paciente`, `ficha_resumen`, `pacientes_sin_proxima_cita` (vinieron en el período y
-no tienen cita futura — diagnóstico sin seguimiento), `planes_sin_pago`, `planes_sin_ejecucion`,
+`buscar_paciente`, `ficha_resumen`, `pacientes_nuevos` (registrados en el período),
+`pacientes_sin_proxima_cita` (vinieron en el período y no tienen cita futura — diagnóstico
+sin seguimiento), `planes_sin_pago`, `planes_sin_ejecucion`,
 `pacientes_inactivos_con_saldo`, `produccion_por_profesional` (gestor de liquidaciones o
 el propio doctor), `cuadre_caja` (`puedeGestionarCajas`), `ocupacion_agenda`,
 `embudo_crm` (módulo `crm` + `puedeGestionarCrm`). `planes_*` e inactivos exigen
@@ -124,8 +125,10 @@ período + `filtroValor`) que se valida contra un **catálogo** (`catalogo.ts`) 
 
 - **Catálogo** (fuente de verdad, `catalogo.ts`): métricas con definición de negocio fija —
   `cobros_total`/`cobros_cantidad` (PAGADO, no anulado, por fechaPago), `citas_cantidad`,
-  `citas_canceladas`, `planes_cantidad`, `tratamientos_ejecutados` (COMPLETADO),
-  `tratamientos_monto` (neto = precio×(1−desc/100)), `leads_cantidad`, `caja_ingresos`.
+  `citas_atendidas` (ATENDIDA), `citas_canceladas`, `citas_minutos_atendidos` (suma de
+  duración de atendidas), `pacientes_nuevos` (registrados), `planes_cantidad`,
+  `tratamientos_ejecutados` (COMPLETADO), `tratamientos_monto` (neto = precio×(1−desc/100)),
+  `leads_cantidad`, `caja_ingresos`.
   Dimensiones: profesional, box, medio de pago, estado, origen, prestación, paciente, y
   tiempo (día/semana/mes en hora de la clínica). **Permiso por métrica** (mismas reglas).
 - **Filtros**: período obligatorio; igualdad sobre estado/origen/profesional/box; y

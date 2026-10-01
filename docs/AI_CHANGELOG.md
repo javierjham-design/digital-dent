@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-10-01 — Asistente de IA: cobertura de reportes (pacientes / asistencia-horas / decisiones)
+
+Revisión general para que el bot genere los archivos pedidos en tres familias (reportes de
+pacientes, asistencia de horas, info general para decisiones). Huecos tapados:
+- **Métricas nuevas** (capa semántica, exportables a Excel): `pacientes_nuevos` (registrados en
+  el período), `citas_atendidas` (ATENDIDA), `citas_minutos_atendidos` (suma de duración de
+  atendidas; ÷60 = horas) — por profesional/box/tiempo. El modelo `paciente` ahora es compilable.
+- **Herramienta curada** `pacientes_nuevos(desde,hasta)`: listado de pacientes registrados con
+  edad/sexo/fecha de registro (token rehidratado para la UI/Excel).
+- Doradas + unit actualizados; verde typecheck/unit(16)/integración(30)/contrato/lint.
+
 ## 2026-10-01 — Asistente de IA: fix estado real de cita + herramienta "sin próxima cita" + fecha
 
 Correcciones salidas del piloto real con GPT-4o-mini:
