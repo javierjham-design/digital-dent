@@ -17,6 +17,7 @@ export const adminService = {
   cambiarSlug: (id: string, slug: string) => api.patch<unknown>(`/admin/clinicas/${id}/slug`, { slug }),
   cambiarPais: (id: string, pais: string) => api.patch<unknown>(`/admin/clinicas/${id}/pais`, { pais }),
   cambiarModulos: (id: string, modulos: string[]) => api.patch<unknown>(`/admin/clinicas/${id}/modulos`, { modulos }),
+  cambiarAsistenteModelo: (id: string, modelo: string | null) => api.patch<{ asistenteProveedor: string | null; asistenteModelo: string | null }>(`/admin/clinicas/${id}/asistente`, { modelo }),
   cambiarProfesionalesExtra: (id: string, profesionalesExtra: number) => api.patch<unknown>(`/admin/clinicas/${id}/profesionales-extra`, { profesionalesExtra }),
   cambiarCobro: (id: string, input: { monedaCobro: string | null; cobroAutomatico: boolean }) => api.patch<unknown>(`/admin/clinicas/${id}/cobro`, input),
   pagosPlataforma: () => api.get<{ pagos: { id: string; clinica: string; slug: string; fechaPago: string; monto: number; moneda: string; metodoPago: string; periodoDesde: string; periodoHasta: string }[]; totales: { CLP: number; USD: number }; pasarelas: { flow: { configurada: boolean }; lemonsqueezy: { configurada: boolean } }; configPasarelas: { proveedor: string; moneda: string; configurada: boolean; variables: { nombre: string; presente: boolean; requerida: boolean }[]; nota: string }[] }>('/admin/pagos'),

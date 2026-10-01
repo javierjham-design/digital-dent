@@ -24,6 +24,7 @@ export const patchSlug = async (req: Request, res: Response) => res.json(await s
 export const postConvertir = async (req: Request, res: Response) => res.json(await svc.convertirADefinitiva(audit(req), req.params.id, req.body ?? {}))
 export const patchPais = async (req: Request, res: Response) => res.json(await svc.cambiarPais(audit(req), req.params.id, String((req.body ?? {}).pais ?? '')))
 export const patchModulos = async (req: Request, res: Response) => res.json(await svc.cambiarModulos(audit(req), req.params.id, (req.body ?? {}).modulos))
+export const patchAsistente = async (req: Request, res: Response) => res.json(await svc.cambiarAsistenteModelo(audit(req), req.params.id, (req.body ?? {}).modelo))
 export const patchProfesionalesExtra = async (req: Request, res: Response) => res.json(await svc.cambiarProfesionalesExtra(audit(req), req.params.id, (req.body ?? {}).profesionalesExtra))
 export const patchCobro = async (req: Request, res: Response) => res.json(await svc.cambiarCobro(audit(req), req.params.id, req.body ?? {}))
 export const getPagosPlataforma = async (_req: Request, res: Response) => res.json(await svc.pagosPlataforma())

@@ -32,6 +32,12 @@ model Clinica {
   pais       String   @default("CL")  // país de operación (define documento, teléfono y moneda). Solo el super-admin lo cambia.
   modulos    String   @default("crm,agendamiento_online,whatsapp") // módulos habilitados (CSV). Los asigna el super-admin.
   vertical   String   @default("dental") // rubro (dental|medico|estetica): define el área clínica con la que nace
+
+  // Asistente de IA: override del proveedor/modelo POR CLÍNICA (lo ajusta el
+  // super-admin). null = usar el default global del backend (env ASISTENTE_*).
+  // Permite subir una clínica a un modelo mejor sin tocar código ni env.
+  asistenteProveedor String? // 'openai' | 'anthropic' | null
+  asistenteModelo    String? // id de modelo (ej. gpt-4o-mini, gpt-4.1-mini, claude-sonnet-4-6) | null
   activo     Boolean  @default(true)
   trialHasta DateTime?
 

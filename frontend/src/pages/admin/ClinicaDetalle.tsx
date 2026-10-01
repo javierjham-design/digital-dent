@@ -4,6 +4,7 @@ import { adminService } from '@/services/admin.service'
 import { ApiError } from '@/services/api'
 import { PAISES_LISTA, getPais } from '@shared/constants/paises'
 import { MODULOS, MODULOS_CODES } from '@shared/constants/modulos'
+import { MODELOS_ASISTENTE } from '@shared/constants/asistente-modelos'
 import { AREAS, AREA_LABELS, MODULO_POR_AREA } from '@shared/constants/areas'
 import { EXTRAS_CATALOGO, precioExtraCatalogo } from '@shared/constants/extras'
 import { fmtCobro, type MonedaCobro } from '@shared/constants/cobro'
@@ -32,6 +33,7 @@ interface Clinica {
   plan: string; activo: boolean; trialHasta: string | null; proximoCobro: string | null
   precioAcordado: number | null; cicloFacturacion: string | null; notasInternas: string | null; createdAt: string
   esDemo: boolean; demoExpiraEn: string | null; pais: string; sizeBytes?: number | null; modulos?: string[]
+  asistenteModelo?: string | null; asistenteProveedor?: string | null
   ultimoAccesoAt?: string | null; ultimoAccesoAdminAt?: string | null
   enLinea?: number; adminEnLinea?: boolean; usuariosEnLinea?: { name: string; admin: boolean; at: string }[]
   profesionales?: { activos: number; limite: number; base: number; extra: number; planNombre: string; precioExtra: number }
@@ -86,6 +88,7 @@ export function AdminClinicaDetalle() {
         <ProfesionalesCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <CobroCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <ModulosCard c={c} onSaved={(m) => { flash(m); recargar() }} />
+        {(c.modulos ?? []).includes('asistente') && <AsistenteCard c={c} onSaved={(m) => { flash(m); recargar() }} />}
         <LinkCard c={c} onSaved={(m) => { flash(m); recargar() }} />
         <AccesoCard id={c.id} />
       </div>
@@ -555,6 +558,33 @@ function ModulosCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void 
       </div>
       {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
       <button onClick={guardar} disabled={busy || !dirty} className={`${btnCls} mt-3`}>{busy ? 'Guardando…' : 'Guardar módulos'}</button>
+    </Card>
+  )
+}
+
+// Selector de modelo del Asistente de IA para esta clínica. "Default del sistema"
+// deja el override vacío (usa la env global). El proveedor se deriva del modelo.
+function AsistenteCard({ c, onSaved }: { c: Clinica; onSaved: (m: string) => void }) {
+  const [modelo, setModelo] = useState<string>(c.asistenteModelo ?? '')
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState('')
+  const dirty = (c.asistenteModelo ?? '') !== modelo
+
+  async function guardar() {
+    if (!dirty) return
+    setBusy(true); setErr('')
+    try { await adminService.cambiarAsistenteModelo(c.id, modelo || null); onSaved('Modelo del asistente actualizado ✓') }
+    catch (e) { setErr(e instanceof ApiError ? e.message : 'Error') } finally { setBusy(false) }
+  }
+
+  return (
+    <Card title="Asistente de IA — modelo">
+      <p className="text-sm text-slate-400 mb-3">Modelo que usa el asistente para esta clínica. "Default del sistema" usa el configurado globalmente (gpt-4o-mini). Subí a un modelo más capaz si ves que elige mal las consultas; cada modelo tiene distinto costo por consulta.</p>
+      <select value={modelo} onChange={(e) => setModelo(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white">
+        <option value="">Default del sistema</option>
+        {MODELOS_ASISTENTE.map((m) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+      </select>
+      {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
+      <button onClick={guardar} disabled={busy || !dirty} className={`${btnCls} mt-3`}>{busy ? 'Guardando…' : 'Guardar modelo'}</button>
     </Card>
   )
 }

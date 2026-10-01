@@ -7,6 +7,7 @@ import { notFound } from '@/lib/errors'
 import { env } from '@/config/env'
 import { CLINIC_TZ, todayYmd } from '@/lib/tz'
 import { getClinicaModulos } from '@/middlewares/tenant'
+import { control } from '@/db/control'
 import { buildXlsx, clp, isoDate, type ExcelColumn } from '@/lib/excel'
 import type {
   EstadoAsistenteDTO, SesionAsistenteDTO, SesionAsistenteDetalleDTO, RespuestaTurnoDTO,
@@ -121,7 +122,10 @@ export async function eliminarSesion(db: TenantClient, userId: string, sesionId:
 export async function enviarMensaje(db: TenantClient, auth: JwtPayload, sesionId: string, texto: string): Promise<RespuestaTurnoDTO> {
   await sesionPropia(db, auth.sub, sesionId)
   const actor = await construirActor(db, auth)
-  const r = await ejecutarTurno({ db, actor, sesionId, texto, proveedor: crearProveedor() })
+  // Override de modelo por clínica (super-admin); si no hay, usa el default global.
+  const ov = auth.clinicaId ? await control.clinica.findUnique({ where: { id: auth.clinicaId }, select: { asistenteProveedor: true, asistenteModelo: true } }) : null
+  const proveedor = crearProveedor({ proveedor: ov?.asistenteProveedor, modelo: ov?.asistenteModelo })
+  const r = await ejecutarTurno({ db, actor, sesionId, texto, proveedor })
   return {
     mensaje: { id: r.mensajeId, rol: 'assistant', contenido: r.contenido, createdAt: r.createdAt.toISOString() },
     resultados: r.resultados.map((res) => ({ id: res.id, mensajeId: r.mensajeId, herramienta: res.herramienta, parametros: res.parametros, columnas: res.columnas as ColumnaAsistenteDTO[], filas: res.filas, totalFilas: res.totalFilas })),

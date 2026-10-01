@@ -74,6 +74,7 @@ const PRECIOS_DEFAULT: Record<string, PrecioModelo> = {
   // escritura de caché aparte (es automática), por eso cacheEscrita 0.
   'gpt-4o-mini': { entrada: 0.15, salida: 0.60, cacheLeida: 0.075, cacheEscrita: 0 },
   'gpt-4.1-mini': { entrada: 0.40, salida: 1.60, cacheLeida: 0.10, cacheEscrita: 0 },
+  'gpt-4o': { entrada: 2.50, salida: 10, cacheLeida: 1.25, cacheEscrita: 0 },
 }
 
 export function tablaPrecios(): Record<string, PrecioModelo> {
@@ -106,14 +107,14 @@ export class ProveedorAnthropic implements ProveedorModelo {
   readonly modelo: string
   private client: Anthropic
 
-  constructor() {
+  constructor(modelo?: string) {
     if (!env.asistente.anthropicApiKey) {
       // Solo se construye cuando el asistente está encendido; si falta la key, es
       // un error de configuración (no debe filtrarse al usuario: el orquestador
       // lo traduce a serviceUnavailable).
       throw new Error('ANTHROPIC_API_KEY no está configurada.')
     }
-    this.modelo = env.asistente.model
+    this.modelo = modelo || env.asistente.model
     this.client = new Anthropic({
       apiKey: env.asistente.anthropicApiKey,
       timeout: env.asistente.timeoutMs,
@@ -181,9 +182,9 @@ export class ProveedorOpenAI implements ProveedorModelo {
   readonly modelo: string
   private client: OpenAI
 
-  constructor() {
+  constructor(modelo?: string) {
     if (!env.asistente.openaiApiKey) throw new Error('OPENAI_API_KEY no está configurada.')
-    this.modelo = env.asistente.model
+    this.modelo = modelo || env.asistente.model
     this.client = new OpenAI({ apiKey: env.asistente.openaiApiKey, timeout: env.asistente.timeoutMs, maxRetries: 1 })
   }
 
@@ -252,9 +253,13 @@ export function aMensajesOpenAI(m: MensajeModelo): OpenAI.Chat.Completions.ChatC
 // (ASISTENTE_PROVEEDOR). Los tests inyectan un ProveedorFalso con setProveedorAsistente.
 let override: ProveedorModelo | null = null
 export function setProveedorAsistente(p: ProveedorModelo | null): void { override = p }
-export function crearProveedor(): ProveedorModelo {
+// opts: override por clínica (proveedor+modelo). Si vienen vacíos, usa el default
+// global (env). Proveedor y modelo siempre van juntos (los fija el super-admin).
+export function crearProveedor(opts?: { proveedor?: string | null; modelo?: string | null }): ProveedorModelo {
   if (override) return override
-  return env.asistente.proveedor === 'anthropic' ? new ProveedorAnthropic() : new ProveedorOpenAI()
+  const prov = opts?.proveedor === 'anthropic' || opts?.proveedor === 'openai' ? opts.proveedor : env.asistente.proveedor
+  const modelo = opts?.modelo || env.asistente.model
+  return prov === 'anthropic' ? new ProveedorAnthropic(modelo) : new ProveedorOpenAI(modelo)
 }
 
 // ── Implementación falsa (tests) ─────────────────────────────────────────────

@@ -12,6 +12,7 @@ import { getWebhookConfig, setWebhookConfig } from '@/services/tubot-agenda.serv
 import { invalidateClinicaCache } from '@/middlewares/tenant'
 import { esPaisValido, PAISES_LISTA } from '@shared/constants/paises'
 import { parseModulos, MODULOS, MODULOS_CODES, MODULOS_DEFAULT } from '@shared/constants/modulos'
+import { modeloAsistente } from '@shared/constants/asistente-modelos'
 import { MODULOS_AREA_CODES } from '@shared/constants/areas'
 import { VERTICAL_IDS } from '@/lib/verticales'
 import { conteoEnLinea, usuariosEnLinea, totalEnLinea } from '@/lib/presence'
@@ -176,6 +177,20 @@ export async function cambiarModulos(ctx: AuditCtx, id: string, rawModulos: unkn
   invalidateClinicaCache(id)
   await auditAdmin({ ...ctx, action: 'CAMBIAR_MODULOS', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: clinica.slug, modulos: csv } })
   return { ...clinica, modulos: parseModulos(clinica.modulos) }
+}
+
+// Modelo del Asistente de IA por clínica. `modelo` = id de MODELOS_ASISTENTE o
+// null/'' para volver al default del sistema. El proveedor se deriva del modelo.
+export async function cambiarAsistenteModelo(ctx: AuditCtx, id: string, modeloRaw: unknown) {
+  const m = typeof modeloRaw === 'string' ? modeloAsistente(modeloRaw) : undefined
+  if (modeloRaw && !m) throw badRequest('Modelo de asistente no válido.')
+  const data = m
+    ? { asistenteModelo: m.id, asistenteProveedor: m.proveedor }
+    : { asistenteModelo: null, asistenteProveedor: null }
+  const clinica = await control.clinica.update({ where: { id }, data })
+  invalidateClinicaCache(id)
+  await auditAdmin({ ...ctx, action: 'CAMBIAR_ASISTENTE_MODELO', targetType: 'CLINICA', targetId: id, details: { clinicaSlug: clinica.slug, modelo: clinica.asistenteModelo ?? 'default' } })
+  return { asistenteProveedor: clinica.asistenteProveedor, asistenteModelo: clinica.asistenteModelo }
 }
 
 export async function crearClinica(ctx: AuditCtx, body: {
