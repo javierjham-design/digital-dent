@@ -2,7 +2,9 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { seedDosClinicas } from './seed'
 import { tenantClient } from './tenant-test'
 import { compilar, type Consulta } from '@/services/asistente/compilador'
-import { CLINIC_TZ, wallClockToUtc } from '@/lib/tz'
+import { pacientesSinProximaCita } from '@/services/asistente/herramientas/pacientes'
+import type { CtxHerramienta } from '@/services/asistente/tipos'
+import { CLINIC_TZ, wallClockToUtc, todayYmd } from '@/lib/tz'
 
 // Preguntas doradas de la capa semántica (etapa 3): corren el compilador DIRECTO
 // (sin modelo) sobre datos de valores conocidos. Es la suite que detecta si una
@@ -31,11 +33,11 @@ beforeAll(async () => {
 
   // Citas — Sept: pacA 1 (realizada); pacB 3 (2 realizadas, 1 cancelada). Agosto: pacA 1 (fuera de rango).
   await db.cita.createMany({ data: [
-    { pacienteId: pacA, doctorId: docId, fecha: at('2026-09-10'), estado: 'REALIZADA' },
-    { pacienteId: pacB, doctorId: docId, fecha: at('2026-09-11'), estado: 'REALIZADA' },
-    { pacienteId: pacB, doctorId: docId, fecha: at('2026-09-12'), estado: 'REALIZADA' },
+    { pacienteId: pacA, doctorId: docId, fecha: at('2026-09-10'), estado: 'ATENDIDA' },
+    { pacienteId: pacB, doctorId: docId, fecha: at('2026-09-11'), estado: 'ATENDIDA' },
+    { pacienteId: pacB, doctorId: docId, fecha: at('2026-09-12'), estado: 'ATENDIDA' },
     { pacienteId: pacB, doctorId: docId, fecha: at('2026-09-13'), estado: 'CANCELADA' },
-    { pacienteId: pacA, doctorId: docId, fecha: at('2026-08-20'), estado: 'REALIZADA' },
+    { pacienteId: pacA, doctorId: docId, fecha: at('2026-08-20'), estado: 'ATENDIDA' },
   ] })
 
   // Cobros — 2 PAGADO en Sept (100k + 50k = 150k); 1 PENDIENTE excluido.
@@ -83,9 +85,9 @@ describe('preguntas doradas — citas', () => {
     const fs = await filas(q({ metrica: 'citas_canceladas' }))
     expect(fs[0].valor).toBe(1)
   })
-  it('por estado: REALIZADA=3, CANCELADA=1', async () => {
+  it('por estado: ATENDIDA=3, CANCELADA=1', async () => {
     const fs = await filas(q({ metrica: 'citas_cantidad', dimensiones: ['estado'] }))
-    expect(valorDe(fs, (f) => f.estado === 'REALIZADA')).toBe(3)
+    expect(valorDe(fs, (f) => f.estado === 'ATENDIDA')).toBe(3)
     expect(valorDe(fs, (f) => f.estado === 'CANCELADA')).toBe(1)
   })
   it('por profesional: el doctor tiene 4', async () => {
@@ -97,8 +99,8 @@ describe('preguntas doradas — citas', () => {
     expect(valorDe(fs, (f) => f.mes === '2026-09')).toBe(4)
     expect(valorDe(fs, (f) => f.mes === '2026-08')).toBe(1)
   })
-  it('filtro estado=REALIZADA → 3', async () => {
-    const fs = await filas(q({ metrica: 'citas_cantidad', filtros: [{ campo: 'estado', op: 'eq', valor: 'REALIZADA' }] }))
+  it('filtro estado=ATENDIDA → 3', async () => {
+    const fs = await filas(q({ metrica: 'citas_cantidad', filtros: [{ campo: 'estado', op: 'eq', valor: 'ATENDIDA' }] }))
     expect(fs[0].valor).toBe(3)
   })
   it('orden asc + límite 1 por paciente → el de menor (1)', async () => {
@@ -139,5 +141,16 @@ describe('preguntas doradas — dinero y otros', () => {
   })
   it('dimensión no permitida → error', async () => {
     await expect(filas(q({ metrica: 'leads_cantidad', dimensiones: ['profesional'] }))).rejects.toThrow()
+  })
+})
+
+describe('preguntas doradas — pacientes sin próxima cita', () => {
+  it('pacientes que vinieron en septiembre sin cita futura → pacA y pacB', async () => {
+    const ctx = { db: tenantClient(dbName), userId: 'x', role: 'admin', esPlatformAdmin: false, esAdminClinica: true, permisos: {}, modulos: ['asistente'], hoy: todayYmd(CLINIC_TZ), tz: CLINIC_TZ } as CtxHerramienta
+    const res = await pacientesSinProximaCita.ejecutar(ctx, { desde: '2026-09-01', hasta: '2026-09-30' })
+    const ids = res.filas.map((f) => f.paciente)
+    expect(res.filas).toHaveLength(2)
+    expect(ids).toContain(pacA)
+    expect(ids).toContain(pacB)
   })
 })

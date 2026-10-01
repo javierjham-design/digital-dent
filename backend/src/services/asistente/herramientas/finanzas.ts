@@ -21,7 +21,7 @@ export const pacientesInactivosConSaldo: Herramienta<{ mesesSinVenir: number; sa
     const ultimas = new Map<string, Date>()
     if (morosos.length) {
       const citas = await ctx.db.cita.findMany({
-        where: { pacienteId: { in: morosos.map((m) => m.paciente.id) }, estado: 'REALIZADA' },
+        where: { pacienteId: { in: morosos.map((m) => m.paciente.id) }, estado: 'ATENDIDA' },
         select: { pacienteId: true, fecha: true },
         orderBy: { fecha: 'desc' },
       })

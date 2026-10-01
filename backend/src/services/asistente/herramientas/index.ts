@@ -2,7 +2,7 @@
 // El orquestador filtra este registro por los permisos del usuario antes de
 // llamar al modelo, y el marco vuelve a verificar al ejecutar.
 import type { Herramienta } from '../tipos'
-import { buscarPaciente, fichaResumen } from './pacientes'
+import { buscarPaciente, fichaResumen, pacientesSinProximaCita } from './pacientes'
 import { planesSinPago, planesSinEjecucion } from './planes'
 import { pacientesInactivosConSaldo, produccionPorProfesional, cuadreCaja } from './finanzas'
 import { ocupacionAgenda } from './agenda'
@@ -12,6 +12,7 @@ import { consultarMetricas } from './metricas'
 export const REGISTRO: Herramienta[] = [
   buscarPaciente,
   fichaResumen,
+  pacientesSinProximaCita,
   planesSinPago,
   planesSinEjecucion,
   pacientesInactivosConSaldo,
