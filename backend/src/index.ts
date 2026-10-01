@@ -3,7 +3,7 @@ import { createApp } from '@/app'
 import { env } from '@/config/env'
 import { log, serializeError } from '@/lib/logger'
 import { captureError, flushSentry } from '@/lib/observability'
-import { dedupePrestacionesTodasLasClinicas, backfillFormulariosTodasLasClinicas } from '@/lib/maintenance'
+import { dedupePrestacionesTodasLasClinicas, backfillFormulariosTodasLasClinicas, reconciliarVinculosTodasLasClinicas } from '@/lib/maintenance'
 
 // Errores de proceso: antes se caían sin dejar rastro. Ahora se loguean y se
 // reportan a Sentry. Una promesa rechazada sin catch NO tumba el server (se
@@ -33,5 +33,11 @@ app.listen(env.port, () => {
     void backfillFormulariosTodasLasClinicas()
     const t = setInterval(() => void backfillFormulariosTodasLasClinicas(), 30 * 60_000)
     t.unref?.()
+    // Reconciliación del vínculo lead→paciente de leads RECIENTES (recupera atribución
+    // cuando la ficha se creó con datos distintos). Al arrancar y cada 12 h. Solo
+    // inequívocos; no toca el backlog histórico (ese va a mano con backup).
+    void reconciliarVinculosTodasLasClinicas()
+    const tr = setInterval(() => void reconciliarVinculosTodasLasClinicas(), 12 * 60 * 60_000)
+    tr.unref?.()
   }
 })

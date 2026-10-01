@@ -10,12 +10,10 @@
 // NO cambiar este script para que emita.
 import { control } from '@/db/control'
 import { tenantClient, disposeTenant } from '@/db/tenant'
-import { telKey, rutKey, vincularLeadPaciente } from '@/services/crm.service'
+import { clasificarVinculosHuerfanos, vincularLeadPaciente } from '@/services/crm.service'
 import { assertBaseActual, assertControlActual } from '@/lib/db-guard'
 
 const APPLY = process.argv.includes('--apply')
-
-function pushMap<K, V>(m: Map<K, V[]>, k: K, v: V) { const a = m.get(k) ?? []; a.push(v); m.set(k, a) }
 
 async function main() {
   await assertControlActual(control)
@@ -28,34 +26,11 @@ async function main() {
   for (const c of clinicas) {
     const db = tenantClient(c.dbName)
     await assertBaseActual(db, c.dbName)
-    const pacientes = await db.paciente.findMany({ select: { id: true, nombre: true, apellido: true, telefono: true, rut: true } })
-    const leadsSin = await db.lead.findMany({ where: { pacienteId: null }, select: { id: true, nombre: true, apellido: true, telefono: true, rut: true, estado: true } })
+    const pacientes = await db.paciente.findMany({ select: { id: true, nombre: true, apellido: true, telefono: true, email: true, rut: true } })
+    const leadsSin = await db.lead.findMany({ where: { pacienteId: null }, select: { id: true, nombre: true, apellido: true, telefono: true, email: true, rut: true, estado: true } })
 
-    // Índices de pacientes por clave de teléfono / RUT.
-    const pacPorTel = new Map<string, typeof pacientes>()
-    const pacPorRut = new Map<string, typeof pacientes>()
-    for (const p of pacientes) {
-      const tk = telKey(p.telefono); if (tk) pushMap(pacPorTel, tk, p)
-      const rk = rutKey(p.rut); if (rk) pushMap(pacPorRut, rk, p)
-    }
-    // Cuántos leads sin vincular comparten cada teléfono (riesgo de familia).
-    const leadsPorTel = new Map<string, number>()
-    for (const l of leadsSin) { const tk = telKey(l.telefono); if (tk) leadsPorTel.set(tk, (leadsPorTel.get(tk) ?? 0) + 1) }
-
-    const inequivocos: { lead: typeof leadsSin[number]; pacienteId: string; via: string }[] = []
-    const dudosos: { lead: typeof leadsSin[number]; motivo: string }[] = []
-    for (const l of leadsSin) {
-      const tk = telKey(l.telefono), rk = rutKey(l.rut)
-      const porRut = rk ? pacPorRut.get(rk) ?? [] : []
-      const porTel = tk ? pacPorTel.get(tk) ?? [] : []
-      const cand = [...new Map([...porRut, ...porTel].map((p) => [p.id, p])).values()]
-      if (cand.length === 0) continue
-      if (cand.length > 1) { dudosos.push({ lead: l, motivo: `coincide con ${cand.length} pacientes` }); continue }
-      const p = cand[0]
-      if (porRut.some((x) => x.id === p.id)) inequivocos.push({ lead: l, pacienteId: p.id, via: 'RUT' })
-      else if ((leadsPorTel.get(tk!) ?? 0) > 1) dudosos.push({ lead: l, motivo: `mismo teléfono que otros ${(leadsPorTel.get(tk!) ?? 1) - 1} lead(s) sin vincular (¿familia?)` })
-      else inequivocos.push({ lead: l, pacienteId: p.id, via: 'teléfono' })
-    }
+    // Clasificación por RUT / email / teléfono (misma lógica que el cron: crm.service).
+    const { inequivocos, dudosos } = clasificarVinculosHuerfanos(pacientes, leadsSin)
 
     // Atribución del embudo: pacientes con cobro pagado que quedan atados a un lead.
     const pagos = await db.cobro.findMany({ where: { estado: 'PAGADO', anulado: false }, select: { pacienteId: true }, distinct: ['pacienteId'] })

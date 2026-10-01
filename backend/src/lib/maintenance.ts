@@ -6,6 +6,7 @@ import { control } from '@/db/control'
 import { tenantClient, disposeTenant } from '@/db/tenant'
 import { dedupePrestaciones } from '@/services/catalogo.service'
 import { backfillFormularios } from '@/services/meta-leadads.service'
+import { clasificarVinculosHuerfanos, vincularLeadPaciente } from '@/services/crm.service'
 import { log, serializeError } from '@/lib/logger'
 
 export async function dedupePrestacionesTodasLasClinicas(): Promise<void> {
@@ -67,5 +68,40 @@ export async function backfillFormulariosTodasLasClinicas(): Promise<void> {
     }
   } catch (e) {
     log.error('mantenimiento: backfill formularios Meta (global) falló', { err: serializeError(e) })
+  }
+}
+
+// Reconciliación automática del vínculo lead→paciente para los leads RECIENTES (los que la
+// recepción pudo haber creado con datos distintos). Solo INEQUÍVOCOS (RUT/email, o teléfono
+// no compartido); los DUDOSOS quedan para el aviso de la ficha. Acotado a los últimos
+// RECONCILIAR_DIAS días a propósito: NO toca el backlog histórico profundo (ese se aplica a
+// mano con backup y revisión). vincularLeadPaciente marca CONVERTIDO sin emitir a Meta (la
+// emisión de conversiones recientes la hace el flujo del cobro). Idempotente y best-effort.
+const RECONCILIAR_DIAS = 45
+export async function reconciliarVinculosTodasLasClinicas(): Promise<void> {
+  try {
+    const clinicas = await control.clinica.findMany({ where: { activo: true }, select: { slug: true, dbName: true } })
+    const desde = new Date(Date.now() - RECONCILIAR_DIAS * 86400_000)
+    for (const c of clinicas) {
+      try {
+        const db = tenantClient(c.dbName)
+        const leadsSin = await db.lead.findMany({ where: { pacienteId: null, createdAt: { gte: desde } }, select: { id: true, telefono: true, email: true, rut: true } })
+        if (leadsSin.length === 0) continue
+        const pacientes = await db.paciente.findMany({ select: { id: true, telefono: true, email: true, rut: true } })
+        const { inequivocos } = clasificarVinculosHuerfanos(pacientes, leadsSin)
+        let vinculados = 0, convertidos = 0
+        for (const x of inequivocos) {
+          const r = await vincularLeadPaciente(db, x.lead.id, x.pacienteId, { autorNombre: 'Sistema (reconciliación automática)', motivo: `reconciliación automática por ${x.via}` })
+          vinculados++; if (r.convertido) convertidos++
+        }
+        if (vinculados > 0) log.info('mantenimiento: reconciliación lead→paciente', { clinica: c.slug, vinculados, convertidos })
+      } catch (e) {
+        log.error('mantenimiento: reconciliación lead→paciente falló', { clinica: c.slug, err: serializeError(e) })
+      } finally {
+        await disposeTenant(c.dbName)
+      }
+    }
+  } catch (e) {
+    log.error('mantenimiento: reconciliación lead→paciente (global) falló', { err: serializeError(e) })
   }
 }
