@@ -5,6 +5,31 @@
 
 ---
 
+## 2026-10-01 — Atribución CRM: email como 3ª llave + match al cobrar + reconciliación (aplicado en prod)
+
+Pacientes de campaña Meta que pagaban no quedaban marcados CONVERTIDO cuando la ficha se
+creaba con teléfono en otro formato o sin RUT (el match lead→paciente fallaba). Fix de raíz
++ recupero histórico.
+
+- **Causa real medida** (diagnóstico `diag-pagos-sin-lead.ts`, solo lectura): de 93
+  pagados-sin-lead en digital-dent, **89 son walk-ins reales** (no existe ningún lead con su
+  teléfono ni correo). Solo ~3-5 eran fichas duplicadas de un lead ya vinculado a otra ficha.
+  O sea: no era un bug de match masivo; el fix es mayormente preventivo + higiene.
+- **Fix de raíz** (`crm.service.ts`): `mismaIdentidad`/`leadsSinVincularPorIdentidad` ahora
+  incluyen **EMAIL** además de teléfono (normalizado robusto) y RUT; `autolinkLeadAlCrearPaciente`
+  se llama al crear ficha; `marcarConvertidoPorCobro` intenta vincular el lead al cobrar si
+  faltaba (1 match → vincula + CONVERTIDO emitiendo a Meta si es reciente; ambiguo → NO adivina,
+  queda aviso en la ficha). Clasificador puro `clasificarVinculosHuerfanos` (RUT/email = inequívoco,
+  teléfono compartido = dudoso), compartido por script y cron.
+- **Cron** `reconciliarVinculosTodasLasClinicas` (`maintenance.ts` + `index.ts`): al arrancar y
+  cada 12 h, enlaza inequívocos de leads RECIENTES (RECONCILIAR_DIAS=45), sin emitir a Meta.
+- **Aplicado en prod (digital-dent), con backup fresco OK previo** (regla 10):
+  `backfill-conversiones --apply` → **5 leads CONVERTIDO**; `reconciliar-vinculos --apply` →
+  **18 vínculos** inequívocos (el cron ya había enlazado el resto de los recientes desde el deploy),
+  **21 dudosos** quedan a resolver a mano desde el aviso de la ficha. Ningún script emite a Meta
+  (conversiones viejas: el clamp de 7 días las rechazaría). Atribución 23→23 (los 18 no tenían cobro).
+- Tests: unit `crm-match` (8) + integración `crm-vinculo-email` (4), verdes.
+
 ## 2026-10-01 — Asistente de IA: cobertura de reportes (pacientes / asistencia-horas / decisiones)
 
 Revisión general para que el bot genere los archivos pedidos en tres familias (reportes de

@@ -3,7 +3,27 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: Asistente de IA — etapas 1, 2 y 3 DESPLEGADAS + selector de modelo
+## Último trabajo: Atribución CRM — email como 3ª llave + reconciliación APLICADA en prod
+
+**Desplegado y aplicado (2026-10-01).** Problema: pacientes de campaña Meta que pagaban no
+quedaban CONVERTIDO cuando la ficha se creaba con teléfono en otro formato o sin RUT. 
+
+- **Diagnóstico (solo lectura, `diag-pagos-sin-lead.ts`):** de 93 pagados-sin-lead en
+  digital-dent, **89 son walk-ins reales** (no existe lead con su tel/correo). No era un bug
+  masivo; el fix es preventivo + higiene.
+- **Fix de raíz (`crm.service.ts`):** email como 3ª llave (+ tel normalizado robusto + RUT) en
+  `mismaIdentidad`/`leadsSinVincularPorIdentidad`; `autolinkLeadAlCrearPaciente` al crear ficha;
+  `marcarConvertidoPorCobro` vincula al cobrar si hay 1 match (ambiguo → NO adivina, aviso en
+  ficha). Clasificador puro `clasificarVinculosHuerfanos` (RUT/email inequívoco, tel compartido
+  dudoso). Cron `reconciliarVinculosTodasLasClinicas` (12 h, inequívocos recientes, no emite).
+- **Aplicado con backup fresco OK (regla 10):** `backfill-conversiones --apply` = **5
+  CONVERTIDO**; `reconciliar-vinculos --apply` = **18 vínculos**, **21 dudosos a resolver a
+  mano** desde el aviso de la ficha. Ningún script emite a Meta (clamp 7 días). Atribución 23→23.
+- **Pendiente opcional:** resolver los 21 dudosos a mano; de-dup de ~3-5 fichas duplicadas;
+  Etapa 3 del prompt (marcar asistencia para show-rate / costo-por-atendido).
+- Tests: `crm-match` (8 unit) + `crm-vinculo-email` (4 integración), verdes.
+
+## Trabajo previo: Asistente de IA — etapas 1, 2 y 3 DESPLEGADAS + selector de modelo
 
 **Backend + frontend + capa semántica en producción, con GPT-4o-mini.** Responde preguntas
 en lenguaje natural sobre los datos de una clínica (solo lectura), con seudonimización,
