@@ -7,6 +7,8 @@ import { tenantClient, disposeTenant } from '@/db/tenant'
 import { dedupePrestaciones } from '@/services/catalogo.service'
 import { backfillFormularios } from '@/services/meta-leadads.service'
 import { clasificarVinculosHuerfanos, vincularLeadPaciente } from '@/services/crm.service'
+import { cambiarEstadoCita } from '@/services/citas.service'
+import { runWithRequestContext } from '@/lib/request-context'
 import { log, serializeError } from '@/lib/logger'
 
 export async function dedupePrestacionesTodasLasClinicas(): Promise<void> {
@@ -103,5 +105,55 @@ export async function reconciliarVinculosTodasLasClinicas(): Promise<void> {
     }
   } catch (e) {
     log.error('mantenimiento: reconciliación lead→paciente (global) falló', { err: serializeError(e) })
+  }
+}
+
+// Cierre automático de no-shows + fin de recaptura. Por clínica:
+//  1) Cita cuya hora pasó hace más de N horas (config noShowAutoHoras, default 3) y sigue sin
+//     marcar (estado pre-asistencia) → NO_ASISTIO. NUNCA se asume ATENDIÓ. cambiarEstadoCita
+//     propaga el no-show al lead (lead.asistio=false + recapturaNoShowAt) y dispara el webhook
+//     appointment.attendance a TuBot (recaptura inmediata) con el slug de la clínica en contexto.
+//  2) Lead en no-show con recaptura disparada hace más de X días (config recapturaDiasPerdido,
+//     default 5) y sin re-agendar (sigue asistio=false) → PERDIDO (no queda en el aire).
+// Acotado a una ventana reciente (no toca citas viejas). Idempotente y best-effort. Cada 30 min.
+const NOSHOW_HORAS_DEFAULT = 3
+const RECAPTURA_DIAS_PERDIDO_DEFAULT = 5
+const NOSHOW_VENTANA_DIAS = 7 // no marca no-show citas más viejas que esto (evita tocar backlog)
+const ESTADOS_PRE_ASISTENCIA_JOB = ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO', 'EN_ESPERA'] // EN_ATENCION ya está en el sillón
+const clampHoras = (n: unknown) => { const v = Math.round(Number(n)); return Number.isFinite(v) ? Math.min(72, Math.max(1, v)) : NOSHOW_HORAS_DEFAULT }
+const clampDiasPerdido = (n: unknown) => { const v = Math.round(Number(n)); return Number.isFinite(v) ? Math.min(60, Math.max(1, v)) : RECAPTURA_DIAS_PERDIDO_DEFAULT }
+
+export async function cerrarNoShowsTodasLasClinicas(): Promise<void> {
+  try {
+    const clinicas = await control.clinica.findMany({ where: { activo: true }, select: { slug: true, dbName: true } })
+    const ahora = Date.now()
+    for (const c of clinicas) {
+      try {
+        await runWithRequestContext({ requestId: `cron-noshow-${c.slug}`, slug: c.slug }, async () => {
+          const db = tenantClient(c.dbName)
+          const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { noShowAutoHoras: true, recapturaDiasPerdido: true } })
+          const corte = new Date(ahora - clampHoras(cfg?.noShowAutoHoras ?? NOSHOW_HORAS_DEFAULT) * 3600_000)
+          const piso = new Date(ahora - NOSHOW_VENTANA_DIAS * 86400_000)
+          const vencidas = await db.cita.findMany({ where: { estado: { in: ESTADOS_PRE_ASISTENCIA_JOB }, fecha: { lt: corte, gte: piso } }, select: { id: true } })
+          let noShows = 0
+          for (const cita of vencidas) {
+            await cambiarEstadoCita(db, cita.id, 'NO_ASISTIO', 'Sistema (no-show automático)')
+            noShows++
+          }
+          const corteP = new Date(ahora - clampDiasPerdido(cfg?.recapturaDiasPerdido ?? RECAPTURA_DIAS_PERDIDO_DEFAULT) * 86400_000)
+          const perdidos = await db.lead.updateMany({
+            where: { asistio: false, recapturaNoShowAt: { not: null, lt: corteP }, estado: { notIn: ['CONVERTIDO', 'PERDIDO'] } },
+            data: { estado: 'PERDIDO', ultimaGestionAt: new Date() },
+          })
+          if (noShows > 0 || perdidos.count > 0) log.info('mantenimiento: no-shows automáticos', { clinica: c.slug, noShows, perdidos: perdidos.count })
+        })
+      } catch (e) {
+        log.error('mantenimiento: cierre de no-shows falló', { clinica: c.slug, err: serializeError(e) })
+      } finally {
+        await disposeTenant(c.dbName)
+      }
+    }
+  } catch (e) {
+    log.error('mantenimiento: cierre de no-shows (global) falló', { err: serializeError(e) })
   }
 }

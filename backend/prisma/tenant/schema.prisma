@@ -98,6 +98,8 @@ model Configuracion {
   crmToken            String?
   crmDiasSinGestion   Int       @default(4) // umbral de días para alertar leads sin gestionar
   crmCampanas         String? // JSON { [claveCampaña]: "Nombre visible" } — renombres de campaña (para no mostrar la URL)
+  noShowAutoHoras     Int?      // horas tras la hora de la cita para marcarla NO_ASISTIO sola (null = default en código, 3h)
+  recapturaDiasPerdido Int?     // días sin re-agendar tras una recaptura de no-show antes de pasar el lead a PERDIDO (null = default 5)
   pais                String    @default("CL") // país de operación (documento/teléfono/moneda); lo fija el super-admin
 
   // Cobro online a PACIENTES vía Flow (el dinero cae en la cuenta de la clínica,
@@ -1013,7 +1015,8 @@ model Lead {
   ultimaVisita        DateTime?
   fechaAgenda         DateTime? // fecha/hora de la cita agendada
   agendaFuente        String? // fuente del agendamiento (link, recepción, etc.)
-  asistio             Boolean? // asistió a la cita (null = desconocido)
+  asistio             Boolean? // asistió a la cita (null = desconocido/pendiente · true = atendido · false = no-show)
+  recapturaNoShowAt   DateTime? // cuándo se disparó la recaptura del no-show (idempotencia: null = pendiente de recapturar)
   pacienteId          String? // si se convierte en paciente
   citaId              String? // si agenda una cita
   responsableId       String? // usuario a cargo del seguimiento

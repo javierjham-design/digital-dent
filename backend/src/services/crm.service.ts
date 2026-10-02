@@ -445,6 +445,64 @@ export async function pagosDePaciente(db: TenantClient, pacienteId: string) {
   }
 }
 
+// ── Asistencia por campaña (no-show / show-rate) ────────────────────────────────
+// Sobre los leads que AGENDARON una cita (citaId != null), agrupados por campaña: cuántos
+// asistieron (lead.asistio=true), no asistieron (false) o están pendientes de marcar (null),
+// con tasa de asistencia y de no-show sobre los RESUELTOS (asistió + no asistió). El rango
+// acota por fecha de ingreso del lead (createdAt). Read-only; lo usa el MCP.
+export async function asistenciaPorCampana(db: TenantClient, f?: { desde?: string; hasta?: string }) {
+  const where: Record<string, unknown> = { citaId: { not: null } }
+  if (f?.desde || f?.hasta) where.createdAt = rangoFechasUtc(f?.desde, f?.hasta)
+  const [leads, map] = await Promise.all([
+    db.lead.findMany({ where, select: { asistio: true, campana: true, utmCampaign: true, landing: true } }),
+    getCampanasMap(db),
+  ])
+  interface Agg { key: string; label: string; agendados: number; asistidos: number; no_asistio: number; pendientes: number }
+  const porCampana = new Map<string, Agg>()
+  const get = (key: string): Agg => { let a = porCampana.get(key); if (!a) { a = { key, label: etiquetaCampana(key, map), agendados: 0, asistidos: 0, no_asistio: 0, pendientes: 0 }; porCampana.set(key, a) } return a }
+  for (const l of leads) {
+    const a = get(campanaKeyDe(l))
+    a.agendados++
+    if (l.asistio === true) a.asistidos++
+    else if (l.asistio === false) a.no_asistio++
+    else a.pendientes++
+  }
+  const tasa = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : 0)
+  const campanas = [...porCampana.values()]
+    .map((a) => { const resueltos = a.asistidos + a.no_asistio; return { ...a, tasa_asistencia: tasa(a.asistidos, resueltos), tasa_noshow: tasa(a.no_asistio, resueltos) } })
+    .sort((a, b) => b.agendados - a.agendados)
+  const t = campanas.reduce((s, c) => ({ agendados: s.agendados + c.agendados, asistidos: s.asistidos + c.asistidos, no_asistio: s.no_asistio + c.no_asistio, pendientes: s.pendientes + c.pendientes }), { agendados: 0, asistidos: 0, no_asistio: 0, pendientes: 0 })
+  const resTot = t.asistidos + t.no_asistio
+  return { desde: f?.desde ?? null, hasta: f?.hasta ?? null, totales: { ...t, tasa_asistencia: tasa(t.asistidos, resTot), tasa_noshow: tasa(t.no_asistio, resTot) }, campanas }
+}
+
+// Lista de no-shows recientes pendientes de recaptura (para que TuBot los reenganche). Un
+// no-show = lead con asistio=false. `recaptura_enviada` indica si Cláriva ya disparó la
+// recaptura (recapturaNoShowAt sellado al marcar NO_ASISTIO). Sin rango: últimos 30 días por
+// fecha de la cita. Read-only; TuBot mantiene su propio estado de envío usando `recapturaAt`.
+export async function listarNoShowsRecaptura(db: TenantClient, f?: { desde?: string; hasta?: string }) {
+  const where: Record<string, unknown> = { asistio: false }
+  where.fechaAgenda = (f?.desde || f?.hasta) ? rangoFechasUtc(f?.desde, f?.hasta) : { gte: new Date(Date.now() - 30 * 86400_000) }
+  const [leads, map] = await Promise.all([
+    db.lead.findMany({
+      where, orderBy: { fechaAgenda: 'desc' }, take: 500,
+      select: { id: true, nombre: true, apellido: true, telefono: true, campana: true, utmCampaign: true, landing: true, fechaAgenda: true, citaId: true, pacienteId: true, estado: true, recapturaNoShowAt: true },
+    }),
+    getCampanasMap(db),
+  ])
+  return {
+    noShows: leads.map((l) => ({
+      leadId: l.id, pacienteId: l.pacienteId, citaId: l.citaId,
+      nombre: `${l.nombre} ${l.apellido ?? ''}`.trim() || l.id.slice(-6),
+      telefono: l.telefono, estado: l.estado,
+      campanaLabel: etiquetaCampana(campanaKeyDe(l), map),
+      fechaCita: l.fechaAgenda ? l.fechaAgenda.toISOString() : null,
+      recaptura_enviada: l.recapturaNoShowAt != null,
+      recapturaAt: l.recapturaNoShowAt ? l.recapturaNoShowAt.toISOString() : null,
+    })),
+  }
+}
+
 // `rango` (opcional, aditivo) acota el embudo por fecha de ingreso del lead
 // (createdAt). Sin rango, el comportamiento es el histórico (todos los leads):
 // el endpoint /crm/resumen sigue igual; el rango lo usa la herramienta embudo_crm.

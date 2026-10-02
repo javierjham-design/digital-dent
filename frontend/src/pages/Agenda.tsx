@@ -302,6 +302,16 @@ export function Agenda() {
       .sort((a, b) => +new Date(a.inicio) - +new Date(b.inicio))
   }, [citas, doctorId, statusFilter, currentDate])
 
+  // Pendientes de marcar asistencia: citas cuya hora YA pasó y siguen en un estado
+  // pre-asistencia (nadie marcó Atendida / No asistió). Para que recepción no las deje
+  // en el aire (si no, el job automático las cierra como No asistió tras unas horas).
+  const pendientesMarcar = useMemo(() => {
+    const ahora = Date.now()
+    const PRE = new Set(['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO', 'EN_ESPERA', 'EN_ATENCION'])
+    return citas.filter((c) => PRE.has(c.estado) && +new Date(c.inicio) < ahora && (doctorId ? c.doctorId === doctorId : true))
+      .sort((a, b) => +new Date(a.inicio) - +new Date(b.inicio))
+  }, [citas, doctorId])
+
   // Para la vista Global mostramos TODOS los profesionales (ignora el filtro de
   // profesional del sidebar), sólo respetando el filtro de estados y el día.
   const citasGlobal = useMemo(() => {
@@ -468,6 +478,23 @@ export function Agenda() {
 
         {aviso && (
           <div className={`mb-3 text-sm px-3 py-2 rounded-lg ${aviso.ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'}`}>{aviso.t}</div>
+        )}
+
+        {pendientesMarcar.length > 0 && (
+          <div className="mb-3 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200">
+            <p className="text-sm font-semibold text-amber-800 mb-2">⏰ {pendientesMarcar.length} cita{pendientesMarcar.length > 1 ? 's' : ''} pendiente{pendientesMarcar.length > 1 ? 's' : ''} de marcar asistencia</p>
+            <ul className="space-y-1.5 max-h-48 overflow-y-auto">
+              {pendientesMarcar.slice(0, 20).map((c) => (
+                <li key={c.id} className="flex items-center gap-2 text-sm">
+                  <span className="text-slate-400 font-mono shrink-0">{new Date(c.inicio).toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' })} {hora(c.inicio)}</span>
+                  <button onClick={() => setSelected(c)} className="truncate text-left text-slate-700 hover:underline flex-1">{c.pacienteNombre}</button>
+                  <button onClick={() => cambiarEstado(c.id, 'ATENDIDA')} className="shrink-0 px-2 py-1 rounded-lg text-xs font-semibold text-white bg-emerald-500 hover:bg-emerald-600">Asistió</button>
+                  <button onClick={() => cambiarEstado(c.id, 'NO_ASISTIO')} className="shrink-0 px-2 py-1 rounded-lg text-xs font-semibold text-white bg-violet-500 hover:bg-violet-600">No asistió</button>
+                </li>
+              ))}
+            </ul>
+            {pendientesMarcar.length > 20 && <p className="text-[11px] text-amber-700 mt-1.5">…y {pendientesMarcar.length - 20} más (ábrelas desde la agenda).</p>}
+          </div>
         )}
 
         {vista !== 'diaria' && soloSobrecupos && (

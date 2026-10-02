@@ -5,6 +5,42 @@
 
 ---
 
+## 2026-10-02 — Asistencia / no-show: marcado + métrica por campaña (MCP) + recaptura automática
+
+Cierra el eslabón de la ASISTENCIA (antes nunca se medía el no-show). **Cambio de schema tenant
+ADITIVO** (corré `tenant:initsql` ✓ + se aplica en el prestart de cada deploy vía `migrate:tenants`):
+- `Lead.recapturaNoShowAt DateTime?` (idempotencia de recaptura; `Lead.asistio Boolean?` ya existía).
+- `Configuracion.noShowAutoHoras Int?` (default 3) y `recapturaDiasPerdido Int?` (default 5).
+
+**Parte A — marcar asistencia:**
+- La asistencia por cita SIGUE siendo `cita.estado` (ATENDIDA / NO_ASISTIO), el motor existente;
+  NO se duplicó con un campo nuevo. Al marcar ATENDIDA/NO_ASISTIO (manual o automático),
+  `propagarAsistenciaLead` (`citas.service.ts`) setea `lead.asistio` (true/false) del lead
+  vinculado (por citaId, si no por paciente) para el embudo y la atribución.
+- `cambiarEstadoCita` y `marcarAsistenciaPorActividad` propagan. Re-agenda (`reengancharLeadReagenda`,
+  llamado en `crearCita`): un no-show que vuelve a agendar regresa a AGENDADO y limpia asistio/recaptura.
+- UI `Agenda.tsx`: aviso "⏰ N citas pendientes de marcar asistencia" (citas cuya hora pasó y siguen
+  sin marcar) con botones rápidos **Asistió / No asistió** por cita.
+- No-show automático (`cerrarNoShowsTodasLasClinicas` en `maintenance.ts`, al arrancar + cada 30 min):
+  cita cuya hora pasó hace > N h (config) y sin marcar → NO_ASISTIO. **Nunca asume ATENDIÓ.** Ventana
+  de 7 días (no toca backlog viejo). Corre dentro de `runWithRequestContext` para que el webhook salga
+  con el slug correcto.
+
+**Parte B — métrica por campaña (MCP):**
+- `GET /ext/asistencia-por-campana?desde=&hasta=` → por campaña: agendados, asistidos, no_asistio,
+  pendientes, tasa_asistencia, tasa_noshow (sobre resueltos). Tool MCP `asistencia_por_campana`.
+
+**Parte C — recaptura automática (el gancho):**
+- Push INMEDIATO: al marcar NO_ASISTIO, `cambiarEstadoCita` ya emite el webhook `appointment.attendance`
+  (`status:'no_show'`, `attended:false`) a TuBot (contrato en `docs/TUBOT_AGENDA.md`) — reutilizado, no
+  se inventó evento nuevo. `propagarAsistenciaLead` sella `recapturaNoShowAt` UNA vez (idempotencia).
+- Pull: `GET /ext/no-shows?desde=&hasta=` → lista de no-shows recientes (nombre, teléfono, campaña,
+  fecha de la cita, leadId, `recaptura_enviada`). Tool MCP `no_shows`. Sin rango, últimos 30 días.
+- Fin de ciclo: no-show con recaptura disparada hace > X días (config) y sin re-agendar → PERDIDO
+  (en el mismo job). Si re-agenda → vuelve a AGENDADO (reenganche).
+
+Verde: typecheck (back+front) · unit (158) · integración (197, +4 `crm-asistencia`) · contrato (294) · lint 0.
+
 ## 2026-10-01 — Asistencia inferida por pago (show-rate / costo por paciente atendido)
 
 Parte C del ROI: la asistencia (estado de cita `ATENDIDA`) casi nunca se marcaba a mano, así

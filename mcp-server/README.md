@@ -17,6 +17,8 @@ leads del CRM y las estadísticas de tu clínica en Cláriva.
 | `estadisticas_plataforma` | Pacientes, citas (hoy / próximos 7 días) y leads. |
 | `ingresos_por_campana` | ROI por campaña: nº leads, nº convertidos e **ingreso real cobrado** (cobros PAGADOS) atribuido a cada campaña, con detalle por paciente (total cobrado, valor del plan, fecha del primer cobro). Filtros `desde`/`hasta`. |
 | `pagos_paciente` | Pagos y plan de un paciente por id: nº de cobros, total cobrado, valor del plan y fecha del primer cobro (enriquece `ver_lead`). |
+| `asistencia_por_campana` | No-show / show-rate por campaña: agendados, asistidos, no_asistió, pendientes + `tasa_asistencia` / `tasa_noshow`. Filtros `desde`/`hasta`. |
+| `no_shows` | Lista de no-shows recientes para **recaptura** (nombre, teléfono, campaña, fecha de la cita, leadId, flag `recaptura_enviada`). Sin rango, últimos 30 días. |
 
 ## Requisitos
 

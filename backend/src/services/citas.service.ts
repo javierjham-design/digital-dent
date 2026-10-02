@@ -134,6 +134,8 @@ export async function crearCita(db: TenantClient, userName: string, input: Crear
   })
   void pushCita(db, cita.id).catch(swallowGoogle('pushCita'))
   void emitirEventoCita(db, 'appointment.created', cita.id)
+  // Re-agenda: si el paciente venía de un no-show, su lead vuelve a AGENDADO (limpia recaptura).
+  void reengancharLeadReagenda(db, input.pacienteId, cita.id, inicio)
   // Confirmación de hora por correo con archivo de calendario (best-effort; sólo si
   // el paciente tiene email y quien agenda no destildó "enviar cita al correo").
   if (input.enviarCorreo !== false) {
@@ -278,6 +280,10 @@ export async function cambiarEstadoCita(db: TenantClient, id: string, estado: st
     : (estado === 'ATENDIDA' || estado === 'NO_ASISTIO') ? 'appointment.attendance'
     : 'appointment.updated'
   void emitirEventoCita(db, evento, cita.id)
+  // Asistencia → embudo: propaga al lead vinculado (lead.asistio) y dispara recaptura si no-show.
+  if (estado === 'ATENDIDA' || estado === 'NO_ASISTIO') {
+    void propagarAsistenciaLead(db, { id: cita.id, pacienteId: cita.pacienteId }, estado === 'ATENDIDA')
+  }
   return toDTO(cita)
 }
 
@@ -303,9 +309,50 @@ export async function marcarAsistenciaPorActividad(db: TenantClient, pacienteId:
       where: { id: cita.id },
       data: { estado: 'ATENDIDA', logs: { create: { tipo: 'ESTADO', detalle: `Asistencia inferida automáticamente (${motivo})`, userName: 'Sistema' } } },
     })
+    await propagarAsistenciaLead(db, { id: cita.id, pacienteId }, true)
     return true
   } catch (e) {
     log.error('citas: marcarAsistenciaPorActividad falló', { pacienteId, err: serializeError(e) })
     return false
+  }
+}
+
+// Lead vinculado a una cita: preferente por citaId; si no, el lead más reciente del mismo
+// paciente que no esté cerrado. Para propagar asistencia/no-show al embudo y la atribución.
+async function leadDeCita(db: TenantClient, citaId: string, pacienteId: string) {
+  const porCita = await db.lead.findFirst({ where: { citaId }, select: { id: true, recapturaNoShowAt: true } })
+  if (porCita) return porCita
+  return db.lead.findFirst({
+    where: { pacienteId, estado: { notIn: ['PERDIDO', 'CONVERTIDO'] } },
+    orderBy: { ultimoIngresoAt: 'desc' }, select: { id: true, recapturaNoShowAt: true },
+  })
+}
+
+// Propaga la asistencia de una cita al lead vinculado (campo lead.asistio, para el embudo y la
+// métrica por campaña). En un no-show marca `recapturaNoShowAt` UNA sola vez (idempotencia: el
+// disparo de recaptura no se repite). Best-effort: nunca rompe la operación que la invoca.
+export async function propagarAsistenciaLead(db: TenantClient, cita: { id: string; pacienteId: string }, asistio: boolean): Promise<void> {
+  try {
+    const lead = await leadDeCita(db, cita.id, cita.pacienteId)
+    if (!lead) return
+    const data: Record<string, unknown> = { asistio }
+    if (!asistio && !lead.recapturaNoShowAt) data.recapturaNoShowAt = new Date() // no-show: sella el disparo de recaptura
+    if (asistio && lead.recapturaNoShowAt) data.recapturaNoShowAt = null // reclasificado a asistió: limpia la marca
+    await db.lead.update({ where: { id: lead.id }, data })
+  } catch (e) {
+    log.error('citas: propagar asistencia al lead falló', { citaId: cita.id, err: serializeError(e) })
+  }
+}
+
+// Re-agenda (C7): si el paciente tenía un lead en no-show (asistio=false) y vuelve a agendar, el
+// lead regresa a AGENDADO con la nueva cita y se limpia el no-show/recaptura (no queda en el aire
+// ni se re-cuenta como no-show). Best-effort.
+export async function reengancharLeadReagenda(db: TenantClient, pacienteId: string, citaId: string, fecha: Date): Promise<void> {
+  try {
+    const lead = await db.lead.findFirst({ where: { pacienteId, asistio: false, estado: { not: 'CONVERTIDO' } }, orderBy: { ultimoIngresoAt: 'desc' }, select: { id: true } })
+    if (!lead) return
+    await db.lead.update({ where: { id: lead.id }, data: { estado: 'AGENDADO', asistio: null, recapturaNoShowAt: null, citaId, fechaAgenda: fecha, ultimaGestionAt: new Date() } })
+  } catch (e) {
+    log.error('citas: reenganche de lead al re-agendar falló', { pacienteId, err: serializeError(e) })
   }
 }

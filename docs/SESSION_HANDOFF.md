@@ -3,7 +3,24 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: ROI por campaña en el MCP + autolink desde agenda-online
+## Último trabajo: Asistencia / no-show — marcado + métrica por campaña + recaptura (MCP)
+
+**Desplegado (2026-10-02).** Cierra el eslabón de la asistencia (antes el no-show no se medía).
+
+- **Schema tenant ADITIVO** (se aplica en el prestart de cada deploy): `Lead.recapturaNoShowAt`,
+  `Configuracion.noShowAutoHoras` (def 3) y `recapturaDiasPerdido` (def 5). `Lead.asistio` ya existía.
+- **Marcar (A):** asistencia = `cita.estado` (ATENDIDA/NO_ASISTIO), motor existente; al marcar se propaga
+  a `lead.asistio` (`propagarAsistenciaLead`). Job `cerrarNoShowsTodasLasClinicas` (cada 30 min): cita
+  vencida +N h sin marcar → NO_ASISTIO (nunca asume asistió). UI Agenda: aviso de pendientes + botones
+  rápidos Asistió/No asistió. Re-agenda → AGENDADO (`reengancharLeadReagenda` en `crearCita`).
+- **Métrica (B):** `GET /ext/asistencia-por-campana` + tool MCP `asistencia_por_campana`.
+- **Recaptura (C):** push inmediato = webhook `appointment.attendance` (no_show) que YA emitía
+  `cambiarEstadoCita` (contrato en docs/TUBOT_AGENDA.md); idempotencia con `recapturaNoShowAt`. Pull:
+  `GET /ext/no-shows` + tool MCP `no_shows`. No-show sin re-agendar > X días → PERDIDO (mismo job).
+- **Acción del usuario:** reiniciar el cliente MCP para ver `asistencia_por_campana` y `no_shows`.
+- Verde: typecheck (back+front) · unit 158 · integración 197 · contrato 294 · lint 0.
+
+## Trabajo previo: ROI por campaña en el MCP + autolink desde agenda-online
 
 **Desplegado (2026-10-01).** Cierre del ciclo de ROI por campaña.
 

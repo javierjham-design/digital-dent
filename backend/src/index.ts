@@ -3,7 +3,7 @@ import { createApp } from '@/app'
 import { env } from '@/config/env'
 import { log, serializeError } from '@/lib/logger'
 import { captureError, flushSentry } from '@/lib/observability'
-import { dedupePrestacionesTodasLasClinicas, backfillFormulariosTodasLasClinicas, reconciliarVinculosTodasLasClinicas } from '@/lib/maintenance'
+import { dedupePrestacionesTodasLasClinicas, backfillFormulariosTodasLasClinicas, reconciliarVinculosTodasLasClinicas, cerrarNoShowsTodasLasClinicas } from '@/lib/maintenance'
 
 // Errores de proceso: antes se caían sin dejar rastro. Ahora se loguean y se
 // reportan a Sentry. Una promesa rechazada sin catch NO tumba el server (se
@@ -39,5 +39,10 @@ app.listen(env.port, () => {
     void reconciliarVinculosTodasLasClinicas()
     const tr = setInterval(() => void reconciliarVinculosTodasLasClinicas(), 12 * 60 * 60_000)
     tr.unref?.()
+    // Cierre de no-shows: marca NO_ASISTIO las citas vencidas sin asistencia (dispara la
+    // recaptura a TuBot) y pasa a PERDIDO los no-shows sin respuesta. Al arrancar y cada 30 min.
+    void cerrarNoShowsTodasLasClinicas()
+    const tn = setInterval(() => void cerrarNoShowsTodasLasClinicas(), 30 * 60_000)
+    tn.unref?.()
   }
 })

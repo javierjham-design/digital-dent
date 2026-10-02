@@ -88,6 +88,26 @@ server.tool(
   async ({ pacienteId }) => asText(await api(`/ext/pagos-paciente/${encodeURIComponent(pacienteId)}`)),
 )
 
+server.tool(
+  'asistencia_por_campana',
+  'Asistencia / no-show por campaña: sobre los leads que agendaron una cita, cuántos asistieron, no asistieron o están pendientes de marcar, con tasa_asistencia y tasa_noshow (sobre los resueltos). El rango acota por fecha de ingreso del lead. Read-only.',
+  {
+    desde: z.string().optional().describe('fecha inicio YYYY-MM-DD'),
+    hasta: z.string().optional().describe('fecha fin YYYY-MM-DD'),
+  },
+  async (args) => asText(await api('/ext/asistencia-por-campana', args)),
+)
+
+server.tool(
+  'no_shows',
+  'Lista de no-shows recientes para recaptura (pacientes que agendaron y NO asistieron): nombre, teléfono, campaña, fecha de la cita, leadId y flag recaptura_enviada (si Cláriva ya disparó la recaptura a TuBot). Sin rango, últimos 30 días. Úsalo para reenganchar a los que no llegaron. Read-only.',
+  {
+    desde: z.string().optional().describe('fecha inicio YYYY-MM-DD (por fecha de la cita)'),
+    hasta: z.string().optional().describe('fecha fin YYYY-MM-DD'),
+  },
+  async (args) => asText(await api('/ext/no-shows', args)),
+)
+
 const transport = new StdioServerTransport()
 await server.connect(transport)
 console.error('[clariva-mcp] Servidor MCP de Cláriva listo (read-only).')
