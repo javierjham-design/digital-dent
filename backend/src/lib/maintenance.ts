@@ -180,8 +180,11 @@ export async function emitirTratamientosPendientesTodasLasClinicas(): Promise<vo
       try {
         await runWithRequestContext({ requestId: `cron-trat-${c.slug}`, slug: c.slug }, async () => {
           const db = tenantClient(c.dbName)
-          const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { agendaWhEnabled: true, recapturaTratDias: true } })
-          if (!cfg?.agendaWhEnabled) return // sin la conexión de agenda a TuBot no hay a quién emitir
+          const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { agendaWhEnabled: true, recapturaTratEnabled: true, recapturaTratDias: true } })
+          // Doble gate: la conexión de agenda a TuBot activa + el flujo encendido a propósito
+          // (recapturaTratEnabled). Así no se "consumen" planes con `recapturaAt` antes de que
+          // TuBot tenga el workflow listo; se enciende por clínica cuando el lado TuBot está activo.
+          if (!cfg?.agendaWhEnabled || !cfg.recapturaTratEnabled) return
           const corte = new Date(ahora - clampTratDias(cfg.recapturaTratDias) * 86400_000)
           const piso = new Date(ahora - TRAT_VENTANA_DIAS * 86400_000)
           const planes = await db.planTratamiento.findMany({

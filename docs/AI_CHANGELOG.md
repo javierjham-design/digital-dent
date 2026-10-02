@@ -17,7 +17,9 @@ va en `conversia/docs/SPEC_AGENDAMIENTO_RECAPTURA.md` (handoff para esa ventana 
 - **Job diario** `emitirTratamientosPendientesTodasLasClinicas` (`maintenance.ts`, ~10 h hora Chile):
   detecta planes ACTIVO sin pago ni ejecución (vía `totalesDePlan`) de pacientes que **asistieron**
   (≥1 ATENDIDA), dejando pasar `recapturaTratDias` días; emite el evento e idempotentiza con
-  `PlanTratamiento.recapturaAt`. Gated en `agendaWhEnabled` (sin conexión a TuBot no emite).
+  `PlanTratamiento.recapturaAt`. **Doble gate**: `agendaWhEnabled` (conexión a TuBot) + `recapturaTratEnabled`
+  (apagado por defecto) — así no se "consumen" planes antes de que TuBot tenga el workflow listo; se
+  enciende por clínica cuando el lado TuBot está activo.
 - **No-show**: NO necesita job de envío — ya viaja por `appointment.attendance` (al marcarse
   NO_ASISTIO, manual o por el cierre automático). TuBot lo consume con el trigger `no_show`.
 - **Retirado** el motor de envío de Cláriva `enviarRecapturasPendientes` + su scheduler
