@@ -8,6 +8,8 @@ import { dedupePrestaciones } from '@/services/catalogo.service'
 import { backfillFormularios } from '@/services/meta-leadads.service'
 import { clasificarVinculosHuerfanos, vincularLeadPaciente } from '@/services/crm.service'
 import { cambiarEstadoCita } from '@/services/citas.service'
+import { totalesDePlan } from '@/services/tratamientos.service'
+import { emitirTreatmentPending } from '@/lib/tubot-webhooks'
 import { runWithRequestContext } from '@/lib/request-context'
 import { log, serializeError } from '@/lib/logger'
 
@@ -157,5 +159,57 @@ export async function cerrarNoShowsTodasLasClinicas(): Promise<void> {
     }
   } catch (e) {
     log.error('mantenimiento: cierre de no-shows (global) falló', { err: serializeError(e) })
+  }
+}
+
+// Emite el evento patient.treatment_pending a TuBot (por el webhook de agenda) para los
+// pacientes que ASISTIERON a la evaluación pero NO tomaron el tratamiento (plan ACTIVO con
+// total > 0, abonado 0 y sin ejecución), dejando pasar N días desde que se creó el plan
+// (config recapturaTratDias, default 3). TuBot decide a quién recapturar (filtro de paciente
+// nuevo vive allá) y envía el WhatsApp: Cláriva SOLO emite el evento, no manda mensajes.
+// Idempotente por PlanTratamiento.recapturaAt. Best-effort. Se corre una vez al día.
+const TRAT_DIAS_DEFAULT = 3
+const TRAT_VENTANA_DIAS = 60 // no mira planes más viejos que esto
+const clampTratDias = (n: unknown) => { const v = Math.round(Number(n)); return Number.isFinite(v) ? Math.min(60, Math.max(1, v)) : TRAT_DIAS_DEFAULT }
+
+export async function emitirTratamientosPendientesTodasLasClinicas(): Promise<void> {
+  try {
+    const clinicas = await control.clinica.findMany({ where: { activo: true }, select: { slug: true, dbName: true } })
+    const ahora = Date.now()
+    for (const c of clinicas) {
+      try {
+        await runWithRequestContext({ requestId: `cron-trat-${c.slug}`, slug: c.slug }, async () => {
+          const db = tenantClient(c.dbName)
+          const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { agendaWhEnabled: true, recapturaTratDias: true } })
+          if (!cfg?.agendaWhEnabled) return // sin la conexión de agenda a TuBot no hay a quién emitir
+          const corte = new Date(ahora - clampTratDias(cfg.recapturaTratDias) * 86400_000)
+          const piso = new Date(ahora - TRAT_VENTANA_DIAS * 86400_000)
+          const planes = await db.planTratamiento.findMany({
+            where: { recapturaAt: null, estado: 'ACTIVO', createdAt: { lt: corte, gte: piso } },
+            select: {
+              id: true, nombre: true, pacienteId: true,
+              tratamientos: { select: { estado: true, precio: true, descuento: true, cobroItems: { select: { monto: true, cobro: { select: { estado: true } } } } } },
+            }, take: 200,
+          })
+          let emitidos = 0
+          for (const plan of planes) {
+            const t = totalesDePlan(plan.tratamientos)
+            if (t.total <= 0 || t.abonado > 0 || t.tieneEjecucion) continue // ya tomó el tratamiento o plan vacío
+            const atendidas = await db.cita.count({ where: { pacienteId: plan.pacienteId, estado: 'ATENDIDA' } })
+            if (atendidas < 1) continue // no vino a la evaluación → ese caso va por el flujo de no-show
+            await emitirTreatmentPending(db, { pacienteId: plan.pacienteId, planId: plan.id, planValue: t.total, serviceName: plan.nombre })
+            await db.planTratamiento.update({ where: { id: plan.id }, data: { recapturaAt: new Date() } })
+            emitidos++
+          }
+          if (emitidos > 0) log.info('mantenimiento: tratamiento pendiente emitido a TuBot', { clinica: c.slug, emitidos })
+        })
+      } catch (e) {
+        log.error('mantenimiento: emisión de tratamiento pendiente falló', { clinica: c.slug, err: serializeError(e) })
+      } finally {
+        await disposeTenant(c.dbName)
+      }
+    }
+  } catch (e) {
+    log.error('mantenimiento: emisión de tratamiento pendiente (global) falló', { err: serializeError(e) })
   }
 }

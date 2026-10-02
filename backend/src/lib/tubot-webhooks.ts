@@ -13,7 +13,7 @@ import { conTitulo } from '@shared/utils/nombre'
 export type WebhookEvent =
   | 'appointment.created' | 'appointment.updated' | 'appointment.confirmed'
   | 'appointment.cancelled' | 'appointment.rescheduled' | 'appointment.attendance'
-  | 'patient.updated'
+  | 'patient.updated' | 'patient.treatment_pending'
 
 // Estado interno de Cláriva → estado del contrato de TuBot.
 export const ESTADO_A_STATUS: Record<string, string> = {
@@ -90,6 +90,27 @@ export async function emitirEventoCita(db: TenantClient, event: WebhookEvent, ci
     const attended = event === 'appointment.attendance' ? c.estado === 'ATENDIDA' : undefined
     const data = citaToAppointment(c as CitaFullRow, { slug, clinicName: cfg.nombre ?? undefined, attended })
     await sendSigned(cfg, event, data)
+  } catch { /* best-effort: los webhooks nunca hacen fallar la operación primaria */ }
+}
+
+// Evento patient.treatment_pending: el paciente ASISTIÓ a la evaluación pero NO tomó el
+// tratamiento (plan sin pago ni ejecución). Lo consume TuBot (trigger treatment_pending) para
+// la recaptura por WhatsApp. Mismo canal/firma que los eventos de cita. Best-effort: nunca
+// hace fallar el job que lo invoca.
+export async function emitirTreatmentPending(
+  db: TenantClient,
+  input: { pacienteId: string; planId: string; planValue: number; serviceName?: string | null },
+): Promise<void> {
+  try {
+    const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { ...CFG_SEL, nombre: true } })
+    if (!cfg?.agendaWhEnabled || !cfg.agendaWhConnectionId) return // sin la conexión de agenda activa no se emite
+    const p = await db.paciente.findUnique({ where: { id: input.pacienteId }, select: { nombre: true, apellido: true, telefono: true } })
+    if (!p?.telefono) return
+    const data = {
+      patient: { firstName: p.nombre, lastName: p.apellido || undefined, phone: p.telefono },
+      planId: input.planId, planValue: input.planValue, serviceName: input.serviceName ?? undefined,
+    }
+    await sendSigned(cfg, 'patient.treatment_pending', data)
   } catch { /* best-effort: los webhooks nunca hacen fallar la operación primaria */ }
 }
 

@@ -3,8 +3,7 @@ import { createApp } from '@/app'
 import { env } from '@/config/env'
 import { log, serializeError } from '@/lib/logger'
 import { captureError, flushSentry } from '@/lib/observability'
-import { dedupePrestacionesTodasLasClinicas, backfillFormulariosTodasLasClinicas, reconciliarVinculosTodasLasClinicas, cerrarNoShowsTodasLasClinicas } from '@/lib/maintenance'
-import { enviarRecapturasPendientes, esHoraDeRecaptura } from '@/lib/whatsapp'
+import { dedupePrestacionesTodasLasClinicas, backfillFormulariosTodasLasClinicas, reconciliarVinculosTodasLasClinicas, cerrarNoShowsTodasLasClinicas, emitirTratamientosPendientesTodasLasClinicas } from '@/lib/maintenance'
 
 // Errores de proceso: antes se caían sin dejar rastro. Ahora se loguean y se
 // reportan a Sentry. Una promesa rechazada sin catch NO tumba el server (se
@@ -45,11 +44,14 @@ app.listen(env.port, () => {
     void cerrarNoShowsTodasLasClinicas()
     const tn = setInterval(() => void cerrarNoShowsTodasLasClinicas(), 30 * 60_000)
     tn.unref?.()
-    // Recaptura por WhatsApp (día siguiente): no-shows → reagendar · plan sin tomar → iniciar
-    // tratamiento. Gated a la mañana (hora clínica). Se chequea cada hora; sólo envía a las ~10 h
-    // (idempotente, así un doble chequeo en esa hora no reenvía). Apagado hasta que el tenant
-    // active cada flujo con su plantilla aprobada.
-    const trc = setInterval(() => { if (esHoraDeRecaptura()) void enviarRecapturasPendientes() }, 60 * 60_000)
+    // Tratamiento pendiente → evento a TuBot: el paciente asistió a la evaluación pero no tomó
+    // el plan. Cláriva SOLO emite el evento (TuBot envía el WhatsApp y recaptura). Se chequea
+    // cada hora y emite a las ~10 h hora de Chile (idempotente por plan). El no-show NO necesita
+    // job aparte: ya viaja por el webhook appointment.attendance al marcarse NO_ASISTIO.
+    const trc = setInterval(() => {
+      const h = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Santiago', hour: '2-digit', hour12: false }).format(new Date()))
+      if (h === 10) void emitirTratamientosPendientesTodasLasClinicas()
+    }, 60 * 60_000)
     trc.unref?.()
   }
 })

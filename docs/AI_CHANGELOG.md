@@ -5,6 +5,30 @@
 
 ---
 
+## 2026-10-02 — Pivote a event-driven: Cláriva emite eventos, TuBot envía (recaptura/recordatorios)
+
+Decisión de arquitectura: el WhatsApp (recordatorios + recaptura) lo gestiona **TuBot** con su
+motor de workflows + un **agente de agendamiento dedicado**; Cláriva deja de enviar y solo **emite
+eventos** por el webhook de agenda que ya existía. Esta entrada cubre el lado Cláriva; el lado TuBot
+va en `conversia/docs/SPEC_AGENDAMIENTO_RECAPTURA.md` (handoff para esa ventana de desarrollo).
+- **Evento nuevo `patient.treatment_pending`** (`tubot-webhooks.ts`): `emitirTreatmentPending` manda
+  por el mismo canal firmado de agenda el aviso de "asistió pero no tomó el tratamiento"
+  (payload: paciente{phone,firstName,lastName}, planId, planValue, serviceName).
+- **Job diario** `emitirTratamientosPendientesTodasLasClinicas` (`maintenance.ts`, ~10 h hora Chile):
+  detecta planes ACTIVO sin pago ni ejecución (vía `totalesDePlan`) de pacientes que **asistieron**
+  (≥1 ATENDIDA), dejando pasar `recapturaTratDias` días; emite el evento e idempotentiza con
+  `PlanTratamiento.recapturaAt`. Gated en `agendaWhEnabled` (sin conexión a TuBot no emite).
+- **No-show**: NO necesita job de envío — ya viaja por `appointment.attendance` (al marcarse
+  NO_ASISTIO, manual o por el cierre automático). TuBot lo consume con el trigger `no_show`.
+- **Retirado** el motor de envío de Cláriva `enviarRecapturasPendientes` + su scheduler
+  (`whatsapp.ts`/`index.ts`): Cláriva ya no manda WhatsApp (evita doble envío). El motor de
+  recordatorios por TuBot-API queda inerte (sin uso); el canal de reminders también pasa a TuBot.
+- **Centro de Automatizaciones recortado** a parámetros de DETECCIÓN de Cláriva: horas de no-show
+  automático, días a PERDIDO y días de espera para avisar de tratamiento pendiente. La config de
+  mensajería/plantillas salió (vive en TuBot). Indica si la integración con TuBot está conectada.
+- Sin cambios de schema. Verde: typecheck (back+front) · unit 158 · integración 201
+  (+`treatment-pending-emit`, −`recaptura-wa`) · contrato 296 · lint 0.
+
 ## 2026-10-02 — Centro de Automatizaciones (clínica): recordatorios + no-show + recaptura en un solo lugar
 
 A pedido: un configurador dedicado en el menú **Gestión → Captación → Automatizaciones** (clínica,

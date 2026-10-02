@@ -1,24 +1,15 @@
 import { api } from './api'
 
 export interface Automatizaciones {
-  whatsappConectado: boolean
-  recordatorios: { activo: boolean; horasAntes: number }
+  tubotConectado: boolean
   noShow: { horasAuto: number; diasPerdido: number }
-  recaptura: {
-    noShow: { activo: boolean; plantilla: string | null }
-    tratamiento: { activo: boolean; plantilla: string | null; dias: number }
-  }
+  tratamiento: { diasEspera: number }
 }
 
 export interface AutomatizacionesInput {
-  recordatoriosHorasAntes?: number
   noShowHorasAuto?: number
   perdidoDias?: number
-  recapturaNoShowEnabled?: boolean
-  waTemplateRecapturaNoShow?: string | null
-  recapturaTratEnabled?: boolean
-  waTemplateRecapturaTrat?: string | null
-  recapturaTratDias?: number | null
+  tratamientoDiasEspera?: number
 }
 
 export const automatizacionesService = {

@@ -3,7 +3,23 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: Centro de Automatizaciones (clínica) en Gestión
+## Último trabajo: Pivote event-driven — Cláriva emite, TuBot envía (recaptura/recordatorios)
+
+**Desplegado (2026-10-02).** El WhatsApp (recordatorios + recaptura no-show + recaptura tratamiento)
+lo gestiona **TuBot** (workflows + agente de agendamiento dedicado); Cláriva solo **emite eventos**.
+- **Handoff a TuBot**: spec completo en `conversia/docs/SPEC_AGENDAMIENTO_RECAPTURA.md` (agente
+  scheduler + 3 workflows + trigger `treatment_pending` + condición `patient_is_new`). Lo ejecuta
+  la ventana de desarrollo de TuBot (su deploy).
+- **Cláriva (hecho):** evento `patient.treatment_pending` (`tubot-webhooks.ts` `emitirTreatmentPending`)
+  + job diario `emitirTratamientosPendientesTodasLasClinicas` (plan sin tomar, idempotente por
+  `PlanTratamiento.recapturaAt`, gated en `agendaWhEnabled`). No-show ya viaja por `appointment.attendance`.
+  Retirado el motor `enviarRecapturasPendientes` (Cláriva no manda WhatsApp). Centro de Automatizaciones
+  recortado a detección (no-show horas / PERDIDO días / días de aviso de tratamiento).
+- **Pendiente activación (2 lados):** TuBot ejecuta el spec + conecta WABA + aprueba plantillas; en
+  Cláriva, activar la conexión de agenda (`agendaWhEnabled`) de la clínica para que los eventos salgan.
+- Sin cambios de schema. Verde: typecheck (back+front) · unit 158 · integración 201 · contrato 296 · lint 0.
+
+## Trabajo previo: Centro de Automatizaciones (clínica) en Gestión
 
 **Desplegado (2026-10-02).** Configurador dedicado **Gestión → Captación → Automatizaciones**
 (`/automatizaciones`, clínica self-service, permiso `puedeConfigurarClinica`). Centraliza el
