@@ -3,7 +3,23 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: Asistencia / no-show — marcado + métrica por campaña + recaptura (MCP)
+## Último trabajo: Recaptura automática por WhatsApp (TuBot) — no-show + tratamiento no tomado
+
+**Desplegado (2026-10-02), GATED OFF.** Reenganche por WhatsApp (canal TuBot) al día siguiente ~10 h,
+solo a pacientes nuevos (< 2 citas ATENDIDA). Dos flujos con su plantilla:
+- **No-show** → motivar reagendar (plantilla `waTemplateRecapturaNoShow`, botón REAGENDAR).
+- **Tratamiento no tomado** (asistió, plan sin pago ni ejecución > N días) → motivar iniciarlo
+  (`waTemplateRecapturaTrat`, botón TRATAMIENTO).
+- Motor: `enviarRecapturasPendientes` (`lib/whatsapp.ts`), in-process cada hora gated 10 h (hora Chile),
+  idempotente por `Cita.recapturaAt` / `PlanTratamiento.recapturaAt`. Cláriva solo dispara; TuBot conversa.
+- Config en **super-admin → card WhatsApp** (toggles + plantillas + días); valida APPROVED al activar.
+- Schema aditivo (prestart). `lead.recapturaNoShowAt` ahora se sella al ENVIAR; PERDIDO mide por `fechaAgenda`.
+- **Acción del usuario para activar:** crear y aprobar en Meta/TuBot 2 plantillas (`recaptura_noshow`,
+  `recaptura_tratamiento`) — 2 vars (nombre paciente, clínica) + 1 botón quick-reply; luego prender cada
+  flujo en el super-admin. Specs exactas en AI_CHANGELOG (entrada de hoy).
+- Verde: typecheck (back+front) · unit 158 · integración 200 · contrato 294 · lint 0.
+
+## Trabajo previo: Asistencia / no-show — marcado + métrica por campaña + recaptura (MCP)
 
 **Desplegado (2026-10-02).** Cierra el eslabón de la asistencia (antes el no-show no se medía).
 

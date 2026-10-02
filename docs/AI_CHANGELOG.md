@@ -5,6 +5,37 @@
 
 ---
 
+## 2026-10-02 — Recaptura automática por WhatsApp (TuBot): no-show + tratamiento no tomado
+
+Automatiza el reenganche por WhatsApp (canal TuBot, mismo mecanismo que los recordatorios),
+al **día siguiente ~10 h**, solo a **pacientes nuevos** del embudo (< 2 citas ATENDIDA). Dos flujos:
+1. **No-show** (no asistió a la evaluación) → plantilla que motiva reagendar (botón REAGENDAR).
+2. **Tratamiento no tomado** (asistió, tiene plan sin pago y sin ejecución hace > N días) → plantilla
+   que motiva iniciar el tratamiento (botón TRATAMIENTO).
+Cláriva SOLO dispara la plantilla; la respuesta la conversa el agente de TuBot (reagenda vía la
+API de agenda inversa). **Gated y reversible**: cada flujo se activa desde el super-admin solo si su
+plantilla está APPROVED en TuBot/Meta (si no, no se activa).
+
+- **Schema tenant ADITIVO** (prestart aplica en deploy): `Configuracion.recapturaNoShowEnabled` +
+  `waTemplateRecapturaNoShow`, `recapturaTratEnabled` + `waTemplateRecapturaTrat`, `recapturaTratDias`
+  (def 3). `Cita.recapturaAt` y `PlanTratamiento.recapturaAt` (idempotencia de envío).
+- **Motor** `enviarRecapturasPendientes` (`lib/whatsapp.ts`): selección por elegibilidad + categoría
+  (`atendidasDe`), envío por `tubotProvider.enviarPlantilla`, idempotente por marca. Ventana no-show
+  7 días; "no tomó" vía `totalesDePlan` (total>0, abonado=0, sin ejecución). Corre in-process cada
+  hora, gated a las 10 h (hora Chile) — no requiere cron nuevo en Railway.
+- **Super-admin** (`admin.service.ts` get/putWhatsapp) + **UI** (card WhatsApp en ClinicaDetalle):
+  toggles + nombres de plantilla + días; valida APPROVED al activar.
+- **Ajuste**: el sello `lead.recapturaNoShowAt` ahora lo pone el ENVÍO real de la recaptura (no el
+  momento de marcar no-show); el auto-PERDIDO del job mide desde `fechaAgenda` (fecha de la cita perdida).
+- Verde: typecheck (back+front) · unit 158 · integración 200 (+3 `recaptura-wa`) · contrato 294 · lint 0.
+
+### Plantillas a crear/aprobar en TuBot/Meta (para activar)
+Ambas: 2 variables `{{1}}=nombre del paciente`, `{{2}}=nombre de la clínica`; 1 botón quick-reply.
+- **recaptura_noshow** (botón payload `REAGENDAR`): ej. "Hola {{1}}, te escribimos de {{2}}. Notamos que
+  no pudiste asistir a tu evaluación. ¿Quieres que te ayudemos a reagendar? 🗓️"
+- **recaptura_tratamiento** (botón payload `TRATAMIENTO`): ej. "Hola {{1}}, de {{2}}. Quedó pendiente
+  iniciar tu tratamiento. ¿Te gustaría retomarlo? Cuéntanos y te ayudamos. 😊"
+
 ## 2026-10-02 — Asistencia / no-show: marcado + métrica por campaña (MCP) + recaptura automática
 
 Cierra el eslabón de la ASISTENCIA (antes nunca se medía el no-show). **Cambio de schema tenant

@@ -141,8 +141,10 @@ export async function cerrarNoShowsTodasLasClinicas(): Promise<void> {
             noShows++
           }
           const corteP = new Date(ahora - clampDiasPerdido(cfg?.recapturaDiasPerdido ?? RECAPTURA_DIAS_PERDIDO_DEFAULT) * 86400_000)
+          // No-show que NO re-agendó en X días → PERDIDO. Se mide desde la fecha de la cita
+          // perdida (fechaAgenda); si hubiese re-agendado, el reenganche habría puesto asistio=null.
           const perdidos = await db.lead.updateMany({
-            where: { asistio: false, recapturaNoShowAt: { not: null, lt: corteP }, estado: { notIn: ['CONVERTIDO', 'PERDIDO'] } },
+            where: { asistio: false, fechaAgenda: { not: null, lt: corteP }, estado: { notIn: ['CONVERTIDO', 'PERDIDO'] } },
             data: { estado: 'PERDIDO', ultimaGestionAt: new Date() },
           })
           if (noShows > 0 || perdidos.count > 0) log.info('mantenimiento: no-shows automáticos', { clinica: c.slug, noShows, perdidos: perdidos.count })

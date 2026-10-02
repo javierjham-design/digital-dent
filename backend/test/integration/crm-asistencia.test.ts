@@ -26,18 +26,13 @@ async function leadConCita(estadoCita: string, campana: string) {
 }
 
 describe('propagarAsistenciaLead', () => {
-  it('no-show propaga lead.asistio=false y sella recapturaNoShowAt una sola vez', async () => {
+  it('no-show propaga lead.asistio=false (el sello de recaptura lo pone el envío de WhatsApp)', async () => {
     const db = tenantClient(dbName)
     const { cita, lead } = await leadConCita('NO_ASISTIO', 'CAMP_NS')
     await propagarAsistenciaLead(db, { id: cita.id, pacienteId: lead.pacienteId! }, false)
     const up1 = await db.lead.findUnique({ where: { id: lead.id }, select: { asistio: true, recapturaNoShowAt: true } })
     expect(up1?.asistio).toBe(false)
-    expect(up1?.recapturaNoShowAt).toBeInstanceOf(Date)
-    const sello = up1!.recapturaNoShowAt
-    // Segunda pasada: no re-dispara (conserva el timestamp original).
-    await propagarAsistenciaLead(db, { id: cita.id, pacienteId: lead.pacienteId! }, false)
-    const up2 = await db.lead.findUnique({ where: { id: lead.id }, select: { recapturaNoShowAt: true } })
-    expect(up2?.recapturaNoShowAt?.getTime()).toBe(sello?.getTime())
+    expect(up1?.recapturaNoShowAt).toBeNull() // aún no se envió la recaptura
   })
 
   it('asistió propaga lead.asistio=true y limpia la marca de recaptura', async () => {
@@ -63,7 +58,7 @@ describe('asistenciaPorCampana + no-shows', () => {
     const lista = await listarNoShowsRecaptura(db)
     const row = lista.noShows.find((n) => n.campanaLabel === 'CAMP_NS')
     expect(row).toBeTruthy()
-    expect(row?.recaptura_enviada).toBe(true)
+    expect(row?.recaptura_enviada).toBe(false) // el sello se pone al enviar la recaptura por WhatsApp
     expect(row?.telefono).toBe('+56 9 5555 0000')
   })
 })

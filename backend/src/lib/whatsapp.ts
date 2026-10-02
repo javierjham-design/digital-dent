@@ -18,6 +18,9 @@ import { control } from '@/db/control'
 import { tenantClient, type TenantClient } from '@/db/tenant'
 import { decryptNullable } from '@/lib/crypto'
 import { tubotProvider, RateLimitError, type TubotConfig, type EventoEntrante } from '@/lib/tubot'
+import { totalesDePlan } from '@/services/tratamientos.service'
+import { CLINIC_TZ, todayYmd, rangoFechasUtc } from '@/lib/tz'
+import { log } from '@/lib/logger'
 
 // Config de WhatsApp de una clínica ya resuelta (secretos descifrados).
 interface WaConfig {
@@ -161,6 +164,112 @@ export async function enviarRecordatoriosPendientes(): Promise<{ enviados: numbe
     }
   }
   return { enviados, errores }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Recaptura automática por WhatsApp (día siguiente ~10 h) — dos flujos
+// ─────────────────────────────────────────────────────────────────────────────
+//  1. NO-SHOW: el paciente NO asistió a la evaluación → mensaje para motivar que
+//     reagende/asista (plantilla waTemplateRecapturaNoShow, botón REAGENDAR).
+//  2. TRATAMIENTO: el paciente SÍ asistió (ya conoce valores/plan) pero NO tomó el
+//     tratamiento (plan sin pago y sin ejecución) → mensaje para motivarlo a iniciarlo
+//     (plantilla waTemplateRecapturaTrat, botón TRATAMIENTO).
+//  Sólo para pacientes del EMBUDO temprano (NUEVO: < 2 citas atendidas); los pacientes
+//  en atención (recurrentes) se excluyen. Cláriva SÓLO dispara la plantilla; la
+//  respuesta la conversa el agente de TuBot (que reagenda vía la API de agenda inversa).
+//  Idempotente: se marca cita.recapturaAt / plan.recapturaAt al enviar (una sola vez).
+const CONFIG_RECAP_SELECT = {
+  nombre: true, waEnabled: true, waApiKey: true, waTemplateLang: true,
+  recapturaNoShowEnabled: true, waTemplateRecapturaNoShow: true,
+  recapturaTratEnabled: true, waTemplateRecapturaTrat: true, recapturaTratDias: true,
+} as const
+const RECAP_TRAT_DIAS_DEFAULT = 3
+const RECURRENTE_MIN_ATENDIDAS = 2 // 2+ asistencias = paciente "en atención" → se excluye de recaptura
+const clampTratDias = (n: unknown) => { const v = Math.round(Number(n)); return Number.isFinite(v) ? Math.min(60, Math.max(1, v)) : RECAP_TRAT_DIAS_DEFAULT }
+
+// Categoría del paciente en el embudo: nº de citas ATENDIDA (0-1 = NUEVO, 2+ = recurrente).
+async function atendidasDe(db: TenantClient, pacienteId: string): Promise<number> {
+  return db.cita.count({ where: { pacienteId, estado: 'ATENDIDA' } })
+}
+
+// ¿La hora local (America/Santiago) es la de envío de recapturas? (día siguiente, mañana).
+export function esHoraDeRecaptura(now = new Date()): boolean {
+  const h = Number(new Intl.DateTimeFormat('en-US', { timeZone: CLINIC_TZ, hour: '2-digit', hour12: false }).format(now))
+  return h === 10
+}
+
+export async function enviarRecapturasPendientes(): Promise<{ noShow: number; tratamiento: number; errores: number }> {
+  const clinicas = await control.clinica.findMany({ where: { waEnabled: true, activo: true, esDemo: false }, select: { dbName: true } })
+  let noShow = 0, tratamiento = 0, errores = 0
+  const hoy0 = rangoFechasUtc(todayYmd()).gte! // inicio de HOY (hora clínica): sólo se recaptura lo de días anteriores
+
+  for (const cl of clinicas) {
+    const db = tenantClient(cl.dbName)
+    const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: CONFIG_RECAP_SELECT })
+    if (!c?.waEnabled) continue
+    const apiKey = decryptNullable(c.waApiKey)
+    if (!apiKey) continue
+
+    // ── 1) NO-SHOW → reagendar la evaluación ──
+    if (c.recapturaNoShowEnabled && c.waTemplateRecapturaNoShow) {
+      const cfg: TubotConfig = { apiKey, templateName: c.waTemplateRecapturaNoShow, templateLang: c.waTemplateLang }
+      const piso = new Date(Date.now() - 7 * 86400_000) // ventana: últimos 7 días (no backlog viejo)
+      const citas = await db.cita.findMany({
+        where: { estado: 'NO_ASISTIO', recapturaAt: null, fecha: { lt: hoy0, gte: piso } },
+        select: { id: true, pacienteId: true, paciente: { select: { nombre: true, telefono: true } } }, take: 100,
+      })
+      for (const cita of citas) {
+        try {
+          const to = fonoAE164(cita.paciente.telefono)
+          if (!to) continue
+          if (await atendidasDe(db, cita.pacienteId) >= RECURRENTE_MIN_ATENDIDAS) {
+            await db.cita.update({ where: { id: cita.id }, data: { recapturaAt: new Date() } }) // recurrente: no recapturar; marcar para no reconsultar
+            continue
+          }
+          await tubotProvider.enviarPlantilla(cfg, { to, variables: [cita.paciente.nombre, c.nombre], botones: [{ payload: 'REAGENDAR' }], idempotencyKey: `recap_noshow_${cita.id}` })
+          await db.cita.update({ where: { id: cita.id }, data: { recapturaAt: new Date(), logs: { create: { tipo: 'WA_ENVIADO', detalle: `Recaptura de no-show enviada por WhatsApp a ${to}`, userName: 'Sistema' } } } })
+          await db.lead.updateMany({ where: { citaId: cita.id }, data: { recapturaNoShowAt: new Date() } }) // refleja en la lista MCP de no-shows
+          noShow++
+        } catch (e) {
+          errores++
+          if (e instanceof RateLimitError) break // corta la tanda de esta clínica; reintenta en la próxima corrida
+        }
+      }
+    }
+
+    // ── 2) TRATAMIENTO → asistió pero no tomó el plan ──
+    if (c.recapturaTratEnabled && c.waTemplateRecapturaTrat) {
+      const cfg: TubotConfig = { apiKey, templateName: c.waTemplateRecapturaTrat, templateLang: c.waTemplateLang }
+      const corte = new Date(Date.now() - clampTratDias(c.recapturaTratDias) * 86400_000) // dar N días desde la evaluación
+      const piso = new Date(Date.now() - 60 * 86400_000)
+      const planes = await db.planTratamiento.findMany({
+        where: { recapturaAt: null, estado: 'ACTIVO', createdAt: { lt: corte, gte: piso } },
+        select: {
+          id: true, pacienteId: true, paciente: { select: { nombre: true, telefono: true } },
+          tratamientos: { select: { estado: true, precio: true, descuento: true, cobroItems: { select: { monto: true, cobro: { select: { estado: true } } } } } },
+        }, take: 100,
+      })
+      for (const plan of planes) {
+        try {
+          const t = totalesDePlan(plan.tratamientos)
+          if (t.total <= 0 || t.abonado > 0 || t.tieneEjecucion) continue // ya tomó el tratamiento o plan vacío → no insistir (puede cambiar; no marcar)
+          const to = fonoAE164(plan.paciente.telefono)
+          if (!to) continue
+          const at = await atendidasDe(db, plan.pacienteId)
+          if (at < 1) continue // no vino a la evaluación → ese caso va por el flujo de no-show
+          if (at >= RECURRENTE_MIN_ATENDIDAS) { await db.planTratamiento.update({ where: { id: plan.id }, data: { recapturaAt: new Date() } }); continue }
+          await tubotProvider.enviarPlantilla(cfg, { to, variables: [plan.paciente.nombre, c.nombre], botones: [{ payload: 'TRATAMIENTO' }], idempotencyKey: `recap_trat_${plan.id}` })
+          await db.planTratamiento.update({ where: { id: plan.id }, data: { recapturaAt: new Date() } })
+          tratamiento++
+        } catch (e) {
+          errores++
+          if (e instanceof RateLimitError) break
+        }
+      }
+    }
+  }
+  if (noShow > 0 || tratamiento > 0 || errores > 0) log.info('recapturas WhatsApp enviadas', { noShow, tratamiento, errores })
+  return { noShow, tratamiento, errores }
 }
 
 // ─── Webhook: eventos entrantes de TuBot ─────────────────────────────────────

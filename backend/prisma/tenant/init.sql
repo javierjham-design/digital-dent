@@ -20,6 +20,11 @@ CREATE TABLE "Configuracion" (
     "waWebhookSecret" TEXT,
     "waTemplateName" TEXT,
     "waTemplateLang" TEXT NOT NULL DEFAULT 'es',
+    "recapturaNoShowEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "waTemplateRecapturaNoShow" TEXT,
+    "recapturaTratEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "waTemplateRecapturaTrat" TEXT,
+    "recapturaTratDias" INTEGER,
     "waTwilioSid" TEXT,
     "waTwilioToken" TEXT,
     "waTemplateSid" TEXT,
@@ -216,6 +221,7 @@ CREATE TABLE "Cita" (
     "waDeliveryStatus" TEXT,
     "waDeliveryReason" TEXT,
     "waReenvios" INTEGER NOT NULL DEFAULT 0,
+    "recapturaAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -385,6 +391,7 @@ CREATE TABLE "PlanTratamiento" (
     "bloqueado" BOOLEAN NOT NULL DEFAULT false,
     "notas" TEXT,
     "fechaInicio" TIMESTAMP(3),
+    "recapturaAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

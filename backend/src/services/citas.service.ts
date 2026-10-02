@@ -336,8 +336,10 @@ export async function propagarAsistenciaLead(db: TenantClient, cita: { id: strin
     const lead = await leadDeCita(db, cita.id, cita.pacienteId)
     if (!lead) return
     const data: Record<string, unknown> = { asistio }
-    if (!asistio && !lead.recapturaNoShowAt) data.recapturaNoShowAt = new Date() // no-show: sella el disparo de recaptura
-    if (asistio && lead.recapturaNoShowAt) data.recapturaNoShowAt = null // reclasificado a asistió: limpia la marca
+    // El sello de recaptura (recapturaNoShowAt) lo pone el envío real de la recaptura por
+    // WhatsApp (lib/whatsapp.ts), no el momento de marcar el no-show. Si se reclasifica a
+    // asistió, se limpia por si quedó marcado.
+    if (asistio && lead.recapturaNoShowAt) data.recapturaNoShowAt = null
     await db.lead.update({ where: { id: lead.id }, data })
   } catch (e) {
     log.error('citas: propagar asistencia al lead falló', { citaId: cita.id, err: serializeError(e) })

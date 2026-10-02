@@ -45,6 +45,13 @@ model Configuracion {
   waWebhookSecret String? // secreto por conexión (verifica X-Tubot-Signature) — CIFRADO
   waTemplateName  String? // nombre de la plantilla aprobada de esta clínica
   waTemplateLang  String  @default("es")
+  // Recaptura automática por WhatsApp (día siguiente ~10 h, canal TuBot). Dos flujos
+  // independientes, cada uno con su plantilla aprobada. Ver docs/TUBOT_WHATSAPP.md.
+  recapturaNoShowEnabled    Boolean @default(false) // "no asistió a la evaluación" → motivar reagendar
+  waTemplateRecapturaNoShow String?
+  recapturaTratEnabled      Boolean @default(false) // "asistió pero no tomó el tratamiento" → motivar iniciarlo
+  waTemplateRecapturaTrat   String?
+  recapturaTratDias         Int?    // días desde la evaluación antes de insistir con el tratamiento (null = default 3)
   // DEPRECADOS (Twilio). Inertes a propósito: NO se dropean porque migrate-tenants NO
   // borra columnas sin --accept-data-loss (regla 1) y no vale gastar un DDL manual en
   // cosmética. Si alguna vez hay otra ventana de DDL por algo real, se van de garrón.
@@ -294,6 +301,7 @@ model Cita {
   waDeliveryStatus String? // sent | delivered | read | failed (evento "status" de TuBot)
   waDeliveryReason String? // motivo cuando failed (número inválido, bloqueó a la clínica…)
   waReenvios       Int               @default(0) // reenvíos MANUALES: el envío auto usa n=1; el manual n=2+
+  recapturaAt      DateTime?         // recaptura de no-show enviada por WhatsApp para esta cita (idempotencia)
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   paciente         Paciente          @relation(fields: [pacienteId], references: [id])
@@ -517,6 +525,7 @@ model PlanTratamiento {
   bloqueado       Boolean       @default(false) // bloqueo al imprimir; desbloquear para editar
   notas           String?
   fechaInicio     DateTime?
+  recapturaAt     DateTime?     // recaptura "toma tu tratamiento" enviada por WhatsApp para este plan (idempotencia)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   paciente        Paciente      @relation(fields: [pacienteId], references: [id])
