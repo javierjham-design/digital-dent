@@ -43,7 +43,7 @@ interface Clinica {
 interface Pago { id: string; fechaPago: string; monto: number; moneda?: string; periodoDesde: string; periodoHasta: string; metodoPago: string; comprobante: string | null; notas: string | null }
 interface Extra { id: string; codigo: string; nombre: string; montoMensual: number; activo: boolean; notas: string | null }
 interface Plan { id: string; nombre: string; precioMensual: number; precioMensualUSD: number; orden: number; activo: boolean }
-interface Wa { waEnabled: boolean; waNumero: string | null; waConnectionId: string | null; waTemplateName: string | null; waTemplateLang: string; waHorasAntes: number; apiKeyConfigurada: boolean; webhookSecretConfigurado: boolean; recapturaNoShowEnabled: boolean; waTemplateRecapturaNoShow: string | null; recapturaTratEnabled: boolean; waTemplateRecapturaTrat: string | null; recapturaTratDias: number | null }
+interface Wa { waEnabled: boolean; waNumero: string | null; waConnectionId: string | null; waTemplateName: string | null; waTemplateLang: string; waHorasAntes: number; apiKeyConfigurada: boolean; webhookSecretConfigurado: boolean }
 
 export function AdminClinicaDetalle() {
   const { id = '' } = useParams()
@@ -813,9 +813,6 @@ function WhatsappCard({ id, onSaved }: { id: string; onSaved: () => void }) {
       await adminService.guardarWhatsapp(id, {
         waEnabled: wa!.waEnabled, waNumero: wa!.waNumero, waConnectionId: wa!.waConnectionId,
         waTemplateName: wa!.waTemplateName, waTemplateLang: wa!.waTemplateLang, waHorasAntes: wa!.waHorasAntes,
-        recapturaNoShowEnabled: wa!.recapturaNoShowEnabled, waTemplateRecapturaNoShow: wa!.waTemplateRecapturaNoShow,
-        recapturaTratEnabled: wa!.recapturaTratEnabled, waTemplateRecapturaTrat: wa!.waTemplateRecapturaTrat,
-        recapturaTratDias: wa!.recapturaTratDias,
         ...(apiKey.trim() ? { waApiKey: apiKey.trim() } : {}),
         ...(secret.trim() ? { waWebhookSecret: secret.trim() } : {}),
       })
@@ -838,26 +835,6 @@ function WhatsappCard({ id, onSaved }: { id: string; onSaved: () => void }) {
         <label><L>API key {wa.apiKeyConfigurada ? '(configurada — dejar vacío para mantener)' : '(no configurada)'}</L><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={wa.apiKeyConfigurada ? '••••••••' : 'cnvk_…'} className={`${inpCls} font-mono`} /></label>
         <label className="md:col-span-2"><L>Secreto del webhook {wa.webhookSecretConfigurado ? '(configurado — dejar vacío para mantener)' : '(no configurado)'}</L><input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={wa.webhookSecretConfigurado ? '••••••••' : 'Secreto que entrega TuBot al conectar'} className={`${inpCls} font-mono`} /></label>
       </div>
-
-      {/* Recaptura automática (día siguiente ~10 h). Sólo pacientes nuevos del embudo. */}
-      <div className="mt-5 pt-4 border-t border-slate-700/60">
-        <p className="text-sm font-semibold text-slate-200 mb-1">Recaptura automática por WhatsApp</p>
-        <p className="text-xs text-slate-500 mb-3">Al día siguiente ~10 h, sólo a pacientes nuevos. Cada flujo exige su plantilla <span className="font-semibold">aprobada</span> en TuBot.</p>
-        <label className="flex items-center gap-2 mb-1 text-sm text-slate-300">
-          <input type="checkbox" checked={wa.recapturaNoShowEnabled} onChange={(e) => set({ recapturaNoShowEnabled: e.target.checked })} className="w-4 h-4 accent-purple-500" />
-          No-show (no asistió a la evaluación) → motivar reagendar
-        </label>
-        <label className="block mb-3"><L>Plantilla de no-show</L><input value={wa.waTemplateRecapturaNoShow ?? ''} onChange={(e) => set({ waTemplateRecapturaNoShow: e.target.value })} placeholder="recaptura_noshow" className={`${inpCls} font-mono`} /></label>
-        <label className="flex items-center gap-2 mb-1 text-sm text-slate-300">
-          <input type="checkbox" checked={wa.recapturaTratEnabled} onChange={(e) => set({ recapturaTratEnabled: e.target.checked })} className="w-4 h-4 accent-purple-500" />
-          Tratamiento (asistió pero no lo tomó) → motivar iniciarlo
-        </label>
-        <div className="grid md:grid-cols-2 gap-3">
-          <label><L>Plantilla de tratamiento</L><input value={wa.waTemplateRecapturaTrat ?? ''} onChange={(e) => set({ waTemplateRecapturaTrat: e.target.value })} placeholder="recaptura_tratamiento" className={`${inpCls} font-mono`} /></label>
-          <label><L>Días tras la evaluación para insistir</L><input value={wa.recapturaTratDias ?? ''} onChange={(e) => set({ recapturaTratDias: e.target.value ? Number(e.target.value) : null })} inputMode="numeric" placeholder="3" className={`${inpCls} font-mono`} /></label>
-        </div>
-      </div>
-
       {err && <p className="text-rose-400 text-sm mt-2">{err}</p>}
       {test && <p className={`text-sm mt-3 px-3 py-2 rounded-lg ${test.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-rose-500/10 text-rose-300'}`}>{test.ok ? '✓ ' : '✗ '}{test.mensaje}</p>}
       <div className="flex flex-wrap gap-2 mt-4">

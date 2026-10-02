@@ -3,7 +3,17 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: Recaptura automática por WhatsApp (TuBot) — no-show + tratamiento no tomado
+## Último trabajo: Centro de Automatizaciones (clínica) en Gestión
+
+**Desplegado (2026-10-02).** Configurador dedicado **Gestión → Captación → Automatizaciones**
+(`/automatizaciones`, clínica self-service, permiso `puedeConfigurarClinica`). Centraliza el
+comportamiento: horas del recordatorio, horas para no-show automático, días para PERDIDO, y los dos
+flujos de recaptura (toggle + plantilla + días), validando plantilla APPROVED al activar. Las
+credenciales de TuBot siguen en el Super-Admin. Se quitó la recaptura del card del Super-Admin
+(una sola fuente de verdad). Backend: `automatizaciones.service/controller` + `GET/PUT /automatizaciones`.
+Verde: typecheck · unit 158 · integración 203 · contrato 296 · lint 0.
+
+## Trabajo previo: Recaptura automática por WhatsApp (TuBot) — no-show + tratamiento no tomado
 
 **Desplegado (2026-10-02), GATED OFF.** Reenganche por WhatsApp (canal TuBot) al día siguiente ~10 h,
 solo a pacientes nuevos (< 2 citas ATENDIDA). Dos flujos con su plantilla:

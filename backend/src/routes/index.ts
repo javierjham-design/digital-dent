@@ -41,6 +41,7 @@ import * as email from '@/controllers/email.controller'
 import * as consent from '@/controllers/consentimientos.controller'
 import * as doc from '@/controllers/documentos.controller'
 import * as ext from '@/controllers/ext.controller'
+import * as automatizaciones from '@/controllers/automatizaciones.controller'
 import * as tubotAgenda from '@/controllers/tubot-agenda.controller'
 import * as asistente from '@/controllers/asistente.controller'
 import { requireAsistenteHabilitado } from '@/middlewares/asistente'
@@ -317,6 +318,10 @@ apiRouter.delete('/medios-pago/:id', tenant, asyncHandler(deleteMedioPago))
 // ── Configuración de la clínica (convertido a database-per-tenant) ───────────
 apiRouter.get('/clinica', tenant, asyncHandler(getClinica))
 apiRouter.patch('/clinica', configTenant, asyncHandler(patchClinica))
+
+// ── Centro de Automatizaciones (recordatorios / no-show / recaptura WhatsApp) ──
+apiRouter.get('/automatizaciones', configTenant, asyncHandler(automatizaciones.getAutomatizacionesCtrl))
+apiRouter.put('/automatizaciones', configTenant, asyncHandler(automatizaciones.putAutomatizacionesCtrl))
 
 // ── Clínico: planes de tratamiento ───────────────────────────────────────────
 apiRouter.get('/planes-tratamiento', tenant, asyncHandler(clinico.getPlanes))

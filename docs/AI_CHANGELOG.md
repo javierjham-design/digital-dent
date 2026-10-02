@@ -5,6 +5,23 @@
 
 ---
 
+## 2026-10-02 — Centro de Automatizaciones (clínica): recordatorios + no-show + recaptura en un solo lugar
+
+A pedido: un configurador dedicado en el menú **Gestión → Captación → Automatizaciones** (clínica,
+self-service) que centraliza el COMPORTAMIENTO de las automatizaciones. Las credenciales de TuBot
+siguen en el Super-Admin (son de plataforma).
+- Backend: `services/automatizaciones.service.ts` (`getAutomatizaciones`/`putAutomatizaciones`) +
+  `controllers/automatizaciones.controller.ts` + rutas `GET/PUT /automatizaciones` (configTenant,
+  permiso `puedeConfigurarClinica`). Gobierna: horas de anticipación del recordatorio, horas para
+  no-show automático, días para PERDIDO, y los dos flujos de recaptura (toggle + plantilla + días).
+  Activar una recaptura valida que su plantilla esté APPROVED en TuBot (igual criterio que el super-admin).
+  Expone `whatsappConectado` (read-only) para guiar a la clínica.
+- Frontend: `pages/Automatizaciones.tsx` + ruta `/automatizaciones` + ítem en el menú Gestión
+  (sección Captación) + `services/automatizaciones.service.ts`.
+- Se QUITÓ la sección de recaptura que había quedado en el Super-Admin (card WhatsApp) para dejar
+  una sola fuente de verdad clínica; el Super-Admin conserva credenciales + recordatorios.
+- Verde: typecheck (back+front) · unit 158 · integración 203 (+3 `automatizaciones`) · contrato 296 · lint 0.
+
 ## 2026-10-02 — Recaptura automática por WhatsApp (TuBot): no-show + tratamiento no tomado
 
 Automatiza el reenganche por WhatsApp (canal TuBot, mismo mecanismo que los recordatorios),

@@ -458,8 +458,6 @@ export async function eliminarExtra(ctx: AuditCtx, id: string, extraId: string) 
 const WA_TENANT_SELECT = {
   waEnabled: true, waNumero: true, waConnectionId: true, waTemplateName: true,
   waTemplateLang: true, waHorasAntes: true, waApiKey: true, waWebhookSecret: true,
-  recapturaNoShowEnabled: true, waTemplateRecapturaNoShow: true,
-  recapturaTratEnabled: true, waTemplateRecapturaTrat: true, recapturaTratDias: true,
 } as const
 
 // Arma la config del proveedor a partir de la Configuracion, tomando la apiKey
@@ -473,14 +471,11 @@ function cfgTubotDe(c: { waApiKey: string | null; waTemplateName: string | null;
 export async function getWhatsapp(id: string) {
   const { dbName } = await dbNameDe(id)
   const c = await tenantClient(dbName).configuracion.findUnique({ where: { id: 'singleton' }, select: WA_TENANT_SELECT })
-  if (!c) return { waEnabled: false, waNumero: null, waConnectionId: null, waTemplateName: null, waTemplateLang: 'es', waHorasAntes: 24, apiKeyConfigurada: false, webhookSecretConfigurado: false, recapturaNoShowEnabled: false, waTemplateRecapturaNoShow: null, recapturaTratEnabled: false, waTemplateRecapturaTrat: null, recapturaTratDias: null }
+  if (!c) return { waEnabled: false, waNumero: null, waConnectionId: null, waTemplateName: null, waTemplateLang: 'es', waHorasAntes: 24, apiKeyConfigurada: false, webhookSecretConfigurado: false }
   return {
     waEnabled: c.waEnabled, waNumero: c.waNumero, waConnectionId: c.waConnectionId,
     waTemplateName: c.waTemplateName, waTemplateLang: c.waTemplateLang, waHorasAntes: c.waHorasAntes,
     apiKeyConfigurada: Boolean(c.waApiKey), webhookSecretConfigurado: Boolean(c.waWebhookSecret),
-    recapturaNoShowEnabled: c.recapturaNoShowEnabled, waTemplateRecapturaNoShow: c.waTemplateRecapturaNoShow,
-    recapturaTratEnabled: c.recapturaTratEnabled, waTemplateRecapturaTrat: c.waTemplateRecapturaTrat,
-    recapturaTratDias: c.recapturaTratDias,
   }
 }
 
@@ -498,39 +493,9 @@ export async function putWhatsapp(ctx: AuditCtx, id: string, body: Record<string
   const apiKeyNueva = typeof body.waApiKey === 'string' && body.waApiKey.trim() ? body.waApiKey.trim() : undefined
   if (apiKeyNueva && !apiKeyNueva.startsWith('cnvk_')) throw badRequest('La API key de TuBot debe empezar con cnvk_')
 
-  // Recaptura automática (dos flujos). Plantillas y flags opcionales; sólo se validan al activar.
-  const recapturaNoShowEnabled = Boolean(body.recapturaNoShowEnabled)
-  const waTemplateRecapturaNoShow = body.waTemplateRecapturaNoShow ? String(body.waTemplateRecapturaNoShow).trim() : null
-  const recapturaTratEnabled = Boolean(body.recapturaTratEnabled)
-  const waTemplateRecapturaTrat = body.waTemplateRecapturaTrat ? String(body.waTemplateRecapturaTrat).trim() : null
-  let recapturaTratDias: number | null = null
-  if (body.recapturaTratDias != null && String(body.recapturaTratDias) !== '') {
-    recapturaTratDias = Number(body.recapturaTratDias)
-    if (!Number.isInteger(recapturaTratDias) || recapturaTratDias < 1 || recapturaTratDias > 60) throw badRequest('Los días para recaptura de tratamiento deben ser un entero entre 1 y 60')
-  }
-
-  const data: Record<string, unknown> = {
-    waEnabled, waNumero, waConnectionId, waTemplateName, waTemplateLang, waHorasAntes,
-    recapturaNoShowEnabled, waTemplateRecapturaNoShow, recapturaTratEnabled, waTemplateRecapturaTrat, recapturaTratDias,
-  }
+  const data: Record<string, unknown> = { waEnabled, waNumero, waConnectionId, waTemplateName, waTemplateLang, waHorasAntes }
   if (apiKeyNueva) data.waApiKey = encryptNullable(apiKeyNueva)
   if (typeof body.waWebhookSecret === 'string' && body.waWebhookSecret.trim()) data.waWebhookSecret = encryptNullable(body.waWebhookSecret.trim())
-
-  // Recaptura exige WhatsApp habilitado + su plantilla APROBADA en TuBot/Meta.
-  for (const r of [
-    { on: recapturaNoShowEnabled, tpl: waTemplateRecapturaNoShow, nombre: 'recaptura de no-show' },
-    { on: recapturaTratEnabled, tpl: waTemplateRecapturaTrat, nombre: 'recaptura de tratamiento' },
-  ]) {
-    if (!r.on) continue
-    if (!waEnabled) throw badRequest(`Para activar la ${r.nombre} primero debe estar habilitado WhatsApp.`)
-    if (!r.tpl) throw badRequest(`Falta el nombre de la plantilla de ${r.nombre}.`)
-    const actualR = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { waApiKey: true } })
-    const cfg = cfgTubotDe({ waApiKey: actualR?.waApiKey ?? null, waTemplateName: r.tpl, waTemplateLang }, apiKeyNueva)
-    if (!cfg) throw badRequest('Faltan credenciales para verificar la plantilla.')
-    let estado: string
-    try { estado = (await tubotProvider.estadoPlantilla(cfg)).status } catch (e) { throw badRequest(`No se pudo verificar la plantilla de ${r.nombre} con TuBot: ${e instanceof Error ? e.message : 'error'}`) }
-    if (estado !== 'APPROVED') throw badRequest(`La plantilla "${r.tpl}" (${r.nombre}) está ${estado} en TuBot. No se puede activar hasta que Meta la apruebe.`)
-  }
 
   if (waEnabled) {
     // Al habilitar: exigimos credenciales completas + plantilla APROBADA (degrade).
