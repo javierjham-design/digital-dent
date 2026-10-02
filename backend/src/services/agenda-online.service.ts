@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from 'node:crypto'
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
 import { listarHorarios } from '@/services/horarios.service'
-import { getMetaConfig, buscarLeadParaReserva, registrarEnvioMeta, dispararEtapaCrmMeta } from '@/services/crm.service'
+import { getMetaConfig, buscarLeadParaReserva, registrarEnvioMeta, dispararEtapaCrmMeta, autolinkLeadAlCrearPaciente } from '@/services/crm.service'
 import { crearLinkParaCobro } from '@/services/pagos-online.service'
 import { siguienteNumero } from '@/lib/correlativo'
 import { enviarConfirmacionHora } from '@/services/email.service'
@@ -345,6 +345,7 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     const hit = candidatos.find((p) => (p.telefono ?? '').replace(/\D/g, '') === soloDigitos)
     if (hit) paciente = { id: hit.id }
   }
+  let pacienteCreado = false
   if (!paciente) {
     paciente = await db.$transaction(async (tx) => {
       const numero = await siguienteNumero(tx, 'paciente')
@@ -357,9 +358,18 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
         select: { id: true },
       })
     })
+    pacienteCreado = true
   } else if (emailForm) {
     // Paciente existente sin email: lo completamos (necesario para el pago del abono).
     await db.paciente.updateMany({ where: { id: paciente.id, email: null }, data: { email: emailForm } }).catch(() => {})
+  }
+
+  // Match robusto lead→paciente al crear la ficha desde la agenda online (no solo el flujo
+  // del botón de agendar del CRM): si hay UN único lead huérfano que coincide por
+  // teléfono/email/RUT normalizados, se vincula ya —incluso leads viejos (>180 d) que la
+  // progresión del embudo de abajo no alcanza—, para no perder la atribución. Best-effort.
+  if (pacienteCreado) {
+    await autolinkLeadAlCrearPaciente(db, { id: paciente.id, telefono, email: emailForm || null, rut }).catch(() => {})
   }
 
   // Revalidación atómica de conflicto (carrera entre dos reservas del mismo cupo).

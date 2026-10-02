@@ -222,6 +222,8 @@ apiRouter.get('/ext/leads', apiKeyScope, asyncHandler(ext.getExtLeads))
 apiRouter.get('/ext/leads/:id', apiKeyScope, asyncHandler(ext.getExtLead))
 apiRouter.get('/ext/resumen', apiKeyScope, asyncHandler(ext.getExtResumen))
 apiRouter.get('/ext/stats', apiKeyScope, asyncHandler(ext.getExtStats))
+apiRouter.get('/ext/ingresos-por-campana', apiKeyScope, asyncHandler(ext.getExtIngresosPorCampana))
+apiRouter.get('/ext/pagos-paciente/:pacienteId', apiKeyScope, asyncHandler(ext.getExtPagosPaciente))
 
 // ── API de AGENDA que consume TuBot (contrato docs/TUBOT_AGENDA.md) ───────────
 // Autenticada por token dedicado por clínica. Paths EXACTOS del contrato (el

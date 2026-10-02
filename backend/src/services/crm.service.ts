@@ -367,6 +367,84 @@ export async function renombrarCampana(db: TenantClient, key: string, label: str
   return listarCampanas(db)
 }
 
+// ── Ingreso REAL cobrado por campaña (ROI) ──────────────────────────────────────
+// Para cada campaña (agrupada por su clave, SIN mezclar campañas): nº de leads, nº de
+// convertidos (lead.estado=CONVERTIDO) y el total COBRADO = suma de cobros PAGADO no
+// anulados de los pacientes vinculados a esos leads convertidos. "Pagó" = ≥1 cobro
+// PAGADO no anulado (misma definición que backfill-conversiones / reconciliar-vinculos).
+// El rango acota los leads por su fecha de ingreso (createdAt), igual que listarCampanas.
+// Read-only. Pensado para el MCP (ROI por campaña sin exponer montos crudos de otros).
+export async function ingresosPorCampana(db: TenantClient, f?: { desde?: string; hasta?: string }) {
+  const where: Record<string, unknown> = {}
+  if (f?.desde || f?.hasta) where.createdAt = rangoFechasUtc(f?.desde, f?.hasta)
+  const [leads, map] = await Promise.all([
+    db.lead.findMany({ where, select: { id: true, estado: true, pacienteId: true, campana: true, utmCampaign: true, landing: true } }),
+    getCampanasMap(db),
+  ])
+  // Paciente → campaña de SU lead convertido. Un paciente puede estar atado a más de un
+  // lead; los cobros se cuentan UNA sola vez y se atribuyen al primer lead convertido.
+  const campanaDePac = new Map<string, string>()
+  for (const l of leads) {
+    if (l.estado === 'CONVERTIDO' && l.pacienteId && !campanaDePac.has(l.pacienteId)) campanaDePac.set(l.pacienteId, campanaKeyDe(l))
+  }
+  const pacIds = [...campanaDePac.keys()]
+  const [cobros, trats, pacs] = await Promise.all([
+    pacIds.length ? db.cobro.findMany({ where: { pacienteId: { in: pacIds }, estado: 'PAGADO', anulado: false }, select: { pacienteId: true, monto: true, fechaPago: true, createdAt: true } }) : Promise.resolve([]),
+    pacIds.length ? db.tratamiento.findMany({ where: { estado: { not: 'CANCELADO' }, plan: { pacienteId: { in: pacIds } } }, select: { precio: true, descuento: true, plan: { select: { pacienteId: true } } } }) : Promise.resolve([]),
+    pacIds.length ? db.paciente.findMany({ where: { id: { in: pacIds } }, select: { id: true, nombre: true, apellido: true } }) : Promise.resolve([]),
+  ])
+  const porPac = new Map<string, { total: number; primera: Date | null }>()
+  for (const c of cobros) {
+    const g = porPac.get(c.pacienteId) ?? { total: 0, primera: null }
+    g.total += c.monto
+    const fp = c.fechaPago ?? c.createdAt
+    if (fp && (!g.primera || fp < g.primera)) g.primera = fp
+    porPac.set(c.pacienteId, g)
+  }
+  const planPorPac = new Map<string, number>()
+  for (const t of trats) {
+    const pid = t.plan?.pacienteId; if (!pid) continue
+    planPorPac.set(pid, (planPorPac.get(pid) ?? 0) + Math.round(t.precio * (1 - (t.descuento || 0) / 100)))
+  }
+  const nombre = new Map(pacs.map((p) => [p.id, `${p.nombre} ${p.apellido ?? ''}`.trim() || p.id.slice(-6)]))
+
+  interface Agg { key: string; label: string; leads: number; convertidos: number; total_cobrado: number; pacientes: { pacienteId: string; nombre: string; total_cobrado: number; valor_plan: number; fecha_primer_cobro: string | null }[] }
+  const porCampana = new Map<string, Agg>()
+  const get = (key: string): Agg => { let a = porCampana.get(key); if (!a) { a = { key, label: etiquetaCampana(key, map), leads: 0, convertidos: 0, total_cobrado: 0, pacientes: [] }; porCampana.set(key, a) } return a }
+  for (const l of leads) { const a = get(campanaKeyDe(l)); a.leads++; if (l.estado === 'CONVERTIDO') a.convertidos++ }
+  for (const [pid, key] of campanaDePac) {
+    const a = get(key)
+    const g = porPac.get(pid)
+    a.total_cobrado += g?.total ?? 0
+    a.pacientes.push({ pacienteId: pid, nombre: nombre.get(pid) ?? pid.slice(-6), total_cobrado: g?.total ?? 0, valor_plan: planPorPac.get(pid) ?? 0, fecha_primer_cobro: g?.primera ? g.primera.toISOString() : null })
+  }
+  const campanas = [...porCampana.values()].sort((a, b) => b.total_cobrado - a.total_cobrado || b.convertidos - a.convertidos)
+  return {
+    desde: f?.desde ?? null, hasta: f?.hasta ?? null,
+    totales: { leads: leads.length, convertidos: campanas.reduce((s, c) => s + c.convertidos, 0), total_cobrado: campanas.reduce((s, c) => s + c.total_cobrado, 0) },
+    campanas,
+  }
+}
+
+// Pagos + plan de UN paciente (read-only): total cobrado, nº de cobros, fecha del primer
+// cobro y valor del plan (netos de acciones no canceladas). Enriquece ver_lead en el MCP.
+export async function pagosDePaciente(db: TenantClient, pacienteId: string) {
+  const pac = await db.paciente.findUnique({ where: { id: pacienteId }, select: { id: true, nombre: true, apellido: true } })
+  if (!pac) throw notFound('Paciente no encontrado')
+  const [cobros, trats] = await Promise.all([
+    db.cobro.findMany({ where: { pacienteId, estado: 'PAGADO', anulado: false }, select: { monto: true, fechaPago: true, createdAt: true } }),
+    db.tratamiento.findMany({ where: { estado: { not: 'CANCELADO' }, plan: { pacienteId } }, select: { precio: true, descuento: true } }),
+  ])
+  let total = 0, primera: Date | null = null
+  for (const c of cobros) { total += c.monto; const fp = c.fechaPago ?? c.createdAt; if (fp && (!primera || fp < primera)) primera = fp }
+  const valorPlan = trats.reduce((s, t) => s + Math.round(t.precio * (1 - (t.descuento || 0) / 100)), 0)
+  return {
+    pacienteId: pac.id, nombre: `${pac.nombre} ${pac.apellido ?? ''}`.trim() || pac.id.slice(-6),
+    pago: Boolean(cobros.length), nro_cobros: cobros.length, total_cobrado: total,
+    valor_plan: valorPlan, fecha_primer_cobro: primera ? primera.toISOString() : null,
+  }
+}
+
 // `rango` (opcional, aditivo) acota el embudo por fecha de ingreso del lead
 // (createdAt). Sin rango, el comportamiento es el histórico (todos los leads):
 // el endpoint /crm/resumen sigue igual; el rango lo usa la herramienta embudo_crm.

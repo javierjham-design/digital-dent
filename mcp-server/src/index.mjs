@@ -71,6 +71,23 @@ server.tool(
   async () => asText(await api('/ext/stats')),
 )
 
+server.tool(
+  'ingresos_por_campana',
+  'ROI por campaña: ingreso REAL cobrado atribuido a cada campaña de Meta. Agrupa por campaña (sin mezclar) y devuelve, por cada una: nº de leads, nº de convertidos y total_cobrado (suma de cobros PAGADOS no anulados de los pacientes vinculados a esos leads convertidos), más el detalle por paciente (total cobrado, valor del plan, fecha del primer cobro). El rango acota los leads por su fecha de ingreso. Read-only.',
+  {
+    desde: z.string().optional().describe('fecha inicio YYYY-MM-DD (acota los leads por fecha de ingreso)'),
+    hasta: z.string().optional().describe('fecha fin YYYY-MM-DD'),
+  },
+  async (args) => asText(await api('/ext/ingresos-por-campana', args)),
+)
+
+server.tool(
+  'pagos_paciente',
+  'Pagos y plan de un paciente (por id): si pagó, nº de cobros, total cobrado, valor del plan de tratamiento y fecha del primer cobro. Útil para enriquecer ver_lead con el ingreso real del paciente vinculado. Read-only.',
+  { pacienteId: z.string().describe('id del paciente (viene en el campo pacienteId del lead convertido)') },
+  async ({ pacienteId }) => asText(await api(`/ext/pagos-paciente/${encodeURIComponent(pacienteId)}`)),
+)
+
 const transport = new StdioServerTransport()
 await server.connect(transport)
 console.error('[clariva-mcp] Servidor MCP de Cláriva listo (read-only).')

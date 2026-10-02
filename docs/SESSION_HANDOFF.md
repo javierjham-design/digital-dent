@@ -3,7 +3,27 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: Atribución CRM — email como 3ª llave + reconciliación APLICADA en prod
+## Último trabajo: ROI por campaña en el MCP + autolink desde agenda-online
+
+**Desplegado (2026-10-01).** Cierre del ciclo de ROI por campaña.
+
+- **MCP read-only (Parte A):** nuevos endpoints `GET /ext/ingresos-por-campana?desde=&hasta=`
+  (nº leads, nº convertidos, `total_cobrado` = Σ cobros PAGADO de pacientes vinculados a leads
+  convertidos, detalle por paciente) y `GET /ext/pagos-paciente/:pacienteId`, bajo el mismo
+  `apiKeyScope` que `buscar_leads`. Tools MCP `ingresos_por_campana` y `pagos_paciente`
+  (`mcp-server/src/index.mjs` + README). **El servidor MCP del cliente debe reiniciarse** para
+  ver las tools nuevas (son del paquete `mcp-server`, que corre en la máquina del cliente).
+- **Match robusto desde cualquier origen (Parte B):** `autolinkLeadAlCrearPaciente` ahora
+  corre también al crear ficha desde **agenda-online** (antes: solo ficha manual / tubot / botón
+  CRM). Email como 3ª llave + `telCanonico` robusto ya estaban. Diagnóstico `diag-pagos-sin-lead.ts`
+  separa MATCH PERDIDO / DUPLICADO / WALK-IN y lo atribuye por campaña.
+- **Dry-run histórico (digital-dent):** match perdido 0 · duplicado 4 · walk-in 89 · inequívocos 0 ·
+  dudosos 21 · backfill 0. El backlog recuperable ya estaba agotado (apply previo + cron) → **no se
+  aplicó nada** (no-op, sin backup necesario). Pendiente opcional: resolver 21 dudosos a mano,
+  de-dup de las 4 fichas duplicadas, Parte C (marcar asistencia).
+- Sin cambios de schema. Verde: typecheck · unit 158 · integración 190 · contrato 292 · lint 0.
+
+## Trabajo previo: Atribución CRM — email como 3ª llave + reconciliación APLICADA en prod
 
 **Desplegado y aplicado (2026-10-01).** Problema: pacientes de campaña Meta que pagaban no
 quedaban CONVERTIDO cuando la ficha se creaba con teléfono en otro formato o sin RUT. 

@@ -17,6 +17,13 @@ export async function getExtResumen(req: Request, res: Response) {
 export async function getExtStats(req: Request, res: Response) {
   res.json(await ext.estadisticasPlataforma(tenantDb(req)))
 }
+export async function getExtIngresosPorCampana(req: Request, res: Response) {
+  const { desde, hasta } = req.query as Record<string, string | undefined>
+  res.json(await crmSvc.ingresosPorCampana(tenantDb(req), { desde, hasta }))
+}
+export async function getExtPagosPaciente(req: Request, res: Response) {
+  res.json(await crmSvc.pagosDePaciente(tenantDb(req), req.params.pacienteId))
+}
 
 // ── Gestión de la API key (admin de la clínica → adminTenant, req.clinica del JWT) ──
 export async function getApiKey(req: Request, res: Response) {

@@ -15,6 +15,8 @@ leads del CRM y las estadísticas de tu clínica en Cláriva.
 | `ver_lead` | Detalle de un lead + tracking + notas. |
 | `resumen_crm` | Embudo del CRM: totales por estado y por origen. |
 | `estadisticas_plataforma` | Pacientes, citas (hoy / próximos 7 días) y leads. |
+| `ingresos_por_campana` | ROI por campaña: nº leads, nº convertidos e **ingreso real cobrado** (cobros PAGADOS) atribuido a cada campaña, con detalle por paciente (total cobrado, valor del plan, fecha del primer cobro). Filtros `desde`/`hasta`. |
+| `pagos_paciente` | Pagos y plan de un paciente por id: nº de cobros, total cobrado, valor del plan y fecha del primer cobro (enriquece `ver_lead`). |
 
 ## Requisitos
 

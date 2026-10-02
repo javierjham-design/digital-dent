@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-10-01 — ROI por campaña en el MCP + autolink desde agenda-online (cierre del ciclo)
+
+Cerrar el ciclo de ROI: exponer el INGRESO REAL cobrado por campaña por MCP (read-only) y
+que el match lead↔paciente corra desde CUALQUIER origen de alta, no solo el botón del CRM.
+
+- **Parte A — ingresos reales por campaña (read-only):**
+  - `crm.service.ts`: `ingresosPorCampana(db, {desde,hasta})` agrupa por campaña (sin mezclar):
+    nº leads, nº convertidos y `total_cobrado` = Σ cobros PAGADO no anulados de los pacientes
+    vinculados a esos leads convertidos + detalle por paciente (total cobrado, valor del plan,
+    fecha del primer cobro). `pagosDePaciente(db, id)` = pagos+plan de un paciente.
+  - Endpoints `GET /ext/ingresos-por-campana` y `GET /ext/pagos-paciente/:pacienteId` bajo el
+    mismo `apiKeyScope` (API key por clínica, read-only) que ya sirve a `buscar_leads`.
+  - MCP (`mcp-server/src/index.mjs`): tools `ingresos_por_campana` y `pagos_paciente` + README.
+- **Parte B — match robusto desde cualquier origen:**
+  - Email como 3ª llave (+ `telCanonico` robusto) ya estaba (entrada previa). `buscarLeadParaReserva`
+    de agenda-online ya normaliza tel/email pero se limita a leads ≤180 d; se agregó
+    `autolinkLeadAlCrearPaciente` al crear la ficha desde **agenda-online** (antes solo corría
+    en ficha manual / tubot / botón del CRM) → engancha también leads huérfanos viejos. Best-effort.
+  - Diagnóstico `diag-pagos-sin-lead.ts` mejorado: separa (a) MATCH PERDIDO (lead libre con su
+    tel/correo, recuperable) vs (b) DUPLICADO vs (c) WALK-IN real, y atribuye el match perdido
+    **por campaña** con monto cobrado.
+- **Dry-run sobre TODO el histórico (digital-dent):** MATCH PERDIDO **0** · DUPLICADO 4 ·
+  WALK-IN real **89** · reconciliar inequívocos **0** · dudosos **21** · backfill **0**. El backlog
+  recuperable quedó agotado por el apply anterior + el cron de 12 h → **--apply es no-op** (nada que
+  escribir, sin backup). Los 21 dudosos (tel de familia) se resuelven a mano desde el aviso de la ficha.
+- **Sin cambios de schema** (no requiere `tenant:initsql`/`migrate:tenants`).
+- Verde: typecheck · unit (158) · integración (190, +2 `crm-ingresos-campana`) · contrato (292) · lint 0.
+
 ## 2026-10-01 — Atribución CRM: email como 3ª llave + match al cobrar + reconciliación (aplicado en prod)
 
 Pacientes de campaña Meta que pagaban no quedaban marcados CONVERTIDO cuando la ficha se
