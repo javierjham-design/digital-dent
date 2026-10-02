@@ -43,7 +43,7 @@ async function main() {
 
     const pacs = await db.paciente.findMany({ where: { id: { in: sinLead } }, select: { id: true, telefono: true, email: true, rut: true } })
     let conTel = 0, conEmail = 0, conRut = 0
-    let matchPerdido = 0, matchPerdidoPago = 0, duplicado = 0, walkIn = 0
+    let matchPerdido = 0, duplicado = 0, walkIn = 0
     let cobradoMatchPerdido = 0
     const perdidoPorCampana = new Map<string, { n: number; cobrado: number }>()
     for (const p of pacs) {
@@ -54,7 +54,7 @@ async function main() {
       const campanaLibre = gt?.libre ? gt.campanaLibre : (ge?.libre ? ge.campanaLibre : null)
       const cobrado = cobradoPorPac.get(p.id) ?? 0
       if (gt?.libre || ge?.libre) {
-        matchPerdido++; matchPerdidoPago++; cobradoMatchPerdido += cobrado
+        matchPerdido++; cobradoMatchPerdido += cobrado
         const key = campanaLibre ?? '(Sin campaña)'
         const g = perdidoPorCampana.get(key) ?? { n: 0, cobrado: 0 }
         g.n++; g.cobrado += cobrado; perdidoPorCampana.set(key, g)

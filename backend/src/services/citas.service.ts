@@ -8,6 +8,8 @@ import { enviarConfirmacionHora } from '@/services/email.service'
 import { assertDentroDeAtencion } from '@/lib/atencion'
 import { conTitulo } from '@shared/utils/nombre'
 import { emitirEventoCita } from '@/lib/tubot-webhooks'
+import { CLINIC_TZ, todayYmd, rangoFechasUtc } from '@/lib/tz'
+import { log, serializeError } from '@/lib/logger'
 
 // Database-per-tenant: cada función recibe el cliente de la base de la clínica.
 // La sincronización con Google es best-effort (fire-and-forget): nunca debe
@@ -277,4 +279,33 @@ export async function cambiarEstadoCita(db: TenantClient, id: string, estado: st
     : 'appointment.updated'
   void emitirEventoCita(db, evento, cita.id)
   return toDTO(cita)
+}
+
+// Estados previos a la asistencia: desde ellos una actividad que prueba que el paciente vino
+// (un pago presencial) permite inferir ATENDIDA. No se tocan ATENDIDA/NO_ASISTIO/CANCELADA.
+const ESTADOS_PRE_ASISTENCIA = ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO', 'EN_ESPERA', 'EN_ATENCION']
+
+// Marca ATENDIDA (asistencia) de forma PASIVA la cita del paciente del MISMO día que una
+// actividad que prueba que asistió (hoy: un pago presencial). Así el show-rate y el costo por
+// paciente atendido dejan de depender de que alguien mueva el estado a mano. A diferencia de
+// cambiarEstadoCita, NO dispara webhooks de TuBot ni push a Google: es una inferencia interna,
+// no una acción del operador. Best-effort: nunca rompe la operación que la invoca.
+export async function marcarAsistenciaPorActividad(db: TenantClient, pacienteId: string, fecha: Date, motivo: string): Promise<boolean> {
+  try {
+    const ymd = todayYmd(CLINIC_TZ, fecha)
+    const { gte, lte } = rangoFechasUtc(ymd, ymd)
+    const cita = await db.cita.findFirst({
+      where: { pacienteId, estado: { in: ESTADOS_PRE_ASISTENCIA }, fecha: { gte, lte } },
+      orderBy: { fecha: 'asc' }, select: { id: true },
+    })
+    if (!cita) return false
+    await db.cita.update({
+      where: { id: cita.id },
+      data: { estado: 'ATENDIDA', logs: { create: { tipo: 'ESTADO', detalle: `Asistencia inferida automáticamente (${motivo})`, userName: 'Sistema' } } },
+    })
+    return true
+  } catch (e) {
+    log.error('citas: marcarAsistenciaPorActividad falló', { pacienteId, err: serializeError(e) })
+    return false
+  }
 }

@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-10-01 — Asistencia inferida por pago (show-rate / costo por paciente atendido)
+
+Parte C del ROI: la asistencia (estado de cita `ATENDIDA`) casi nunca se marcaba a mano, así
+que no había show-rate ni costo-por-atendido confiables. Ahora un **pago presencial** la infiere.
+- `citas.service.ts`: `marcarAsistenciaPorActividad(db, pacienteId, fecha, motivo)` — marca
+  ATENDIDA la cita del paciente del MISMO día (TZ clínica) si está en un estado pre-asistencia
+  (PENDIENTE/CONFIRMADA/CONFIRMADO/EN_ESPERA/EN_ATENCION). Nunca pisa ATENDIDA/NO_ASISTIO/
+  CANCELADA ni citas de otro día. Es PASIVA: a diferencia de `cambiarEstadoCita`, **no dispara**
+  el webhook `appointment.attendance` de TuBot ni el push a Google (es una inferencia interna,
+  no una acción del operador). Best-effort: nunca rompe el cobro.
+- `cobros.service.ts` (`registrarCobro`, pago presencial): la llama tras `marcarConvertidoPorCobro`.
+  El pago online (Flow) NO la dispara (pagar un abono no prueba asistencia ese día).
+- Alimenta la métrica `citas_atendidas` del asistente → show-rate = atendidas/agendadas y
+  costo por paciente atendido = inversión / atendidas, sin tocar el schema.
+- Verde: typecheck · unit (158) · integración (193, +3 `cita-asistencia`) · contrato (292) · lint 0.
+
 ## 2026-10-01 — ROI por campaña en el MCP + autolink desde agenda-online (cierre del ciclo)
 
 Cerrar el ciclo de ROI: exponer el INGRESO REAL cobrado por campaña por MCP (read-only) y

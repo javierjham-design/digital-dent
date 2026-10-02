@@ -6,6 +6,7 @@ import { audit } from '@/lib/audit'
 import { crearLinkParaCobro, type ResultadoLinkPago } from '@/services/pagos-online.service'
 import { aplicarAbonoLibreAAccion } from '@/services/tratamientos.service'
 import { marcarConvertidoPorCobro } from '@/services/crm.service'
+import { marcarAsistenciaPorActividad } from '@/services/citas.service'
 import { siguienteNumero } from '@/lib/correlativo'
 
 const ESTADOS = ['PENDIENTE', 'PAGADO', 'PARCIAL', 'ANULADO']
@@ -295,6 +296,10 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
   // CONVERTIDO. El helper NUNCA lanza ni bloquea con Meta (la emisión va en background), así que
   // awaitearlo deja el estado consistente sin poner en riesgo el registro del cobro.
   await marcarConvertidoPorCobro(db, input.pacienteId, actorName(actor))
+  // Asistencia: un pago presencial prueba que el paciente vino → marca ATENDIDA su cita del
+  // día (pasivo, sin webhooks). Alimenta el show-rate y el costo por paciente atendido sin
+  // depender de que alguien mueva el estado a mano. Best-effort (no rompe el cobro).
+  await marcarAsistenciaPorActividad(db, input.pacienteId, fechaPago, `pago #${nuevo.numero}`)
   return nuevo
 }
 

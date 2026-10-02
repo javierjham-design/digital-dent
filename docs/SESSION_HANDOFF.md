@@ -19,9 +19,13 @@
   separa MATCH PERDIDO / DUPLICADO / WALK-IN y lo atribuye por campaña.
 - **Dry-run histórico (digital-dent):** match perdido 0 · duplicado 4 · walk-in 89 · inequívocos 0 ·
   dudosos 21 · backfill 0. El backlog recuperable ya estaba agotado (apply previo + cron) → **no se
-  aplicó nada** (no-op, sin backup necesario). Pendiente opcional: resolver 21 dudosos a mano,
-  de-dup de las 4 fichas duplicadas, Parte C (marcar asistencia).
-- Sin cambios de schema. Verde: typecheck · unit 158 · integración 190 · contrato 292 · lint 0.
+  aplicó nada** (no-op, sin backup necesario). Pendiente: resolver 21 dudosos a mano,
+  de-dup de las 4 fichas duplicadas.
+- **Parte C (asistencia) HECHA:** `marcarAsistenciaPorActividad` (`citas.service.ts`) marca ATENDIDA
+  la cita del día cuando se registra un **pago presencial** (`cobros.service.ts`), de forma pasiva
+  (sin webhooks TuBot/Google). Pago online Flow NO la dispara. Alimenta show-rate y costo-por-atendido
+  vía la métrica `citas_atendidas`. Solo promueve desde estados pre-asistencia; no pisa NO_ASISTIO.
+- Sin cambios de schema. Verde: typecheck · unit 158 · integración 193 · contrato 292 · lint 0.
 
 ## Trabajo previo: Atribución CRM — email como 3ª llave + reconciliación APLICADA en prod
 
