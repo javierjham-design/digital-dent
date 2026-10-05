@@ -49,6 +49,9 @@ model Configuracion {
   // TuBot; Cláriva EMITE los eventos y controla qué flujo está encendido. Ver docs/TUBOT_AGENDA.md.
   automatizacionesEnabled   Boolean @default(false) // MAESTRO: si está apagado, Cláriva no emite NINGÚN evento a TuBot
   recordatoriosEnabled      Boolean @default(true)  // confirmaciones de hora (recordatorios); TuBot respeta este flag del payload
+  recordatorioHora1         String  @default("12:00") // hora (HH:MM) del 1er recordatorio, el día anterior
+  recordatorio2Enabled      Boolean @default(true)  // enviar una 2ª reconfirmación (insistencia) si no respondió
+  recordatorioHora2         String  @default("18:00") // hora (HH:MM) del 2º recordatorio, el día anterior
   recapturaNoShowEnabled    Boolean @default(false) // "no asistió a la evaluación" → motivar reagendar (gatea la emisión del no_show)
   waTemplateRecapturaNoShow String?
   recapturaTratEnabled      Boolean @default(false) // "asistió pero no tomó el tratamiento" → motivar iniciarlo

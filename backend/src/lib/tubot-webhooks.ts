@@ -22,7 +22,7 @@ export const ESTADO_A_STATUS: Record<string, string> = {
   ATENDIDA: 'completed', NO_ASISTIO: 'no_show', CANCELADA: 'cancelled',
 }
 
-const CFG_SEL = { agendaWhEnabled: true, agendaWhConnectionId: true, agendaWhSecret: true, automatizacionesEnabled: true, recordatoriosEnabled: true, recapturaNoShowEnabled: true } as const
+const CFG_SEL = { agendaWhEnabled: true, agendaWhConnectionId: true, agendaWhSecret: true, automatizacionesEnabled: true, recordatoriosEnabled: true, recapturaNoShowEnabled: true, recordatorioHora1: true, recordatorio2Enabled: true, recordatorioHora2: true } as const
 
 // Selección de cita ENRIQUECIDA (con profesional) — forma canónica del appointment
 // del contrato, compartida por el listado (GET /appointments) y los webhooks.
@@ -91,7 +91,16 @@ export async function emitirEventoCita(db: TenantClient, event: WebhookEvent, ci
     if (event === 'appointment.attendance' && c.estado === 'NO_ASISTIO' && !cfg.recapturaNoShowEnabled) return
     const slug = getRequestContext()?.slug ?? ''
     const attended = event === 'appointment.attendance' ? c.estado === 'ATENDIDA' : undefined
-    const data = { ...citaToAppointment(c as CitaFullRow, { slug, clinicName: cfg.nombre ?? undefined, attended }), remindersEnabled: cfg.recordatoriosEnabled }
+    const data = {
+      ...citaToAppointment(c as CitaFullRow, { slug, clinicName: cfg.nombre ?? undefined, attended }),
+      remindersEnabled: cfg.recordatoriosEnabled, // compat: flag simple que TuBot ya respeta
+      // Config de recordatorios (día anterior) para que TuBot agende las horas exactas:
+      reminders: {
+        enabled: cfg.recordatoriosEnabled,
+        first: { time: cfg.recordatorioHora1 },
+        second: { enabled: cfg.recordatorio2Enabled, time: cfg.recordatorioHora2 },
+      },
+    }
     await sendSigned(cfg, event, data)
   } catch { /* best-effort: los webhooks nunca hacen fallar la operación primaria */ }
 }

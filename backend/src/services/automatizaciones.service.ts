@@ -8,6 +8,7 @@ import { badRequest } from '@/lib/errors'
 const SELECT = {
   agendaWhEnabled: true, agendaWhConnectionId: true,
   automatizacionesEnabled: true, recordatoriosEnabled: true,
+  recordatorioHora1: true, recordatorio2Enabled: true, recordatorioHora2: true,
   recapturaNoShowEnabled: true, recapturaTratEnabled: true,
   noShowAutoHoras: true, recapturaDiasPerdido: true, recapturaTratDias: true,
 } as const
@@ -18,7 +19,12 @@ export async function getAutomatizaciones(db: TenantClient) {
   return {
     tubotConectado,
     maestroActivo: Boolean(c?.automatizacionesEnabled),
-    confirmaciones: { activo: c?.recordatoriosEnabled ?? true },
+    confirmaciones: {
+      activo: c?.recordatoriosEnabled ?? true,
+      hora1: c?.recordatorioHora1 ?? '12:00',
+      segundaActiva: c?.recordatorio2Enabled ?? true,
+      hora2: c?.recordatorioHora2 ?? '18:00',
+    },
     noShow: { activo: Boolean(c?.recapturaNoShowEnabled), horasAuto: c?.noShowAutoHoras ?? 3, diasPerdido: c?.recapturaDiasPerdido ?? 5 },
     tratamiento: { activo: Boolean(c?.recapturaTratEnabled), diasEspera: c?.recapturaTratDias ?? 3 },
   }
@@ -28,6 +34,14 @@ const entero = (v: unknown, min: number, max: number, campo: string): number => 
   const n = Number(v)
   if (!Number.isInteger(n) || n < min || n > max) throw badRequest(`${campo} debe ser un entero entre ${min} y ${max}`)
   return n
+}
+
+// HH:MM válido (00:00–23:59). Devuelve minutos del día para comparar.
+const horaAMin = (v: unknown, campo: string): number => {
+  const s = String(v ?? '').trim()
+  const m = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(s)
+  if (!m) throw badRequest(`${campo} debe tener formato HH:MM (ej. 12:00)`)
+  return Number(m[1]) * 60 + Number(m[2])
 }
 
 export async function putAutomatizaciones(db: TenantClient, body: Record<string, unknown>) {
@@ -47,6 +61,20 @@ export async function putAutomatizaciones(db: TenantClient, body: Record<string,
   if (body.confirmacionesActivo != null) data.recordatoriosEnabled = Boolean(body.confirmacionesActivo)
   if (body.noShowActivo != null) data.recapturaNoShowEnabled = Boolean(body.noShowActivo)
   if (body.tratamientoActivo != null) data.recapturaTratEnabled = Boolean(body.tratamientoActivo)
+  // Horarios de confirmación (día anterior) + 2ª reconfirmación. La 2ª debe ser POSTERIOR a la 1ª.
+  if (body.segundaActiva != null) data.recordatorio2Enabled = Boolean(body.segundaActiva)
+  const dioHora1 = body.hora1 != null && String(body.hora1) !== ''
+  const dioHora2 = body.hora2 != null && String(body.hora2) !== ''
+  if (dioHora1 || dioHora2) {
+    const cur = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { recordatorioHora1: true, recordatorioHora2: true } })
+    const h1 = dioHora1 ? String(body.hora1).trim() : (cur?.recordatorioHora1 ?? '12:00')
+    const h2 = dioHora2 ? String(body.hora2).trim() : (cur?.recordatorioHora2 ?? '18:00')
+    const min1 = horaAMin(h1, 'La hora del 1er recordatorio')
+    const min2 = horaAMin(h2, 'La hora del 2º recordatorio')
+    if (min2 <= min1) throw badRequest('La 2ª reconfirmación debe ser a una hora posterior a la primera.')
+    if (dioHora1) data.recordatorioHora1 = h1
+    if (dioHora2) data.recordatorioHora2 = h2
+  }
   // Tiempos de detección.
   if (body.noShowHorasAuto != null && String(body.noShowHorasAuto) !== '') {
     data.noShowAutoHoras = entero(body.noShowHorasAuto, 1, 72, 'Las horas para marcar no-show automático')

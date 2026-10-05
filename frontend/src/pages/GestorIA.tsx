@@ -38,6 +38,9 @@ export function GestorIA() {
       const upd = await automatizacionesService.guardar({
         maestroActivo: a.maestroActivo,
         confirmacionesActivo: a.confirmaciones.activo,
+        hora1: a.confirmaciones.hora1,
+        segundaActiva: a.confirmaciones.segundaActiva,
+        hora2: a.confirmaciones.hora2,
         noShowActivo: a.noShow.activo,
         tratamientoActivo: a.tratamiento.activo,
         noShowHorasAuto: a.noShow.horasAuto,
@@ -83,9 +86,31 @@ export function GestorIA() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-base font-semibold text-slate-800">Confirmaciones de hora</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Recordatorio por WhatsApp el día anterior a las <span className="font-medium">12:00</span>, y una insistencia a las <span className="font-medium">18:00 solo si el paciente no respondió</span>. Al responder, el asistente confirma o reagenda.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Recordatorio por WhatsApp el día anterior a la cita. Al responder, el asistente confirma o reagenda.</p>
           </div>
           <Switch on={a.confirmaciones.activo} onChange={(v) => set({ confirmaciones: { ...a.confirmaciones, activo: v } })} />
+        </div>
+        <div className="mt-3 space-y-3">
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            1er recordatorio el día anterior a las
+            <input type="time" disabled={off} value={a.confirmaciones.hora1} onChange={(e) => set({ confirmaciones: { ...a.confirmaciones, hora1: e.target.value } })}
+              className="px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-50 disabled:text-slate-400" />
+          </label>
+          <div className="rounded-xl border border-slate-100 p-3">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-slate-800">2ª reconfirmación si no responde</p>
+                <p className="text-xs text-slate-500 mt-0.5">Un segundo mensaje —con un <span className="font-medium">texto distinto de insistencia</span> (p. ej. avisando que el cupo puede liberarse si no confirma)— solo a quien <span className="font-medium">no respondió</span> al primero.</p>
+              </div>
+              <Switch on={a.confirmaciones.segundaActiva} disabled={off} onChange={(v) => set({ confirmaciones: { ...a.confirmaciones, segundaActiva: v } })} />
+            </div>
+            <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+              Enviarla a las
+              <input type="time" disabled={off || !a.confirmaciones.segundaActiva} value={a.confirmaciones.hora2} onChange={(e) => set({ confirmaciones: { ...a.confirmaciones, hora2: e.target.value } })}
+                className="px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-50 disabled:text-slate-400" />
+              del día anterior
+            </label>
+          </div>
         </div>
       </section>
 

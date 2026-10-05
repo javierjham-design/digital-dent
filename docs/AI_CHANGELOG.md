@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-10-05 — Gestor de IA: horarios de confirmación configurables + 2ª reconfirmación
+
+Sobre el Gestor de IA: los **horarios** de los recordatorios y la **2ª reconfirmación** ahora se
+configuran por clínica desde el mismo panel.
+- Schema aditivo: `recordatorioHora1` (def "12:00"), `recordatorio2Enabled` (def true), `recordatorioHora2`
+  (def "18:00"). Validación HH:MM + R2 posterior a R1.
+- `emitirEventoCita` envía en el payload `reminders: { enabled, first:{time}, second:{enabled,time} }` (además
+  del `remindersEnabled` de compat) para que TuBot agende las horas exactas y el 2º envío.
+- UI `GestorIA.tsx`: inputs de hora (type=time) del 1er recordatorio + toggle "2ª reconfirmación si no
+  responde" con su hora; el 2º mensaje usa la plantilla de insistencia (texto distinto, p. ej. aviso de que
+  el cupo puede liberarse). La acción de mover a sobrecupo sigue siendo fase futura.
+- Addendum TuBot §1.4 (`conversia/docs/PEDIDO_TUBOT_CIERRE_AGENDAMIENTO.md`): leer horarios/R2 del payload.
+- Verde: typecheck (back+front) · unit 158 · integración 203 · contrato 296 · lint 0.
+
 ## 2026-10-05 — Gestor de IA (clínica): panel de control de la automatización conversacional
 
 Configurador clínico (Gestión → **Gestor de IA**, distinto del Asistente de IA) para encender/apagar y
