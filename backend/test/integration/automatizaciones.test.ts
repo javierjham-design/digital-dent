@@ -3,6 +3,7 @@ import { seedDosClinicas, type TenantFixture } from './seed'
 import { tenantClient } from './tenant-test'
 import { control } from './control-test'
 import { getAutomatizaciones, putAutomatizaciones } from '@/services/automatizaciones.service'
+import { guardarTemplates } from '@/services/tubot-agenda.service'
 
 // Gestor de IA (clínica): maestro + flujos (confirmaciones / recaptura no-show / tratamiento) +
 // tiempos de detección. El maestro no se puede encender sin TuBot conectado.
@@ -49,5 +50,31 @@ describe('gestor de IA / automatizaciones', () => {
     await expect(putAutomatizaciones(db, { noShowHorasAuto: 999 })).rejects.toThrow()
     await expect(putAutomatizaciones(db, { hora1: '25:00' })).rejects.toThrow(/HH:MM/)
     await expect(putAutomatizaciones(db, { hora1: '18:00', hora2: '12:00' })).rejects.toThrow(/posterior/)
+  })
+
+  it('selección de plantilla por flujo: solo acepta una de las sincronizadas', async () => {
+    const db = tenantClient(A.dbName)
+    await db.configuracion.update({ where: { id: 'singleton' }, data: { tubotTemplates: JSON.stringify([{ name: 'recordatorio_cita', variables: 4 }, { name: 'recaptura_noshow', variables: 2 }]) } })
+    const base = await getAutomatizaciones(db)
+    expect(base.plantillasDisponibles.map((p) => p.name)).toContain('recordatorio_cita')
+    const upd = await putAutomatizaciones(db, { plantillaRecordatorio: 'recordatorio_cita', plantillaNoShow: 'recaptura_noshow' })
+    expect(upd.confirmaciones.plantilla).toBe('recordatorio_cita')
+    expect(upd.noShow.plantilla).toBe('recaptura_noshow')
+    await expect(putAutomatizaciones(db, { plantillaRecordatorio: 'no_existe' })).rejects.toThrow(/aprobadas/)
+  })
+
+  it('TuBot sincroniza plantillas: cachea solo las APPROVED y las deja disponibles', async () => {
+    const db = tenantClient(A.dbName)
+    const r = await guardarTemplates(db, [
+      { name: 'recordatorio_cita', status: 'APPROVED', variables: 4 },
+      { name: 'pendiente_x', status: 'PENDING' },
+      { name: 'recaptura_tratamiento', status: 'APPROVED', variables: 2 },
+    ])
+    expect(r.guardadas).toBe(2)
+    const { plantillasDisponibles } = await getAutomatizaciones(db)
+    const nombres = plantillasDisponibles.map((p) => p.name)
+    expect(nombres).toContain('recordatorio_cita')
+    expect(nombres).toContain('recaptura_tratamiento')
+    expect(nombres).not.toContain('pendiente_x')
   })
 })

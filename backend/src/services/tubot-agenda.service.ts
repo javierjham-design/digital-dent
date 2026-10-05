@@ -11,6 +11,26 @@ import { encryptNullable } from '@/lib/crypto'
 import { citaToAppointment, CITA_FULL_SEL, type CitaFullRow } from '@/lib/tubot-webhooks'
 import { validarRut, formatRut } from '@shared/utils/rut'
 
+// TuBot sincroniza las plantillas de WhatsApp de la org → se guardan en Configuracion (JSON)
+// para que el Gestor de IA arme el selector de plantilla por flujo. Solo se cachean las APPROVED.
+export async function guardarTemplates(db: TenantClient, templatesRaw: unknown) {
+  const arr = Array.isArray(templatesRaw) ? templatesRaw : []
+  const norm = arr
+    .map((t) => (t && typeof t === 'object' ? t as Record<string, unknown> : {}))
+    .filter((t) => typeof t.name === 'string' && (t.status == null || String(t.status).toUpperCase() === 'APPROVED'))
+    .map((t) => ({
+      name: String(t.name),
+      language: t.language != null ? String(t.language) : 'es',
+      category: t.category != null ? String(t.category) : null,
+      variables: Number.isFinite(Number(t.variables)) ? Number(t.variables) : null,
+    }))
+  // Dedup por nombre (la última gana).
+  const porNombre = new Map(norm.map((t) => [t.name, t]))
+  const lista = [...porNombre.values()]
+  await db.configuracion.update({ where: { id: 'singleton' }, data: { tubotTemplates: JSON.stringify(lista) } })
+  return { ok: true, guardadas: lista.length }
+}
+
 // Adaptadores del modelo de Cláriva al CONTRATO de TuBot (docs/TUBOT_AGENDA.md).
 // Cada token = una clínica (un tenant); Cláriva no tiene "múltiples sedes", así que
 // `clinicId` == el slug de la clínica. Lectura de catálogo (Fase 1) + disponibilidad (Fase 2).

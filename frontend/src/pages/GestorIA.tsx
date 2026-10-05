@@ -41,6 +41,10 @@ export function GestorIA() {
         hora1: a.confirmaciones.hora1,
         segundaActiva: a.confirmaciones.segundaActiva,
         hora2: a.confirmaciones.hora2,
+        plantillaRecordatorio: a.confirmaciones.plantilla,
+        plantillaInsistencia: a.confirmaciones.plantillaInsistencia,
+        plantillaNoShow: a.noShow.plantilla,
+        plantillaTratamiento: a.tratamiento.plantilla,
         noShowActivo: a.noShow.activo,
         tratamientoActivo: a.tratamiento.activo,
         noShowHorasAuto: a.noShow.horasAuto,
@@ -58,6 +62,18 @@ export function GestorIA() {
   const num = (v: string) => (v === '' ? 0 : Number(v))
   const inp = 'w-24 px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-50 disabled:text-slate-400'
   const off = !a.maestroActivo
+  const sinPlantillas = a.plantillasDisponibles.length === 0
+
+  const plantillaSelect = (label: string, value: string | null, onChange: (v: string | null) => void, disabled?: boolean) => (
+    <label className="block mt-2">
+      <span className="block text-xs text-slate-500 mb-1">{label}</span>
+      <select disabled={disabled} value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}
+        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-50 disabled:text-slate-400">
+        <option value="">— Elegir plantilla —</option>
+        {a.plantillasDisponibles.map((p) => <option key={p.name} value={p.name}>{p.name}{p.variables != null ? ` · ${p.variables} var.` : ''}</option>)}
+      </select>
+    </label>
+  )
 
   return (
     <div className="max-w-2xl">
@@ -68,6 +84,11 @@ export function GestorIA() {
       <div className={`mb-4 text-sm px-3 py-2 rounded-xl border ${a.tubotConectado ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
         {a.tubotConectado ? '✓ Conexión con TuBot lista.' : '⚠ TuBot aún no está conectado. Pídele al equipo de Cláriva que lo active para poder encender las automatizaciones.'}
       </div>
+      {a.tubotConectado && sinPlantillas && (
+        <div className="mb-4 text-sm px-3 py-2 rounded-xl border bg-sky-50 border-sky-200 text-sky-700">
+          Aún no hay plantillas de WhatsApp sincronizadas. Se cargan solas cuando se aprueban en Meta y TuBot las sincroniza; recarga esta pantalla cuando estén listas para elegirlas por flujo.
+        </div>
+      )}
 
       {/* Maestro */}
       <section className="bg-white rounded-2xl border border-slate-200 p-4 mb-4">
@@ -96,6 +117,7 @@ export function GestorIA() {
             <input type="time" disabled={off} value={a.confirmaciones.hora1} onChange={(e) => set({ confirmaciones: { ...a.confirmaciones, hora1: e.target.value } })}
               className="px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-50 disabled:text-slate-400" />
           </label>
+          {plantillaSelect('Plantilla del 1er recordatorio', a.confirmaciones.plantilla, (v) => set({ confirmaciones: { ...a.confirmaciones, plantilla: v } }), off)}
           <div className="rounded-xl border border-slate-100 p-3">
             <div className="flex items-start justify-between gap-4">
               <div>
@@ -110,6 +132,7 @@ export function GestorIA() {
                 className="px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-50 disabled:text-slate-400" />
               del día anterior
             </label>
+            {plantillaSelect('Plantilla de la insistencia (texto distinto)', a.confirmaciones.plantillaInsistencia, (v) => set({ confirmaciones: { ...a.confirmaciones, plantillaInsistencia: v } }), off || !a.confirmaciones.segundaActiva)}
           </div>
         </div>
       </section>
@@ -131,6 +154,7 @@ export function GestorIA() {
             Pasar a “Perdido” tras <input className={inp} disabled={off} inputMode="numeric" value={a.noShow.diasPerdido} onChange={(e) => set({ noShow: { ...a.noShow, diasPerdido: num(e.target.value) } })} /> días sin reagendar
           </label>
         </div>
+        {plantillaSelect('Plantilla del mensaje de recaptura', a.noShow.plantilla, (v) => set({ noShow: { ...a.noShow, plantilla: v } }), off)}
       </section>
 
       {/* Recaptura de tratamiento */}
@@ -145,6 +169,7 @@ export function GestorIA() {
         <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
           Avisar tras <input className={inp} disabled={off} inputMode="numeric" value={a.tratamiento.diasEspera} onChange={(e) => set({ tratamiento: { ...a.tratamiento, diasEspera: num(e.target.value) } })} /> días desde la evaluación
         </label>
+        {plantillaSelect('Plantilla del mensaje de recaptura', a.tratamiento.plantilla, (v) => set({ tratamiento: { ...a.tratamiento, plantilla: v } }), off)}
       </section>
 
       <p className="text-[11px] text-slate-400 mb-3">Los textos de los mensajes, la hora exacta de envío y el comportamiento del asistente se gestionan en TuBot. Acá controlas qué está encendido y los tiempos de detección.</p>

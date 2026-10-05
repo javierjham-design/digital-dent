@@ -5,6 +5,24 @@
 
 ---
 
+## 2026-10-05 — Gestor de IA: selección de plantilla por flujo (dropdown con las APPROVED de WABA)
+
+La clínica elige, desde el Gestor de IA, qué plantilla de WhatsApp usa cada flujo (confirmación,
+insistencia, recaptura no-show, recaptura tratamiento) con un **dropdown de las plantillas APPROVED reales**.
+Como la WABA vive en TuBot, TuBot las empuja a Cláriva por la conexión de agenda existente (token `tbk_`,
+sin credencial nueva) y Cláriva las cachea.
+- Schema aditivo: `waTemplateRecordatorio`, `waTemplateRecordInsist`, `tubotTemplates` (JSON cache).
+  (no-show/tratamiento reusan `waTemplateRecapturaNoShow`/`Trat`.)
+- Endpoint `PUT /tubot/templates` (tubotScope/tbk_, `tubot-agenda.service.guardarTemplates`): TuBot sincroniza
+  sus plantillas; Cláriva guarda solo las APPROVED (dedup por nombre).
+- `automatizaciones.service`: get expone `plantillasDisponibles` + la plantilla elegida por flujo; put valida
+  que la selección esté entre las sincronizadas. UI `GestorIA.tsx`: dropdown por flujo (+ aviso si no hay
+  plantillas sincronizadas aún).
+- `emitirEventoCita`/`emitirTreatmentPending` mandan el nombre de plantilla por flujo en el payload
+  (`reminders.first/second.templateName`, `recapturaTemplate`, `templateName`) para que TuBot envíe la correcta.
+- Addendum TuBot §1.5: push de plantillas + `send_template` por nombre del payload.
+- Verde: typecheck (back+front) · unit 158 · integración 205 · contrato 297 · lint 0.
+
 ## 2026-10-05 — Gestor de IA: horarios de confirmación configurables + 2ª reconfirmación
 
 Sobre el Gestor de IA: los **horarios** de los recordatorios y la **2ª reconfirmación** ahora se

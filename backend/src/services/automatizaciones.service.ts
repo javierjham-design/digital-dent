@@ -11,22 +11,34 @@ const SELECT = {
   recordatorioHora1: true, recordatorio2Enabled: true, recordatorioHora2: true,
   recapturaNoShowEnabled: true, recapturaTratEnabled: true,
   noShowAutoHoras: true, recapturaDiasPerdido: true, recapturaTratDias: true,
+  waTemplateRecordatorio: true, waTemplateRecordInsist: true,
+  waTemplateRecapturaNoShow: true, waTemplateRecapturaTrat: true, tubotTemplates: true,
 } as const
+
+interface PlantillaTubot { name: string; language?: string; category?: string | null; variables?: number | null }
+function parsePlantillas(json: string | null | undefined): PlantillaTubot[] {
+  if (!json) return []
+  try { const o = JSON.parse(json); return Array.isArray(o) ? o as PlantillaTubot[] : [] } catch { return [] }
+}
 
 export async function getAutomatizaciones(db: TenantClient) {
   const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: SELECT })
   const tubotConectado = Boolean(c?.agendaWhEnabled && c?.agendaWhConnectionId)
+  const plantillasDisponibles = parsePlantillas(c?.tubotTemplates)
   return {
     tubotConectado,
+    plantillasDisponibles, // [{name, language, category, variables}] APPROVED, sincronizadas desde TuBot
     maestroActivo: Boolean(c?.automatizacionesEnabled),
     confirmaciones: {
       activo: c?.recordatoriosEnabled ?? true,
       hora1: c?.recordatorioHora1 ?? '12:00',
       segundaActiva: c?.recordatorio2Enabled ?? true,
       hora2: c?.recordatorioHora2 ?? '18:00',
+      plantilla: c?.waTemplateRecordatorio ?? null,
+      plantillaInsistencia: c?.waTemplateRecordInsist ?? null,
     },
-    noShow: { activo: Boolean(c?.recapturaNoShowEnabled), horasAuto: c?.noShowAutoHoras ?? 3, diasPerdido: c?.recapturaDiasPerdido ?? 5 },
-    tratamiento: { activo: Boolean(c?.recapturaTratEnabled), diasEspera: c?.recapturaTratDias ?? 3 },
+    noShow: { activo: Boolean(c?.recapturaNoShowEnabled), horasAuto: c?.noShowAutoHoras ?? 3, diasPerdido: c?.recapturaDiasPerdido ?? 5, plantilla: c?.waTemplateRecapturaNoShow ?? null },
+    tratamiento: { activo: Boolean(c?.recapturaTratEnabled), diasEspera: c?.recapturaTratDias ?? 3, plantilla: c?.waTemplateRecapturaTrat ?? null },
   }
 }
 
@@ -45,9 +57,22 @@ const horaAMin = (v: unknown, campo: string): number => {
 }
 
 export async function putAutomatizaciones(db: TenantClient, body: Record<string, unknown>) {
-  const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { agendaWhEnabled: true, agendaWhConnectionId: true } })
+  const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { agendaWhEnabled: true, agendaWhConnectionId: true, tubotTemplates: true } })
   if (!c) throw badRequest('Configuración no encontrada')
   const data: Record<string, unknown> = {}
+  const disponibles = parsePlantillas(c.tubotTemplates).map((t) => t.name)
+  // Selección de plantilla por flujo: debe ser una APPROVED sincronizada (si hay lista); "" = limpiar.
+  const plantilla = (campo: string, valor: unknown): string | null | undefined => {
+    if (valor == null) return undefined
+    const s = String(valor).trim()
+    if (s === '') return null
+    if (disponibles.length && !disponibles.includes(s)) throw badRequest(`La plantilla de ${campo} no está entre las aprobadas sincronizadas desde TuBot.`)
+    return s
+  }
+  const pRec = plantilla('confirmación', body.plantillaRecordatorio); if (pRec !== undefined) data.waTemplateRecordatorio = pRec
+  const pIns = plantilla('insistencia', body.plantillaInsistencia); if (pIns !== undefined) data.waTemplateRecordInsist = pIns
+  const pNo = plantilla('recaptura no-show', body.plantillaNoShow); if (pNo !== undefined) data.waTemplateRecapturaNoShow = pNo
+  const pTr = plantilla('recaptura tratamiento', body.plantillaTratamiento); if (pTr !== undefined) data.waTemplateRecapturaTrat = pTr
 
   // Maestro: no se puede encender si TuBot no está conectado (lo configura el equipo de Cláriva).
   if (body.maestroActivo != null) {

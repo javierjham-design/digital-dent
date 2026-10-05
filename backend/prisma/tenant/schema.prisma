@@ -52,6 +52,12 @@ model Configuracion {
   recordatorioHora1         String  @default("12:00") // hora (HH:MM) del 1er recordatorio, el día anterior
   recordatorio2Enabled      Boolean @default(true)  // enviar una 2ª reconfirmación (insistencia) si no respondió
   recordatorioHora2         String  @default("18:00") // hora (HH:MM) del 2º recordatorio, el día anterior
+  // Plantilla aprobada elegida por flujo (nombre). El selector del Gestor de IA se arma con
+  // `tubotTemplates` (lista APPROVED que TuBot sincroniza por la API de agenda). El nombre viaja
+  // en el payload y TuBot lo usa. No-show/tratamiento reusan waTemplateRecapturaNoShow/Trat de abajo.
+  waTemplateRecordatorio    String? // 1er recordatorio (confirmación)
+  waTemplateRecordInsist    String? // 2ª reconfirmación (insistencia)
+  tubotTemplates            String? // JSON: [{name, language, category, variables}] APPROVED, sincronizadas desde TuBot
   recapturaNoShowEnabled    Boolean @default(false) // "no asistió a la evaluación" → motivar reagendar (gatea la emisión del no_show)
   waTemplateRecapturaNoShow String?
   recapturaTratEnabled      Boolean @default(false) // "asistió pero no tomó el tratamiento" → motivar iniciarlo

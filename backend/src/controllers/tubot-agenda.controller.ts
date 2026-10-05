@@ -8,6 +8,12 @@ import { AppError } from '@/lib/errors'
 // por token dedicado (requireTubotApiKey), que resuelve el tenant en req.clinica/req.tenant.
 // Fase 1: catálogo de lectura (clinics / professionals / services).
 
+// TuBot empuja las plantillas de WhatsApp APPROVED de la org → Cláriva las cachea para el
+// selector del Gestor de IA. Body: { templates: [{ name, language?, category?, status?, variables? }] }.
+export async function putTemplates(req: Request, res: Response) {
+  res.json(await svc.guardarTemplates(tenantDb(req), req.body?.templates))
+}
+
 export async function getClinics(req: Request, res: Response) {
   res.json(await svc.clinics(tenantDb(req), req.clinica!.slug))
 }
