@@ -22,7 +22,7 @@ export const ESTADO_A_STATUS: Record<string, string> = {
   ATENDIDA: 'completed', NO_ASISTIO: 'no_show', CANCELADA: 'cancelled',
 }
 
-const CFG_SEL = { agendaWhEnabled: true, agendaWhConnectionId: true, agendaWhSecret: true } as const
+const CFG_SEL = { agendaWhEnabled: true, agendaWhConnectionId: true, agendaWhSecret: true, automatizacionesEnabled: true, recordatoriosEnabled: true, recapturaNoShowEnabled: true } as const
 
 // Selección de cita ENRIQUECIDA (con profesional) — forma canónica del appointment
 // del contrato, compartida por el listado (GET /appointments) y los webhooks.
@@ -83,12 +83,15 @@ async function sendSigned(cfg: WhCfg, event: WebhookEvent, data: unknown): Promi
 export async function emitirEventoCita(db: TenantClient, event: WebhookEvent, citaId: string): Promise<void> {
   try {
     const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { ...CFG_SEL, nombre: true } })
-    if (!cfg?.agendaWhEnabled || !cfg.agendaWhConnectionId) return // sin webhooks activos: ni leemos la cita
+    // Maestro: conexión activa + automatización encendida. Si no, no se emite nada a TuBot.
+    if (!cfg?.agendaWhEnabled || !cfg.agendaWhConnectionId || !cfg.automatizacionesEnabled) return
     const c = await db.cita.findUnique({ where: { id: citaId }, select: CITA_FULL_SEL })
     if (!c) return
+    // Recaptura de no-show apagada → no se emite el evento de inasistencia (no dispara recaptura en TuBot).
+    if (event === 'appointment.attendance' && c.estado === 'NO_ASISTIO' && !cfg.recapturaNoShowEnabled) return
     const slug = getRequestContext()?.slug ?? ''
     const attended = event === 'appointment.attendance' ? c.estado === 'ATENDIDA' : undefined
-    const data = citaToAppointment(c as CitaFullRow, { slug, clinicName: cfg.nombre ?? undefined, attended })
+    const data = { ...citaToAppointment(c as CitaFullRow, { slug, clinicName: cfg.nombre ?? undefined, attended }), remindersEnabled: cfg.recordatoriosEnabled }
     await sendSigned(cfg, event, data)
   } catch { /* best-effort: los webhooks nunca hacen fallar la operación primaria */ }
 }
@@ -103,7 +106,7 @@ export async function emitirTreatmentPending(
 ): Promise<void> {
   try {
     const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { ...CFG_SEL, nombre: true } })
-    if (!cfg?.agendaWhEnabled || !cfg.agendaWhConnectionId) return // sin la conexión de agenda activa no se emite
+    if (!cfg?.agendaWhEnabled || !cfg.agendaWhConnectionId || !cfg.automatizacionesEnabled) return // maestro apagado o sin conexión
     const p = await db.paciente.findUnique({ where: { id: input.pacienteId }, select: { nombre: true, apellido: true, telefono: true } })
     if (!p?.telefono) return
     const data = {

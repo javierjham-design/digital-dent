@@ -18,7 +18,7 @@ beforeAll(async () => {
   // Conexión de agenda Cláriva → TuBot activa (es el canal por el que viaja el evento).
   await tenantClient(A.dbName).configuracion.update({
     where: { id: 'singleton' },
-    data: { agendaWhEnabled: true, recapturaTratEnabled: true, agendaWhConnectionId: 'conn_trat', agendaWhSecret: encryptNullable('sekret'), recapturaTratDias: 3 },
+    data: { agendaWhEnabled: true, automatizacionesEnabled: true, recapturaTratEnabled: true, agendaWhConnectionId: 'conn_trat', agendaWhSecret: encryptNullable('sekret'), recapturaTratDias: 3 },
   })
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: any) => {
     fetchCalls.push({ url: String(url), body: JSON.parse(init?.body ?? '{}') })

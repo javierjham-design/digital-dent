@@ -360,7 +360,7 @@ describe('TuBot agenda — webhooks salientes (Fase 5)', () => {
   beforeAll(async () => {
     const { encryptNullable } = await import('@/lib/crypto')
     const db = tenantClient(A.dbName)
-    await db.configuracion.update({ where: { id: 'singleton' }, data: { agendaWhEnabled: true, agendaWhConnectionId: 'conn-abc', agendaWhSecret: encryptNullable(secret) } })
+    await db.configuracion.update({ where: { id: 'singleton' }, data: { agendaWhEnabled: true, automatizacionesEnabled: true, recapturaNoShowEnabled: true, agendaWhConnectionId: 'conn-abc', agendaWhSecret: encryptNullable(secret) } })
     const pac = await db.paciente.create({ data: { numero: 90050, nombre: 'Web', apellido: 'Hook', telefono: '+56955556666', activo: true } })
     const cita = await db.cita.create({ data: { pacienteId: pac.id, doctorId, fecha: wallClockToUtc(addDaysYmd(todayYmd(), 3), '12:00'), duracion: 30, tipo: 'CONSULTA', estado: 'PENDIENTE', origen: 'MANUAL' } })
     citaId = cita.id

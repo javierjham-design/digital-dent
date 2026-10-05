@@ -5,6 +5,27 @@
 
 ---
 
+## 2026-10-05 — Gestor de IA (clínica): panel de control de la automatización conversacional
+
+Configurador clínico (Gestión → **Gestor de IA**, distinto del Asistente de IA) para encender/apagar y
+ajustar TODA la automatización conversacional con pacientes por WhatsApp (vía TuBot). "Nada al azar".
+- **Schema tenant ADITIVO** (prestart migra): `automatizacionesEnabled` (MAESTRO, default false) +
+  `recordatoriosEnabled` (confirmaciones, default true). Reusa `recapturaNoShowEnabled`/`recapturaTratEnabled`/
+  tiempos de detección ya existentes.
+- **Gating de emisión** (`tubot-webhooks.ts`/`maintenance.ts`): `emitirEventoCita` solo emite si
+  `agendaWhEnabled` + `agendaWhConnectionId` + **`automatizacionesEnabled`** (maestro). El no-show se emite
+  solo si `recapturaNoShowEnabled`. El payload de cita lleva `remindersEnabled` (TuBot lo respeta para
+  apagar confirmaciones sin romper su proyección). El job de tratamiento y `emitirTreatmentPending` gatean
+  en maestro + su flujo.
+- **Panel** (`services/automatizaciones.service.ts` get/put + `pages/GestorIA.tsx` + ruta `/gestor-ia` +
+  menú "Gestor de IA"): maestro (no se enciende sin TuBot conectado) + 3 flujos con toggle (confirmaciones,
+  recaptura no-show, recaptura tratamiento) + tiempos de detección (horas no-show, días PERDIDO, días
+  tratamiento) + estado de conexión. Reemplaza la pantalla "Automatizaciones".
+- **Default seguro:** maestro apagado → nada se emite a TuBot hasta que la clínica lo encienda (requiere
+  TuBot conectado). Reemplaza el encendido por DB de `recapturaTratEnabled`.
+- **Addendum TuBot** (`conversia/docs/PEDIDO_TUBOT_CIERRE_AGENDAMIENTO.md` §1.3): respetar `remindersEnabled`.
+- Verde: typecheck (back+front) · unit 158 · integración 203 · contrato 296 · lint 0.
+
 ## 2026-10-02 — Pivote a event-driven: Cláriva emite eventos, TuBot envía (recaptura/recordatorios)
 
 Decisión de arquitectura: el WhatsApp (recordatorios + recaptura) lo gestiona **TuBot** con su

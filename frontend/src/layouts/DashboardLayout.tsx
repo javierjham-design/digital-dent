@@ -24,7 +24,7 @@ function GestionMenu({ esAdmin, puedeConfig, puedeEquipo, puedePrestaciones, pue
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
-  const rutas = ['/configuracion', '/automatizaciones', '/equipo', '/boxes', '/prestaciones', '/consentimientos', '/recetas-documentos', '/agendamiento-online', '/gestion-cajas', '/liquidaciones', '/mis-liquidaciones', '/reportes', '/asistente', '/suscripcion']
+  const rutas = ['/configuracion', '/gestor-ia', '/equipo', '/boxes', '/prestaciones', '/consentimientos', '/recetas-documentos', '/agendamiento-online', '/gestion-cajas', '/liquidaciones', '/mis-liquidaciones', '/reportes', '/asistente', '/suscripcion']
   const activo = rutas.some((r) => pathname.startsWith(r))
 
   useEffect(() => {
@@ -48,7 +48,7 @@ function GestionMenu({ esAdmin, puedeConfig, puedeEquipo, puedePrestaciones, pue
     ].filter((x): x is [string, string] => x !== null) },
     { titulo: 'Captación', items: [
       it((esAdmin || puedeConfig) && modAgenda, '/agendamiento-online', 'Agendamiento online'),
-      it(esAdmin || puedeConfig, '/automatizaciones', 'Automatizaciones'),
+      it(esAdmin || puedeConfig, '/gestor-ia', 'Gestor de IA'),
     ].filter((x): x is [string, string] => x !== null) },
     { titulo: 'Dinero', items: [
       it(esAdmin || puedeCajas, '/gestion-cajas', 'Gestión de cajas'),

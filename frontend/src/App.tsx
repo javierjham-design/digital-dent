@@ -10,7 +10,7 @@ import { FichaPacienteRoute } from '@/pages/FichaPacienteRoute'
 import { Equipo } from '@/pages/Equipo'
 import { Prestaciones } from '@/pages/Prestaciones'
 import { Configuracion } from '@/pages/Configuracion'
-import { Automatizaciones } from '@/pages/Automatizaciones'
+import { GestorIA } from '@/pages/GestorIA'
 import { Cobros } from '@/pages/Cobros'
 import { AgendaOnline } from '@/pages/AgendaOnline'
 import { AgendarPublico } from '@/pages/AgendarPublico'
@@ -84,7 +84,7 @@ export default function App() {
             <Route path="/prestaciones" element={<Prestaciones />} />
             <Route path="/equipo" element={<Equipo />} />
             <Route path="/configuracion" element={<Configuracion />} />
-            <Route path="/automatizaciones" element={<Automatizaciones />} />
+            <Route path="/gestor-ia" element={<GestorIA />} />
             <Route path="/boxes" element={<Boxes />} />
             <Route path="/ayuda" element={<Ayuda />} />
           </Route>

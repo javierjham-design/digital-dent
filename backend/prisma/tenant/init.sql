@@ -20,6 +20,8 @@ CREATE TABLE "Configuracion" (
     "waWebhookSecret" TEXT,
     "waTemplateName" TEXT,
     "waTemplateLang" TEXT NOT NULL DEFAULT 'es',
+    "automatizacionesEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "recordatoriosEnabled" BOOLEAN NOT NULL DEFAULT true,
     "recapturaNoShowEnabled" BOOLEAN NOT NULL DEFAULT false,
     "waTemplateRecapturaNoShow" TEXT,
     "recapturaTratEnabled" BOOLEAN NOT NULL DEFAULT false,

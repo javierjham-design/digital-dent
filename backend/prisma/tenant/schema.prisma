@@ -45,9 +45,11 @@ model Configuracion {
   waWebhookSecret String? // secreto por conexión (verifica X-Tubot-Signature) — CIFRADO
   waTemplateName  String? // nombre de la plantilla aprobada de esta clínica
   waTemplateLang  String  @default("es")
-  // Recaptura automática por WhatsApp (día siguiente ~10 h, canal TuBot). Dos flujos
-  // independientes, cada uno con su plantilla aprobada. Ver docs/TUBOT_WHATSAPP.md.
-  recapturaNoShowEnabled    Boolean @default(false) // "no asistió a la evaluación" → motivar reagendar
+  // Automatización conversacional con TuBot (Gestor de IA). El envío de WhatsApp lo hace
+  // TuBot; Cláriva EMITE los eventos y controla qué flujo está encendido. Ver docs/TUBOT_AGENDA.md.
+  automatizacionesEnabled   Boolean @default(false) // MAESTRO: si está apagado, Cláriva no emite NINGÚN evento a TuBot
+  recordatoriosEnabled      Boolean @default(true)  // confirmaciones de hora (recordatorios); TuBot respeta este flag del payload
+  recapturaNoShowEnabled    Boolean @default(false) // "no asistió a la evaluación" → motivar reagendar (gatea la emisión del no_show)
   waTemplateRecapturaNoShow String?
   recapturaTratEnabled      Boolean @default(false) // "asistió pero no tomó el tratamiento" → motivar iniciarlo
   waTemplateRecapturaTrat   String?

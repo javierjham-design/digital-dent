@@ -3,7 +3,21 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: Pivote event-driven — Cláriva emite, TuBot envía (recaptura/recordatorios)
+## Último trabajo: Gestor de IA (panel de control de la automatización conversacional)
+
+**Desplegado (2026-10-05).** Pantalla clínica **Gestión → Gestor de IA** (`/gestor-ia`, permiso
+`puedeConfigurarClinica`) para encender/apagar y ajustar toda la automatización con pacientes por WhatsApp.
+- **Maestro** `automatizacionesEnabled` (default OFF; no se enciende sin TuBot conectado) → si está apagado,
+  Cláriva no emite NINGÚN evento a TuBot. **3 flujos** con toggle: confirmaciones (`recordatoriosEnabled`,
+  el payload lleva `remindersEnabled` que TuBot respeta), recaptura no-show (`recapturaNoShowEnabled`, gatea
+  la emisión del no_show), recaptura tratamiento (`recapturaTratEnabled`). + tiempos de detección.
+- Schema aditivo (prestart migró). Reemplaza la pantalla "Automatizaciones" y el encendido por DB.
+- **Activación:** cuando TuBot esté listo (seeds + 4 plantillas + WABA), la clínica entra al Gestor de IA,
+  enciende el **maestro** + los flujos que quiera. (Ya no hace falta que Javier toque la BD.)
+- **Pendiente TuBot:** respetar `remindersEnabled` (§1.3 de `conversia/docs/PEDIDO_TUBOT_CIERRE_AGENDAMIENTO.md`).
+- Verde: typecheck (back+front) · unit 158 · integración 203 · contrato 296 · lint 0.
+
+## Trabajo previo: Pivote event-driven — Cláriva emite, TuBot envía (recaptura/recordatorios)
 
 **Desplegado (2026-10-02).** El WhatsApp (recordatorios + recaptura no-show + recaptura tratamiento)
 lo gestiona **TuBot** (workflows + agente de agendamiento dedicado); Cláriva solo **emite eventos**.
