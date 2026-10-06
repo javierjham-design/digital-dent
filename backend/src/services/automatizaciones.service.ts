@@ -5,6 +5,7 @@
 import type { TenantClient } from '@/db/tenant'
 import { badRequest } from '@/lib/errors'
 import { emitirEventoCita } from '@/lib/tubot-webhooks'
+import { todayYmd, addDaysYmd, rangoFechasUtc } from '@/lib/tz'
 
 const SELECT = {
   agendaWhEnabled: true, agendaWhConnectionId: true,
@@ -116,18 +117,21 @@ export async function putAutomatizaciones(db: TenantClient, body: Record<string,
   return getAutomatizaciones(db)
 }
 
-// Backfill: re-emite `appointment.created` a TuBot para las citas FUTURAS ya agendadas, así se les
-// programa el recordatorio. Necesario UNA vez al activar (las citas que ya existían no habían
-// emitido evento mientras el maestro estaba apagado). Las citas nuevas emiten solas. Idempotente
-// en TuBot (no duplica recordatorios). Emisión best-effort (void), gated por el propio emisor.
+// Backfill: re-emite `appointment.created` a TuBot para las citas ya agendadas DESDE MAÑANA, así se
+// les PROGRAMA el recordatorio en su horario (el día anterior a la hora configurada) — no se envían al
+// instante. Necesario UNA vez al activar (las citas que ya existían no habían emitido evento con el
+// maestro apagado). Las citas de HOY se EXCLUYEN a propósito: su recordatorio del día anterior ya pasó
+// y saldría de inmediato (no es la intención). Las citas nuevas emiten solas. Idempotente en TuBot
+// (no duplica). Emisión best-effort (void), gated por el propio emisor.
 const ESTADOS_CITA_ACTIVOS = ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO', 'EN_ESPERA', 'EN_ATENCION']
 export async function reemitirCitasProximas(db: TenantClient): Promise<{ reemitidas: number }> {
   const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { agendaWhEnabled: true, agendaWhConnectionId: true, automatizacionesEnabled: true } })
   if (!c?.agendaWhEnabled || !c.agendaWhConnectionId || !c.automatizacionesEnabled) {
-    throw badRequest('Enciende la automatización (interruptor maestro) antes de reenviar los recordatorios.')
+    throw badRequest('Enciende la automatización (interruptor maestro) antes de programar los recordatorios.')
   }
+  const desdeManana = rangoFechasUtc(addDaysYmd(todayYmd(), 1)).gte! // inicio de mañana (hora clínica)
   const citas = await db.cita.findMany({
-    where: { fecha: { gte: new Date() }, estado: { in: ESTADOS_CITA_ACTIVOS } },
+    where: { fecha: { gte: desdeManana }, estado: { in: ESTADOS_CITA_ACTIVOS } },
     select: { id: true }, orderBy: { fecha: 'asc' }, take: 2000,
   })
   for (const cita of citas) void emitirEventoCita(db, 'appointment.created', cita.id)
