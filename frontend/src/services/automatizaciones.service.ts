@@ -31,4 +31,5 @@ export interface AutomatizacionesInput {
 export const automatizacionesService = {
   obtener: () => api.get<Automatizaciones>('/automatizaciones'),
   guardar: (input: AutomatizacionesInput) => api.put<Automatizaciones>('/automatizaciones', input),
+  resyncCitas: () => api.post<{ reemitidas: number }>('/automatizaciones/resync', {}),
 }

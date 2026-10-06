@@ -24,6 +24,8 @@ export function GestorIA() {
   const [error, setError] = useState('')
   const [ok, setOk] = useState(false)
   const [guardando, setGuardando] = useState(false)
+  const [resyncMsg, setResyncMsg] = useState('')
+  const [resyncing, setResyncing] = useState(false)
 
   useEffect(() => {
     automatizacionesService.obtener().then(setA).catch((e) => setError(e.message)).finally(() => setCargando(false))
@@ -53,6 +55,15 @@ export function GestorIA() {
       })
       setA(upd); setOk(true)
     } catch (e) { setError(e instanceof ApiError ? e.message : 'No se pudo guardar') } finally { setGuardando(false) }
+  }
+
+  async function reenviarAgenda() {
+    if (!confirm('Se enviarán los recordatorios a los pacientes que YA tienen citas agendadas (futuras). Úsalo una vez al activar — las citas nuevas se programan solas. ¿Continuar?')) return
+    setResyncing(true); setResyncMsg('')
+    try {
+      const r = await automatizacionesService.resyncCitas()
+      setResyncMsg(`✓ ${r.reemitidas} cita(s) enviada(s) a TuBot. Sus recordatorios se programan según la hora configurada (el día anterior).`)
+    } catch (e) { setResyncMsg(e instanceof ApiError ? '✗ ' + e.message : '✗ No se pudo reenviar.') } finally { setResyncing(false) }
   }
 
   if (!puedeConfig) return <p className="text-slate-500 text-sm max-w-md">No tienes acceso al Gestor de IA. Pídele a un administrador el permiso <span className="font-medium">“Configurar la clínica”</span>.</p>
@@ -135,6 +146,14 @@ export function GestorIA() {
             {plantillaSelect('Plantilla de la insistencia (texto distinto)', a.confirmaciones.plantillaInsistencia, (v) => set({ confirmaciones: { ...a.confirmaciones, plantillaInsistencia: v } }), off || !a.confirmaciones.segundaActiva)}
           </div>
         </div>
+      </section>
+
+      {/* Backfill: enviar recordatorios a la agenda ya cargada (una vez al activar) */}
+      <section className={`bg-white rounded-2xl border border-slate-200 p-4 mb-4 ${off ? 'opacity-70' : ''}`}>
+        <h2 className="text-base font-semibold text-slate-800 mb-1">Agenda ya cargada</h2>
+        <p className="text-xs text-slate-500 mb-3">Al activar, las citas que <span className="font-medium">ya estaban agendadas</span> no tienen recordatorio programado (se agendaron con la automatización apagada). Usa este botón <span className="font-medium">una vez</span> para enviar sus recordatorios. Las citas nuevas se programan solas.</p>
+        <button onClick={reenviarAgenda} disabled={off || resyncing} className="px-4 py-2 rounded-xl text-sm font-semibold border border-cyan-600 text-cyan-700 hover:bg-cyan-50 disabled:opacity-50">{resyncing ? 'Enviando…' : 'Enviar recordatorios a la agenda ya cargada'}</button>
+        {resyncMsg && <p className={`text-sm mt-2 ${resyncMsg.startsWith('✓') ? 'text-emerald-600' : 'text-rose-600'}`}>{resyncMsg}</p>}
       </section>
 
       {/* Recaptura de inasistencias */}

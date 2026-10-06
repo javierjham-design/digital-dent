@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { seedDosClinicas, type TenantFixture } from './seed'
 import { tenantClient } from './tenant-test'
 import { control } from './control-test'
-import { getAutomatizaciones, putAutomatizaciones } from '@/services/automatizaciones.service'
+import { getAutomatizaciones, putAutomatizaciones, reemitirCitasProximas } from '@/services/automatizaciones.service'
 import { guardarTemplates } from '@/services/tubot-agenda.service'
 
 // Gestor de IA (clínica): maestro + flujos (confirmaciones / recaptura no-show / tratamiento) +
@@ -76,5 +76,15 @@ describe('gestor de IA / automatizaciones', () => {
     expect(nombres).toContain('recordatorio_cita')
     expect(nombres).toContain('recaptura_tratamiento')
     expect(nombres).not.toContain('pendiente_x')
+  })
+
+  it('backfill: exige maestro encendido y cuenta las citas futuras activas', async () => {
+    const db = tenantClient(A.dbName)
+    await db.configuracion.update({ where: { id: 'singleton' }, data: { automatizacionesEnabled: false } })
+    await expect(reemitirCitasProximas(db)).rejects.toThrow(/maestro/i)
+    await db.configuracion.update({ where: { id: 'singleton' }, data: { agendaWhEnabled: true, agendaWhConnectionId: 'conn_x', automatizacionesEnabled: true } })
+    await db.cita.create({ data: { pacienteId: A.pacienteId, doctorId: A.adminId, fecha: new Date(Date.now() + 2 * 86400_000), estado: 'PENDIENTE' } })
+    const r = await reemitirCitasProximas(db)
+    expect(r.reemitidas).toBeGreaterThanOrEqual(1)
   })
 })

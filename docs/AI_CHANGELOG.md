@@ -5,6 +5,17 @@
 
 ---
 
+## 2026-10-06 — Gestor de IA: backfill de la agenda ya cargada (recordatorios a citas pre-existentes)
+
+Al encender el maestro, las citas que YA estaban agendadas no tienen recordatorio (se crearon con la
+automatización apagada → nunca emitieron `appointment.created` a TuBot). Botón de backfill (una vez).
+- `automatizaciones.service.reemitirCitasProximas`: re-emite `appointment.created` (best-effort) de todas las
+  citas FUTURAS en estado activo (PENDIENTE/CONFIRMADA/CONFIRMADO/EN_ESPERA/EN_ATENCION), para que TuBot les
+  programe el recordatorio. Exige maestro encendido. Idempotente en TuBot (no duplica). Tope 2000.
+- Endpoint `POST /automatizaciones/resync` (configTenant) + botón en `GestorIA.tsx` ("Enviar recordatorios a
+  la agenda ya cargada") con conteo. Las citas nuevas siguen emitiendo solas.
+- Verde: typecheck (back+front) · unit 158 · integración 206 · contrato 298 · lint 0.
+
 ## 2026-10-05 — Gestor de IA: selección de plantilla por flujo (dropdown con las APPROVED de WABA)
 
 La clínica elige, desde el Gestor de IA, qué plantilla de WhatsApp usa cada flujo (confirmación,

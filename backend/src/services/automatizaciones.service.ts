@@ -4,6 +4,7 @@
 // (credenciales/token) la deja el super-admin; acá la clínica solo enciende/apaga y ajusta.
 import type { TenantClient } from '@/db/tenant'
 import { badRequest } from '@/lib/errors'
+import { emitirEventoCita } from '@/lib/tubot-webhooks'
 
 const SELECT = {
   agendaWhEnabled: true, agendaWhConnectionId: true,
@@ -113,4 +114,22 @@ export async function putAutomatizaciones(db: TenantClient, body: Record<string,
 
   await db.configuracion.update({ where: { id: 'singleton' }, data })
   return getAutomatizaciones(db)
+}
+
+// Backfill: re-emite `appointment.created` a TuBot para las citas FUTURAS ya agendadas, así se les
+// programa el recordatorio. Necesario UNA vez al activar (las citas que ya existían no habían
+// emitido evento mientras el maestro estaba apagado). Las citas nuevas emiten solas. Idempotente
+// en TuBot (no duplica recordatorios). Emisión best-effort (void), gated por el propio emisor.
+const ESTADOS_CITA_ACTIVOS = ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO', 'EN_ESPERA', 'EN_ATENCION']
+export async function reemitirCitasProximas(db: TenantClient): Promise<{ reemitidas: number }> {
+  const c = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { agendaWhEnabled: true, agendaWhConnectionId: true, automatizacionesEnabled: true } })
+  if (!c?.agendaWhEnabled || !c.agendaWhConnectionId || !c.automatizacionesEnabled) {
+    throw badRequest('Enciende la automatización (interruptor maestro) antes de reenviar los recordatorios.')
+  }
+  const citas = await db.cita.findMany({
+    where: { fecha: { gte: new Date() }, estado: { in: ESTADOS_CITA_ACTIVOS } },
+    select: { id: true }, orderBy: { fecha: 'asc' }, take: 2000,
+  })
+  for (const cita of citas) void emitirEventoCita(db, 'appointment.created', cita.id)
+  return { reemitidas: citas.length }
 }

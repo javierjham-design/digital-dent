@@ -323,6 +323,7 @@ apiRouter.patch('/clinica', configTenant, asyncHandler(patchClinica))
 // ── Centro de Automatizaciones (recordatorios / no-show / recaptura WhatsApp) ──
 apiRouter.get('/automatizaciones', configTenant, asyncHandler(automatizaciones.getAutomatizacionesCtrl))
 apiRouter.put('/automatizaciones', configTenant, asyncHandler(automatizaciones.putAutomatizacionesCtrl))
+apiRouter.post('/automatizaciones/resync', configTenant, asyncHandler(automatizaciones.postResyncCitas))
 
 // ── Clínico: planes de tratamiento ───────────────────────────────────────────
 apiRouter.get('/planes-tratamiento', tenant, asyncHandler(clinico.getPlanes))
