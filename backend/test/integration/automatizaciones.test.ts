@@ -3,7 +3,7 @@ import { seedDosClinicas, type TenantFixture } from './seed'
 import { tenantClient } from './tenant-test'
 import { control } from './control-test'
 import { getAutomatizaciones, putAutomatizaciones, reemitirCitasProximas } from '@/services/automatizaciones.service'
-import { guardarTemplates } from '@/services/tubot-agenda.service'
+import { guardarTemplates, marcarNotificadoWhatsapp } from '@/services/tubot-agenda.service'
 
 // Gestor de IA (clínica): maestro + flujos (confirmaciones / recaptura no-show / tratamiento) +
 // tiempos de detección. El maestro no se puede encender sin TuBot conectado.
@@ -86,5 +86,18 @@ describe('gestor de IA / automatizaciones', () => {
     await db.cita.create({ data: { pacienteId: A.pacienteId, doctorId: A.adminId, fecha: new Date(Date.now() + 2 * 86400_000), estado: 'PENDIENTE' } })
     const r = await reemitirCitasProximas(db)
     expect(r.reemitidas).toBeGreaterThanOrEqual(1)
+  })
+
+  it('marcarNotificadoWhatsapp: Agendada → Notificado por WhatsApp + historial; no pisa estados superiores', async () => {
+    const db = tenantClient(A.dbName)
+    const c1 = await db.cita.create({ data: { pacienteId: A.pacienteId, doctorId: A.adminId, fecha: new Date(Date.now() + 3 * 86400_000), estado: 'PENDIENTE' } })
+    const r1 = await marcarNotificadoWhatsapp(db, c1.id)
+    expect(r1.estado).toBe('CONFIRMADA')
+    expect(await db.citaLog.count({ where: { citaId: c1.id, tipo: 'WA_ENVIADO' } })).toBe(1)
+    // No degrada un CONFIRMADO (confirmado por otro medio): queda igual, pero igual deja historial.
+    const c2 = await db.cita.create({ data: { pacienteId: A.pacienteId, doctorId: A.adminId, fecha: new Date(Date.now() + 4 * 86400_000), estado: 'CONFIRMADO' } })
+    const r2 = await marcarNotificadoWhatsapp(db, c2.id)
+    expect(r2.estado).toBe('CONFIRMADO')
+    expect(await db.citaLog.count({ where: { citaId: c2.id, tipo: 'WA_ENVIADO' } })).toBe(1)
   })
 })

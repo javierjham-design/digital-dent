@@ -6,7 +6,7 @@ import { buscarLeadParaReserva, dispararEtapaCrmMeta, dispararScheduleMeta } fro
 import { crearCita, editarCita, cambiarEstadoCita } from '@/services/citas.service'
 import { crearPaciente, listarPacientesPaginado, obtenerPaciente, listarComentarios, crearComentario } from '@/services/pacientes.service'
 import { todayYmd, addDaysYmd } from '@/lib/tz'
-import { badRequest } from '@/lib/errors'
+import { badRequest, notFound } from '@/lib/errors'
 import { encryptNullable } from '@/lib/crypto'
 import { citaToAppointment, CITA_FULL_SEL, type CitaFullRow } from '@/lib/tubot-webhooks'
 import { validarRut, formatRut } from '@shared/utils/rut'
@@ -373,6 +373,21 @@ export async function updateAppointment(db: TenantClient, slug: string, id: stri
 }
 
 // POST /appointments/:id/{cancel|confirm|attendance} → mapea al estado interno.
+// TuBot avisa que envió el recordatorio/confirmación por WhatsApp. La cita pasa de Agendada
+// (PENDIENTE) a "Notificado por WhatsApp" (CONFIRMADA), igual que el proceso manual, y queda un
+// registro en el historial de la cita (para que recepción sepa a quién se avisó). NO pisa estados
+// superiores (CONFIRMADO/EN_ESPERA/ATENDIDA…). Actualización directa (no re-emite webhook).
+export async function marcarNotificadoWhatsapp(db: TenantClient, id: string, detalle?: string): Promise<{ ok: true; estado: string }> {
+  const cita = await db.cita.findUnique({ where: { id }, select: { estado: true } })
+  if (!cita) throw notFound('Cita no encontrada')
+  const data: Record<string, unknown> = {
+    logs: { create: { tipo: 'WA_ENVIADO', detalle: detalle?.trim() || 'Recordatorio de confirmación enviado por WhatsApp (TuBot)', userName: 'Sistema' } },
+  }
+  if (cita.estado === 'PENDIENTE') data.estado = 'CONFIRMADA' // Agendada → Notificado por WhatsApp
+  await db.cita.update({ where: { id }, data })
+  return { ok: true, estado: (data.estado as string) ?? cita.estado }
+}
+
 export async function setEstadoAppointment(db: TenantClient, slug: string, id: string, estado: string): Promise<SchedAppointment | null> {
   const exists = await db.cita.findUnique({ where: { id }, select: { id: true } })
   if (!exists) return null

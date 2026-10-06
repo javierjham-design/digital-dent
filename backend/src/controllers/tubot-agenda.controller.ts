@@ -14,6 +14,12 @@ export async function putTemplates(req: Request, res: Response) {
   res.json(await svc.guardarTemplates(tenantDb(req), req.body?.templates))
 }
 
+// TuBot avisa que envió el recordatorio/confirmación por WhatsApp → la cita queda "Notificado por
+// WhatsApp" en la agenda + registro en el historial. Body opcional: { detalle }.
+export async function notifiedAppointment(req: Request, res: Response) {
+  res.json(await svc.marcarNotificadoWhatsapp(tenantDb(req), req.params.id, typeof req.body?.detalle === 'string' ? req.body.detalle : undefined))
+}
+
 export async function getClinics(req: Request, res: Response) {
   res.json(await svc.clinics(tenantDb(req), req.clinica!.slug))
 }
