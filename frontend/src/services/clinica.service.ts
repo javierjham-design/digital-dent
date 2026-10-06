@@ -18,6 +18,8 @@ export const citasService = {
     api.patch<CitaDTO>(`/citas/${id}/estado`, { estado }),
   logs: (id: string) => api.get<CitaLogDTO[]>(`/citas/${id}/logs`),
   eliminar: (id: string) => api.del<{ ok: true }>(`/citas/${id}`),
+  // Reenvía la confirmación por el flujo automático del bot (TuBot confirma/reagenda e insiste).
+  reenviarBot: (id: string) => api.post<{ ok: true }>(`/citas/${id}/reenviar-bot`, {}),
 }
 
 export const bloqueosService = {

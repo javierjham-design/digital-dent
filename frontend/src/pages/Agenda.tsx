@@ -243,6 +243,15 @@ export function Agenda() {
     catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
   }
 
+  // Reenvía la confirmación por el flujo automático del bot (no por wa.me). El bot envía la
+  // plantilla, confirma/reagenda la hora e insiste si no responden. El cambio de estado a
+  // "Notificado por WhatsApp" lo hace TuBot al enviar (llega async), por eso sólo avisamos.
+  async function reenviarPorBot(id: string) {
+    if (!confirm('¿Reenviar la confirmación por el bot?\n\nTuBot enviará la plantilla por WhatsApp y gestionará la confirmación o el reagendamiento automáticamente (e insistirá si no responden).')) return
+    try { await citasService.reenviarBot(id); notify('Confirmación enviada al bot. Se despachará por WhatsApp en breve.') }
+    catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo reenviar por el bot', false) }
+  }
+
   // Guardar el comentario de una cita sin cerrar el detalle.
   async function guardarComentario(cita: CitaDTO, notas: string) {
     try {
@@ -506,7 +515,7 @@ export function Agenda() {
 
         {vista === 'diaria' ? (
           <DiariaLista citas={citasDelDia} clinica={clinica} onClick={setSelected} onAvanzar={(c) => { const n = siguienteEstado(c.estado); if (n) cambiarEstado(c.id, n.estado) }}
-            onNotificarWA={(c) => { if (c.estado === 'PENDIENTE') cambiarEstado(c.id, 'CONFIRMADA') }} />
+            onNotificarWA={(c) => { if (c.estado === 'PENDIENTE') cambiarEstado(c.id, 'CONFIRMADA') }} onReenviarBot={(c) => reenviarPorBot(c.id)} />
         ) : (
           <GridAgenda
             columnas={vista === 'semanal' ? columnasSemanal : columnasGlobal}
@@ -540,7 +549,7 @@ export function Agenda() {
           onError={(m) => notify(m, false)} />
       )}
       {selected && (
-        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={(c) => { setSelected(null); setReagendar(c) }} onComentario={guardarComentario} onBox={cambiarBox} onDuracion={cambiarDuracion} maxDur={maxDuracionDe(selected)} />
+        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={(c) => { setSelected(null); setReagendar(c) }} onComentario={guardarComentario} onBox={cambiarBox} onDuracion={cambiarDuracion} onReenviarBot={() => reenviarPorBot(selected.id)} maxDur={maxDuracionDe(selected)} />
       )}
       {reagendar && (
         <ReagendarModal cita={reagendar} doctores={doctores} horarios={horariosTodos} onReagendar={reagendarCita} onClose={() => setReagendar(null)} />
@@ -723,7 +732,7 @@ function SlotAccionModal({ slotISO, doctorId, doctores, citas, bloqueos, horario
 }
 
 // ── Vista diaria (lista) — pensada para gestionar confirmaciones rápido ──
-function DiariaLista({ citas, clinica, onClick, onAvanzar, onNotificarWA }: { citas: CitaDTO[]; clinica: ClinicaConfigDTO | null; onClick: (c: CitaDTO) => void; onAvanzar: (c: CitaDTO) => void; onNotificarWA: (c: CitaDTO) => void }) {
+function DiariaLista({ citas, clinica, onClick, onAvanzar, onNotificarWA, onReenviarBot }: { citas: CitaDTO[]; clinica: ClinicaConfigDTO | null; onClick: (c: CitaDTO) => void; onAvanzar: (c: CitaDTO) => void; onNotificarWA: (c: CitaDTO) => void; onReenviarBot: (c: CitaDTO) => void }) {
   if (citas.length === 0) return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-500 text-sm">Sin citas para este día.</div>
   return (
     <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
@@ -751,8 +760,14 @@ function DiariaLista({ citas, clinica, onClick, onAvanzar, onNotificarWA }: { ci
             <span className="hidden sm:inline text-xs font-semibold px-2.5 py-1 rounded-full shrink-0" style={{ backgroundColor: cfg?.bg, color: cfg?.text }}>{cfg?.label ?? c.estado}</span>
             {/* Notificar por WhatsApp: SIEMPRE visible (si hay teléfono). Abre WhatsApp y
                 marca al paciente como Notificado (verde) si aún estaba Agendado. */}
-            {wa && <button onClick={() => { window.open(wa, '_blank', 'noopener,noreferrer'); onNotificarWA(c) }} title="Notificar por WhatsApp (marca como notificado)"
+            {wa && <button onClick={() => { window.open(wa, '_blank', 'noopener,noreferrer'); onNotificarWA(c) }} title="Notificar por WhatsApp (abre wa.me — envío manual de respaldo)"
               className="shrink-0 inline-flex items-center gap-1 px-2.5 h-8 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 text-sm font-semibold"><span className="text-base leading-none">✆</span><span className="hidden sm:inline">WhatsApp</span></button>}
+            {/* Reenviar por el bot: distinto del wa.me. Dispara el flujo automático de TuBot
+                (confirma/reagenda la hora e insiste). Sólo si el bot está conectado + hay teléfono. */}
+            {clinica?.tubotAutoActivo && c.pacienteTelefono && !['CANCELADA', 'ATENDIDA', 'NO_ASISTIO'].includes(c.estado) && (
+              <button onClick={() => onReenviarBot(c)} title="Reenviar confirmación por el bot (flujo automático: confirma o reagenda la hora e insiste si no responden)"
+                className="shrink-0 inline-flex items-center gap-1 px-2.5 h-8 rounded-lg bg-violet-100 text-violet-700 hover:bg-violet-200 text-sm font-semibold"><span className="text-base leading-none">🤖</span><span className="hidden sm:inline">Bot</span></button>
+            )}
             {next && next.estado !== 'CONFIRMADA' && <button onClick={() => onAvanzar(c)} className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-lg border border-cyan-200 bg-cyan-50 text-cyan-700 hover:bg-cyan-100">{next.accion}</button>}
           </div>
         )
@@ -1200,12 +1215,12 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
 }
 
 // ── Modal: detalle de cita ──
-function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar, onComentario, onBox, onDuracion, maxDur }: {
+function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar, onComentario, onBox, onDuracion, onReenviarBot, maxDur }: {
   cita: CitaDTO; clinica: ClinicaConfigDTO | null
   onClose: () => void; onEstado: (id: string, estado: string) => void; onEliminar: (id: string) => void
   onReagendar: (cita: CitaDTO) => void; onComentario: (cita: CitaDTO, notas: string) => Promise<void>
   onBox: (cita: CitaDTO, boxId: string, boxNombre: string | null) => Promise<void>
-  onDuracion: (cita: CitaDTO, duracion: number) => Promise<void>; maxDur: number
+  onDuracion: (cita: CitaDTO, duracion: number) => Promise<void>; onReenviarBot: () => void; maxDur: number
 }) {
   const [boxes, setBoxes] = useState<BoxDTO[]>([])
   useEffect(() => { boxesService.listar(true).then(setBoxes).catch(() => {}) }, [])
@@ -1313,12 +1328,21 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
 
       <Link to={`/pacientes/${cita.pacienteId}?tab=planes`} className="block w-full text-center mb-3 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl text-sm font-semibold">Ir a planes de tratamiento</Link>
 
-      {/* Notificar por WhatsApp: SIEMPRE fijo (si hay teléfono). Abre WhatsApp y, si la
-          cita estaba Agendada, la marca como Notificada (verde). */}
+      {/* Reenviar por el BOT (flujo automático TuBot): confirma/reagenda la hora e insiste si no
+          responden. Es lo que retoma el proceso cuando una cita se marcó Confirmada por error y se
+          devolvió a Agendada/Notificada. Distinto del botón wa.me de abajo (envío manual de respaldo). */}
+      {clinica?.tubotAutoActivo && cita.pacienteTelefono && !['CANCELADA', 'ATENDIDA', 'NO_ASISTIO'].includes(cita.estado) && (
+        <button onClick={onReenviarBot}
+          className="w-full mb-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2">
+          <span className="text-base leading-none">🤖</span> Reenviar confirmación por el bot
+        </button>
+      )}
+      {/* Notificar por WhatsApp: SIEMPRE fijo (si hay teléfono). Abre wa.me (envío MANUAL de
+          respaldo) y, si la cita estaba Agendada, la marca como Notificada (verde). */}
       {waUrl && (
         <button onClick={() => { window.open(waUrl, '_blank', 'noopener,noreferrer'); if (cita.estado === 'PENDIENTE') onEstado(cita.id, 'CONFIRMADA') }}
           className="w-full mb-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2">
-          <span className="text-base leading-none">✆</span> Notificar por WhatsApp
+          <span className="text-base leading-none">✆</span> Notificar por WhatsApp (manual)
         </button>
       )}
       {/* Avanzar de estado (Confirmar, Llegó…). Para PENDIENTE lo hace el botón de WhatsApp de arriba. */}

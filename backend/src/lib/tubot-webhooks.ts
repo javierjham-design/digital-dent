@@ -80,23 +80,32 @@ async function sendSigned(cfg: WhCfg, event: WebhookEvent, data: unknown): Promi
 
 // Evento de cita: relee la cita (enriquecida) y arma el payload. `clinicId` = slug del
 // request-context; `clinicName` de la Configuracion. Para attendance agrega `attended`.
-export async function emitirEventoCita(db: TenantClient, event: WebhookEvent, citaId: string): Promise<void> {
+export async function emitirEventoCita(
+  db: TenantClient, event: WebhookEvent, citaId: string,
+  opts?: { sendNow?: boolean; force?: boolean },
+): Promise<void> {
   try {
     const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { ...CFG_SEL, nombre: true } })
-    // Maestro: conexión activa + automatización encendida. Si no, no se emite nada a TuBot.
-    if (!cfg?.agendaWhEnabled || !cfg.agendaWhConnectionId || !cfg.automatizacionesEnabled) return
+    // Conexión activa SIEMPRE requerida. El maestro (automatización) se puede saltar sólo con
+    // `force` = reenvío manual explícito de recepción ("Reenviar por el bot").
+    if (!cfg?.agendaWhEnabled || !cfg.agendaWhConnectionId) return
+    if (!cfg.automatizacionesEnabled && !opts?.force) return
     const c = await db.cita.findUnique({ where: { id: citaId }, select: CITA_FULL_SEL })
     if (!c) return
     // Recaptura de no-show apagada → no se emite el evento de inasistencia (no dispara recaptura en TuBot).
     if (event === 'appointment.attendance' && c.estado === 'NO_ASISTIO' && !cfg.recapturaNoShowEnabled) return
     const slug = getRequestContext()?.slug ?? ''
     const attended = event === 'appointment.attendance' ? c.estado === 'ATENDIDA' : undefined
+    // Reenvío "ahora": fuerza recordatorios encendidos para ESTA emisión y pide a TuBot enviar
+    // de inmediato (ignorando la hora programada del día anterior).
+    const sendNow = opts?.sendNow === true
     const data: Record<string, unknown> = {
       ...citaToAppointment(c as CitaFullRow, { slug, clinicName: cfg.nombre ?? undefined, attended }),
-      remindersEnabled: cfg.recordatoriosEnabled, // compat: flag simple que TuBot ya respeta
+      remindersEnabled: sendNow ? true : cfg.recordatoriosEnabled, // compat: flag simple que TuBot ya respeta
       // Config de recordatorios (día anterior): horas exactas + plantilla elegida por flujo.
       reminders: {
-        enabled: cfg.recordatoriosEnabled,
+        enabled: sendNow ? true : cfg.recordatoriosEnabled,
+        sendNow, // true = reenvío manual: enviar YA y reemplazar cualquier recordatorio previo
         first: { time: cfg.recordatorioHora1, templateName: cfg.waTemplateRecordatorio ?? null },
         second: { enabled: cfg.recordatorio2Enabled, time: cfg.recordatorioHora2, templateName: cfg.waTemplateRecordInsist ?? null },
       },

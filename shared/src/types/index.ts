@@ -281,6 +281,9 @@ export interface ClinicaConfigDTO {
   mensajeReservaWA: string
   logoUrl: string | null
   pais: string
+  // true si el bot de WhatsApp (TuBot) está conectado + automatización + recordatorios encendidos.
+  // Habilita el botón "Reenviar por el bot" en la Agenda.
+  tubotAutoActivo: boolean
 }
 
 export interface ApiError {

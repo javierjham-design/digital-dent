@@ -9,7 +9,7 @@ import {
   getComentarios, postComentario, getMensajes, postMensaje, getResumen,
   getExport, getTemplate, postImport, getPacientesSinProxima, getLeadsSugeridos, postVincularLead,
 } from '@/controllers/pacientes.controller'
-import { getCitas, postCita, patchCita, deleteCita, patchEstado, getLogsCita } from '@/controllers/citas.controller'
+import { getCitas, postCita, patchCita, deleteCita, patchEstado, getLogsCita, postReenviarBot } from '@/controllers/citas.controller'
 import * as box from '@/controllers/boxes.controller'
 import { getUsuarios, getDoctores, getCupoProfesionales, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
 import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo, getDisponibilidad } from '@/controllers/agenda.controller'
@@ -168,6 +168,7 @@ apiRouter.patch('/citas/:id', tenant, asyncHandler(patchCita))
 apiRouter.delete('/citas/:id', tenant, asyncHandler(deleteCita))
 apiRouter.patch('/citas/:id/estado', tenant, asyncHandler(patchEstado))
 apiRouter.get('/citas/:id/logs', tenant, asyncHandler(getLogsCita)) // historial de la cita (agendamiento, notificaciones, cambios de estado)
+apiRouter.post('/citas/:id/reenviar-bot', tenant, asyncHandler(postReenviarBot)) // reenvío manual de la confirmación por el flujo automático (bot)
 
 // ── Boxes / salas de atención (opcionales) ───────────────────────────────────
 apiRouter.get('/boxes', tenant, asyncHandler(box.getBoxes))

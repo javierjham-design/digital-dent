@@ -287,6 +287,27 @@ export async function cambiarEstadoCita(db: TenantClient, id: string, estado: st
   return toDTO(cita)
 }
 
+// Reenvío MANUAL "por el bot": recepción pide que TuBot vuelva a enviar la confirmación por el
+// FLUJO AUTOMÁTICO (el bot confirma/reagenda la hora y manda la insistencia si no responden),
+// distinto del enlace wa.me manual que queda de respaldo. Caso típico: una cita se marcó
+// Confirmada por error y se devolvió a Agendada/Notificada → así retoma el proceso. Fuerza el
+// envío AHORA (sendNow): TuBot ignora la hora programada y reemplaza cualquier recordatorio previo.
+export async function reenviarConfirmacionPorBot(db: TenantClient, id: string, userName: string): Promise<{ ok: true }> {
+  const cita = await db.cita.findUnique({ where: { id }, select: { estado: true, paciente: { select: { telefono: true } } } })
+  if (!cita) throw notFound('Cita no encontrada')
+  if (['CANCELADA', 'ATENDIDA', 'NO_ASISTIO'].includes(cita.estado)) {
+    throw badRequest('No se puede reenviar la confirmación de una cita cancelada, atendida o marcada como inasistencia')
+  }
+  if (!cita.paciente?.telefono?.trim()) throw badRequest('El paciente no tiene teléfono para enviarle la confirmación')
+  const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { agendaWhEnabled: true, agendaWhConnectionId: true } })
+  if (!cfg?.agendaWhEnabled || !cfg.agendaWhConnectionId) {
+    throw badRequest('El bot de WhatsApp no está conectado. Actívalo en Gestor de IA para reenviar por el bot.')
+  }
+  await db.citaLog.create({ data: { citaId: id, tipo: 'WA_REENVIO_BOT', detalle: 'Reenvío de confirmación solicitado por recepción (flujo automático del bot)', userName } })
+  await emitirEventoCita(db, 'appointment.created', id, { sendNow: true, force: true })
+  return { ok: true }
+}
+
 // Estados previos a la asistencia: desde ellos una actividad que prueba que el paciente vino
 // (un pago presencial) permite inferir ATENDIDA. No se tocan ATENDIDA/NO_ASISTIO/CANCELADA.
 const ESTADOS_PRE_ASISTENCIA = ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO', 'EN_ESPERA', 'EN_ATENCION']

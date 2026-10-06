@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
 import { actorName } from '@/services/auth.service'
-import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas, listarLogsCita } from '@/services/citas.service'
+import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas, listarLogsCita, reenviarConfirmacionPorBot } from '@/services/citas.service'
 import { cambiarEstadoSchema, crearCitaSchema, editarCitaSchema } from '@/validators/schemas'
 
 function userName(req: Request): string {
@@ -37,4 +37,9 @@ export async function patchEstado(req: Request, res: Response) {
 
 export async function getLogsCita(req: Request, res: Response) {
   res.json(await listarLogsCita(tenantDb(req), req.params.id))
+}
+
+// POST /citas/:id/reenviar-bot — reenvío manual de la confirmación por el flujo automático (bot).
+export async function postReenviarBot(req: Request, res: Response) {
+  res.json(await reenviarConfirmacionPorBot(tenantDb(req), req.params.id, userName(req)))
 }

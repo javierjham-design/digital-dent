@@ -272,8 +272,13 @@ export async function eliminarPrestacion(db: TenantClient, id: string): Promise<
 function clinicaDTO(c: {
   nombre: string; direccion: string; telefono: string; whatsapp?: string
   email: string; ciudad: string; mensajeWA: string; mensajeWACrm?: string; mensajeReservaWA?: string; logoUrl: string | null; pais?: string
+  automatizacionesEnabled?: boolean; agendaWhEnabled?: boolean; agendaWhConnectionId?: string | null; recordatoriosEnabled?: boolean
 }): ClinicaConfigDTO {
-  return { id: 'singleton', nombre: c.nombre, direccion: c.direccion, telefono: c.telefono, whatsapp: c.whatsapp ?? '', email: c.email, ciudad: c.ciudad, mensajeWA: c.mensajeWA, mensajeWACrm: c.mensajeWACrm ?? '', mensajeReservaWA: c.mensajeReservaWA ?? '', logoUrl: c.logoUrl, pais: c.pais ?? 'CL' }
+  return {
+    id: 'singleton', nombre: c.nombre, direccion: c.direccion, telefono: c.telefono, whatsapp: c.whatsapp ?? '', email: c.email,
+    ciudad: c.ciudad, mensajeWA: c.mensajeWA, mensajeWACrm: c.mensajeWACrm ?? '', mensajeReservaWA: c.mensajeReservaWA ?? '', logoUrl: c.logoUrl, pais: c.pais ?? 'CL',
+    tubotAutoActivo: !!(c.automatizacionesEnabled && c.agendaWhEnabled && c.agendaWhConnectionId && c.recordatoriosEnabled),
+  }
 }
 
 export async function obtenerClinica(db: TenantClient): Promise<ClinicaConfigDTO> {

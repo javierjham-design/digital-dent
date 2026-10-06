@@ -4,6 +4,7 @@ import { tenantClient } from './tenant-test'
 import { control } from './control-test'
 import { getAutomatizaciones, putAutomatizaciones, reemitirCitasProximas } from '@/services/automatizaciones.service'
 import { guardarTemplates, marcarNotificadoWhatsapp } from '@/services/tubot-agenda.service'
+import { reenviarConfirmacionPorBot } from '@/services/citas.service'
 
 // Gestor de IA (clínica): maestro + flujos (confirmaciones / recaptura no-show / tratamiento) +
 // tiempos de detección. El maestro no se puede encender sin TuBot conectado.
@@ -99,5 +100,22 @@ describe('gestor de IA / automatizaciones', () => {
     const r2 = await marcarNotificadoWhatsapp(db, c2.id)
     expect(r2.estado).toBe('CONFIRMADO')
     expect(await db.citaLog.count({ where: { citaId: c2.id, tipo: 'WA_ENVIADO' } })).toBe(1)
+  })
+
+  it('reenviar por el bot: exige conexión + teléfono + estado no terminal; deja log y no falla', async () => {
+    const db = tenantClient(A.dbName)
+    await db.paciente.update({ where: { id: A.pacienteId }, data: { telefono: '+56990001111' } })
+    const cita = await db.cita.create({ data: { pacienteId: A.pacienteId, doctorId: A.adminId, fecha: new Date(Date.now() + 2 * 86400_000), estado: 'PENDIENTE' } })
+    // Sin conexión → rechaza con mensaje claro.
+    await db.configuracion.update({ where: { id: 'singleton' }, data: { agendaWhEnabled: false, agendaWhConnectionId: null } })
+    await expect(reenviarConfirmacionPorBot(db, cita.id, 'Recep')).rejects.toThrow(/no está conectado/i)
+    // Con conexión → ok + log WA_REENVIO_BOT (funciona aunque el maestro esté apagado: force).
+    await db.configuracion.update({ where: { id: 'singleton' }, data: { agendaWhEnabled: true, agendaWhConnectionId: 'conn_x', automatizacionesEnabled: false } })
+    const r = await reenviarConfirmacionPorBot(db, cita.id, 'Recep')
+    expect(r.ok).toBe(true)
+    expect(await db.citaLog.count({ where: { citaId: cita.id, tipo: 'WA_REENVIO_BOT' } })).toBe(1)
+    // Cita cancelada → rechaza (no se reenvía).
+    const cancelada = await db.cita.create({ data: { pacienteId: A.pacienteId, doctorId: A.adminId, fecha: new Date(Date.now() + 2 * 86400_000), estado: 'CANCELADA' } })
+    await expect(reenviarConfirmacionPorBot(db, cancelada.id, 'Recep')).rejects.toThrow(/cancelada/i)
   })
 })
