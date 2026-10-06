@@ -1330,8 +1330,9 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
 
       {/* Reenviar por el BOT (flujo automático TuBot): confirma/reagenda la hora e insiste si no
           responden. Es lo que retoma el proceso cuando una cita se marcó Confirmada por error y se
-          devolvió a Agendada/Notificada. Distinto del botón wa.me de abajo (envío manual de respaldo). */}
-      {clinica?.tubotAutoActivo && cita.pacienteTelefono && !['CANCELADA', 'ATENDIDA', 'NO_ASISTIO'].includes(cita.estado) && (
+          devolvió a Agendada/Notificada. FIJO en el detalle siempre que el bot esté activo (el
+          backend valida teléfono/estado y avisa si no corresponde). Distinto del wa.me de respaldo. */}
+      {clinica?.tubotAutoActivo && (
         <button onClick={onReenviarBot}
           className="w-full mb-2 px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-semibold inline-flex items-center justify-center gap-2">
           <span className="text-base leading-none">🤖</span> Reenviar confirmación por el bot
