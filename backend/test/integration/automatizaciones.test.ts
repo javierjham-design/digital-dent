@@ -102,20 +102,20 @@ describe('gestor de IA / automatizaciones', () => {
     expect(await db.citaLog.count({ where: { citaId: c2.id, tipo: 'WA_ENVIADO' } })).toBe(1)
   })
 
-  it('reenviar por el bot: exige conexión + teléfono + estado no terminal; deja log y no falla', async () => {
+  it('reenviar por el bot: valida precondiciones y reporta la entrega (deja log del intento)', async () => {
     const db = tenantClient(A.dbName)
     await db.paciente.update({ where: { id: A.pacienteId }, data: { telefono: '+56990001111' } })
     const cita = await db.cita.create({ data: { pacienteId: A.pacienteId, doctorId: A.adminId, fecha: new Date(Date.now() + 2 * 86400_000), estado: 'PENDIENTE' } })
-    // Sin conexión → rechaza con mensaje claro.
+    // Sin conexión → rechaza con mensaje claro (antes de intentar entregar).
     await db.configuracion.update({ where: { id: 'singleton' }, data: { agendaWhEnabled: false, agendaWhConnectionId: null } })
     await expect(reenviarConfirmacionPorBot(db, cita.id, 'Recep')).rejects.toThrow(/no está conectado/i)
-    // Con conexión → ok + log WA_REENVIO_BOT (funciona aunque el maestro esté apagado: force).
-    await db.configuracion.update({ where: { id: 'singleton' }, data: { agendaWhEnabled: true, agendaWhConnectionId: 'conn_x', automatizacionesEnabled: false } })
-    const r = await reenviarConfirmacionPorBot(db, cita.id, 'Recep')
-    expect(r.ok).toBe(true)
-    expect(await db.citaLog.count({ where: { citaId: cita.id, tipo: 'WA_REENVIO_BOT' } })).toBe(1)
-    // Cita cancelada → rechaza (no se reenvía).
+    // Cita cancelada → rechaza (el estado terminal se chequea antes que la conexión).
     const cancelada = await db.cita.create({ data: { pacienteId: A.pacienteId, doctorId: A.adminId, fecha: new Date(Date.now() + 2 * 86400_000), estado: 'CANCELADA' } })
     await expect(reenviarConfirmacionPorBot(db, cancelada.id, 'Recep')).rejects.toThrow(/cancelada/i)
+    // Conectado pero sin TuBot real en test → surfacea el fallo de entrega y deja el log del intento
+    // (funciona aunque el maestro esté apagado: force).
+    await db.configuracion.update({ where: { id: 'singleton' }, data: { agendaWhEnabled: true, agendaWhConnectionId: 'conn_x', automatizacionesEnabled: false } })
+    await expect(reenviarConfirmacionPorBot(db, cita.id, 'Recep')).rejects.toThrow()
+    expect(await db.citaLog.count({ where: { citaId: cita.id, tipo: 'WA_REENVIO_BOT' } })).toBe(1)
   })
 })

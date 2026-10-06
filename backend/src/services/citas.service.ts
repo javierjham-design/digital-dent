@@ -7,7 +7,7 @@ import { pushCita, deleteCitaInGoogle, swallowGoogle } from '@/lib/google-sync'
 import { enviarConfirmacionHora } from '@/services/email.service'
 import { assertDentroDeAtencion } from '@/lib/atencion'
 import { conTitulo } from '@shared/utils/nombre'
-import { emitirEventoCita } from '@/lib/tubot-webhooks'
+import { emitirEventoCita, emitirEventoCitaChecked } from '@/lib/tubot-webhooks'
 import { CLINIC_TZ, todayYmd, rangoFechasUtc } from '@/lib/tz'
 import { log, serializeError } from '@/lib/logger'
 
@@ -303,8 +303,23 @@ export async function reenviarConfirmacionPorBot(db: TenantClient, id: string, u
   if (!cfg?.agendaWhEnabled || !cfg.agendaWhConnectionId) {
     throw badRequest('El bot de WhatsApp no está conectado. Actívalo en Gestor de IA para reenviar por el bot.')
   }
-  await db.citaLog.create({ data: { citaId: id, tipo: 'WA_REENVIO_BOT', detalle: 'Reenvío de confirmación solicitado por recepción (flujo automático del bot)', userName } })
-  await emitirEventoCita(db, 'appointment.created', id, { sendNow: true, force: true })
+  // Entrega SÍNCRONA y verificada (a diferencia de los eventos automáticos best-effort): el
+  // reenvío manual le dice a recepción si TuBot aceptó o no.
+  const res = await emitirEventoCitaChecked(db, 'appointment.created', id, { sendNow: true, force: true })
+  await db.citaLog.create({
+    data: {
+      citaId: id, tipo: 'WA_REENVIO_BOT', userName,
+      detalle: res.ok
+        ? 'Reenvío de confirmación entregado a TuBot (flujo automático)'
+        : `Reenvío solicitado pero TuBot NO lo aceptó: ${res.status ? `HTTP ${res.status} ` : ''}${res.error ?? ''}`.trim(),
+    },
+  })
+  if (!res.ok) {
+    throw badRequest(
+      res.status ? `TuBot rechazó el webhook (HTTP ${res.status})${res.error ? `: ${res.error}` : ''}`
+        : `No se pudo entregar al bot: ${res.error ?? 'error de red'}`,
+    )
+  }
   return { ok: true }
 }
 
