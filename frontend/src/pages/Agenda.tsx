@@ -218,7 +218,8 @@ export function Agenda() {
     if (!pendienteMove) return
     const { cita, nuevoDoctorId, nuevoISO, duracion } = pendienteMove
     try {
-      await citasService.editar(cita.id, { fecha: nuevoISO, duracion, ...(nuevoDoctorId !== cita.doctorId ? { doctorId: nuevoDoctorId } : {}) })
+      // Reagendar = la original queda Cancelada (en la ficha) + nueva cita en el nuevo horario.
+      await citasService.reprogramar(cita.id, { fecha: nuevoISO, duracion, ...(nuevoDoctorId !== cita.doctorId ? { doctorId: nuevoDoctorId } : {}) })
       notify('Cita reagendada'); setPendienteMove(null); recargar()
     } catch (e) {
       notify(e instanceof ApiError ? e.message : 'No se pudo reagendar', false)
@@ -231,7 +232,8 @@ export function Agenda() {
   // (ApiError) para que el modal muestre el error inline; los cupos ya vienen
   // pre-filtrados como libres, el backend es el guardián final.
   async function reagendarCita(cita: CitaDTO, campos: { fechaISO: string; doctorId: string; duracion: number; sobrecupo: boolean }) {
-    await citasService.editar(cita.id, { fecha: campos.fechaISO, duracion: campos.duracion, sobrecupo: campos.sobrecupo, ...(campos.doctorId !== cita.doctorId ? { doctorId: campos.doctorId } : {}) })
+    // Reagendar = la original queda Cancelada (se conserva en la ficha) + nueva cita en el nuevo horario.
+    await citasService.reprogramar(cita.id, { fecha: campos.fechaISO, duracion: campos.duracion, sobrecupo: campos.sobrecupo, ...(campos.doctorId !== cita.doctorId ? { doctorId: campos.doctorId } : {}) })
     notify(campos.sobrecupo ? 'Cita reagendada en sobrecupo' : 'Cita reagendada'); setReagendar(null); recargar()
   }
 
@@ -290,11 +292,6 @@ export function Agenda() {
     } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo cambiar la duración', false) }
   }
 
-  async function eliminarCita(id: string) {
-    if (!confirm('¿Eliminar esta cita?')) return
-    try { await citasService.eliminar(id); notify('Cita eliminada'); setSelected(null); recargar() }
-    catch (e) { notify(e instanceof ApiError ? e.message : 'Error', false) }
-  }
 
   async function eliminarBloqueo(id: string) {
     if (!confirm('¿Eliminar este bloqueo?')) return
@@ -549,7 +546,7 @@ export function Agenda() {
           onError={(m) => notify(m, false)} />
       )}
       {selected && (
-        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onEliminar={eliminarCita} onReagendar={(c) => { setSelected(null); setReagendar(c) }} onComentario={guardarComentario} onBox={cambiarBox} onDuracion={cambiarDuracion} onReenviarBot={() => reenviarPorBot(selected.id)} maxDur={maxDuracionDe(selected)} />
+        <CitaDetalle cita={selected} clinica={clinica} onClose={() => setSelected(null)} onEstado={cambiarEstado} onReagendar={(c) => { setSelected(null); setReagendar(c) }} onComentario={guardarComentario} onBox={cambiarBox} onDuracion={cambiarDuracion} onReenviarBot={() => reenviarPorBot(selected.id)} maxDur={maxDuracionDe(selected)} />
       )}
       {reagendar && (
         <ReagendarModal cita={reagendar} doctores={doctores} horarios={horariosTodos} onReagendar={reagendarCita} onClose={() => setReagendar(null)} />
@@ -1215,9 +1212,9 @@ function CrearCitaModal({ slotISO, doctorId, doctores, citas, bloqueos, horarios
 }
 
 // ── Modal: detalle de cita ──
-function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar, onComentario, onBox, onDuracion, onReenviarBot, maxDur }: {
+function CitaDetalle({ cita, clinica, onClose, onEstado, onReagendar, onComentario, onBox, onDuracion, onReenviarBot, maxDur }: {
   cita: CitaDTO; clinica: ClinicaConfigDTO | null
-  onClose: () => void; onEstado: (id: string, estado: string) => void; onEliminar: (id: string) => void
+  onClose: () => void; onEstado: (id: string, estado: string) => void
   onReagendar: (cita: CitaDTO) => void; onComentario: (cita: CitaDTO, notas: string) => Promise<void>
   onBox: (cita: CitaDTO, boxId: string, boxNombre: string | null) => Promise<void>
   onDuracion: (cita: CitaDTO, duracion: number) => Promise<void>; onReenviarBot: () => void; maxDur: number
@@ -1364,7 +1361,6 @@ function CitaDetalle({ cita, clinica, onClose, onEstado, onEliminar, onReagendar
             style={{ borderColor: cfg.color, color: cfg.text, backgroundColor: k === cita.estado ? cfg.bg : 'white' }}>{cfg.label}</button>
         ))}
       </div>
-      <button onClick={() => onEliminar(cita.id)} className="w-full mt-4 text-xs text-rose-500 hover:text-rose-700">Eliminar cita</button>
     </Modal>
   )
 }

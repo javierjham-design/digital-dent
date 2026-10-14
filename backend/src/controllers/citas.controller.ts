@@ -1,8 +1,8 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
 import { actorName } from '@/services/auth.service'
-import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas, listarLogsCita, reenviarConfirmacionPorBot } from '@/services/citas.service'
-import { cambiarEstadoSchema, crearCitaSchema, editarCitaSchema } from '@/validators/schemas'
+import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas, listarLogsCita, reenviarConfirmacionPorBot, reprogramarCita } from '@/services/citas.service'
+import { cambiarEstadoSchema, crearCitaSchema, editarCitaSchema, reprogramarCitaSchema } from '@/validators/schemas'
 
 function userName(req: Request): string {
   return req.auth ? actorName(req.auth) : 'Sistema'
@@ -23,6 +23,12 @@ export async function postCita(req: Request, res: Response) {
 export async function patchCita(req: Request, res: Response) {
   const input = editarCitaSchema.parse(req.body)
   res.json(await editarCita(tenantDb(req), req.params.id, userName(req), input))
+}
+
+// Reagendar preservando historial: cancela la original y crea una nueva en el nuevo horario.
+export async function postReprogramar(req: Request, res: Response) {
+  const input = reprogramarCitaSchema.parse(req.body)
+  res.json(await reprogramarCita(tenantDb(req), req.params.id, userName(req), input))
 }
 
 export async function deleteCita(req: Request, res: Response) {

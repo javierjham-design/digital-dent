@@ -9,7 +9,7 @@ import {
   getComentarios, postComentario, getMensajes, postMensaje, getResumen,
   getExport, getTemplate, postImport, getPacientesSinProxima, getLeadsSugeridos, postVincularLead,
 } from '@/controllers/pacientes.controller'
-import { getCitas, postCita, patchCita, deleteCita, patchEstado, getLogsCita, postReenviarBot } from '@/controllers/citas.controller'
+import { getCitas, postCita, patchCita, deleteCita, patchEstado, getLogsCita, postReenviarBot, postReprogramar } from '@/controllers/citas.controller'
 import * as box from '@/controllers/boxes.controller'
 import { getUsuarios, getDoctores, getCupoProfesionales, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
 import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo, getDisponibilidad } from '@/controllers/agenda.controller'
@@ -165,6 +165,7 @@ apiRouter.get('/pacientes/:id/resumen', tenant, asyncHandler(getResumen))
 apiRouter.get('/citas', tenant, asyncHandler(getCitas))
 apiRouter.post('/citas', tenant, asyncHandler(postCita))
 apiRouter.patch('/citas/:id', tenant, asyncHandler(patchCita))
+apiRouter.post('/citas/:id/reprogramar', tenant, asyncHandler(postReprogramar)) // reagendar preservando la original como Cancelada
 apiRouter.delete('/citas/:id', tenant, asyncHandler(deleteCita))
 apiRouter.patch('/citas/:id/estado', tenant, asyncHandler(patchEstado))
 apiRouter.get('/citas/:id/logs', tenant, asyncHandler(getLogsCita)) // historial de la cita (agendamiento, notificaciones, cambios de estado)

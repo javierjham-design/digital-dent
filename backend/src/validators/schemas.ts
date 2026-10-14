@@ -43,6 +43,14 @@ export const editarCitaSchema = z.object({
   boxId: z.string().nullish(),
 })
 
+export const reprogramarCitaSchema = z.object({
+  fecha: z.string().min(1),
+  doctorId: z.string().optional(),
+  duracion: z.number().int().positive().optional(),
+  sobrecupo: z.boolean().optional(),
+  boxId: z.string().nullish(),
+})
+
 export const crearUsuarioSchema = z.object({
   name: z.string().min(1, 'Falta el nombre'),
   username: z.string().min(2),

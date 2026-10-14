@@ -14,6 +14,9 @@ export const citasService = {
     api.post<CitaDTO>('/citas', input),
   editar: (id: string, input: { fecha?: string; duracion?: number; doctorId?: string; tipo?: string; notas?: string | null; sobrecupo?: boolean; boxId?: string | null }) =>
     api.patch<CitaDTO>(`/citas/${id}`, input),
+  // Reagendar: cancela la original (queda en la ficha) y crea una NUEVA cita. Devuelve la nueva.
+  reprogramar: (id: string, input: { fecha: string; doctorId?: string; duracion?: number; sobrecupo?: boolean; boxId?: string | null }) =>
+    api.post<CitaDTO>(`/citas/${id}/reprogramar`, input),
   cambiarEstado: (id: string, estado: string) =>
     api.patch<CitaDTO>(`/citas/${id}/estado`, { estado }),
   logs: (id: string) => api.get<CitaLogDTO[]>(`/citas/${id}/logs`),

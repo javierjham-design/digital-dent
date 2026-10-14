@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { seedDosClinicas } from './seed'
 import { tenantClient } from './tenant-test'
-import { marcarAsistenciaPorActividad } from '@/services/citas.service'
+import { marcarAsistenciaPorActividad, reprogramarCita, listarCitas } from '@/services/citas.service'
 
 // Parte C: asistencia inferida de forma pasiva. Un pago presencial marca ATENDIDA la cita
 // del mismo día del paciente (sin disparar webhooks). Solo promueve desde estados
@@ -45,5 +45,36 @@ describe('marcarAsistenciaPorActividad', () => {
     await db.cita.create({ data: { pacienteId: pac.id, doctorId, fecha: hace10, estado: 'CONFIRMADO' } })
     const ok = await marcarAsistenciaPorActividad(db, pac.id, new Date(), 'pago #3')
     expect(ok).toBe(false)
+  })
+})
+
+describe('reprogramarCita (reagendar preservando historial)', () => {
+  it('cancela la original y crea una nueva; ambas quedan en la ficha', async () => {
+    const db = tenantClient(dbName)
+    const pac = await db.paciente.create({ data: { nombre: 'Rea', apellido: 'Genda', activo: true } })
+    const orig = await db.cita.create({ data: { pacienteId: pac.id, doctorId, fecha: new Date('2026-11-02T14:00:00.000Z'), duracion: 30, tipo: 'CONSULTA', notas: 'control', estado: 'CONFIRMADO' } })
+    const nuevaFecha = '2026-11-05T16:00:00.000Z'
+    const nueva = await reprogramarCita(db, orig.id, 'Recep', { fecha: nuevaFecha })
+    // La original queda Cancelada (se conserva en la ficha), con rastro de reprogramación.
+    const origUpd = await db.cita.findUnique({ where: { id: orig.id }, select: { estado: true } })
+    expect(origUpd?.estado).toBe('CANCELADA')
+    expect(await db.citaLog.count({ where: { citaId: orig.id, tipo: 'REAGENDADA' } })).toBe(1)
+    // La nueva está Agendada en el nuevo horario y hereda paciente/tipo/notas.
+    expect(nueva.id).not.toBe(orig.id)
+    expect(nueva.estado).toBe('PENDIENTE')
+    expect(new Date(nueva.inicio).toISOString()).toBe(nuevaFecha)
+    expect(nueva.notas).toBe('control')
+    // La ficha del paciente muestra AMBAS (incluida la cancelada).
+    const ficha = await listarCitas(db, { pacienteId: pac.id })
+    expect(ficha.length).toBe(2)
+    expect(ficha.some((c) => c.estado === 'CANCELADA')).toBe(true)
+    expect(ficha.some((c) => c.id === nueva.id && c.estado === 'PENDIENTE')).toBe(true)
+  })
+
+  it('no reagenda una cita ya cancelada/atendida', async () => {
+    const db = tenantClient(dbName)
+    const pac = await db.paciente.create({ data: { nombre: 'Ya', apellido: 'Cancel', activo: true } })
+    const c = await db.cita.create({ data: { pacienteId: pac.id, doctorId, fecha: new Date('2026-11-02T14:00:00.000Z'), estado: 'CANCELADA' } })
+    await expect(reprogramarCita(db, c.id, 'Recep', { fecha: '2026-11-10T15:00:00.000Z' })).rejects.toThrow(/cancelada/i)
   })
 })

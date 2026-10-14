@@ -231,6 +231,71 @@ export async function editarCita(db: TenantClient, id: string, userName: string,
   return toDTO(cita)
 }
 
+export interface ReprogramarCitaInput {
+  fecha: string; doctorId?: string; duracion?: number; sobrecupo?: boolean; boxId?: string | null
+}
+
+// REAGENDAR preservando el historial: en vez de mover la misma cita, deja la ORIGINAL como
+// CANCELADA (con nota "Reagendada para …") y crea una cita NUEVA en el nuevo horario (hereda
+// paciente/tipo/notas/box). Así la ficha conserva el registro completo de citas del paciente.
+// Atómico (una transacción para las dos filas); efectos (Google/webhooks/lead) best-effort después.
+export async function reprogramarCita(db: TenantClient, id: string, userName: string, input: ReprogramarCitaInput): Promise<CitaDTO> {
+  const orig = await db.cita.findUnique({ where: { id }, include: INCLUDE })
+  if (!orig) throw notFound('Cita no encontrada')
+  if (['CANCELADA', 'ATENDIDA', 'NO_ASISTIO'].includes(orig.estado)) {
+    throw badRequest('No se puede reagendar una cita cancelada, atendida o marcada como inasistencia')
+  }
+  if (!input.fecha) throw badRequest('Falta la nueva fecha')
+
+  const nuevoDoctorId = input.doctorId || orig.doctorId
+  const inicio = new Date(input.fecha)
+  const dur = Number(input.duracion) || orig.duracion
+  const fin = addMinutes(inicio, dur)
+  const sobrecupo = input.sobrecupo ?? orig.sobrecupo
+
+  // Validaciones del NUEVO horario (excluyendo la propia cita original, que quedará cancelada).
+  await assertDentroDeAtencion(db, nuevoDoctorId, inicio, fin)
+  const bloqueo = await db.bloqueoAgenda.findFirst({
+    where: { doctorId: nuevoDoctorId, inicio: { lt: fin }, fin: { gt: inicio } }, select: { motivo: true },
+  })
+  if (bloqueo) throw conflict(`El doctor tiene un bloqueo en ese horario${bloqueo.motivo ? ` (${bloqueo.motivo})` : ''}.`)
+  if (!sobrecupo) {
+    const solapada = await findSolapada(db, { doctorId: nuevoDoctorId, inicio, fin, excluir: id })
+    if (solapada) {
+      const hora = solapada.fecha.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+      throw conflict(`El profesional ya tiene una cita a las ${hora} (${solapada.paciente.nombre} ${solapada.paciente.apellido}). Elige otro horario o usa Sobre Agendamiento.`)
+    }
+  }
+
+  const fmt = (d: Date) => d.toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
+  const nueva = await db.$transaction(async (tx) => {
+    // 1) La original queda Cancelada (se conserva en la ficha) con la nota de reprogramación.
+    await tx.cita.update({
+      where: { id },
+      data: { estado: 'CANCELADA', logs: { create: { tipo: 'REAGENDADA', detalle: `Reagendada para ${fmt(inicio)} por ${userName}`, userName } } },
+    })
+    // 2) Nueva cita en el nuevo horario, heredando los datos de la original.
+    return tx.cita.create({
+      data: {
+        pacienteId: orig.pacienteId, doctorId: nuevoDoctorId, fecha: inicio, duracion: dur,
+        tipo: orig.tipo || 'CONSULTA', notas: orig.notas, sobrecupo,
+        boxId: input.boxId !== undefined ? input.boxId : orig.boxId,
+        logs: { create: { tipo: 'AGENDADA', detalle: `Reagendada desde ${fmt(orig.fecha)} por ${userName}`, userName } },
+      },
+      include: INCLUDE,
+    })
+  })
+
+  // Efectos best-effort: la original se cancela (Google/TuBot), la nueva se crea.
+  void deleteCitaInGoogle(db, id).catch(swallowGoogle('deleteCita'))
+  void emitirEventoCita(db, 'appointment.cancelled', id)
+  void pushCita(db, nueva.id).catch(swallowGoogle('pushCita'))
+  void emitirEventoCita(db, 'appointment.created', nueva.id)
+  // Si el paciente venía de un no-show, su lead vuelve a AGENDADO (limpia recaptura).
+  void reengancharLeadReagenda(db, orig.pacienteId, nueva.id, inicio)
+  return toDTO(nueva)
+}
+
 // Historial de la cita (agendamiento, notificaciones, confirmaciones y cambios de
 // estado) con fecha/hora y el usuario que realizó cada acción. Del más antiguo al
 // más reciente, para leerlo como una línea de tiempo.
