@@ -8,15 +8,18 @@ import { DOCUMENTOS_DEFAULT } from '@/data/documentos-clinicos-default'
 
 // ── Utilidades ────────────────────────────────────────────────────────────────
 const TZ = 'America/Santiago'
-const fmtFecha = (d?: Date | null) => (d ? d.toLocaleDateString('es-CL', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric' }) : '')
+// La fecha de nacimiento es "fecha-sola": se guarda como medianoche UTC (new Date("YYYY-MM-DD")).
+// Debe renderizarse TAL CUAL (en UTC), nunca convertida a la zona local, o retrocede un día.
+const fmtFecha = (d?: Date | null) => (d ? d.toLocaleDateString('es-CL', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' }) : '')
 const fmtFechaHora = (d: Date) => d.toLocaleString('es-CL', { timeZone: TZ, dateStyle: 'short', timeStyle: 'short' })
 const esc = (s: string) => (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 function edadTexto(fn?: Date | null): string {
   if (!fn) return ''
+  // Componentes en UTC para no desfasar la fecha-sola de nacimiento (ver fmtFecha).
   const now = new Date()
-  let e = now.getFullYear() - fn.getFullYear()
-  const m = now.getMonth() - fn.getMonth()
-  if (m < 0 || (m === 0 && now.getDate() < fn.getDate())) e--
+  let e = now.getUTCFullYear() - fn.getUTCFullYear()
+  const m = now.getUTCMonth() - fn.getUTCMonth()
+  if (m < 0 || (m === 0 && now.getUTCDate() < fn.getUTCDate())) e--
   return `${e} años`
 }
 
