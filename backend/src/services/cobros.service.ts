@@ -66,7 +66,8 @@ export interface CobroCubiertoAbono { cubiertoConAbono: true; montoAplicado: num
 export async function totalesPlan(db: TenantClient, planId: string): Promise<{ nombre: string; total: number; abonado: number; saldo: number }> {
   const plan = await db.planTratamiento.findUnique({
     where: { id: planId },
-    select: { nombre: true, tratamientos: { select: { id: true, precio: true, descuento: true } } },
+    // Excluir acciones CANCELADO (alinea con totalesDePlan: no inflan el tope de abono libre).
+    select: { nombre: true, tratamientos: { where: { estado: { not: 'CANCELADO' } }, select: { id: true, precio: true, descuento: true } } },
   })
   if (!plan) throw notFound('Plan de tratamiento no encontrado')
   const total = plan.tratamientos.reduce((s, t) => s + Math.round(t.precio * (1 - (t.descuento || 0) / 100)), 0)
@@ -128,6 +129,9 @@ async function validarItemsCobro(
   items: { tratamientoId?: string; planId?: string; descripcion: string; monto: number }[],
 ): Promise<number> {
   if (!items || items.length === 0) throw badRequest('Agrega al menos un item.')
+  // Cada ítem debe ser positivo: un ítem negativo pasaría el chequeo de la SUMA y corromper­ía
+  // el "pagado" de la acción / el abono libre del plan.
+  for (const it of items) if (!(Number(it.monto) > 0)) throw badRequest('Cada ítem de pago debe tener un monto mayor a 0.')
   const monto = items.reduce((s, i) => s + Number(i.monto), 0)
   if (monto <= 0) throw badRequest('El monto debe ser mayor a 0.')
 
@@ -242,7 +246,7 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
       throw badRequest('Flow es un pago online: genera un "Link de pago" para enviarle al paciente. El pago se registra cuando lo complete.')
     }
     if (medio.requiereReferencia && !ref) throw badRequest(`El medio de pago "${medio.nombre}" requiere el número de referencia de la operación.`)
-    return { nombre: medio.nombre, comision: montoTramo * (medio.comision / 100) }
+    return { nombre: medio.nombre, comision: Math.round(montoTramo * (medio.comision / 100)) }
   }
   const m1 = await aplicarMedio(input.medioPagoId, monto1, numeroReferencia, 'principal')
   comisionMonto = m1.comision; medioNombre = m1.nombre

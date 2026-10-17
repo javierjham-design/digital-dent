@@ -209,7 +209,7 @@ export interface MorosoRow {
 // herramientas pacientes_inactivos_con_saldo del asistente.
 export async function morososDatos(db: TenantClient, diasMin = 0): Promise<MorosoRow[]> {
   const cobros = await db.cobro.findMany({
-    where: { estado: 'PENDIENTE' },
+    where: { estado: 'PENDIENTE', anulado: false },
     include: { paciente: { select: { id: true, nombre: true, apellido: true, rut: true, telefono: true, email: true } } },
   })
   const ahora = Date.now()

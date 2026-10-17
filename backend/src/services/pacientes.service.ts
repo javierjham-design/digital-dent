@@ -350,8 +350,8 @@ export async function resumenPaciente(db: TenantClient, id: string) {
   const paciente = await db.paciente.findUnique({
     where: { id },
     include: {
-      fichaClinica: { select: { tratamientos: { select: { estado: true, precio: true } } } },
-      cobros: { select: { monto: true, estado: true } },
+      fichaClinica: { select: { tratamientos: { select: { estado: true, precio: true, descuento: true } } } },
+      cobros: { select: { monto: true, estado: true, anulado: true } },
       presupuestos: { select: { estado: true, vigencia: true } },
     },
   })
@@ -360,8 +360,10 @@ export async function resumenPaciente(db: TenantClient, id: string) {
   const activos = tratamientos.filter((t) => t.estado === 'PLANIFICADO' || t.estado === 'EN_PROGRESO').length
   const finalizados = tratamientos.filter((t) => t.estado === 'COMPLETADO').length
   const expirados = paciente.presupuestos.filter((p) => p.vigencia && new Date(p.vigencia) < new Date() && p.estado !== 'APROBADO').length
-  const realizado = tratamientos.filter((t) => t.estado === 'COMPLETADO').reduce((s, t) => s + t.precio, 0)
-  const abonado = paciente.cobros.filter((c) => c.estado === 'PAGADO').reduce((s, c) => s + c.monto, 0)
+  // realizado = Σ NETO (con descuento) de lo COMPLETADO; abonado = pagos PAGADO NO anulados.
+  // Alinea con totalesDePlan para que el resumen del paciente cuadre con el saldo del plan.
+  const realizado = tratamientos.filter((t) => t.estado === 'COMPLETADO').reduce((s, t) => s + Math.round(t.precio * (1 - (t.descuento || 0) / 100)), 0)
+  const abonado = paciente.cobros.filter((c) => c.estado === 'PAGADO' && !c.anulado).reduce((s, c) => s + c.monto, 0)
   return { tratamientosCount: tratamientos.length, activos, finalizados, expirados, realizado, abonado, saldo: Math.max(realizado - abonado, 0) }
 }
 

@@ -250,9 +250,17 @@ export async function actualizarPrestacion(db: TenantClient, id: string, body: R
     data.categoria = destino.categoria
     data.categoriaId = destino.categoriaId
   }
-  if (body.precio !== undefined) data.precio = Number(body.precio)
+  if (body.precio !== undefined) {
+    const precio = Number(body.precio)
+    if (!Number.isFinite(precio) || precio < 0) throw badRequest('precio inválido')
+    data.precio = precio
+  }
   if (body.descripcion !== undefined) data.descripcion = body.descripcion || null
-  if (body.duracion !== undefined) data.duracion = Number(body.duracion)
+  if (body.duracion !== undefined) {
+    const duracion = Number(body.duracion)
+    if (!Number.isFinite(duracion) || duracion <= 0) throw badRequest('duración inválida')
+    data.duracion = duracion
+  }
   if (body.activo !== undefined) data.activo = Boolean(body.activo)
   const p = await db.prestacion.update({ where: { id }, data })
   return prestacionDTO(p)
@@ -322,7 +330,11 @@ export async function actualizarMedioPago(db: TenantClient, id: string, body: Re
   if (!existing) throw notFound('Medio de pago no encontrado')
   const data: Record<string, unknown> = {}
   if (body.nombre !== undefined) data.nombre = String(body.nombre)
-  if (body.comision !== undefined) data.comision = Number(body.comision)
+  if (body.comision !== undefined) {
+    const comision = Number(body.comision)
+    if (!Number.isFinite(comision) || comision < 0 || comision > 100) throw badRequest('comision debe estar entre 0 y 100')
+    data.comision = comision
+  }
   if (body.activo !== undefined) data.activo = Boolean(body.activo)
   if (body.requiereReferencia !== undefined) data.requiereReferencia = Boolean(body.requiereReferencia)
   return db.medioPago.update({ where: { id }, data })
