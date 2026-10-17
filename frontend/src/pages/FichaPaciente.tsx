@@ -45,7 +45,9 @@ const SEXTANTES: [string, string][] = [
   ['Sext. 4', 'Sextante 4'], ['Sext. 5', 'Sextante 5'], ['Sext. 6', 'Sextante 6'],
 ]
 const fmtCLP = fmtMonto
-const hoyISO = () => new Date().toISOString().slice(0, 10)
+// "Hoy" como fecha LOCAL (no UTC): toISOString() convierte a UTC y de noche en Chile (UTC-3/-4)
+// devolvería la fecha de MAÑANA. La fecha de evolución es fecha-sola → debe ser el día local.
+const hoyISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10) }
 // Edad en años y meses (ej: "24 años 4 meses"). Sin fecha → "Sin edad ingresada".
 function edadTexto(iso: string | null): string {
   if (!iso) return 'Sin edad ingresada'
@@ -1538,7 +1540,7 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
     {completado && verDetalle && (
       <div className="mx-3 sm:mx-4 mb-2 rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-xs text-slate-600 space-y-1.5">
         <div className="flex flex-wrap gap-x-5 gap-y-0.5">
-          <span><span className="text-slate-400">Realizada el:</span> {t.fechaCompletado ? new Date(t.fechaCompletado).toLocaleDateString('es-CL', { dateStyle: 'long' }) : '—'}</span>
+          <span><span className="text-slate-400">Realizada el:</span> {t.fechaCompletado ? new Date(t.fechaCompletado).toLocaleDateString('es-CL', { dateStyle: 'long', timeZone: 'UTC' }) : '—'}</span>
           <span><span className="text-slate-400">Profesional a cargo:</span> {t.doctor?.name ?? 'Sin asignar'}</span>
         </div>
         <div className="pt-1 border-t border-slate-200">
@@ -1548,7 +1550,7 @@ function AccionFila({ t, bloqueado, accion, onEvolucionar }: {
               {t.evoluciones.map((e) => (
                 <div key={e.id}>
                   <p className="text-slate-700 whitespace-pre-wrap">{e.texto}</p>
-                  <p className="text-[11px] text-slate-400">{new Date(e.fecha).toLocaleDateString('es-CL', { dateStyle: 'medium' })}{e.autor ? ` · registrada por ${e.autor.name ?? e.autor.email}` : ''}</p>
+                  <p className="text-[11px] text-slate-400">{new Date(e.fecha).toLocaleDateString('es-CL', { dateStyle: 'medium', timeZone: 'UTC' })}{e.autor ? ` · registrada por ${e.autor.name ?? e.autor.email}` : ''}</p>
                 </div>
               ))}
             </div>
