@@ -219,11 +219,19 @@ async function procesarUnLead(v: LeadgenValue): Promise<void> {
   if (!leadgenId || !pageId) { log.warn('meta-leadads: evento sin leadgen_id o page_id; descartado'); return }
 
   // TAREA 3: enrutar al tenant por page_id (denormalizado en el control-plane).
-  const clinica = await control.clinica.findFirst({
+  // Como metaPageId NO es @unique en el control, podrían existir DOS clínicas con el mismo
+  // page_id: antes findFirst elegía una ARBITRARIA (leads en la clínica equivocada = fuga
+  // cross-tenant). Si hay ambigüedad, se descarta y se alerta en vez de ingerir mal.
+  const clinicas = await control.clinica.findMany({
     where: { metaPageId: pageId, metaLeadAdsEnabled: true, activo: true },
     select: { dbName: true, slug: true },
   })
-  if (!clinica) { log.warn('meta-leadads: sin clínica activa para page_id; descartado', { page_id: pageId }); return }
+  if (clinicas.length === 0) { log.warn('meta-leadads: sin clínica activa para page_id; descartado', { page_id: pageId }); return }
+  if (clinicas.length > 1) {
+    log.error('meta-leadads: page_id compartido por VARIAS clínicas; lead NO ingerido (ambigüedad de ruteo)', { page_id: pageId, clinicas: clinicas.map((c) => c.slug) })
+    return
+  }
+  const clinica = clinicas[0]
 
   const db = tenantClient(clinica.dbName)
   const cfg = await getMetaLeadAdsConfig(db)

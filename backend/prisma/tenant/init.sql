@@ -1111,6 +1111,9 @@ CREATE UNIQUE INDEX "MontoFijoPrestacion_doctorId_prestacionId_key" ON "MontoFij
 CREATE INDEX "LiquidacionAdjunto_liquidacionId_idx" ON "LiquidacionAdjunto"("liquidacionId");
 
 -- CreateIndex
+CREATE UNIQUE INDEX "LiquidacionItem_tratamientoId_key" ON "LiquidacionItem"("tratamientoId");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "HorarioDoctor_doctorId_diaSemana_key" ON "HorarioDoctor"("doctorId", "diaSemana");
 
 -- CreateIndex

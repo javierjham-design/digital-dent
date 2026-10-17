@@ -880,6 +880,9 @@ model LiquidacionItem {
   origenCalculo      String? // PORCENTAJE | MONTO_FIJO | MONTO_FIJO_PRESTACION
   liquidacion        Liquidacion @relation(fields: [liquidacionId], references: [id])
   tratamiento        Tratamiento @relation(fields: [tratamientoId], references: [id])
+  // Una acción se liquida (paga al profesional) UNA sola vez: evita el doble pago aunque
+  // dos finalizaciones corran a la vez (refuerza el advisory lock de finalizarLiquidacion).
+  @@unique([tratamientoId])
 }
 
 model HorarioDoctor {
