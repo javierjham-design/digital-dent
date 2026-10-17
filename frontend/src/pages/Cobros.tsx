@@ -39,6 +39,16 @@ interface PlanCard { id: string; nombre: string }
 import { fmtMonto } from '@/lib/money'
 const fmt = fmtMonto
 const fechaHora = (iso: string) => new Date(iso).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
+
+// Descarga un CSV (con BOM para que Excel respete tildes). Filas = matriz de celdas.
+function descargarCsv(nombre: string, filas: (string | number)[][]) {
+  const esc = (v: string | number) => `"${String(v ?? '').replace(/"/g, '""')}"`
+  const csv = filas.map((f) => f.map(esc).join(',')).join('\r\n')
+  const url = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' }))
+  const a = document.createElement('a'); a.href = url; a.download = nombre; a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 10_000)
+}
+interface MovCsv { tipo: string; monto: number; descripcion: string; categoria: string | null; fecha: string; anulado: boolean; cobro?: { monto?: number; paciente?: { nombre: string; apellido: string } | null; medioPago?: { nombre: string | null } | null } | null }
 const netoTrat = (t: { precio: number; descuento: number }) => Math.round(t.precio * (1 - (t.descuento || 0) / 100))
 const pagadoTrat = (t: { cobroItems: CobroItemLite[] }) => t.cobroItems.filter((ci) => ci.cobro?.estado === 'PAGADO').reduce((s, ci) => s + ci.monto, 0)
 
@@ -49,7 +59,7 @@ const CATEGORIAS_EGRESO: [string, string][] = [
 
 type Modal =
   | { kind: 'abrir'; cajaId: string; nombre: string }
-  | { kind: 'cerrar'; cajaId: string; nombre: string; resumen: Resumen | null }
+  | { kind: 'cerrar'; cajaId: string; sesionId: string; nombre: string; resumen: Resumen | null }
   | { kind: 'mov'; cajaId: string; nombre: string }
   | { kind: 'pago'; cajaId: string; nombre: string }
   | { kind: 'movs'; cajaId: string; sesionId: string; nombre: string }
@@ -72,6 +82,21 @@ export function Cobros() {
     cobrosService.listar().then((c) => setCobros((c as Cobro[]).slice(0, 20))).catch(() => {})
   }, [])
   useEffect(() => { cargar(); mediosPagoService.listar().then((m) => setMedios(m.filter((x) => x.activo))).catch(() => {}) }, [cargar])
+
+  // Descarga el flujo de la sesión (abierta o cerrada) como CSV, para revisar los pagos en Excel.
+  async function reporteCsv(cajaId: string, sesionId: string, numero: number) {
+    try {
+      const d = await cajasService.sesion(cajaId, sesionId) as { movimientos: MovCsv[] }
+      const filas: (string | number)[][] = [['Fecha', 'Tipo', 'Concepto', 'Paciente', 'Medio de pago', 'Monto', 'Estado']]
+      for (const m of d.movimientos) {
+        const pac = m.cobro?.paciente ? `${m.cobro.paciente.nombre} ${m.cobro.paciente.apellido}` : ''
+        const medio = m.cobro?.medioPago?.nombre || (m.tipo === 'INGRESO' ? 'Efectivo' : '')
+        filas.push([fechaHora(m.fecha), m.tipo === 'INGRESO' ? 'Ingreso' : 'Egreso', `${m.descripcion}${m.categoria ? ` · ${m.categoria}` : ''}`, pac, medio, Math.round(m.cobro?.monto ?? m.monto), m.anulado ? 'ANULADO' : 'OK'])
+      }
+      descargarCsv(`caja-${numero}.csv`, filas)
+      notify('CSV descargado')
+    } catch (e) { notify(e instanceof ApiError ? e.message : 'No se pudo generar el CSV', false) }
+  }
 
   const abiertas = resumenes.filter((r) => r.sesionAbierta)
   // La caja propia del usuario (para poder abrirla desde aquí). El historial y las
@@ -105,7 +130,8 @@ export function Cobros() {
                 onPago={() => setModal({ kind: 'pago', cajaId: c.id, nombre: etiquetaCaja(c) })}
                 onGasto={() => setModal({ kind: 'mov', cajaId: c.id, nombre: etiquetaCaja(c) })}
                 onMovs={() => c.sesionAbierta && setModal({ kind: 'movs', cajaId: c.id, sesionId: c.sesionAbierta.id, nombre: etiquetaCaja(c) })}
-                onCerrar={() => setModal({ kind: 'cerrar', cajaId: c.id, nombre: etiquetaCaja(c), resumen: c.sesionAbierta?.resumen ?? null })} />
+                onReporteCsv={() => c.sesionAbierta && reporteCsv(c.id, c.sesionAbierta.id, c.sesionAbierta.numero)}
+                onCerrar={() => setModal({ kind: 'cerrar', cajaId: c.id, sesionId: c.sesionAbierta?.id ?? '', nombre: etiquetaCaja(c), resumen: c.sesionAbierta?.resumen ?? null })} />
             ))}
           </div>
         </section>
@@ -161,7 +187,7 @@ export function Cobros() {
 
       {nuevaCaja && <NuevaCajaModal onClose={() => setNuevaCaja(false)} onDone={() => { setNuevaCaja(false); notify('Caja creada'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal?.kind === 'abrir' && <AbrirModal cajaId={modal.cajaId} nombre={modal.nombre} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Caja abierta'); cargar() }} onError={(m) => notify(m, false)} />}
-      {modal?.kind === 'cerrar' && <CerrarModal cajaId={modal.cajaId} nombre={modal.nombre} resumen={modal.resumen} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Caja cerrada'); cargar() }} onError={(m) => notify(m, false)} />}
+      {modal?.kind === 'cerrar' && <CerrarModal cajaId={modal.cajaId} sesionId={modal.sesionId} nombre={modal.nombre} resumen={modal.resumen} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Caja cerrada'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal?.kind === 'mov' && <MovModal cajaId={modal.cajaId} nombre={modal.nombre} onClose={() => setModal(null)} onDone={() => { setModal(null); notify('Movimiento registrado'); cargar() }} onError={(m) => notify(m, false)} />}
       {modal?.kind === 'pago' && <PagoModal cajaId={modal.cajaId} nombre={modal.nombre} medios={medios} onClose={() => { setModal(null); cargar() }} onDone={() => { setModal(null); notify('Pago registrado'); cargar() }} onError={(m) => notify(m, false)} onComprobante={(c) => { setModal(null); cargar(); setComprobante(c) }} />}
       {comprobante && (
@@ -203,8 +229,8 @@ function LinkPagoBtn({ cobroId, notify }: { cobroId: string; notify: (m: string,
 }
 
 // ── Tarjeta de caja abierta ──
-function CajaAbiertaCard({ caja, esPropia, onPago, onGasto, onMovs, onCerrar }: {
-  caja: ResumenCaja; esPropia: boolean; onPago: () => void; onGasto: () => void; onMovs: () => void; onCerrar: () => void
+function CajaAbiertaCard({ caja, esPropia, onPago, onGasto, onMovs, onCerrar, onReporteCsv }: {
+  caja: ResumenCaja; esPropia: boolean; onPago: () => void; onGasto: () => void; onMovs: () => void; onCerrar: () => void; onReporteCsv: () => void
 }) {
   const s = caja.sesionAbierta!
   const r = s.resumen
@@ -226,6 +252,9 @@ function CajaAbiertaCard({ caja, esPropia, onPago, onGasto, onMovs, onCerrar }: 
           {esPropia && <button onClick={onPago} className="px-3.5 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Recibir pago</button>}
           {esPropia && <button onClick={onGasto} className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl">Registrar gasto</button>}
           <button onClick={onMovs} className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl">Movimientos</button>
+          {/* Reporte completo del flujo ANTES de cerrar: PDF imprimible + CSV para Excel. */}
+          <a href={`/print/caja/${caja.id}/${s.id}`} target="_blank" rel="noopener noreferrer" className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl" title="Ver/imprimir el reporte completo de la caja (PDF)">Reporte PDF</a>
+          <button onClick={onReporteCsv} className="px-3.5 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-xl" title="Descargar el flujo de pagos en CSV (Excel)">CSV</button>
           <button onClick={onCerrar} className="px-3.5 py-2 border border-rose-200 text-rose-700 hover:bg-rose-50 text-sm font-semibold rounded-xl">Cerrar caja</button>
         </div>
       </div>
@@ -294,7 +323,7 @@ function AbrirModal({ cajaId, nombre, onClose, onDone, onError }: { cajaId: stri
   )
 }
 
-function CerrarModal({ cajaId, nombre, resumen, onClose, onDone, onError }: { cajaId: string; nombre: string; resumen: Resumen | null; onClose: () => void; onDone: () => void; onError: (m: string) => void }) {
+function CerrarModal({ cajaId, sesionId, nombre, resumen, onClose, onDone, onError }: { cajaId: string; sesionId: string; nombre: string; resumen: Resumen | null; onClose: () => void; onDone: () => void; onError: (m: string) => void }) {
   const [contado, setContado] = useState('')
   const [retirado, setRetirado] = useState('')
   const [obs, setObs] = useState('')
@@ -315,6 +344,13 @@ function CerrarModal({ cajaId, nombre, resumen, onClose, onDone, onError }: { ca
   }
   return (
     <Modal title={`Cerrar ${nombre}`} onClose={onClose}>
+      {/* Revisar TODO el flujo de pagos antes de cerrar (reporte completo, aún se puede ajustar). */}
+      {sesionId && (
+        <div className="mb-3 bg-cyan-50 border border-cyan-200 rounded-xl px-3 py-2 text-xs text-cyan-800">
+          Antes de cerrar, revisa el flujo completo de pagos:{' '}
+          <a href={`/print/caja/${cajaId}/${sesionId}`} target="_blank" rel="noopener noreferrer" className="font-semibold underline">ver / imprimir reporte (PDF)</a>.
+        </div>
+      )}
       {resumen && (
         <div className="grid grid-cols-3 gap-2 mb-3">
           <Stat label="Apertura (efectivo)" value={fmt(resumen.saldoApertura)} />

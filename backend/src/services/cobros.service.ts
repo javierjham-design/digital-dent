@@ -19,8 +19,9 @@ const COBRO_INCLUDE = {
   caja: { select: { id: true, numero: true, nombre: true } },
   // Nº de la CAJA (ciclo apertura→cierre) en que se recibió el pago: es el
   // correlativo global de la sesión, no un "registro físico". Viene del
-  // movimiento de ingreso que generó el cobro.
-  movimientos: { where: { tipo: 'INGRESO' }, select: { sesion: { select: { numero: true } } }, orderBy: { fecha: 'asc' }, take: 1 },
+  // movimiento de ingreso que generó el cobro. Incluimos el ESTADO de la sesión
+  // para que la ficha advierta al editar un pago cuya caja ya está CERRADA.
+  movimientos: { where: { tipo: 'INGRESO' }, select: { sesion: { select: { id: true, numero: true, estado: true, cerradaAt: true } } }, orderBy: { fecha: 'asc' }, take: 1 },
   reciboUsuario: { select: { id: true, name: true, email: true } },
   items: { include: { tratamiento: { include: { prestacion: true } } } },
 } as const
@@ -370,7 +371,7 @@ export async function crearCobroLibreConLink(db: TenantClient, actor: JwtPayload
   return res
 }
 
-const CAMPOS_PRIVILEGIADOS = ['monto', 'montoNeto', 'comisionMonto', 'concepto', 'notas', 'fechaPago', 'reciboUsuarioId']
+const CAMPOS_PRIVILEGIADOS = ['monto', 'montoNeto', 'comisionMonto', 'concepto', 'notas', 'fechaPago', 'reciboUsuarioId', 'numeroReferencia', 'numeroBoleta']
 
 export async function actualizarCobro(db: TenantClient, actor: JwtPayload, id: string, body: Record<string, unknown>) {
   const existing = await db.cobro.findUnique({ where: { id }, select: { id: true, anulado: true } })
@@ -388,6 +389,8 @@ export async function actualizarCobro(db: TenantClient, actor: JwtPayload, id: s
     data.estado = body.estado
   }
   if (body.notas !== undefined) data.notas = body.notas ? String(body.notas) : null
+  if (body.numeroReferencia !== undefined) data.numeroReferencia = body.numeroReferencia ? String(body.numeroReferencia) : null
+  if (body.numeroBoleta !== undefined) data.numeroBoleta = body.numeroBoleta ? String(body.numeroBoleta) : null
   if (body.fechaPago !== undefined) data.fechaPago = body.fechaPago ? new Date(String(body.fechaPago)) : null
   if (body.metodoPago !== undefined) data.metodoPago = body.metodoPago ? String(body.metodoPago) : null
   if (body.concepto !== undefined) data.concepto = String(body.concepto)
@@ -415,8 +418,19 @@ export async function actualizarCobro(db: TenantClient, actor: JwtPayload, id: s
     }
   }
 
+  // ¿El pago quedó dentro de una caja YA CERRADA? Para dejarlo advertido en la auditoría.
+  const mov = await db.movimientoCaja.findFirst({ where: { cobroId: id, tipo: 'INGRESO' }, select: { sesion: { select: { numero: true, estado: true } } } })
+  const cajaCerrada = mov?.sesion?.estado === 'CERRADA'
+
   await db.cobro.update({ where: { id }, data })
-  return db.cobro.findUnique({ where: { id }, include: COBRO_INCLUDE })
+  const actualizado = await db.cobro.findUnique({ where: { id }, include: COBRO_INCLUDE })
+  if (actualizado && Object.keys(data).length > 0) {
+    await audit(db, actor.sub, {
+      accion: 'EDITAR', entidad: 'Cobro', entidadId: id, pacienteId: actualizado.pacienteId,
+      resumen: `Editó el pago #${actualizado.numero} (${Object.keys(data).join(', ')})${cajaCerrada ? ` · ⚠ caja N°${mov?.sesion?.numero ?? '?'} YA CERRADA al editar` : ''}`,
+    })
+  }
+  return actualizado
 }
 
 export async function anularCobro(db: TenantClient, actor: JwtPayload, id: string, motivo: string) {

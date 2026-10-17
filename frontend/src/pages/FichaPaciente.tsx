@@ -2259,9 +2259,16 @@ function RecaudacionTab({ pacienteId }: { pacienteId: string }) {
 function HistorialPagos({ pacienteId }: { pacienteId: string }) {
   const [pagos, setPagos] = useState<PagoPaciente[]>([])
   const [cargando, setCargando] = useState(true)
-  useEffect(() => { cobrosService.porPaciente(pacienteId).then((c) => setPagos(c as PagoPaciente[])).catch(() => {}).finally(() => setCargando(false)) }, [pacienteId])
+  const [medios, setMedios] = useState<MedioPagoDTO[]>([])
+  const [editar, setEditar] = useState<PagoPaciente | null>(null)
+  const [v, setV] = useState(0)
+  const { user } = useAuth()
+  const puedeEditar = user?.role === 'admin' || Boolean(user?.permisos?.puedeEditarPagos)
+  useEffect(() => { cobrosService.porPaciente(pacienteId).then((c) => setPagos(c as PagoPaciente[])).catch(() => {}).finally(() => setCargando(false)) }, [pacienteId, v])
+  useEffect(() => { if (puedeEditar) mediosPagoService.listar().then((m) => setMedios(m.filter((x) => x.activo))).catch(() => {}) }, [puedeEditar])
   const recibidos = pagos.filter((p) => !p.anulado && p.estado === 'PAGADO')
   const total = recibidos.reduce((s, p) => s + p.monto, 0)
+  const sesionDe = (p: PagoPaciente) => p.movimientos?.[0]?.sesion ?? null
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-4">
       <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
@@ -2274,28 +2281,122 @@ function HistorialPagos({ pacienteId }: { pacienteId: string }) {
       {cargando ? <p className="text-sm text-slate-400">Cargando…</p>
         : pagos.length === 0 ? <p className="text-sm text-slate-500">Sin pagos registrados.</p> : (
           <div className="divide-y divide-slate-100">
-            {pagos.map((p) => (
-              <div key={p.id} className={`py-2.5 flex items-center justify-between gap-3 ${p.anulado ? 'opacity-50' : ''}`}>
-                <div className="min-w-0">
-                  <p className={`text-sm font-medium text-slate-800 truncate ${p.anulado ? 'line-through' : ''}`}>
-                    #{p.numero} · {fmtCLP(p.monto)}
-                    <span className="ml-2 text-xs font-normal text-slate-500">{p.medioPago?.nombre ?? 'Efectivo'}</span>
-                    {p.anulado && <span className="ml-2 text-[11px] font-semibold text-rose-600">ANULADO</span>}
-                  </p>
-                  <p className="text-xs text-slate-500 truncate">{p.concepto}</p>
-                  <p className="text-xs text-slate-400">
-                    {p.fechaPago ? new Date(p.fechaPago).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
-                    {p.reciboUsuario?.name ? ` · recibió ${p.reciboUsuario.name}` : ''}
-                    {p.numeroReferencia ? ` · Ref ${p.numeroReferencia}` : ''}{p.numeroBoleta ? ` · Boleta ${p.numeroBoleta}` : ''}
-                  </p>
+            {pagos.map((p) => {
+              const ses = sesionDe(p)
+              const cerrada = ses?.estado === 'CERRADA'
+              return (
+                <div key={p.id} className={`py-2.5 flex items-center justify-between gap-3 ${p.anulado ? 'opacity-50' : ''}`}>
+                  <div className="min-w-0">
+                    <p className={`text-sm font-medium text-slate-800 truncate ${p.anulado ? 'line-through' : ''}`}>
+                      #{p.numero} · {fmtCLP(p.monto)}
+                      <span className="ml-2 text-xs font-normal text-slate-500">{p.medioPago?.nombre ?? 'Efectivo'}</span>
+                      {ses?.numero != null && <span className="ml-2 text-[11px] font-semibold text-slate-400" title={cerrada ? 'Caja cerrada' : 'Caja abierta'}>Caja N° {ses.numero}{cerrada ? ' 🔒' : ''}</span>}
+                      {p.anulado && <span className="ml-2 text-[11px] font-semibold text-rose-600">ANULADO</span>}
+                    </p>
+                    <p className="text-xs text-slate-500 truncate">{p.concepto}</p>
+                    <p className="text-xs text-slate-400">
+                      {p.fechaPago ? new Date(p.fechaPago).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}
+                      {p.reciboUsuario?.name ? ` · recibió ${p.reciboUsuario.name}` : ''}
+                      {p.numeroReferencia ? ` · Ref ${p.numeroReferencia}` : ''}{p.numeroBoleta ? ` · Boleta ${p.numeroBoleta}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {puedeEditar && !p.anulado && (
+                      <button onClick={() => setEditar(p)} className="text-xs font-semibold text-cyan-700 hover:text-cyan-900" title={cerrada ? 'Editar pago (⚠ su caja ya está cerrada)' : 'Editar pago'}>✎ Editar</button>
+                    )}
+                    {!p.anulado && p.estado === 'PAGADO' && (
+                      <a href={`/print/cobro/${p.id}`} target="_blank" rel="noopener noreferrer" title="Comprobante" className="text-xs font-semibold text-slate-500 hover:text-slate-800">🖨</a>
+                    )}
+                  </div>
                 </div>
-                {!p.anulado && p.estado === 'PAGADO' && (
-                  <a href={`/print/cobro/${p.id}`} target="_blank" rel="noopener noreferrer" title="Comprobante" className="shrink-0 text-xs font-semibold text-slate-500 hover:text-slate-800">🖨</a>
-                )}
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
+      {editar && (
+        <EditarPagoModal pago={editar} medios={medios}
+          cajaCerrada={sesionDe(editar)?.estado === 'CERRADA'} cajaNum={sesionDe(editar)?.numero ?? null}
+          onClose={() => setEditar(null)} onSaved={() => { setEditar(null); setV((x) => x + 1) }} />
+      )}
+    </div>
+  )
+}
+
+// Editar un pago desde la ficha (Recaudación). Requiere permiso (admin / puedeEditarPagos).
+// Si la caja del pago ya está CERRADA, exige confirmar una advertencia (queda auditado).
+function EditarPagoModal({ pago, medios, cajaCerrada, cajaNum, onClose, onSaved }: {
+  pago: PagoPaciente; medios: MedioPagoDTO[]; cajaCerrada: boolean; cajaNum: number | null
+  onClose: () => void; onSaved: () => void
+}) {
+  // La fecha guardada es UTC; el input datetime-local trabaja en hora local → convertir ida/vuelta.
+  const toLocalInput = (iso: string | null) => { if (!iso) return ''; const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16) }
+  const [monto, setMonto] = useState(String(Math.round(pago.monto)))
+  const [medioPagoId, setMedioPagoId] = useState(pago.medioPagoId ?? '')
+  const [fecha, setFecha] = useState(toLocalInput(pago.fechaPago))
+  const [ref, setRef] = useState(pago.numeroReferencia ?? '')
+  const [boleta, setBoleta] = useState(pago.numeroBoleta ?? '')
+  const [concepto, setConcepto] = useState(pago.concepto ?? '')
+  const [ack, setAck] = useState(false)
+  const [g, setG] = useState(false)
+  const [err, setErr] = useState('')
+  async function guardar() {
+    const m = Number(monto)
+    if (!(m >= 0)) { setErr('Monto inválido.'); return }
+    if (cajaCerrada && !ack) { setErr('Confirma que entiendes que la caja de este pago ya está cerrada.'); return }
+    setG(true); setErr('')
+    try {
+      await cobrosService.actualizar(pago.id, {
+        monto: m,
+        medioPagoId: medioPagoId || null,
+        fechaPago: fecha ? new Date(fecha).toISOString() : null,
+        numeroReferencia: ref.trim() || null,
+        numeroBoleta: boleta.trim() || null,
+        concepto: concepto.trim(),
+      })
+      onSaved()
+    } catch (e) { setErr(e instanceof ApiError ? e.message : 'No se pudo guardar'); setG(false) }
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-semibold text-slate-900">Editar pago #{pago.numero}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 text-xl">×</button>
+        </div>
+        {cajaCerrada && (
+          <div className="mb-4 bg-amber-50 border border-amber-300 rounded-xl px-3 py-2.5 text-xs text-amber-800">
+            ⚠ <span className="font-semibold">La caja de este pago (N° {cajaNum ?? '—'}) ya está CERRADA.</span> Editarlo modifica un cierre ya realizado y quedará registrado en la auditoría. Hazlo solo si es una corrección necesaria.
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block"><span className="text-xs font-medium text-slate-500">Monto</span>
+            <input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" /></label>
+          <label className="block"><span className="text-xs font-medium text-slate-500">Medio de pago</span>
+            <select value={medioPagoId} onChange={(e) => setMedioPagoId(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+              <option value="">Efectivo</option>
+              {medios.map((mp) => <option key={mp.id} value={mp.id}>{mp.nombre}</option>)}
+            </select></label>
+          <label className="block col-span-2"><span className="text-xs font-medium text-slate-500">Fecha de pago</span>
+            <input type="datetime-local" value={fecha} onChange={(e) => setFecha(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" /></label>
+          <label className="block"><span className="text-xs font-medium text-slate-500">N° referencia / operación</span>
+            <input value={ref} onChange={(e) => setRef(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" /></label>
+          <label className="block"><span className="text-xs font-medium text-slate-500">N° boleta</span>
+            <input value={boleta} onChange={(e) => setBoleta(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" /></label>
+          <label className="block col-span-2"><span className="text-xs font-medium text-slate-500">Concepto</span>
+            <input value={concepto} onChange={(e) => setConcepto(e.target.value)} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" /></label>
+        </div>
+        {cajaCerrada && (
+          <label className="flex items-start gap-2 mt-3 text-xs text-slate-600">
+            <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-0.5" />
+            <span>Entiendo que la caja ya está cerrada y aun así quiero editar este pago.</span>
+          </label>
+        )}
+        {err && <p className="text-sm text-rose-600 mt-3">{err}</p>}
+        <div className="flex gap-2 pt-4">
+          <button onClick={onClose} className="flex-1 px-4 py-2.5 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 hover:bg-slate-50">Cancelar</button>
+          <button onClick={guardar} disabled={g} className="flex-1 px-4 py-2.5 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white rounded-xl text-sm font-semibold">{g ? 'Guardando…' : 'Guardar cambios'}</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -2429,8 +2530,11 @@ interface PagoPaciente {
   id: string; numero: number; monto: number; estado: string; anulado: boolean
   fechaPago: string | null; concepto: string
   numeroReferencia?: string | null; numeroBoleta?: string | null
+  medioPagoId?: string | null
   medioPago?: { nombre: string } | null
   reciboUsuario?: { name: string | null } | null
+  // Sesión de caja del pago: para advertir al editar si la caja YA está cerrada.
+  movimientos?: { sesion?: { numero: number | null; estado: string | null } | null }[]
 }
 
 function HistorialTab({ pacienteId }: { pacienteId: string }) {

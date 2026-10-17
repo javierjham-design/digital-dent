@@ -45,12 +45,16 @@ export function CajaPrint() {
     return () => clearTimeout(t)
   }, [listo])
 
-  if (!sesion || !clinica) return <p className="p-8 text-slate-500 text-sm">Generando cierre de caja…</p>
+  if (!sesion || !clinica) return <p className="p-8 text-slate-500 text-sm">Generando reporte de caja…</p>
 
+  // Sesión aún ABIERTA → es un reporte PREVIO al cierre (sin arqueo/cuadre todavía).
+  const abierta = !sesion.cerradaAt
+  const tituloDoc = abierta ? 'Reporte de caja (sesión abierta)' : 'Cierre de caja'
   const ingresos = movs.filter((m) => !m.anulado && m.tipo === 'INGRESO')
   const egresos = movs.filter((m) => !m.anulado && m.tipo === 'EGRESO')
   const dif = sesion.diferencia ?? 0
   const cuadreTxt = dif === 0 ? 'Cuadrada ✓' : dif > 0 ? `Sobrante ${fmtCLP(dif)}` : `Faltante ${fmtCLP(-dif)}`
+  const efectivoEsperado = sesion.saldoEsperado ?? resumen?.efectivoEsperado ?? null
 
   return (
     <div className="min-h-screen bg-white text-slate-800 p-8 max-w-3xl mx-auto print:p-0">
@@ -71,9 +75,10 @@ export function CajaPrint() {
           </div>
         </div>
         <div className="text-right">
-          <p className="text-sm font-semibold text-slate-700">Cierre de caja</p>
+          <p className="text-sm font-semibold text-slate-700">{tituloDoc}</p>
           <p className="text-xs text-slate-500">{sesion.numero ? `Caja N° ${sesion.numero}` : 'Caja'}</p>
           <p className="text-xs text-slate-500">Responsable: {sesion.abiertaPorNombre ?? '—'}</p>
+          {abierta && <p className="text-[11px] text-amber-600 font-semibold mt-0.5">Previo al cierre · {fechaHora(new Date().toISOString())}</p>}
         </div>
       </div>
 
@@ -83,21 +88,26 @@ export function CajaPrint() {
         <Linea k="Cierre" v={`${sesion.cerradaAt ? fechaHora(sesion.cerradaAt) : '—'} · ${sesion.cerradaPorNombre ?? '—'}`} />
       </div>
 
-      {/* Cuadre — SÓLO efectivo (dinero físico en caja) */}
-      <p className="text-sm font-semibold text-slate-700 mb-1">Cuadre de efectivo (dinero físico en caja)</p>
+      {/* Cuadre — SÓLO efectivo (dinero físico en caja). Si la sesión sigue abierta, el arqueo/cuadre aún no existen. */}
+      <p className="text-sm font-semibold text-slate-700 mb-1">{abierta ? 'Efectivo esperado en caja (previo al cierre)' : 'Cuadre de efectivo (dinero físico en caja)'}</p>
       <table className="w-full text-sm border border-slate-200 mb-2">
         <tbody>
           <Fila k="Saldo de apertura (efectivo)" v={fmtCLP(sesion.saldoApertura)} />
           <Fila k="+ Ingresos en efectivo" v={fmtCLP(resumen ? resumen.ingresosEfectivo : sesion.totalIngresos)} tone="emerald" />
           <Fila k="− Egresos (gastos)" v={fmtCLP(resumen ? resumen.egresos : sesion.totalEgresos)} tone="rose" />
-          <Fila k="= Efectivo esperado en caja" v={fmtCLP(sesion.saldoEsperado)} bold />
-          <Fila k="Efectivo contado (arqueo)" v={fmtCLP(sesion.saldoReal)} bold />
-          <Fila k="Resultado del cuadre" v={cuadreTxt} tone={(sesion.diferencia ?? 0) === 0 ? 'emerald' : (sesion.diferencia ?? 0) > 0 ? undefined : 'rose'} bold />
-          {sesion.efectivoRetirado != null && <Fila k="Efectivo retirado (depósito/entrega)" v={fmtCLP(sesion.efectivoRetirado)} tone="rose" />}
-          {sesion.efectivoDejado != null && <Fila k="Efectivo que queda en la caja" v={fmtCLP(sesion.efectivoDejado)} bold />}
+          <Fila k="= Efectivo esperado en caja" v={fmtCLP(efectivoEsperado)} bold />
+          {!abierta && <>
+            <Fila k="Efectivo contado (arqueo)" v={fmtCLP(sesion.saldoReal)} bold />
+            <Fila k="Resultado del cuadre" v={cuadreTxt} tone={(sesion.diferencia ?? 0) === 0 ? 'emerald' : (sesion.diferencia ?? 0) > 0 ? undefined : 'rose'} bold />
+            {sesion.efectivoRetirado != null && <Fila k="Efectivo retirado (depósito/entrega)" v={fmtCLP(sesion.efectivoRetirado)} tone="rose" />}
+            {sesion.efectivoDejado != null && <Fila k="Efectivo que queda en la caja" v={fmtCLP(sesion.efectivoDejado)} bold />}
+          </>}
         </tbody>
       </table>
-      <p className="text-[11px] text-slate-400 mb-5">Sólo el efectivo cuenta para el cuadre de caja. Los pagos con tarjeta/transferencia se registran por su medio y NO suman al efectivo.</p>
+      <p className="text-[11px] text-slate-400 mb-5">
+        Sólo el efectivo cuenta para el cuadre de caja. Los pagos con tarjeta/transferencia se registran por su medio y NO suman al efectivo.
+        {abierta && ' El arqueo (efectivo contado) y el cuadre se registran al cerrar la caja.'}
+      </p>
 
       {/* Recaudación por medio de pago (todos los medios) */}
       {resumen && resumen.porMetodo.length > 0 && (
@@ -135,7 +145,7 @@ export function CajaPrint() {
       </div>
 
       <p className="text-[11px] text-slate-400 mt-8 border-t border-slate-100 pt-3">
-        Cierre de caja generado por {clinica.nombre}. Valores en {getPais(paisMoneda()).moneda.code}.
+        {tituloDoc} generado por {clinica.nombre}. Valores en {getPais(paisMoneda()).moneda.code}.
       </p>
     </div>
   )
