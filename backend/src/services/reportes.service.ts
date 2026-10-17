@@ -12,9 +12,20 @@ type Q = Record<string, string | undefined>
 // Rango de fechas del reporte en la ZONA de la clínica (no en UTC-local del server): un
 // registro de 20:00-23:59 hora local del último día ya no queda fuera, y cuadra con los
 // reportes de caja (que ya usan rangoFechasUtc). Devuelve { desde: gte, hasta: lte }.
+// SÓLO para campos que son INSTANTES reales (createdAt, cita.fecha, movimiento.fecha).
 async function rangoTz(db: TenantClient, desde?: string, hasta?: string): Promise<{ desde?: Date; hasta?: Date }> {
+  if (!desde && !hasta) return {} // sin filtro de fecha: no consultar Configuracion
   const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
   const r = rangoFechasUtc(desde, hasta, tzDePais(cfg?.pais))
+  return { desde: r.gte, hasta: r.lte }
+}
+
+// Rango en LÍMITES UTC de día (00:00:00.000Z → 23:59:59.999Z). Para campos "fecha-sola"
+// guardados a medianoche UTC (`new Date("YYYY-MM-DD")`): fechaPago retro-fechada y
+// fechaCompletado (evoluciones). El shift a la zona de la clínica los dejaría un día
+// antes (ej. 15-jul T00:00Z queda antes de las 04:00Z del gte chileno → saldría en el 14).
+function rangoUtc(desde?: string, hasta?: string): { desde?: Date; hasta?: Date } {
+  const r = rangoFechasUtc(desde, hasta, 'UTC')
   return { desde: r.gte, hasta: r.lte }
 }
 
@@ -79,8 +90,9 @@ export async function reporteCitas(db: TenantClient, q: Q): Promise<ReporteResul
 }
 
 export async function reporteCobros(db: TenantClient, q: Q): Promise<ReporteResult> {
-  const { desde, hasta } = await rangoTz(db, q.desde, q.hasta)
   const usarFechaPago = q.campo === 'fechaPago'
+  // fechaPago puede ser fecha-sola (retro-fechada) → límites UTC; createdAt es instante → zona clínica.
+  const { desde, hasta } = usarFechaPago ? rangoUtc(q.desde, q.hasta) : await rangoTz(db, q.desde, q.hasta)
   const filtroFecha = (desde || hasta) ? { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } : null
   const cobros = await db.cobro.findMany({
     where: {
@@ -109,8 +121,9 @@ export async function reporteCobros(db: TenantClient, q: Q): Promise<ReporteResu
 }
 
 export async function reporteTratamientos(db: TenantClient, q: Q): Promise<ReporteResult> {
-  const { desde, hasta } = await rangoTz(db, q.desde, q.hasta)
   const usarFechaCompletado = q.campo === 'fechaCompletado'
+  // fechaCompletado es fecha-sola (evoluciones) → límites UTC; fecha (plan.) es instante → zona clínica.
+  const { desde, hasta } = usarFechaCompletado ? rangoUtc(q.desde, q.hasta) : await rangoTz(db, q.desde, q.hasta)
   const filtroFecha = (desde || hasta) ? { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } : null
   const tratamientos = await db.tratamiento.findMany({
     where: {

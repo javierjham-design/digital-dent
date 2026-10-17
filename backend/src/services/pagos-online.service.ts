@@ -146,29 +146,41 @@ export async function procesarWebhookFlow(db: TenantClient, token: string): Prom
     console.warn(`[flow] webhook descartado por desajuste monto/orden (pago ${pago.id}: monto ${pago.monto} vs ${estado.amount}, orden ${pago.commerceOrder} vs ${estado.commerceOrder})`)
     return
   }
-  // Idempotencia ATÓMICA: solo UN webhook concurrente gana la transición a PAGADO (updateMany
-  // condicional); el resto sale sin repetir los efectos (doble email de confirmación / doble conversión CRM).
-  const claim = await db.pagoOnline.updateMany({ where: { id: pago.id, estado: { not: 'PAGADO' } }, data: { estado: 'PAGADO', pagadoAt: new Date() } })
-  if (claim.count === 0) return
-
-  // Si se pagó y el cobro seguía pendiente, lo marca pagado con el MEDIO "Flow" (no
-  // solo el string metodoPago): así la UI lo muestra como Flow y no como "sin medio".
-  // La caja se concilia aparte: aquí no generamos movimiento de caja automáticamente.
-  if (pago.cobroId) {
-    const cobro = await db.cobro.findUnique({ where: { id: pago.cobroId }, select: { estado: true, anulado: true } })
-    if (cobro && !cobro.anulado && cobro.estado !== 'PAGADO') {
-      // Medio "Flow" (filtro en JS, no `mode:insensitive` que SQLite —los tests— no soporta).
-      const medios = await db.medioPago.findMany({ select: { id: true, nombre: true } })
-      const medioFlow = medios.find((m) => m.nombre.trim().toLowerCase() === 'flow') ?? null
-      await db.cobro.update({
-        where: { id: pago.cobroId },
-        data: { estado: 'PAGADO', metodoPago: 'FLOW', fechaPago: new Date(), ...(medioFlow ? { medioPagoId: medioFlow.id } : {}) },
-      })
-      // Conversión del embudo: el pago online cuenta como cobro pagado. El helper no lanza ni
-      // bloquea con Meta. Import dinámico para evitar un ciclo de módulos (pagos ↔ crm ↔ cobros).
-      const { marcarConvertidoPorCobro } = await import('@/services/crm.service')
-      await marcarConvertidoPorCobro(db, pago.pacienteId, 'Sistema (pago online)')
+  // Idempotencia ATÓMICA + reconciliación del cobro en LA MISMA transacción: solo UN webhook
+  // concurrente gana la transición a PAGADO (updateMany condicional) Y marca el cobro en el mismo
+  // commit. Si la reconciliación del cobro falla, el claim se REVIERTE y el reintento de Flow lo
+  // reintenta (antes el claim marcaba el pago PAGADO aunque el cobro fallara → el reintento salía
+  // por claim.count===0 y el cobro quedaba impago para siempre pese a haber cobrado).
+  let cobroConciliado = false
+  const gano = await db.$transaction(async (tx) => {
+    const claim = await tx.pagoOnline.updateMany({ where: { id: pago.id, estado: { not: 'PAGADO' } }, data: { estado: 'PAGADO', pagadoAt: new Date() } })
+    if (claim.count === 0) return false
+    // Si se pagó y el cobro seguía pendiente, lo marca pagado con el MEDIO "Flow" (no solo el
+    // string metodoPago): así la UI lo muestra como Flow y no como "sin medio". La caja se
+    // concilia aparte: aquí no generamos movimiento de caja automáticamente.
+    if (pago.cobroId) {
+      const cobro = await tx.cobro.findUnique({ where: { id: pago.cobroId }, select: { estado: true, anulado: true } })
+      if (cobro && !cobro.anulado && cobro.estado !== 'PAGADO') {
+        // Medio "Flow" (filtro en JS, no `mode:insensitive` que SQLite —los tests— no soporta).
+        const medios = await tx.medioPago.findMany({ select: { id: true, nombre: true } })
+        const medioFlow = medios.find((m) => m.nombre.trim().toLowerCase() === 'flow') ?? null
+        await tx.cobro.update({
+          where: { id: pago.cobroId },
+          data: { estado: 'PAGADO', metodoPago: 'FLOW', fechaPago: new Date(), ...(medioFlow ? { medioPagoId: medioFlow.id } : {}) },
+        })
+        cobroConciliado = true
+      }
     }
+    return true
+  })
+  if (!gano) return
+
+  // Conversión del embudo (best-effort, DESPUÉS del commit): el pago online cuenta como cobro
+  // pagado. El helper no lanza ni bloquea con Meta; aun así lo envolvemos para que jamás revierta
+  // ni oculte el cobro ya conciliado. Import dinámico para evitar un ciclo de módulos.
+  if (cobroConciliado && pago.cobroId) {
+    const { marcarConvertidoPorCobro } = await import('@/services/crm.service')
+    await marcarConvertidoPorCobro(db, pago.pacienteId, 'Sistema (pago online)').catch(() => {})
   }
 
   // Si el pago era el abono de una reserva online, confirma el abono en la cita y

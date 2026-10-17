@@ -85,7 +85,7 @@ export interface CrearUsuarioInput {
   email?: string | null; rut?: string | null; especialidad?: string | null; telefono?: string | null
 }
 
-export async function crearUsuario(db: TenantClient, input: CrearUsuarioInput, clinicaId?: string): Promise<UsuarioDTO> {
+export async function crearUsuario(db: TenantClient, actor: JwtPayload, input: CrearUsuarioInput, clinicaId?: string): Promise<UsuarioDTO> {
   if (!input.name?.trim()) throw badRequest('Falta el nombre')
 
   const username = (input.username ?? '').trim().toLowerCase()
@@ -97,6 +97,9 @@ export async function crearUsuario(db: TenantClient, input: CrearUsuarioInput, c
 
   const role = input.role ?? 'doctor'
   if (!ROLES_PERMITIDOS.includes(role)) throw badRequest(`role inválido. Use: ${ROLES_PERMITIDOS.join(', ')}`)
+  // Sólo un admin puede crear otro admin: un gestor de equipo (puedeGestionarEquipo) NO
+  // puede auto-escalar creando usuarios administradores (misma guarda que actualizarUsuario).
+  if (role === 'admin' && actor.role !== 'admin') throw forbidden('Solo un administrador puede crear un usuario administrador.')
 
   // Tope de profesionales con agenda del plan (los usuarios sin agenda no cuentan).
   if (ROLES_CON_AGENDA.includes(role)) await assertCupoProfesional(db, clinicaId)

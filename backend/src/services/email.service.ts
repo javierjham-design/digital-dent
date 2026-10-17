@@ -61,7 +61,7 @@ export async function enviarCorreoClinica(db: TenantClient, input: EnviarCorreoI
 export interface EnviarManualOpts { apiBase: string; appBase: string; slug: string }
 export async function enviarManual(
   db: TenantClient, actor: JwtPayload,
-  body: { to: string; tipo?: string; asunto: string; mensaje?: string; html?: string; pacienteId?: string; pacienteNombre?: string; pdfBase64?: string; pdfNombre?: string; montoPago?: number },
+  body: { to: string; tipo?: string; asunto: string; mensaje?: string; pacienteId?: string; pacienteNombre?: string; pdfBase64?: string; pdfNombre?: string; montoPago?: number },
   urls?: EnviarManualOpts,
 ) {
   const tipo = (TIPOS_EMAIL as readonly string[]).includes(String(body.tipo)) ? (body.tipo as TipoEmail) : 'OTRO'
@@ -77,11 +77,12 @@ export async function enviarManual(
     if (r.estado === 'ok') pagoUrl = r.url
   }
 
-  const html = body.html?.trim()
-    ? body.html
-    : pagoUrl
-      ? mensajeConPagoHtml(clinica, { paciente: body.pacienteNombre ?? null, mensaje: body.mensaje || `Tienes un saldo pendiente de ${formatMoneda(clinica.pais, monto)}.`, montoTexto: formatMoneda(clinica.pais, monto), url: pagoUrl })
-      : mensajeConAdjuntoHtml(clinica, { paciente: body.pacienteNombre ?? null, titulo: body.asunto, mensaje: body.mensaje ?? null })
+  // El cuerpo SIEMPRE se arma con las plantillas (que escapan el texto). No se acepta un
+  // `html` crudo del cliente: era un vector de HTML arbitrario (spam/phishing con la
+  // identidad de envío de Cláriva) y ningún flujo legítimo lo usa (la UI manda tipo+mensaje).
+  const html = pagoUrl
+    ? mensajeConPagoHtml(clinica, { paciente: body.pacienteNombre ?? null, mensaje: body.mensaje || `Tienes un saldo pendiente de ${formatMoneda(clinica.pais, monto)}.`, montoTexto: formatMoneda(clinica.pais, monto), url: pagoUrl })
+    : mensajeConAdjuntoHtml(clinica, { paciente: body.pacienteNombre ?? null, titulo: body.asunto, mensaje: body.mensaje ?? null })
   const nombreArch = (body.pdfNombre || 'documento').trim()
   // Respeta la extensión real del archivo (imágenes, PDF…); sólo agrega .pdf si no tiene.
   const filename = /\.[a-z0-9]{2,5}$/i.test(nombreArch) ? nombreArch : `${nombreArch}.pdf`

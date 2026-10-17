@@ -64,6 +64,53 @@ Basado en `AUDITORIA_QA_2026-10-17.md`. Hoy sábado 2026-10-17; la plataforma se
 
 **Resuelto:** C1 (código) + los 14 Altos + la mayoría de Medios y Bajos. Verificado con 223 tests de integración, typecheck/lint limpios, y datos de prod sin duplicados para las migraciones.
 
+## Ronda 2 — re-auditoría completa sobre el código ya remediado (2026-10-17)
+
+Se repitió la auditoría con 7 agentes solo-lectura sobre TODO el código (incl. los ~12
+deploys de la ronda 1) para cazar regresiones nuevas. Las suites no detectaban nada, pero
+los agentes hallaron **regresiones introducidas por los propios fixes** + huecos nuevos.
+**TODO lo siguiente quedó CORREGIDO y verificado (231 tests, contrato, builds verdes):**
+
+- **Reportes#1 [ALTO · regresión del fix M5]** `rangoTz` desfasaba un día los campos
+  *fecha-sola* (fechaPago/fechaCompletado a medianoche UTC) en TODA clínica chilena. Fix:
+  `rangoUtc` (límites UTC de día) para fechaPago/fechaCompletado; `rangoTz` (zona clínica)
+  solo para instantes (createdAt/cita.fecha/movimiento.fecha). + guard sin-filtro (Reportes#3).
+- **Dinero#1/#2 [ALTO · regresión del fix M13]** editar/borrar un cobro de una sesión CERRADA
+  descuadraba el arqueo sellado. Fix: `calcularResumenSesion` CONGELA el cuadre de una sesión
+  cerrada (saldoEsperado/ingresosEfectivo/egresos desde los campos sellados; nunca recomputa).
+- **Dinero#3/#4 [MEDIO]** al editar monto/medio ahora se recalcula comisión+neto; editar el
+  monto de un pago DIVIDIDO se rechaza (como multi-ítem). + `metodoPago` ahora privilegiado (#8).
+- **Agenda#2 [MEDIO]** `editarCita` (arrastrar/reagendar) ahora va en `$transaction` +
+  `lockAgendaDoctor` + re-chequeo de solape, como crear/reprogramar/reservar.
+- **Agenda#1 [ALTO latente]** `PAIS_TZ` completado (SV/HN/NI/DO) + `tzDePais` uppercase.
+- **Reportes#2 [MEDIO · regresión del fix L14]** `eliminarPrestacion` borraba los montos-fijos
+  ANTES del delete fallido → pérdida irreversible. Fix: ambos en `$transaction` (rollback). +
+  `crearPrestacion` valida precio `>=0` (Reportes#5).
+- **Clínico#1 [MEDIO · regresión]** quitar `skipDuplicates` (por SQLite) abortaba TODO el import
+  ante una carrera de RUT en prod (Postgres). Fix: `skipDuplicates` solo fuera de VITEST.
+- **Clínico#2 [MEDIO]** pestaña Evoluciones mostraba la fecha-sola en zona local (off-by-one).
+  Fix: `fmtEvolucion` (fecha-sola → UTC; timestamp real → local).
+- **Seguridad#1 [ALTO]** un no-admin con `puedeGestionarEquipo` podía crearse/crear un admin.
+  Fix: `crearUsuario` exige actor admin para `role==='admin'` (como `actualizarUsuario`).
+- **Seguridad#2 [MEDIO · regresión del fix M2]** el claim de Flow marcaba PAGADO antes de
+  reconciliar y no era transaccional → cobro impago permanente si fallaba. Fix: claim +
+  reconciliación del cobro en UNA `$transaction` (el reintento de Flow la reintenta).
+- **Seguridad#4 [BAJO]** `invalidateUserCache` se cablea al cambiar `activo` (lockout inmediato).
+- **Barrido#1 [MEDIO]** `/emails/enviar` aceptaba `html` crudo (HTML arbitrario con la identidad
+  de Cláriva). Fix: se elimina el passthrough; el cuerpo SIEMPRE se arma con plantillas (escapan).
+- **Barrido#2 [BAJO]** `listarMovimientos` de caja usa `rangoFechasUtc` (zona clínica).
+
+Pruebas nuevas: `caja-cierre-congelado`, `reportes-fecha`, `usuarios-crear`, + casos en
+`cobros-editar` (comisión/split). Tests: 223 → **231**.
+
+### Diferido de la ronda 2 (fundamentado — no bloquean la operación)
+- **Dinero#5** cancelar una acción PAGADA no vuelca su pago a abono libre (infla el tope): requiere
+  tocar el flujo de cancelación con datos reales; es imprecisión de tope, no pérdida de dinero.
+- **Dinero#6** no hay reversa de una liquidación finalizada (el `@@unique` la sella): requiere
+  diseñar un endpoint de reversa + claw-back; post-lunes.
+- **Dinero#7/#9/#10**, **Reportes#4/#6/#7**, **Agenda#3/#4/#5/#6**, **Clínico#3/#4/#5/#6**,
+  **CRM (todos)**, **Barrido#3/#4/#5**: latentes, no-chilenos, perf, UX menor o pre-existentes.
+
 ### Diferido DELIBERADAMENTE (con fundamento — no son bloqueantes de la operación)
 - **M9** split de pago en el cuadre: latente (la UI nunca envía pago dividido; tocar la matemática del cuadre por un camino inalcanzable no compensa el riesgo).
 - **M18/M20/M22/M23/M24/M25** unificación amplia del matching por teléfono + atribución (auto-conversión, reenganche): se hizo el peor caso (H11, pérdida de datos) de forma segura; el resto cambia el matching de leads en prod y amerita validación con datos reales. Son problemas de PRECISIÓN de atribución/reportes, no de pérdida de datos ni de operación.

@@ -5,6 +5,34 @@
 
 ---
 
+## 2026-10-17 — QA ronda 2: regresiones de los fixes de la ronda 1 + huecos nuevos (todo corregido)
+
+Re-auditoría completa (7 agentes solo-lectura) sobre el código YA remediado para cazar regresiones que
+las suites no detectaban. Hallazgos CORREGIDOS (ver `docs/PLAN_AJUSTES_QA_2026-10-17.md` §Ronda 2):
+- **reportes.service.ts**: `rangoTz` (regresión M5) desfasaba un día los campos fecha-sola en toda clínica
+  chilena → nuevo `rangoUtc` (límites UTC) para fechaPago/fechaCompletado; `rangoTz` solo para instantes +
+  guard sin-filtro.
+- **lib/caja.ts**: `calcularResumenSesion` CONGELA el cuadre de una sesión CERRADA (saldoEsperado/ingresos/
+  egresos sellados) → editar/borrar un cobro post-cierre ya no descuadra el arqueo (regresión M13 Dinero#1/#2).
+- **cobros.service.ts**: al editar monto/medio se recalcula comisión+neto; monto de pago dividido se rechaza;
+  `metodoPago` ahora privilegiado.
+- **citas.service.ts**: `editarCita` (reagendar) va en `$transaction`+`lockAgendaDoctor`+re-chequeo de solape.
+- **lib/tz.ts**: `PAIS_TZ` completo (SV/HN/NI/DO) + `tzDePais` uppercase.
+- **catalogo.service.ts**: `eliminarPrestacion` borra montos-fijos + prestación en UNA `$transaction` (rollback
+  si falla la FK); `crearPrestacion` valida precio `>=0`.
+- **pacientes.service.ts**: import restaura `skipDuplicates` en prod (Postgres); solo se omite bajo VITEST.
+- **FichaPaciente.tsx**: pestaña Evoluciones usa `fmtEvolucion` (fecha-sola→UTC, timestamp→local).
+- **usuarios.service.ts**: `crearUsuario` exige actor admin para `role==='admin'` (anti-escalada).
+- **pagos-online.service.ts**: claim de Flow + reconciliación del cobro en UNA `$transaction` (el reintento
+  reintenta si falla; antes quedaba impago permanente).
+- **usuarios.controller.ts**: cablea `invalidateUserCache` al cambiar `activo` (lockout inmediato).
+- **email.service.ts / email.controller.ts**: se elimina el `html` crudo de `/emails/enviar` (HTML arbitrario);
+  el cuerpo SIEMPRE se arma con plantillas que escapan.
+- **caja.service.ts**: `listarMovimientos` usa `rangoFechasUtc` (zona clínica).
+- Pruebas nuevas: `caja-cierre-congelado`, `reportes-fecha`, `usuarios-crear` + casos de comisión/split en
+  `cobros-editar`.
+- Verde: typecheck (back+front) · integración **231** · contrato 301 · lint 0 (back) / 0 err (front) · builds OK.
+
 ## 2026-10-06 — Gestor de IA: backfill de la agenda ya cargada (recordatorios a citas pre-existentes)
 
 Al encender el maestro, las citas que YA estaban agendadas no tienen recordatorio (se crearon con la

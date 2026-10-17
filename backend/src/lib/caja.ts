@@ -73,7 +73,11 @@ export const cobroEsEfectivo = (cobro: { medioPago: { nombre: string | null } | 
 export async function calcularResumenSesion(db: TenantClient, sesionId: string) {
   const sesion = await db.sesionCaja.findUnique({
     where: { id: sesionId },
-    select: { saldoApertura: true, abiertaAt: true, cerradaAt: true, cajaId: true },
+    select: {
+      saldoApertura: true, abiertaAt: true, cerradaAt: true, cajaId: true,
+      // Para una sesión CERRADA el cuadre quedó CONGELADO al cerrar (ver más abajo).
+      estado: true, saldoEsperado: true, totalIngresos: true, totalEgresos: true,
+    },
   })
   if (!sesion) return null
   const hasta = sesion.cerradaAt ?? new Date()
@@ -106,6 +110,22 @@ export async function calcularResumenSesion(db: TenantClient, sesionId: string) 
     e.monto += bruto(m); e.cantidad++; map.set(metodo, e)
   }
   const porMetodo = [...map.entries()].map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto)
+
+  // Sesión CERRADA: el CUADRE (efectivo esperado, ingresos en efectivo y egresos)
+  // quedó CONGELADO al cerrar y se devuelve desde los campos sellados, NO recomputado.
+  // Si no, editar/anular/borrar un cobro posterior al cierre recalcularía el arqueo y
+  // la fila mostraría saldoReal/diferencia contra un esperado que ya no coincide
+  // (cierre "auto-contradictorio"). La recaudación total y el desglose por medio sí
+  // se recalculan en vivo: son informativos y no afectan el cuadre de efectivo.
+  if (sesion.estado === 'CERRADA' && sesion.saldoEsperado != null) {
+    const ingresosEfectivoSellado = sesion.totalIngresos ?? ingresosEfectivo
+    const egresosSellado = sesion.totalEgresos ?? egresos
+    return {
+      ingresos, ingresosEfectivo: ingresosEfectivoSellado, ingresosOtros: ingresos - ingresosEfectivoSellado,
+      egresos: egresosSellado, saldoEsperado: sesion.saldoEsperado, efectivoEsperado: sesion.saldoEsperado,
+      saldoApertura: sesion.saldoApertura, porMetodo,
+    }
+  }
 
   const efectivoEsperado = sesion.saldoApertura + ingresosEfectivo - egresos
   // `saldoEsperado` = efectivo esperado (dinero físico), para el cuadre.

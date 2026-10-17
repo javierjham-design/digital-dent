@@ -300,7 +300,9 @@ export async function listarMovimientos(db: TenantClient, actor: JwtPayload, caj
   return db.movimientoCaja.findMany({
     where: {
       cajaId,
-      ...(rango.from && rango.to ? { fecha: { gte: new Date(rango.from), lte: new Date(rango.to + 'T23:59:59') } } : {}),
+      // Rango en hora de la clínica (no UTC-local del server): un movimiento de las 21:00
+      // del último día ya no queda fuera. Mismo helper que los reportes de caja.
+      ...(rango.from || rango.to ? { fecha: rangoFechasUtc(rango.from, rango.to) } : {}),
     },
     include: {
       user: { select: { id: true, name: true, email: true } },

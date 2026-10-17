@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { tenantDb } from '@/middlewares/tenant'
+import { tenantDb, invalidateUserCache } from '@/middlewares/tenant'
 import { actualizarUsuario, crearUsuario, cupoProfesionales, listarDoctores, listarUsuarios } from '@/services/usuarios.service'
 import { crearUsuarioSchema } from '@/validators/schemas'
 
@@ -17,9 +17,15 @@ export async function getCupoProfesionales(req: Request, res: Response) {
 
 export async function postUsuario(req: Request, res: Response) {
   const input = crearUsuarioSchema.parse(req.body)
-  res.status(201).json(await crearUsuario(tenantDb(req), { ...input, email: input.email || null }, req.clinica?.id))
+  res.status(201).json(await crearUsuario(tenantDb(req), req.auth!, { ...input, email: input.email || null }, req.clinica?.id))
 }
 
 export async function patchUsuario(req: Request, res: Response) {
-  res.json(await actualizarUsuario(tenantDb(req), req.auth!, req.params.id, req.body ?? {}, req.clinica?.id))
+  const result = await actualizarUsuario(tenantDb(req), req.auth!, req.params.id, req.body ?? {}, req.clinica?.id)
+  // Si cambió el estado `activo`, invalida el cache de revocación de sesión para que el
+  // lockout (o la reactivación) tome efecto de inmediato y no en ≤30 s por el TTL.
+  if (req.body && typeof req.body === 'object' && 'activo' in req.body && req.clinica?.dbName) {
+    invalidateUserCache(req.clinica.dbName, req.params.id)
+  }
+  res.json(result)
 }

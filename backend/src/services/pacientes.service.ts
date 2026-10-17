@@ -482,12 +482,15 @@ export async function importarPacientes(db: TenantClient, fileBuffer: Buffer) {
   if (validos.length > 0) {
     // Número de ficha correlativo (como el alta manual) dentro de una transacción con el advisory
     // lock: no choca con altas simultáneas y no deja fichas importadas sin número.
-    // Ya deduplicamos por RUT (dentro del archivo y contra la BD) arriba, así que no hace falta
-    // skipDuplicates (que además SQLite no soporta). Los RUT null múltiples son válidos (@unique nullable).
+    // Ya deduplicamos por RUT (dentro del archivo y contra la BD) arriba, PERO una alta manual
+    // entre el SELECT de dedup y este createMany puede meter un RUT que ya no detectamos: en
+    // Postgres `skipDuplicates` omite ESA fila e inserta el resto (sin skip, el @unique abortaría
+    // TODO el import). SQLite (tests) no soporta skipDuplicates y no corre esa carrera.
+    const esSqlite = Boolean(process.env.VITEST)
     const result = await db.$transaction(async (tx) => {
       const primero = await siguienteNumero(tx, 'paciente')
       const data = validos.map((v, i) => ({ ...v, numero: primero + i, activo: true }))
-      return tx.paciente.createMany({ data })
+      return tx.paciente.createMany({ data, ...(esSqlite ? {} : { skipDuplicates: true }) })
     })
     creados = result.count
   }

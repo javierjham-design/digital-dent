@@ -2489,6 +2489,18 @@ function EvolucionesTab({ pacienteId, isAdmin }: { pacienteId: string; isAdmin: 
   )
 }
 
+// Las evoluciones de una acción del plan guardan `fecha` como FECHA-SOLA (medianoche
+// UTC, del date-picker); las evoluciones sueltas usan un timestamp real (createdAt).
+// Una fecha-sola se muestra como día en UTC (sin hora inventada, igual que el detalle
+// del plan); un timestamp real, con hora local. Si no, la fecha-sola salía un día antes.
+function fmtEvolucion(f: string | Date): string {
+  const d = new Date(f)
+  const esFechaSola = d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0
+  return esFechaSola
+    ? d.toLocaleDateString('es-CL', { dateStyle: 'medium', timeZone: 'UTC' })
+    : d.toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
+}
+
 function EvolucionItem({ e, isAdmin, onChanged, onBorrar }: { e: Evo; isAdmin: boolean; onChanged: () => void; onBorrar: () => void }) {
   const [editando, setEditando] = useState(false)
   const [txt, setTxt] = useState(e.texto)
@@ -2515,7 +2527,7 @@ function EvolucionItem({ e, isAdmin, onChanged, onBorrar }: { e: Evo; isAdmin: b
             <p className="text-xs text-cyan-700 mt-1">{e.tratamiento.prestacion.nombre}{e.tratamiento.diente ? ` · pieza ${e.tratamiento.diente}` : ''}</p>
           )}
           <div className="flex items-center justify-between mt-2 gap-2">
-            <p className="text-xs text-slate-400">{e.autor?.name ?? e.autor?.username ?? 'Sistema'} · {new Date(fecha).toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+            <p className="text-xs text-slate-400">{e.autor?.name ?? e.autor?.username ?? 'Sistema'} · {fmtEvolucion(fecha)}</p>
             {isAdmin && (
               <div className="flex gap-3 shrink-0">
                 <button onClick={() => setEditando(true)} className="text-xs text-slate-400 hover:text-cyan-600">Editar</button>

@@ -213,6 +213,8 @@ async function resolverCategoriaDestino(db: TenantClient, input: { categoriaId?:
 
 export async function crearPrestacion(db: TenantClient, input: { nombre: string; categoria?: string | null; categoriaId?: string | null; precio: number; descripcion?: string | null; duracion?: number }): Promise<PrestacionDTO> {
   if (!input.nombre?.trim() || input.precio == null) throw badRequest('Faltan campos requeridos')
+  const precio = Number(input.precio)
+  if (!Number.isFinite(precio) || precio < 0) throw badRequest('precio inválido') // simetría con actualizarPrestacion
   const nombre = input.nombre.trim()
   const destino = await resolverCategoriaDestino(db, input)
   // Idempotente: si ya existe una prestación con el mismo (área, nombre, categoría),
@@ -223,13 +225,13 @@ export async function crearPrestacion(db: TenantClient, input: { nombre: string;
   const keyNueva = prestacionKey(nombre, destino.categoria, areaDe(destino))
   const dup = todas.find((p) => prestacionKey(p.nombre, p.categoria, areaDe(p)) === keyNueva)
   if (dup) {
-    const p = await db.prestacion.update({ where: { id: dup.id }, data: { activo: true, precio: Number(input.precio), ...(input.descripcion !== undefined ? { descripcion: input.descripcion || null } : {}) } })
+    const p = await db.prestacion.update({ where: { id: dup.id }, data: { activo: true, precio, ...(input.descripcion !== undefined ? { descripcion: input.descripcion || null } : {}) } })
     return prestacionDTO(p)
   }
   const p = await db.prestacion.create({
     data: {
       nombre, categoria: destino.categoria, categoriaId: destino.categoriaId,
-      precio: Number(input.precio), descripcion: input.descripcion || null,
+      precio, descripcion: input.descripcion || null,
       duracion: input.duracion ?? 30, activo: true,
     },
   })
@@ -271,9 +273,14 @@ export async function eliminarPrestacion(db: TenantClient, id: string): Promise<
   if (!existing) throw notFound('Prestación no encontrada')
   // Los montos fijos por prestación son config (no datos clínicos): se limpian para no
   // bloquear el borrado por la FK. Los tratamientos SÍ bloquean (RESTRICT), como antes.
-  await db.montoFijoPrestacion.deleteMany({ where: { prestacionId: id } })
+  // Van en la MISMA transacción que el delete: si el delete falla por FK (prestación en
+  // uso), el borrado de los montos fijos se REVIERTE (si no, se perdían irreversiblemente
+  // aunque la prestación siga viva).
   try {
-    await db.prestacion.delete({ where: { id } })
+    await db.$transaction(async (tx) => {
+      await tx.montoFijoPrestacion.deleteMany({ where: { prestacionId: id } })
+      await tx.prestacion.delete({ where: { id } })
+    })
   } catch (e) {
     // La prestación está referenciada por tratamientos/ítems de presupuesto (FK RESTRICT): en vez
     // de un 500 crudo, 409 claro. Desactivarla (activo:false) es la alternativa no destructiva.

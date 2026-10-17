@@ -238,11 +238,30 @@ export async function editarCita(db: TenantClient, id: string, userName: string,
     }
   }
 
-  const cita = await db.cita.update({
-    where: { id },
-    data: { ...data, ...(logs.length > 0 ? { logs: { create: logs } } : {}) },
-    include: INCLUDE,
-  })
+  // Persistencia. Si cambia el horario, va en una transacción con lock por profesional y
+  // revalidación de solape DENTRO (igual que crearCita/reprogramarCita): cierra la doble
+  // reserva concurrente al arrastrar/editar una cita en paralelo con una reserva pública.
+  const dataFinal = { ...data, ...(logs.length > 0 ? { logs: { create: logs } } : {}) }
+  let cita
+  if (cambiaHorario) {
+    const nuevoDoctor = (data.doctorId as string) ?? current.doctorId
+    const esSobrecupo = data.sobrecupo !== undefined ? (data.sobrecupo as boolean) : current.sobrecupo
+    const nuevaFecha = (data.fecha as Date) ?? current.fecha
+    const fin = addMinutes(nuevaFecha, (data.duracion as number) ?? current.duracion)
+    cita = await db.$transaction(async (tx) => {
+      await lockAgendaDoctor(tx, nuevoDoctor)
+      if (!esSobrecupo) {
+        const solapada = await findSolapada(tx as unknown as TenantClient, { doctorId: nuevoDoctor, inicio: nuevaFecha, fin, excluir: id })
+        if (solapada) {
+          const hora = solapada.fecha.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+          throw conflict(`El profesional ya tiene una cita a las ${hora} (${solapada.paciente.nombre} ${solapada.paciente.apellido}).`)
+        }
+      }
+      return tx.cita.update({ where: { id }, data: dataFinal, include: INCLUDE })
+    })
+  } else {
+    cita = await db.cita.update({ where: { id }, data: dataFinal, include: INCLUDE })
+  }
   void pushCita(db, cita.id).catch(swallowGoogle('pushCita'))
   void emitirEventoCita(db, cita.fecha.getTime() !== current.fecha.getTime() ? 'appointment.rescheduled' : 'appointment.updated', cita.id)
   return toDTO(cita)

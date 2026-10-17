@@ -66,4 +66,30 @@ describe('actualizarCobro (editar pago desde la ficha)', () => {
     const cobro = await db.cobro.create({ data: { pacienteId: pacId, numero: 9007, concepto: 'x', monto: 5000, estado: 'PAGADO' } })
     await expect(actualizarCobro(db, actor(adminId), cobro.id, { comisionMonto: -100 })).rejects.toThrow(/negativo/i)
   })
+
+  it('Dinero#3: al cambiar el monto recalcula comisión y neto según el medio', async () => {
+    const db = tenantClient(dbName)
+    const medio = await db.medioPago.create({ data: { nombre: 'Tarjeta 10%', comision: 10 } })
+    const cobro = await db.cobro.create({ data: { pacienteId: pacId, numero: 9008, concepto: 'x', monto: 10000, montoNeto: 9000, comisionMonto: 1000, medioPagoId: medio.id, estado: 'PAGADO' } })
+    const upd = await actualizarCobro(db, actor(adminId), cobro.id, { monto: 20000 })
+    expect(upd?.comisionMonto).toBe(2000) // 10% de 20000
+    expect(upd?.montoNeto).toBe(18000)
+  })
+
+  it('Dinero#3: cambiar el medio a Efectivo deja comisión 0 y neto = monto', async () => {
+    const db = tenantClient(dbName)
+    const medio = await db.medioPago.create({ data: { nombre: 'Tarjeta 5%', comision: 5 } })
+    const cobro = await db.cobro.create({ data: { pacienteId: pacId, numero: 9009, concepto: 'x', monto: 10000, montoNeto: 9500, comisionMonto: 500, medioPagoId: medio.id, estado: 'PAGADO' } })
+    const upd = await actualizarCobro(db, actor(adminId), cobro.id, { medioPagoId: null })
+    expect(upd?.comisionMonto).toBe(0)
+    expect(upd?.montoNeto).toBe(10000)
+  })
+
+  it('Dinero#4: rechaza editar el monto de un pago dividido en dos medios', async () => {
+    const db = tenantClient(dbName)
+    const m1 = await db.medioPago.create({ data: { nombre: 'Débito', comision: 0 } })
+    const m2 = await db.medioPago.create({ data: { nombre: 'Crédito', comision: 3 } })
+    const cobro = await db.cobro.create({ data: { pacienteId: pacId, numero: 9010, concepto: 'x', monto: 10000, monto2: 4000, medioPagoId: m1.id, medioPago2Id: m2.id, estado: 'PAGADO' } })
+    await expect(actualizarCobro(db, actor(adminId), cobro.id, { monto: 15000 })).rejects.toThrow(/dividido/i)
+  })
 })

@@ -379,10 +379,21 @@ export async function crearCobroLibreConLink(db: TenantClient, actor: JwtPayload
   return res
 }
 
-const CAMPOS_PRIVILEGIADOS = ['monto', 'montoNeto', 'comisionMonto', 'concepto', 'notas', 'fechaPago', 'reciboUsuarioId', 'numeroReferencia', 'numeroBoleta', 'estado', 'medioPagoId']
+const CAMPOS_PRIVILEGIADOS = ['monto', 'montoNeto', 'comisionMonto', 'concepto', 'notas', 'fechaPago', 'reciboUsuarioId', 'numeroReferencia', 'numeroBoleta', 'estado', 'medioPagoId', 'metodoPago']
+
+// Comisión del medio para un tramo (entero CLP). Sin medio = Efectivo = 0.
+async function comisionDeMedio(db: TenantClient, medioId: string | null | undefined, montoTramo: number): Promise<number> {
+  if (!medioId) return 0
+  const m = await db.medioPago.findUnique({ where: { id: medioId }, select: { comision: true } })
+  if (!m) return 0
+  return Math.round(montoTramo * (m.comision / 100))
+}
 
 export async function actualizarCobro(db: TenantClient, actor: JwtPayload, id: string, body: Record<string, unknown>) {
-  const existing = await db.cobro.findUnique({ where: { id }, select: { id: true, anulado: true } })
+  const existing = await db.cobro.findUnique({
+    where: { id },
+    select: { id: true, anulado: true, monto: true, medioPagoId: true, monto2: true, medioPago2Id: true },
+  })
   if (!existing) throw notFound('Cobro no encontrado')
 
   if (CAMPOS_PRIVILEGIADOS.some((k) => body[k] !== undefined)) {
@@ -436,11 +447,37 @@ export async function actualizarCobro(db: TenantClient, actor: JwtPayload, id: s
   // Si cambia el MONTO hay que reconciliar el ítem del plan y el movimiento de caja; si no, el
   // encabezado del cobro, lo imputado al plan y el arqueo de caja quedan en tres cifras distintas.
   const cambiaMonto = data.monto !== undefined
+  const esDividido = existing.monto2 != null && existing.monto2 > 0
   let itemUnicoId: string | null = null
   if (cambiaMonto) {
+    // Un pago DIVIDIDO (dos medios) no se puede re-montar acá: cambiar el total dejaría monto2
+    // mayor que el monto o un tramo negativo en el comprobante. Hay que anularlo y re-recibirlo.
+    if (esDividido) throw badRequest('Este pago está dividido en dos medios. Para cambiar el monto, anúlalo y vuelve a recibirlo, así los dos medios y la caja quedan consistentes.')
     const items = await db.cobroItem.findMany({ where: { cobroId: id }, select: { id: true } })
     if (items.length > 1) throw badRequest('Este pago tiene varios ítems (acciones del plan). Para cambiar el monto, anúlalo y vuelve a recibirlo, así el plan y la caja quedan consistentes.')
     itemUnicoId = items[0]?.id ?? null
+  }
+
+  // Al cambiar el MONTO o el MEDIO hay que recalcular la comisión y el neto (la liquidación del
+  // profesional usa comisionMonto/monto como tasa): si no, un cobro corregido liquida con la
+  // comisión vieja (Efectivo→tarjeta dejaría comisión 0, o un monto mayor sub-descontaría).
+  // Sólo si el llamador NO mandó explícitamente comisionMonto/montoNeto (la UI nunca los manda).
+  const cambiaMedio = body.medioPagoId !== undefined
+  const callerMandaComision = body.comisionMonto !== undefined || body.montoNeto !== undefined
+  if ((cambiaMonto || cambiaMedio) && !callerMandaComision) {
+    const finalMonto = cambiaMonto ? Number(data.monto) : existing.monto
+    const finalMedioId = cambiaMedio ? (data.medioPagoId as string | null) : existing.medioPagoId
+    let comision: number
+    if (esDividido) {
+      // Split: monto1 = total − monto2 (el total no cambia; su edición está bloqueada arriba).
+      const monto2 = existing.monto2 ?? 0
+      const monto1 = finalMonto - monto2
+      comision = (await comisionDeMedio(db, finalMedioId, monto1)) + (await comisionDeMedio(db, existing.medioPago2Id, monto2))
+    } else {
+      comision = await comisionDeMedio(db, finalMedioId, finalMonto)
+    }
+    data.comisionMonto = comision
+    data.montoNeto = Math.max(0, finalMonto - comision)
   }
 
   await db.$transaction(async (tx) => {

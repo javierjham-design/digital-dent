@@ -7,14 +7,18 @@ export const CLINIC_TZ = 'America/Santiago'
 
 // Zona horaria IANA por país (ISO-2). La clínica opera en la hora de SU país; el default
 // es Chile. Se usa para generar/validar cupos y para los rangos de fecha de los reportes.
+// Debe cubrir TODOS los países que `esPaisValido` acepta (shared/constants/paises):
+// si falta uno, tzDePais cae en silencio a Chile y los cupos/reportes de esa clínica
+// salen corridos varias horas. Mantener en sincronía con PAISES.
 const PAIS_TZ: Record<string, string> = {
   CL: 'America/Santiago', PE: 'America/Lima', MX: 'America/Mexico_City',
   AR: 'America/Argentina/Buenos_Aires', CO: 'America/Bogota', CR: 'America/Costa_Rica',
   PA: 'America/Panama', EC: 'America/Guayaquil', BO: 'America/La_Paz', UY: 'America/Montevideo',
   PY: 'America/Asuncion', VE: 'America/Caracas', GT: 'America/Guatemala',
+  SV: 'America/El_Salvador', HN: 'America/Tegucigalpa', NI: 'America/Managua', DO: 'America/Santo_Domingo',
 }
 export function tzDePais(pais?: string | null): string {
-  return (pais && PAIS_TZ[pais]) || CLINIC_TZ
+  return (pais && PAIS_TZ[pais.toUpperCase()]) || CLINIC_TZ
 }
 
 // Minutos que la zona está adelantada respecto de UTC en un instante dado.

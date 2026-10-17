@@ -12,7 +12,7 @@ export async function postEnviar(req: Request, res: Response) {
     tipo: b.tipo != null ? String(b.tipo) : undefined,
     asunto: String(b.asunto ?? ''),
     mensaje: b.mensaje != null ? String(b.mensaje) : undefined,
-    html: b.html != null ? String(b.html) : undefined,
+    // `html` crudo ya no se acepta (vector de HTML arbitrario); el cuerpo se arma con plantillas.
     pacienteId: b.pacienteId != null ? String(b.pacienteId) : undefined,
     pacienteNombre: b.pacienteNombre != null ? String(b.pacienteNombre) : undefined,
     pdfBase64: b.pdfBase64 != null ? String(b.pdfBase64) : undefined,
