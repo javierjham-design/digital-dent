@@ -43,7 +43,7 @@ const shaNorm = (v: string) => sha(v.trim().toLowerCase())
 // Teléfono a dígitos con código de país (Chile). Meta hashea el número normalizado, así que un
 // fijo chileno sin país ("452781983") también debe quedar como "56452781983" o no matchea.
 function normPhone(p: string): string {
-  let d = p.replace(/\D/g, '').replace(/^0+/, '')
+  const d = p.replace(/\D/g, '').replace(/^0+/, '')
   if (d.startsWith('56') && d.length >= 10) return d // ya trae código de país
   if (d.length === 8 || d.length === 9) return `56${d}` // chileno sin país (móvil o fijo)
   return d

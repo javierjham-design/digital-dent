@@ -2,6 +2,7 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
 import { audit } from '@/lib/audit'
+import { advisoryLock } from '@/lib/agenda-lock'
 import { assertAreaDisponible, type ActorArea } from '@/lib/areas'
 import { resolverAreaPorCategoria } from '@/services/catalogo.service'
 import { esArea, type AreaClinica } from '@shared/constants/areas'
@@ -447,17 +448,19 @@ export async function aplicarAbonoLibreAAccion(db: TenantClient, tratamientoId: 
   const restante = Math.round(neto - t.cobroItems.reduce((s, i) => s + i.monto, 0))
   if (restante <= 0) return 0
 
-  const itemsLibres = await db.cobroItem.findMany({
-    where: { planId: t.planId, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } },
-    select: { id: true, monto: true, cobroId: true, descripcion: true },
-    orderBy: { id: 'asc' },
-  })
-  let aplicar = Math.min(restante, Math.round(itemsLibres.reduce((s, i) => s + i.monto, 0)))
-  if (maxAplicar != null) aplicar = Math.min(aplicar, Math.max(0, Math.round(maxAplicar)))
-  if (aplicar <= 0) return 0
+  // Lock por plan + lectura del abono libre + reasignación en la MISMA tx: dos aplicaciones
+  // concurrentes ya no leen la misma lista y duplican crédito (crear CobroItem de más).
+  return db.$transaction(async (tx) => {
+    await advisoryLock(tx, `abono:${t.planId}`)
+    const itemsLibres = await tx.cobroItem.findMany({
+      where: { planId: t.planId, tratamientoId: null, cobro: { estado: 'PAGADO', anulado: false } },
+      select: { id: true, monto: true, cobroId: true, descripcion: true },
+      orderBy: { id: 'asc' },
+    })
+    let aplicar = Math.min(restante, Math.round(itemsLibres.reduce((s, i) => s + i.monto, 0)))
+    if (maxAplicar != null) aplicar = Math.min(aplicar, Math.max(0, Math.round(maxAplicar)))
+    if (aplicar <= 0) return 0
 
-  const total = aplicar
-  await db.$transaction(async (tx) => {
     let rem = aplicar
     for (const it of itemsLibres) {
       if (rem <= 0) break
@@ -470,8 +473,8 @@ export async function aplicarAbonoLibreAAccion(db: TenantClient, tratamientoId: 
         rem = 0
       }
     }
+    return aplicar
   })
-  return total
 }
 
 // Aplica el abono libre del plan a TODAS sus acciones realizadas e impagas (en
