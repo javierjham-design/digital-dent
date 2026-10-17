@@ -1,5 +1,6 @@
 import type { TenantClient } from '@/db/tenant'
-import { buildXlsx, clp, formatRUT, isoDate, isoDateTime, parseDateRange } from '@/lib/excel'
+import { buildXlsx, clp, formatRUT, isoDate, isoDateTime } from '@/lib/excel'
+import { rangoFechasUtc, tzDePais } from '@/lib/tz'
 
 // Cada reporte devuelve { buffer, filenameBase }; el controller arma la
 // respuesta HTTP de descarga. Misma lógica de filtros que el monolito.
@@ -8,8 +9,17 @@ export interface ReporteResult { buffer: Buffer; filenameBase: string }
 
 type Q = Record<string, string | undefined>
 
+// Rango de fechas del reporte en la ZONA de la clínica (no en UTC-local del server): un
+// registro de 20:00-23:59 hora local del último día ya no queda fuera, y cuadra con los
+// reportes de caja (que ya usan rangoFechasUtc). Devuelve { desde: gte, hasta: lte }.
+async function rangoTz(db: TenantClient, desde?: string, hasta?: string): Promise<{ desde?: Date; hasta?: Date }> {
+  const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+  const r = rangoFechasUtc(desde, hasta, tzDePais(cfg?.pais))
+  return { desde: r.gte, hasta: r.lte }
+}
+
 export async function reportePacientes(db: TenantClient, q: Q): Promise<ReporteResult> {
-  const { desde, hasta } = parseDateRange(q.desde, q.hasta)
+  const { desde, hasta } = await rangoTz(db, q.desde, q.hasta)
   const soloActivos = q.soloActivos === '1'
   const pacientes = await db.paciente.findMany({
     where: {
@@ -38,7 +48,7 @@ export async function reportePacientes(db: TenantClient, q: Q): Promise<ReporteR
 // XLSX y por la herramienta ocupacion_agenda del asistente (misma definición de
 // negocio, distinto armado de salida).
 export async function citasDatos(db: TenantClient, q: Q) {
-  const { desde, hasta } = parseDateRange(q.desde, q.hasta)
+  const { desde, hasta } = await rangoTz(db, q.desde, q.hasta)
   return db.cita.findMany({
     where: {
       ...(desde || hasta ? { fecha: { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } } : {}),
@@ -69,7 +79,7 @@ export async function reporteCitas(db: TenantClient, q: Q): Promise<ReporteResul
 }
 
 export async function reporteCobros(db: TenantClient, q: Q): Promise<ReporteResult> {
-  const { desde, hasta } = parseDateRange(q.desde, q.hasta)
+  const { desde, hasta } = await rangoTz(db, q.desde, q.hasta)
   const usarFechaPago = q.campo === 'fechaPago'
   const filtroFecha = (desde || hasta) ? { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } : null
   const cobros = await db.cobro.findMany({
@@ -99,7 +109,7 @@ export async function reporteCobros(db: TenantClient, q: Q): Promise<ReporteResu
 }
 
 export async function reporteTratamientos(db: TenantClient, q: Q): Promise<ReporteResult> {
-  const { desde, hasta } = parseDateRange(q.desde, q.hasta)
+  const { desde, hasta } = await rangoTz(db, q.desde, q.hasta)
   const usarFechaCompletado = q.campo === 'fechaCompletado'
   const filtroFecha = (desde || hasta) ? { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } : null
   const tratamientos = await db.tratamiento.findMany({
@@ -167,7 +177,7 @@ export async function reporteLiquidaciones(db: TenantClient, q: Q): Promise<Repo
 // Consulta cruda de movimientos de caja. Reutilizada por el reporte XLSX y por la
 // herramienta cuadre_caja del asistente.
 export async function movimientosCajaDatos(db: TenantClient, q: Q) {
-  const { desde, hasta } = parseDateRange(q.desde, q.hasta)
+  const { desde, hasta } = await rangoTz(db, q.desde, q.hasta)
   const filtroFecha = (desde || hasta) ? { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } : null
   return db.movimientoCaja.findMany({
     where: { ...(q.cajaId ? { cajaId: q.cajaId } : {}), ...(filtroFecha ? { fecha: filtroFecha } : {}) },

@@ -1,14 +1,13 @@
 import type { TenantClient } from '@/db/tenant'
 import { badRequest } from '@/lib/errors'
+import { tzDePais } from '@/lib/tz'
 
-// Zona horaria de operación de la clínica (misma que usa el resto del sistema).
-const TZ = 'America/Santiago'
 const DOW: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
 
-// Día de la semana (0=domingo) y minuto del día, en la hora local de la clínica.
-function partesLocales(d: Date): { dow: number; min: number } {
+// Día de la semana (0=domingo) y minuto del día, en la hora local de la clínica (su país).
+function partesLocales(d: Date, tz: string): { dow: number; min: number } {
   const p = new Intl.DateTimeFormat('en-US', {
-    timeZone: TZ, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
+    timeZone: tz, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false,
   }).formatToParts(d)
   const wd = p.find((x) => x.type === 'weekday')?.value ?? 'Sun'
   const hh = Number(p.find((x) => x.type === 'hour')?.value ?? '0') % 24
@@ -35,8 +34,10 @@ export async function assertDentroDeAtencion(db: TenantClient, doctorId: string,
   const total = await db.horarioDoctor.count({ where: { doctorId, activo: true } })
   if (total === 0) return
 
-  const { dow, min: iniMin } = partesLocales(inicio)
-  const finParts = partesLocales(fin)
+  const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+  const tz = tzDePais(cfg?.pais)
+  const { dow, min: iniMin } = partesLocales(inicio, tz)
+  const finParts = partesLocales(fin, tz)
   // Si el fin cae en otro día, queda fuera de todo tramo de atención de este día.
   const finMin = finParts.dow === dow ? finParts.min : 24 * 60
 

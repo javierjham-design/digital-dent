@@ -53,10 +53,12 @@ function edadTexto(iso: string | null): string {
   if (!iso) return 'Sin edad ingresada'
   const nac = new Date(iso)
   if (Number.isNaN(nac.getTime())) return 'Sin edad ingresada'
+  // La fecha de nacimiento es fecha-sola (medianoche UTC): se leen sus componentes en UTC para
+  // no desfasar un día (en Chile los getters locales la corren al día anterior).
   const hoy = new Date()
-  let anios = hoy.getFullYear() - nac.getFullYear()
-  let meses = hoy.getMonth() - nac.getMonth()
-  if (hoy.getDate() < nac.getDate()) meses--
+  let anios = hoy.getFullYear() - nac.getUTCFullYear()
+  let meses = hoy.getMonth() - nac.getUTCMonth()
+  if (hoy.getDate() < nac.getUTCDate()) meses--
   if (meses < 0) { anios--; meses += 12 }
   if (anios < 0) return 'Sin edad ingresada'
   return `${anios} ${anios === 1 ? 'año' : 'años'} ${meses} ${meses === 1 ? 'mes' : 'meses'}`

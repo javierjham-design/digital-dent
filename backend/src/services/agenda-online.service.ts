@@ -11,7 +11,7 @@ import { ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
 import { lockAgendaDoctor } from '@/lib/agenda-lock'
 import { validarRut, formatRut } from '@shared/utils/rut'
-import { wallClockToUtc, todayYmd, addDaysYmd, weekdayOfYmd, toMin, fromMin } from '@/lib/tz'
+import { wallClockToUtc, todayYmd, addDaysYmd, weekdayOfYmd, toMin, fromMin, tzDePais } from '@/lib/tz'
 
 const LINK_INCLUDE = {
   doctor: { select: { id: true, name: true, email: true, especialidad: true } },
@@ -236,19 +236,20 @@ function ventanasDelDia(link: Link, horarios: Awaited<ReturnType<typeof listarHo
 export async function slotsLibres(
   db: TenantClient, doctorId: string, durationMin: number, fromYmd: string, toYmd: string, now = new Date(),
 ): Promise<{ start: Date; end: Date }[]> {
-  const hoy = todayYmd(undefined, now)
+  const tz = tzDePais((await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } }))?.pais)
+  const hoy = todayYmd(tz, now)
   const startYmd = fromYmd < hoy ? hoy : fromYmd
   if (toYmd < startYmd) return []
   const horarios = await listarHorarios(db, doctorId)
   if (horarios.length === 0) return []
-  const finRango = wallClockToUtc(addDaysYmd(toYmd, 1), '00:00')
+  const finRango = wallClockToUtc(addDaysYmd(toYmd, 1), '00:00', tz)
   const busy = await busyIntervals(db, doctorId, now, finRango)
   const out: { start: Date; end: Date }[] = []
   for (let ymd = startYmd; ymd <= toYmd; ymd = addDaysYmd(ymd, 1)) {
     for (const w of ventanasDeHorario(horarios, weekdayOfYmd(ymd))) {
       const wStart = toMin(w.ini), wEnd = toMin(w.fin)
       for (let m = wStart; m + durationMin <= wEnd; m += durationMin) {
-        const start = wallClockToUtc(ymd, fromMin(m))
+        const start = wallClockToUtc(ymd, fromMin(m), tz)
         if (start.getTime() < now.getTime()) continue
         const end = new Date(start.getTime() + durationMin * 60000)
         if (busy.some(([bi, bf]) => intervalsOverlap(bi, bf, start, end))) continue
@@ -262,7 +263,8 @@ export async function slotsLibres(
 export async function calcularSlots(db: TenantClient, link: Link, doctorId: string, now = new Date()) {
   const minInicio = new Date(now.getTime() + link.anticipacionHoras * 3600_000)
   const horarios = link.usaHorarioDoctor ? await listarHorarios(db, doctorId) : []
-  const startYmd = todayYmd(undefined, now)
+  const tz = tzDePais((await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } }))?.pais)
+  const startYmd = todayYmd(tz, now)
   const finRango = new Date(now.getTime() + (link.diasMaxFuturo + 1) * 86400_000)
   const busy = await busyIntervals(db, doctorId, minInicio, finRango)
 
@@ -276,7 +278,7 @@ export async function calcularSlots(db: TenantClient, link: Link, doctorId: stri
       const wStart = toMin(w.ini), wEnd = toMin(w.fin)
       for (let m = wStart; m + link.duracionMin <= wEnd; m += link.duracionMin) {
         const hm = fromMin(m)
-        const inicio = wallClockToUtc(ymd, hm)
+        const inicio = wallClockToUtc(ymd, hm, tz)
         if (inicio.getTime() < minInicio.getTime()) continue
         const fin = new Date(inicio.getTime() + link.duracionMin * 60000)
         if (busy.some(([bi, bf]) => intervalsOverlap(bi, bf, inicio, fin))) continue
