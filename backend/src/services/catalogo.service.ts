@@ -1,5 +1,5 @@
 import type { TenantClient } from '@/db/tenant'
-import { badRequest, notFound } from '@/lib/errors'
+import { badRequest, conflict, notFound } from '@/lib/errors'
 import type { ClinicaConfigDTO, PrestacionDTO } from '@shared/types'
 
 // ─── Prestaciones ────────────────────────────────────────────────────────────
@@ -272,7 +272,16 @@ export async function eliminarPrestacion(db: TenantClient, id: string): Promise<
   // Los montos fijos por prestación son config (no datos clínicos): se limpian para no
   // bloquear el borrado por la FK. Los tratamientos SÍ bloquean (RESTRICT), como antes.
   await db.montoFijoPrestacion.deleteMany({ where: { prestacionId: id } })
-  await db.prestacion.delete({ where: { id } })
+  try {
+    await db.prestacion.delete({ where: { id } })
+  } catch (e) {
+    // La prestación está referenciada por tratamientos/ítems de presupuesto (FK RESTRICT): en vez
+    // de un 500 crudo, 409 claro. Desactivarla (activo:false) es la alternativa no destructiva.
+    if (e && typeof e === 'object' && (e as { code?: string }).code === 'P2003') {
+      throw conflict('No se puede eliminar: la prestación está en uso en tratamientos o presupuestos. Desactívala en vez de borrarla.')
+    }
+    throw e
+  }
 }
 
 // ─── Configuración de la clínica (singleton en la base del tenant) ───────────

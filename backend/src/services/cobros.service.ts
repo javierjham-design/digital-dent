@@ -198,6 +198,10 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
     items = reducidos
     // Todo cubierto con el abono libre → no hay pago nuevo (ni caja).
     if (items.length === 0 || items.reduce((s, i) => s + Number(i.monto), 0) <= 0) {
+      // Las acciones cubiertas 100% con abono libre también salen del "carrito" (paraCobro=false),
+      // igual que en el flujo con pago; si no, quedan pegadas marcadas para cobrar.
+      const tratIds = (input.items ?? []).map((i) => i.tratamientoId).filter(Boolean) as string[]
+      if (tratIds.length > 0) await db.tratamiento.updateMany({ where: { id: { in: tratIds } }, data: { paraCobro: false } })
       await audit(db, actor.sub, {
         accion: 'CREAR', entidad: 'Cobro', entidadId: input.pacienteId, pacienteId: input.pacienteId,
         resumen: `Aplicó ${fmtMoney(montoAplicado)} de abono libre a las acciones (sin pago nuevo)`,

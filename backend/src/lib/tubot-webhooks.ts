@@ -103,7 +103,7 @@ export async function emitirEventoCita(
   db: TenantClient, event: WebhookEvent, citaId: string,
   opts?: { sendNow?: boolean; force?: boolean },
 ): Promise<void> {
-  try { await emitirEventoCitaChecked(db, event, citaId, opts) } catch { /* best-effort */ }
+  try { await emitirEventoCitaChecked(db, event, citaId, opts) } catch (e) { console.warn(`[tubot-webhook] emit ${event} cita ${citaId} falló: ${e instanceof Error ? e.message : e}`) }
 }
 
 // Igual que emitirEventoCita pero DEVUELVE el resultado de la entrega (para el reenvío manual,

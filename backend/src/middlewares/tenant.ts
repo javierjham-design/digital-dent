@@ -31,6 +31,30 @@ export async function getClinicaModulos(clinicaId: string): Promise<string[]> {
   return info?.modulos ?? []
 }
 
+// Revalidación de sesión: un usuario desactivado/borrado NO debe seguir operando con su JWT
+// vigente (hasta 12 h). Se chequea `activo` con un TTL corto (reflejo en ≤30 s sin reiniciar).
+// Fail-open ante error de BD (no bloquear por una caída de infra); fail-closed si no existe o
+// está inactivo. Clave por (dbName, userId).
+const userCache = new Map<string, { activo: boolean; at: number }>()
+async function usuarioSigueActivo(db: TenantClient, dbName: string, userId: string): Promise<boolean> {
+  const key = `${dbName}:${userId}`
+  const cached = userCache.get(key)
+  if (cached && Date.now() - cached.at < TTL_MS) return cached.activo
+  try {
+    const u = await db.user.findUnique({ where: { id: userId }, select: { activo: true } })
+    const activo = u?.activo ?? false // no encontrado (borrado) → bloquear
+    userCache.set(key, { activo, at: Date.now() })
+    return activo
+  } catch {
+    return true // error de BD: no bloquear al usuario por un problema de infraestructura
+  }
+}
+
+// Invalida el cache de un usuario (tras desactivarlo/reactivarlo) para lockout inmediato.
+export function invalidateUserCache(dbName: string, userId: string): void {
+  userCache.delete(`${dbName}:${userId}`)
+}
+
 // Resuelve la clínica del JWT (control-plane) y adjunta su cliente de tenant.
 // Reemplaza a requireClinica en el modelo database-per-tenant.
 export async function requireTenant(req: Request, _res: Response, next: NextFunction) {
@@ -42,6 +66,13 @@ export async function requireTenant(req: Request, _res: Response, next: NextFunc
     if (!info.activo) throw forbidden('La cuenta de la clínica está suspendida.')
     req.clinica = { id: info.id, slug: info.slug, dbName: info.dbName }
     req.tenant = tenantClient(info.dbName)
+    // Revocación de sesión: si el usuario de la clínica fue desactivado/borrado, se corta aquí
+    // (no espera a que expire el JWT). Los super-admin de plataforma no son usuarios del tenant.
+    if (req.auth && !req.auth.isPlatformAdmin) {
+      if (!(await usuarioSigueActivo(req.tenant, info.dbName, req.auth.sub))) {
+        throw unauthorized('Tu usuario ya no está activo en esta clínica. Inicia sesión de nuevo.')
+      }
+    }
     // Etiqueta el contexto de logging/Sentry con la clínica de esta request.
     patchRequestContext({ slug: info.slug })
     // Registro de uso (para el super-admin): presencia en memoria + último acceso

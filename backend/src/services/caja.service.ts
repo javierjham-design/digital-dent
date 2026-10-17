@@ -233,6 +233,9 @@ export async function cerrarSesion(db: TenantClient, actor: JwtPayload, cajaId: 
   if (retirado > saldoReal) throw badRequest('No puedes retirar más de lo contado.')
   const dejado = body.efectivoDejado === undefined || body.efectivoDejado === '' ? (saldoReal - retirado) : Number(body.efectivoDejado)
   if (!Number.isFinite(dejado) || dejado < 0) throw badRequest('El efectivo a dejar es inválido.')
+  // Lo retirado + lo que queda no puede superar lo contado (si no, la próxima apertura arrastra
+  // un saldo irreal). La UI calcula dejado = contado − retirado; esto protege el uso por API.
+  if (retirado + dejado > saldoReal) throw badRequest('Lo retirado más lo que queda en la caja no puede superar el efectivo contado.')
   const observaciones = body.observaciones?.trim() || null
 
   const sesion = await getSesionAbierta(db, cajaId)
