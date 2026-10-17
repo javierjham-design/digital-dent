@@ -56,5 +56,16 @@ Basado en `AUDITORIA_QA_2026-10-17.md`. Hoy sábado 2026-10-17; la plataforma se
 - **Domingo:** Ola 3 + lock/tx de H9 (code-only). Migraciones (@@unique, índices) + set `JWT_SECRET` con backup, plataforma sin uso.
 - **Lunes AM:** smoke final + verificación en vivo.
 
-## Estado
-- [ ] Ola 1  · [ ] Ola 2  · [ ] Ola 3  · [ ] Ola 4 (migraciones)  · [ ] Verificación final
+## Estado — COMPLETO (desplegado a prod, suites verdes en cada ola)
+- [x] Ola 1 (dinero/cobros) · [x] Ola 2 (agenda/clínico) · [x] Ola 3 (import/seguridad)
+- [x] Ola 4 (locks liquidación/caja + @@unique H9 + ruteo Meta H10) · [x] Ola 5 (zona horaria)
+- [x] Ola 6 (revocación de sesión H5 + Lows) · [x] Ola 7 (CRM seguro) · [x] Ola 8 (abono L9)
+- [x] Ola 9 (medios/planes/lead/Flow M6/M7/M19/M2/M3)
+
+**Resuelto:** C1 (código) + los 14 Altos + la mayoría de Medios y Bajos. Verificado con 223 tests de integración, typecheck/lint limpios, y datos de prod sin duplicados para las migraciones.
+
+### Diferido DELIBERADAMENTE (con fundamento — no son bloqueantes de la operación)
+- **M9** split de pago en el cuadre: latente (la UI nunca envía pago dividido; tocar la matemática del cuadre por un camino inalcanzable no compensa el riesgo).
+- **M18/M20/M22/M23/M24/M25** unificación amplia del matching por teléfono + atribución (auto-conversión, reenganche): se hizo el peor caso (H11, pérdida de datos) de forma segura; el resto cambia el matching de leads en prod y amerita validación con datos reales. Son problemas de PRECISIÓN de atribución/reportes, no de pérdida de datos ni de operación.
+- **L2** rate-limit por proceso (necesita store compartido tipo Redis) · **L3** idempotencia de POST /appointments (lado TuBot, store persistente) · **L4** cita fantasma por nombre (import Dentalink intencional; riesgo gateado tras `recapturaNoShowEnabled`=OFF) · **L6** idempotencia del entrante WhatsApp (reestructurar ruta sensible por edge raro) · **L8/L12** latentes · **L19** finalización masiva (completitud parcial es aceptable/reportada) · **L22** N+1 (perf) · **L23/L25** capacidades intencionalmente no usadas · **L24** tamaño de bundle (perf).
+- **C1 infra**: setear `JWT_SECRET` explícito en Railway (la vulnerabilidad YA quedó cerrada por código; es belt-and-suspenders; pasos dados al dueño).
