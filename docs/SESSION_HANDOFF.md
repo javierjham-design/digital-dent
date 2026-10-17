@@ -3,7 +3,23 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: Gestor de IA (panel de control de la automatización conversacional)
+## Último trabajo: QA ronda 1 + ronda 2 (plataforma lista para el lunes 2026-10-19)
+
+**Desplegado (2026-10-17, commit `b3ac65e`).** Simulación tester/carga completa + remediación en 2 rondas.
+- **Ronda 1**: `docs/AUDITORIA_QA_2026-10-17.md` (1 crítico, 14 altos, 26 medios, 25 bajos) → olas 1–9 con
+  todos los altos + mayoría de medios/bajos corregidos (ver `docs/PLAN_AJUSTES_QA_2026-10-17.md`).
+- **Ronda 2** (7 agentes re-auditando el código ya remediado): cazó **regresiones de los propios fixes** que
+  las suites no veían, TODAS corregidas (ver §Ronda 2 del plan + AI_CHANGELOG 2026-10-17): rangoTz desfasaba
+  fechas-sola en reportes; editar/borrar cobro de caja CERRADA descuadraba el arqueo; editarCita sin lock;
+  import abortaba por quitar skipDuplicates; eliminarPrestacion perdía montos-fijos; escalada a admin en
+  crearUsuario; claim de Flow no transaccional; `/emails/enviar` aceptaba HTML crudo. Verde: integración **231**,
+  contrato 301, lint 0, builds OK.
+- **Diferido con fundamento** (post-lunes, no bloquean operación): Dinero#5 (cancelar acción pagada→abono libre),
+  Dinero#6 (reversa de liquidación), matching de teléfono CRM, países no-chilenos, perf, UX menor. Ver el plan.
+- **C1-infra pendiente del dueño (no urgente, ya cerrado por código):** setear `JWT_SECRET = ${{ NEXTAUTH_SECRET }}`
+  en Railway (belt-and-suspenders).
+
+## Trabajo previo: Gestor de IA (panel de control de la automatización conversacional)
 
 **Desplegado (2026-10-05).** Pantalla clínica **Gestión → Gestor de IA** (`/gestor-ia`, permiso
 `puedeConfigurarClinica`) para encender/apagar y ajustar toda la automatización con pacientes por WhatsApp.
