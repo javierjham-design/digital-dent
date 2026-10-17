@@ -43,6 +43,16 @@ export function telCanonico(t?: string | null): string | null {
   d = d.replace(/^0+/, '')
   return d.length >= 8 ? d.slice(-8) : d
 }
+// Igual que telCanonico pero conserva el número COMPLETO (sin recortar a los últimos 8). Para
+// acciones DESTRUCTIVAS/irreversibles (fusionar y borrar): los últimos-8 confunden un móvil con
+// un fijo que compartan esos dígitos → fusionaría dos personas distintas. El número completo no.
+export function telCanonicoFull(t?: string | null): string | null {
+  let d = (t ?? '').replace(/\D/g, '')
+  if (!d) return null
+  if (d.length > 9 && d.startsWith('56')) d = d.slice(2)
+  d = d.replace(/^0+/, '')
+  return d.length >= 8 ? d : null
+}
 export function emailCanonico(e?: string | null): string | null {
   const v = (e ?? '').trim().toLowerCase()
   return v || null
@@ -306,10 +316,13 @@ export async function listarLeads(db: TenantClient, f: { estado?: string; origen
   // Rango de fechas interpretado en hora de la clínica (America/Santiago), no en
   // UTC: un lead creado a las 22:00 hora Chile cuenta en el día correcto.
   if (f.desde || f.hasta) where.createdAt = rangoFechasUtc(f.desde, f.hasta)
+  // Al BUSCAR ampliamos el tope: en clínicas con muchos leads, uno antiguo que matchea por
+  // nombre/teléfono ya no queda fuera del top-500. El filtro fino (acentos/mayúsculas) va en memoria.
+  const buscando = Boolean(f.q && f.q.trim().length >= 2)
   const [leads, campanasMap, dias] = await Promise.all([
     // Orden por ÚLTIMO ingreso: un reingreso sube al tope igual que un lead nuevo.
     // nulls last + createdAt de respaldo por si el backfill aún no corrió.
-    db.lead.findMany({ where, orderBy: [{ ultimoIngresoAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }], take: 500 }),
+    db.lead.findMany({ where, orderBy: [{ ultimoIngresoAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }], take: buscando ? 5000 : 500 }),
     getCampanasMap(db),
     getDiasSinGestion(db),
   ])
@@ -378,7 +391,9 @@ export async function ingresosPorCampana(db: TenantClient, f?: { desde?: string;
   const where: Record<string, unknown> = {}
   if (f?.desde || f?.hasta) where.createdAt = rangoFechasUtc(f?.desde, f?.hasta)
   const [leads, map] = await Promise.all([
-    db.lead.findMany({ where, select: { id: true, estado: true, pacienteId: true, campana: true, utmCampaign: true, landing: true } }),
+    // orderBy createdAt: la atribución por paciente toma el PRIMER lead convertido; sin orden era
+    // no determinista (dependía del orden físico). Ahora es first-touch estable y reproducible.
+    db.lead.findMany({ where, orderBy: { createdAt: 'asc' }, select: { id: true, estado: true, pacienteId: true, campana: true, utmCampaign: true, landing: true } }),
     getCampanasMap(db),
   ])
   // Paciente → campaña de SU lead convertido. Un paciente puede estar atado a más de un
@@ -1296,7 +1311,9 @@ export async function fusionarLeadsDuplicados(db: TenantClient): Promise<MergeDu
   // Agrupa por identidad: teléfono canónico, o email si no hay teléfono.
   const grupos = new Map<string, typeof leads>()
   for (const l of leads) {
-    const key = telCanonico(l.telefono) ?? emailCanonico(l.email)
+    // Clave ESTRICTA (número completo, no últimos-8): fusionar + borrar es irreversible, así que
+    // no debe colapsar dos personas distintas que compartan los últimos 8 dígitos.
+    const key = telCanonicoFull(l.telefono) ?? emailCanonico(l.email)
     if (!key) continue
     const arr = grupos.get(key) ?? []
     arr.push(l); grupos.set(key, arr)
