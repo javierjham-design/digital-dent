@@ -38,4 +38,32 @@ describe('actualizarCobro (editar pago desde la ficha)', () => {
     const cobro = await db.cobro.create({ data: { pacienteId: pacId, numero: 9002, concepto: 'Abono', monto: 5000, estado: 'PAGADO' } })
     await expect(actualizarCobro(db, actor(recepId, 'recepcion'), cobro.id, { monto: 1 })).rejects.toThrow(/permiso/i)
   })
+
+  it('H6: cambiar estado/medioPagoId ahora exige permiso de pagos', async () => {
+    const db = tenantClient(dbName)
+    const cobro = await db.cobro.create({ data: { pacienteId: pacId, numero: 9003, concepto: 'x', monto: 5000, estado: 'PAGADO' } })
+    await expect(actualizarCobro(db, actor(recepId, 'recepcion'), cobro.id, { estado: 'PENDIENTE' })).rejects.toThrow(/permiso/i)
+  })
+
+  it('H7: no se puede ANULAR por PATCH (debe usar la acción Anular)', async () => {
+    const db = tenantClient(dbName)
+    const cobro = await db.cobro.create({ data: { pacienteId: pacId, numero: 9004, concepto: 'x', monto: 5000, estado: 'PAGADO' } })
+    await expect(actualizarCobro(db, actor(adminId), cobro.id, { estado: 'ANULADO' })).rejects.toThrow(/anular/i)
+  })
+
+  it('M13: editar el monto reconcilia el ítem único y rechaza cobros multi-ítem', async () => {
+    const db = tenantClient(dbName)
+    const uno = await db.cobro.create({ data: { pacienteId: pacId, numero: 9005, concepto: 'x', monto: 10000, estado: 'PAGADO', items: { create: [{ descripcion: 'abono', monto: 10000 }] } } })
+    await actualizarCobro(db, actor(adminId), uno.id, { monto: 12000 })
+    const item = await db.cobroItem.findFirst({ where: { cobroId: uno.id } })
+    expect(item?.monto).toBe(12000)
+    const dos = await db.cobro.create({ data: { pacienteId: pacId, numero: 9006, concepto: 'x', monto: 10000, estado: 'PAGADO', items: { create: [{ descripcion: 'a', monto: 6000 }, { descripcion: 'b', monto: 4000 }] } } })
+    await expect(actualizarCobro(db, actor(adminId), dos.id, { monto: 15000 })).rejects.toThrow(/varios/i)
+  })
+
+  it('M13: montoNeto/comisionMonto no pueden quedar negativos', async () => {
+    const db = tenantClient(dbName)
+    const cobro = await db.cobro.create({ data: { pacienteId: pacId, numero: 9007, concepto: 'x', monto: 5000, estado: 'PAGADO' } })
+    await expect(actualizarCobro(db, actor(adminId), cobro.id, { comisionMonto: -100 })).rejects.toThrow(/negativo/i)
+  })
 })

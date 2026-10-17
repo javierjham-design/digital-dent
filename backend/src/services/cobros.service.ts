@@ -375,7 +375,7 @@ export async function crearCobroLibreConLink(db: TenantClient, actor: JwtPayload
   return res
 }
 
-const CAMPOS_PRIVILEGIADOS = ['monto', 'montoNeto', 'comisionMonto', 'concepto', 'notas', 'fechaPago', 'reciboUsuarioId', 'numeroReferencia', 'numeroBoleta']
+const CAMPOS_PRIVILEGIADOS = ['monto', 'montoNeto', 'comisionMonto', 'concepto', 'notas', 'fechaPago', 'reciboUsuarioId', 'numeroReferencia', 'numeroBoleta', 'estado', 'medioPagoId']
 
 export async function actualizarCobro(db: TenantClient, actor: JwtPayload, id: string, body: Record<string, unknown>) {
   const existing = await db.cobro.findUnique({ where: { id }, select: { id: true, anulado: true } })
@@ -390,6 +390,9 @@ export async function actualizarCobro(db: TenantClient, actor: JwtPayload, id: s
   const data: Record<string, unknown> = {}
   if (body.estado !== undefined) {
     if (!ESTADOS.includes(String(body.estado))) throw badRequest(`estado inválido. Use: ${ESTADOS.join(', ')}`)
+    // Anular NO se hace por PATCH: usa la acción "Anular" (exige motivo, revierte el movimiento
+    // de caja y deja auditoría). Marcar 'ANULADO' acá dejaría anulado=false y descuadraría la caja.
+    if (String(body.estado) === 'ANULADO') throw badRequest('Para anular un cobro usa la acción "Anular" (requiere motivo y revierte el movimiento de caja).')
     data.estado = body.estado
   }
   if (body.notas !== undefined) data.notas = body.notas ? String(body.notas) : null
@@ -409,7 +412,7 @@ export async function actualizarCobro(db: TenantClient, actor: JwtPayload, id: s
   for (const k of ['monto', 'montoNeto', 'comisionMonto'] as const) {
     if (body[k] !== undefined) {
       const n = Number(body[k])
-      if (!Number.isFinite(n) || (k === 'monto' && n < 0)) throw badRequest(`${k} inválido`)
+      if (!Number.isFinite(n) || n < 0) throw badRequest(`${k} inválido (no puede ser negativo)`)
       data[k] = n
     }
   }
@@ -426,7 +429,24 @@ export async function actualizarCobro(db: TenantClient, actor: JwtPayload, id: s
   const mov = await db.movimientoCaja.findFirst({ where: { cobroId: id, tipo: 'INGRESO' }, select: { sesion: { select: { numero: true, estado: true } } } })
   const cajaCerrada = mov?.sesion?.estado === 'CERRADA'
 
-  await db.cobro.update({ where: { id }, data })
+  // Si cambia el MONTO hay que reconciliar el ítem del plan y el movimiento de caja; si no, el
+  // encabezado del cobro, lo imputado al plan y el arqueo de caja quedan en tres cifras distintas.
+  const cambiaMonto = data.monto !== undefined
+  let itemUnicoId: string | null = null
+  if (cambiaMonto) {
+    const items = await db.cobroItem.findMany({ where: { cobroId: id }, select: { id: true } })
+    if (items.length > 1) throw badRequest('Este pago tiene varios ítems (acciones del plan). Para cambiar el monto, anúlalo y vuelve a recibirlo, así el plan y la caja quedan consistentes.')
+    itemUnicoId = items[0]?.id ?? null
+  }
+
+  await db.$transaction(async (tx) => {
+    await tx.cobro.update({ where: { id }, data })
+    if (cambiaMonto) {
+      const nuevoMonto = Number(data.monto)
+      if (itemUnicoId) await tx.cobroItem.update({ where: { id: itemUnicoId }, data: { monto: nuevoMonto } })
+      await tx.movimientoCaja.updateMany({ where: { cobroId: id, tipo: 'INGRESO', anulado: false }, data: { monto: nuevoMonto } })
+    }
+  })
   const actualizado = await db.cobro.findUnique({ where: { id }, include: COBRO_INCLUDE })
   if (actualizado && Object.keys(data).length > 0) {
     await audit(db, actor.sub, {
@@ -523,5 +543,10 @@ export async function eliminarCobro(db: TenantClient, actor: JwtPayload, id: str
   const existing = await db.cobro.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Cobro no encontrado')
   if (actor.role !== 'admin') throw forbidden('Para borrar usa "Anular" con motivo. Solo admin puede eliminar.')
-  await db.cobro.delete({ where: { id } })
+  // El MovimientoCaja NO tiene onDelete cascade: si solo borramos el cobro, queda cobroId=null y
+  // `cobroEsEfectivo(null)` lo cuenta como EFECTIVO → cuadre inflado. Se borra junto con el cobro.
+  await db.$transaction(async (tx) => {
+    await tx.movimientoCaja.deleteMany({ where: { cobroId: id } })
+    await tx.cobro.delete({ where: { id } })
+  })
 }
