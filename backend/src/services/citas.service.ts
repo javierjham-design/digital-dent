@@ -8,6 +8,7 @@ import { enviarConfirmacionHora } from '@/services/email.service'
 import { assertDentroDeAtencion } from '@/lib/atencion'
 import { conTitulo } from '@shared/utils/nombre'
 import { emitirEventoCita, emitirEventoCitaChecked } from '@/lib/tubot-webhooks'
+import { lockAgendaDoctor } from '@/lib/agenda-lock'
 import { CLINIC_TZ, todayYmd, rangoFechasUtc } from '@/lib/tz'
 import { log, serializeError } from '@/lib/logger'
 
@@ -123,14 +124,26 @@ export async function crearCita(db: TenantClient, userName: string, input: Crear
     }
   }
 
-  const cita = await db.cita.create({
-    data: {
-      pacienteId: input.pacienteId, doctorId: input.doctorId,
-      fecha: inicio, duracion: dur, tipo: input.tipo || 'CONSULTA', notas: input.notas || null, sobrecupo,
-      boxId: input.boxId || null,
-      logs: { create: { tipo: 'AGENDADA', detalle: `Cita ${sobrecupo ? 'sobrecupo ' : ''}agendada por ${userName}`, userName } },
-    },
-    include: INCLUDE,
+  // Lock por profesional + revalidación de solape DENTRO de la transacción: evita la doble
+  // reserva concurrente (la validación de arriba es el aviso rápido; esta es la autoritativa).
+  const cita = await db.$transaction(async (tx) => {
+    await lockAgendaDoctor(tx, input.doctorId)
+    if (!sobrecupo) {
+      const solapada = await findSolapada(tx as unknown as TenantClient, { doctorId: input.doctorId, inicio, fin })
+      if (solapada) {
+        const hora = solapada.fecha.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+        throw conflict(`El profesional ya tiene una cita a las ${hora} (${solapada.paciente.nombre} ${solapada.paciente.apellido}). Elige otro horario o usa Sobre Agendamiento.`)
+      }
+    }
+    return tx.cita.create({
+      data: {
+        pacienteId: input.pacienteId, doctorId: input.doctorId,
+        fecha: inicio, duracion: dur, tipo: input.tipo || 'CONSULTA', notas: input.notas || null, sobrecupo,
+        boxId: input.boxId || null,
+        logs: { create: { tipo: 'AGENDADA', detalle: `Cita ${sobrecupo ? 'sobrecupo ' : ''}agendada por ${userName}`, userName } },
+      },
+      include: INCLUDE,
+    })
   })
   void pushCita(db, cita.id).catch(swallowGoogle('pushCita'))
   void emitirEventoCita(db, 'appointment.created', cita.id)
@@ -208,6 +221,10 @@ export async function editarCita(db: TenantClient, id: string, userName: string,
   if (data.fecha !== undefined && (data.fecha as Date).getTime() !== current.fecha.getTime()) {
     const fmt = (d: Date) => d.toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })
     logs.push({ tipo: 'ESTADO', detalle: `Reagendada de ${fmt(current.fecha)} a ${fmt(data.fecha as Date)}`, userName })
+    // Al mover a otra hora, el estado de entrega del recordatorio anterior ya no aplica
+    // (si falló, no debe seguir mostrando "no se pudo entregar" para la nueva hora).
+    data.waDeliveryStatus = null
+    data.waDeliveryReason = null
     // Al REAGENDAR (mover a otra fecha/hora), la cita vuelve SIEMPRE a "Agendada",
     // cualquiera sea su estado anterior (No asistió, Notificado por WhatsApp, etc.):
     // es una cita nueva por atender en el nuevo horario. El slug anterior queda libre
@@ -269,11 +286,20 @@ export async function reprogramarCita(db: TenantClient, id: string, userName: st
 
   const fmt = (d: Date) => d.toLocaleString('es-CL', { dateStyle: 'medium', timeStyle: 'short' })
   const nueva = await db.$transaction(async (tx) => {
+    await lockAgendaDoctor(tx, nuevoDoctorId) // serializa contra otra reserva concurrente del mismo doctor
     // 1) La original queda Cancelada (se conserva en la ficha) con la nota de reprogramación.
     await tx.cita.update({
       where: { id },
       data: { estado: 'CANCELADA', logs: { create: { tipo: 'REAGENDADA', detalle: `Reagendada para ${fmt(inicio)} por ${userName}`, userName } } },
     })
+    // Re-chequeo autoritativo del solape bajo el lock (ya cancelada la original, no se cuenta).
+    if (!sobrecupo) {
+      const choca = await findSolapada(tx as unknown as TenantClient, { doctorId: nuevoDoctorId, inicio, fin, excluir: id })
+      if (choca) {
+        const hora = choca.fecha.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+        throw conflict(`El profesional ya tiene una cita a las ${hora} (${choca.paciente.nombre} ${choca.paciente.apellido}). Elige otro horario o usa Sobre Agendamiento.`)
+      }
+    }
     // 2) Nueva cita en el nuevo horario, heredando los datos de la original.
     return tx.cita.create({
       data: {
@@ -312,6 +338,9 @@ export async function listarLogsCita(db: TenantClient, citaId: string) {
 export async function eliminarCita(db: TenantClient, id: string): Promise<void> {
   const existing = await db.cita.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Cita no encontrada')
+  // Avisar a TuBot ANTES de borrar (la emisión lee la cita): cancela recordatorios/confirmación
+  // pendientes para que no se envíe un WhatsApp de una cita que ya no existe.
+  await emitirEventoCita(db, 'appointment.cancelled', id)
   // Borramos el evento en Google ANTES de eliminar la fila (necesita su googleEventId).
   await deleteCitaInGoogle(db, id).catch(swallowGoogle('deleteCita'))
   await db.citaLog.deleteMany({ where: { citaId: id } })
@@ -320,8 +349,19 @@ export async function eliminarCita(db: TenantClient, id: string): Promise<void> 
 
 export async function cambiarEstadoCita(db: TenantClient, id: string, estado: string, userName: string): Promise<CitaDTO> {
   if (!CITA_ESTADOS_KEYS.includes(estado)) throw badRequest('Estado inválido')
-  const current = await db.cita.findUnique({ where: { id }, select: { estado: true } })
+  const current = await db.cita.findUnique({ where: { id }, select: { estado: true, fecha: true, duracion: true, doctorId: true, sobrecupo: true } })
   if (!current) throw notFound('Cita no encontrada')
+
+  // H3: reabrir una cita que NO ocupaba (Cancelada/No asistió) hacia un estado que SÍ ocupa
+  // debe revalidar que el cupo no lo haya retomado otra cita, o quedarían dos citas encima.
+  const volviaAOcupar = ESTADOS_NO_OCUPAN.includes(current.estado) && !ESTADOS_NO_OCUPAN.includes(estado)
+  if (volviaAOcupar && !current.sobrecupo && estado !== current.estado) {
+    const solapada = await findSolapada(db, { doctorId: current.doctorId, inicio: current.fecha, fin: addMinutes(current.fecha, current.duracion), excluir: id })
+    if (solapada) {
+      const hora = solapada.fecha.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+      throw conflict(`No se puede reabrir: el horario ya fue tomado por otra cita a las ${hora} (${solapada.paciente.nombre} ${solapada.paciente.apellido}). Reagenda esta cita a otro horario.`)
+    }
+  }
 
   const from = CITA_ESTADO_LABELS[current.estado] ?? current.estado
   const to = CITA_ESTADO_LABELS[estado] ?? estado

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest'
 import { seedDosClinicas } from './seed'
 import { tenantClient } from './tenant-test'
-import { marcarAsistenciaPorActividad, reprogramarCita, listarCitas } from '@/services/citas.service'
+import { marcarAsistenciaPorActividad, reprogramarCita, listarCitas, crearCita, cambiarEstadoCita } from '@/services/citas.service'
 
 // Parte C: asistencia inferida de forma pasiva. Un pago presencial marca ATENDIDA la cita
 // del mismo día del paciente (sin disparar webhooks). Solo promueve desde estados
@@ -76,5 +76,27 @@ describe('reprogramarCita (reagendar preservando historial)', () => {
     const pac = await db.paciente.create({ data: { nombre: 'Ya', apellido: 'Cancel', activo: true } })
     const c = await db.cita.create({ data: { pacienteId: pac.id, doctorId, fecha: new Date('2026-11-02T14:00:00.000Z'), estado: 'CANCELADA' } })
     await expect(reprogramarCita(db, c.id, 'Recep', { fecha: '2026-11-10T15:00:00.000Z' })).rejects.toThrow(/cancelada/i)
+  })
+})
+
+describe('agenda: anti doble reserva (Ola 2)', () => {
+  it('crearCita rechaza solaparse con una cita existente del mismo doctor', async () => {
+    const db = tenantClient(dbName)
+    const pac = await db.paciente.create({ data: { nombre: 'Sol', apellido: 'Ape', activo: true } })
+    await crearCita(db, 'Rec', { pacienteId: pac.id, doctorId, fecha: '2026-12-01T15:00:00.000Z', duracion: 30 })
+    await expect(crearCita(db, 'Rec', { pacienteId: pac.id, doctorId, fecha: '2026-12-01T15:15:00.000Z', duracion: 30 }))
+      .rejects.toThrow(/ya tiene una cita/i)
+    // Sobrecupo sí se permite solaparse.
+    const sob = await crearCita(db, 'Rec', { pacienteId: pac.id, doctorId, fecha: '2026-12-01T15:15:00.000Z', duracion: 30, sobrecupo: true })
+    expect(sob.estado).toBe('PENDIENTE')
+  })
+
+  it('H3: reabrir una cita cancelada rechaza si el cupo fue retomado por otra', async () => {
+    const db = tenantClient(dbName)
+    const pac = await db.paciente.create({ data: { nombre: 'Reab', apellido: 'Rir', activo: true } })
+    const fecha = new Date('2026-12-05T16:00:00.000Z')
+    const a = await db.cita.create({ data: { pacienteId: pac.id, doctorId, fecha, duracion: 30, estado: 'CANCELADA' } })
+    await db.cita.create({ data: { pacienteId: pac.id, doctorId, fecha, duracion: 30, estado: 'PENDIENTE' } })
+    await expect(cambiarEstadoCita(db, a.id, 'PENDIENTE', 'Rec')).rejects.toThrow(/ya fue tomado/i)
   })
 })

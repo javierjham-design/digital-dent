@@ -9,6 +9,7 @@ import { enviarConfirmacionHora } from '@/services/email.service'
 import { enviarEventoMeta, metaHabilitado } from '@/lib/meta'
 import { ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
+import { lockAgendaDoctor } from '@/lib/agenda-lock'
 import { validarRut, formatRut } from '@shared/utils/rut'
 import { wallClockToUtc, todayYmd, addDaysYmd, weekdayOfYmd, toMin, fromMin } from '@/lib/tz'
 
@@ -372,30 +373,33 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     await autolinkLeadAlCrearPaciente(db, { id: paciente.id, telefono, email: emailForm || null, rut }).catch(() => {})
   }
 
-  // Revalidación atómica de conflicto (carrera entre dos reservas del mismo cupo).
-  const bloqueo = await db.bloqueoAgenda.findFirst({ where: { doctorId, inicio: { lt: fin }, fin: { gt: inicio } }, select: { id: true } })
-  if (bloqueo) throw conflict('Ese horario ya no está disponible.')
-  const ocupada = await db.cita.findFirst({
-    where: { doctorId, estado: { notIn: ESTADOS_NO_OCUPAN }, fecha: { lt: fin, gte: new Date(inicio.getTime() - 12 * 3600_000) } },
-    select: { fecha: true, duracion: true },
-  })
-  if (ocupada && intervalsOverlap(ocupada.fecha, addMinutes(ocupada.fecha, ocupada.duracion), inicio, fin)) {
-    throw conflict('Ese horario acaba de ser tomado. Elige otro, por favor.')
-  }
-
   const motivo = input.motivo?.trim()
   const requiereAbono = link.requierePago && link.montoAbono > 0
   // Comentario fijo del link (ej. "Promoción Limpieza") + el motivo del paciente.
   const notasCita = [link.comentarioCita?.trim(), motivo].filter(Boolean).join(' · ') || `Reserva online · ${link.nombre}`
-  const cita = await db.cita.create({
-    data: {
-      pacienteId: paciente.id, doctorId, fecha: inicio, duracion: link.duracionMin,
-      tipo: link.tipoCita, estado: 'PENDIENTE', origen: 'ONLINE', linkAgendaId: link.id,
-      abonoRequerido: requiereAbono, abonoPagado: false,
-      notas: notasCita,
-      logs: { create: { tipo: 'AGENDADA', detalle: `Reserva online (${link.nombre})${requiereAbono ? ' · abono pendiente' : ''}`, userName: `${nombre} ${apellido}` } },
-    },
-    select: { id: true, fecha: true, duracion: true },
+  // Lock por profesional + revalidación atómica del cupo DENTRO de la transacción: dos reservas
+  // online simultáneas del mismo horario (tráfico de campaña al link) ya no crean doble reserva.
+  const cita = await db.$transaction(async (tx) => {
+    await lockAgendaDoctor(tx, doctorId)
+    const bloqueo = await tx.bloqueoAgenda.findFirst({ where: { doctorId, inicio: { lt: fin }, fin: { gt: inicio } }, select: { id: true } })
+    if (bloqueo) throw conflict('Ese horario ya no está disponible.')
+    const ocupadas = await tx.cita.findMany({
+      where: { doctorId, estado: { notIn: ESTADOS_NO_OCUPAN }, fecha: { lt: fin, gte: new Date(inicio.getTime() - 12 * 3600_000) } },
+      select: { fecha: true, duracion: true },
+    })
+    if (ocupadas.some((o) => intervalsOverlap(o.fecha, addMinutes(o.fecha, o.duracion), inicio, fin))) {
+      throw conflict('Ese horario acaba de ser tomado. Elige otro, por favor.')
+    }
+    return tx.cita.create({
+      data: {
+        pacienteId: paciente.id, doctorId, fecha: inicio, duracion: link.duracionMin,
+        tipo: link.tipoCita, estado: 'PENDIENTE', origen: 'ONLINE', linkAgendaId: link.id,
+        abonoRequerido: requiereAbono, abonoPagado: false,
+        notas: notasCita,
+        logs: { create: { tipo: 'AGENDADA', detalle: `Reserva online (${link.nombre})${requiereAbono ? ' · abono pendiente' : ''}`, userName: `${nombre} ${apellido}` } },
+      },
+      select: { id: true, fecha: true, duracion: true },
+    })
   })
 
   // Pago previo (abono) vía Flow: si el link lo exige, crea el cobro del abono y su
