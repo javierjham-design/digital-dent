@@ -1,6 +1,7 @@
 import type { TenantClient } from '@/db/tenant'
 import { AppError, badRequest, forbidden, notFound } from '@/lib/errors'
 import { rangoFechasUtc, todayYmd } from '@/lib/tz'
+import { advisoryLock } from '@/lib/agenda-lock'
 import type { JwtPayload } from '@/services/auth.service'
 import { filtroNoLiquidable } from '@/services/catalogo.service'
 
@@ -289,7 +290,12 @@ export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, 
   const finCorte = rangoFechasUtc(undefined, corte).lte! // fin del día de corte (hora Chile)
   const esNoLiq = await filtroNoLiquidable(db)
   const montosFijos = await montosFijosDeDoctor(db, doctorId)
-  const trats = (await db.tratamiento.findMany({
+  // Lock por profesional + lectura (acciones aún no liquidadas) + create en la MISMA transacción:
+  // dos finalizaciones simultáneas del mismo profesional ya no liquidan (pagan) dos veces la
+  // misma acción. El check `liquidacionItems: { none: {} }` queda atómico frente al create.
+  return db.$transaction(async (tx) => {
+  await advisoryLock(tx, `liquidacion:${doctorId}`)
+  const trats = (await tx.tratamiento.findMany({
     where: { doctorId, estado: 'COMPLETADO', liquidacionItems: { none: {} } },
     include: TRAT_ACTIVA_INCLUDE,
   })).filter((t) => !esNoLiq(t.prestacion))
@@ -320,12 +326,13 @@ export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, 
 
   const totalBruto = itemsData.reduce((s, i) => s + i.montoPagado, 0)
   const totalLiquidado = itemsData.reduce((s, i) => s + i.montoLiquidado, 0)
-  return db.liquidacion.create({
+  return tx.liquidacion.create({
     data: {
       doctorId, contratoId: contrato.id, periodo: corte,
       estado: 'APROBADA', totalBruto, totalLiquidado, items: { create: itemsData },
     },
     include: { ...LIQ_LIST_INCLUDE, items: true },
+  })
   })
 }
 

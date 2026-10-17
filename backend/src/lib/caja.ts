@@ -1,5 +1,6 @@
 import type { TenantClient } from '@/db/tenant'
 import { siguienteNumero } from '@/lib/correlativo'
+import { advisoryLock } from '@/lib/agenda-lock'
 
 // Días de antigüedad antes de considerar una sesión "estancada" → alerta.
 export const SESION_STALE_DIAS = 7
@@ -41,12 +42,14 @@ export async function calcularSaldoSugerido(db: TenantClient, cajaId: string): P
 export async function abrirSesion(db: TenantClient, args: {
   cajaId: string; userId: string; userNombre: string | null; saldoApertura: number
 }) {
-  const existing = await getSesionAbierta(db, args.cajaId)
-  if (existing) throw new Error('Ya hay una sesión abierta en esta caja.')
-  // Correlativo global de aperturas de la clínica (no se repite entre cajas). Se
-  // genera dentro de la transacción (advisory lock) para que dos aperturas
-  // simultáneas en cajas distintas no obtengan el mismo número.
+  // Lock por CAJA + re-chequeo de "sesión abierta" DENTRO de la transacción: dos aperturas
+  // simultáneas de la MISMA caja ya no crean dos sesiones ABIERTA (el lock del correlativo solo
+  // serializa el número global, no el check de apertura). El correlativo también va en la tx.
   return db.$transaction(async (tx) => {
+    await advisoryLock(tx, `caja:${args.cajaId}`)
+    if (await getSesionAbierta(tx as unknown as TenantClient, args.cajaId)) {
+      throw new Error('Ya hay una sesión abierta en esta caja.')
+    }
     const numero = await siguienteNumero(tx, 'sesionCaja')
     return tx.sesionCaja.create({
       data: {

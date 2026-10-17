@@ -20,13 +20,19 @@ function hashInt32(s: string): number {
   return h
 }
 
-// Serializa por PROFESIONAL. DEBE llamarse DENTRO de una $transaction, y la validación
-// de solape + el create/update de la cita deben ir en la MISMA transacción (tx).
-export async function lockAgendaDoctor(tx: Prisma.TransactionClient, doctorId: string): Promise<void> {
+// Lock transaccional genérico por CLAVE (string). DEBE llamarse DENTRO de una $transaction;
+// la lectura/validación + el write deben ir en la MISMA tx para que el lock los cubra.
+// Sirve para serializar reservas de agenda, finalización de liquidaciones, apertura de caja, etc.
+export async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<void> {
   if (process.env.VITEST) return
   try {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${hashInt32(`agenda:${doctorId}`)})`
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${hashInt32(key)})`
   } catch {
     // Proveedor sin la función (p. ej. SQLite): se omite.
   }
+}
+
+// Serializa por PROFESIONAL (anti doble reserva de cita).
+export function lockAgendaDoctor(tx: Prisma.TransactionClient, doctorId: string): Promise<void> {
+  return advisoryLock(tx, `agenda:${doctorId}`)
 }
