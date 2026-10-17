@@ -406,11 +406,6 @@ function pickString(row: Row, keys: string[]): string {
   for (const k of keys) { const v = row[k]; if (v == null) continue; const s = String(v).trim(); if (s) return s }
   return ''
 }
-function normalizeRut(raw: string): string {
-  const clean = raw.replace(/[^0-9kK]/g, '').toUpperCase()
-  if (clean.length < 2) return ''
-  return `${clean.slice(0, -1)}-${clean.slice(-1)}`
-}
 function parseFecha(raw: unknown): Date | null {
   if (raw == null || raw === '') return null
   if (typeof raw === 'number' && Number.isFinite(raw)) {
@@ -439,6 +434,7 @@ export async function importarPacientes(db: TenantClient, fileBuffer: Buffer) {
     throw badRequest(`No se pudo leer el archivo: ${e instanceof Error ? e.message : e}`)
   }
 
+  const pais = await paisDe(db)
   const errores: { fila: number; motivo: string }[] = []
   const validos: { rut: string | null; nombre: string; apellido: string; telefono: string | null; email: string | null; direccion: string | null; fechaNacimiento: Date | null }[] = []
   const rutsEnArchivo = new Set<string>()
@@ -459,8 +455,10 @@ export async function importarPacientes(db: TenantClient, fileBuffer: Buffer) {
 
     let rut: string | null = null
     if (rutRaw) {
-      const norm = normalizeRut(rutRaw)
-      if (!norm) { errores.push({ fila, motivo: `RUT inválido: ${rutRaw}` }); return }
+      // Mismo criterio que el alta manual (normalizarDoc): valida el DV y formatea CON puntos,
+      // o la importación crearía duplicados que el @unique no detecta (formato distinto).
+      if (!validarDoc(pais, rutRaw)) { errores.push({ fila, motivo: `RUT inválido: ${rutRaw}` }); return }
+      const norm = formatDoc(pais, rutRaw)
       if (rutsEnArchivo.has(norm)) { errores.push({ fila, motivo: `RUT duplicado en el archivo: ${norm}` }); return }
       rutsEnArchivo.add(norm)
       rut = norm
@@ -482,7 +480,15 @@ export async function importarPacientes(db: TenantClient, fileBuffer: Buffer) {
 
   let creados = 0
   if (validos.length > 0) {
-    const result = await db.paciente.createMany({ data: validos, skipDuplicates: true })
+    // Número de ficha correlativo (como el alta manual) dentro de una transacción con el advisory
+    // lock: no choca con altas simultáneas y no deja fichas importadas sin número.
+    // Ya deduplicamos por RUT (dentro del archivo y contra la BD) arriba, así que no hace falta
+    // skipDuplicates (que además SQLite no soporta). Los RUT null múltiples son válidos (@unique nullable).
+    const result = await db.$transaction(async (tx) => {
+      const primero = await siguienteNumero(tx, 'paciente')
+      const data = validos.map((v, i) => ({ ...v, numero: primero + i, activo: true }))
+      return tx.paciente.createMany({ data })
+    })
     creados = result.count
   }
   return { total: rows.length, creados, duplicados: duplicadosEnDB, sinRut: validos.filter((v) => v.rut === null).length, errores }

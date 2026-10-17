@@ -81,6 +81,7 @@ async function sendSigned(cfg: WhCfg, event: WebhookEvent, data: unknown): Promi
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Clariva-Signature': `sha256=${firma}` },
       body,
+      signal: AbortSignal.timeout(15_000),
     })
     if (!res.ok) {
       const txt = await res.text().catch(() => '')

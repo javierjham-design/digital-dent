@@ -58,6 +58,7 @@ export async function flowCrearPago(a: CrearPagoArgs): Promise<FlowCrearResult> 
   try {
     const r = await fetch(`${baseUrl(a.config.sandbox)}/payment/create`, {
       method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: urlEncoded(params),
+      signal: AbortSignal.timeout(15_000),
     })
     const data = (await r.json().catch(() => ({}))) as { url?: string; token?: string; flowOrder?: number; message?: string }
     if (r.ok && data.url && data.token) {
@@ -79,7 +80,7 @@ export async function flowGetStatus(config: FlowConfig, token: string): Promise<
   const params: Record<string, string> = { apiKey: config.apiKey!, token }
   params.s = firmar(params, config.secretKey!)
   try {
-    const r = await fetch(`${baseUrl(config.sandbox)}/payment/getStatus?${urlEncoded(params)}`)
+    const r = await fetch(`${baseUrl(config.sandbox)}/payment/getStatus?${urlEncoded(params)}`, { signal: AbortSignal.timeout(15_000) })
     const data = (await r.json().catch(() => ({}))) as { status?: number; commerceOrder?: string; amount?: number | string; message?: string }
     if (r.ok && data.status != null) return { ok: true, estado: Number(data.status), commerceOrder: String(data.commerceOrder ?? ''), amount: Number(data.amount ?? 0) }
     return { ok: false, error: data.message ?? `Flow respondió ${r.status}.` }

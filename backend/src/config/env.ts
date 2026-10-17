@@ -10,6 +10,18 @@ function required(name: string, fallback?: string): string {
   return v
 }
 
+// Secreto de firma de JWT: JWT_SECRET (o NEXTAUTH_SECRET como compat). NUNCA cae a un default
+// público en producción (firmaría tokens forjables con isPlatformAdmin). En dev/test usa un
+// placeholder. Trim vacío ("") se trata como ausente.
+function resolveJwtSecret(): string {
+  const s = (process.env.JWT_SECRET || process.env.NEXTAUTH_SECRET || '').trim()
+  if (s) return s
+  if ((process.env.NODE_ENV ?? 'development') === 'production') {
+    throw new Error('Falta JWT_SECRET (o NEXTAUTH_SECRET) en producción: el backend no arranca sin un secreto real.')
+  }
+  return 'dev-only-insecure-secret'
+}
+
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
@@ -36,7 +48,7 @@ export const env = {
   // clinicaId). Solo la usa el script `npm run migrate:data`.
   legacyDatabaseUrl: process.env.LEGACY_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgresql://localhost:5432/clariva',
   // Secreto para firmar los JWT que emite ESTE backend.
-  jwtSecret: required('JWT_SECRET', process.env.NEXTAUTH_SECRET ?? 'dev-insecure-secret-change-me'),
+  jwtSecret: resolveJwtSecret(),
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '12h',
   // Orígenes permitidos para CORS (el frontend Vite + otros explícitos).
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')

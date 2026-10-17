@@ -46,6 +46,7 @@ export const tubotProvider: WhatsappProvider = {
     const res = await fetch(`${env.tubotBaseUrl}/public/v1/messages/template`, {
       method: 'POST',
       headers: headers(cfg.apiKey, { 'Idempotency-Key': input.idempotencyKey }),
+      signal: AbortSignal.timeout(15_000),
       body: JSON.stringify({
         to: input.to,
         templateName: cfg.templateName,
@@ -63,7 +64,7 @@ export const tubotProvider: WhatsappProvider = {
 
   async enviarTexto(cfg, to, texto) {
     const res = await fetch(`${env.tubotBaseUrl}/public/v1/messages/text`, {
-      method: 'POST', headers: headers(cfg.apiKey), body: JSON.stringify({ to, text: texto }),
+      method: 'POST', headers: headers(cfg.apiKey), body: JSON.stringify({ to, text: texto }), signal: AbortSignal.timeout(15_000),
     })
     const data = (await res.json().catch(() => ({}))) as { messageId?: string; message?: string }
     if (!res.ok || !data.messageId) throw new Error(`TuBot ${res.status}: ${data.message ?? 'error'}`)
@@ -72,7 +73,7 @@ export const tubotProvider: WhatsappProvider = {
 
   async estadoPlantilla(cfg) {
     const url = `${env.tubotBaseUrl}/public/v1/templates/${encodeURIComponent(cfg.templateName)}?languageCode=${encodeURIComponent(cfg.templateLang)}`
-    const res = await fetch(url, { headers: headers(cfg.apiKey) })
+    const res = await fetch(url, { headers: headers(cfg.apiKey), signal: AbortSignal.timeout(15_000) })
     const data = (await res.json().catch(() => ({}))) as { status?: string; message?: string }
     if (!res.ok || !data.status) throw new Error(`TuBot ${res.status}: ${data.message ?? 'no se pudo leer el estado de la plantilla'}`)
     return { status: data.status }

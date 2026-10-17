@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
-import { env } from '@/config/env'
 import { unauthorized } from '@/lib/errors'
+import { cronSecretValido } from '@/lib/cron-auth'
 import { verifyToken } from '@/services/auth.service'
 import { tenantClient } from '@/db/tenant'
 import { tubotProvider } from '@/lib/tubot'
@@ -34,16 +34,16 @@ export async function postWebhook(req: Request, res: Response) {
   res.status(200).json({ ok: true })
 }
 
-// POST /api/v1/whatsapp/recordatorios — cron (x-cron-secret) o admin.
+// POST /api/v1/whatsapp/recordatorios — cron (x-cron-secret) o SUPER-admin.
+// Procesa TODAS las clínicas, así que NO lo puede disparar un admin de una sola clínica
+// (sería un efecto cross-tenant + costo global); solo cron o plataforma.
 export async function postRecordatorios(req: Request, res: Response) {
-  const headerSecret = req.headers['x-cron-secret']
-  const isCron = Boolean(env.cronSecret && headerSecret === env.cronSecret)
-  if (!isCron) {
+  if (!cronSecretValido(req.headers['x-cron-secret'])) {
     const auth = req.headers.authorization
     const tk = auth?.startsWith('Bearer ') ? auth.slice(7) : null
     if (!tk) throw unauthorized()
     const payload = verifyToken(tk)
-    if (payload.role !== 'admin' && !payload.isPlatformAdmin) throw unauthorized('Requiere administrador')
+    if (!payload.isPlatformAdmin) throw unauthorized('Requiere super-administrador (procesa todas las clínicas).')
   }
   res.json(await enviarRecordatoriosPendientes())
 }

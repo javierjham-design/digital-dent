@@ -324,7 +324,10 @@ export async function firmar(db: TenantClient, actor: JwtPayload, id: string, bo
   let img: string | null = null
   if (tipo === 'DIGITAL') {
     img = (body.imagen ?? '').trim()
-    if (!/^data:image\//.test(img)) throw badRequest('Firma digital inválida.')
+    // Validación ESTRICTA: solo una data-URI de imagen raster en base64 (sin comillas, <, > ni
+    // SVG), o un payload como data:image/png;base64,AAA"><script>… rompería el atributo src y
+    // quedaría embebido como HTML confiable en el consentimiento firmado (XSS almacenado).
+    if (!/^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(img)) throw badRequest('Firma digital inválida.')
     html = html.replace(boxPac, `<span class="cl-firma-box firmada" data-slot="paciente"><img class="cl-firma-img" src="${img}"/></span>`)
   } else {
     html = html.replace(boxPac, '<span class="cl-firma-linea" data-slot="paciente"></span>')

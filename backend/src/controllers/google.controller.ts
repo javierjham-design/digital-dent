@@ -4,6 +4,7 @@ import { tenantClient } from '@/db/tenant'
 import { tenantDb } from '@/middlewares/tenant'
 import { env } from '@/config/env'
 import { badRequest, forbidden, unauthorized } from '@/lib/errors'
+import { cronSecretValido } from '@/lib/cron-auth'
 import { verifyToken } from '@/services/auth.service'
 import {
   buildAuthUrl, disconnectClinica, exchangeCodeForTokens, listCalendars,
@@ -94,8 +95,7 @@ export async function getCalendars(req: Request, res: Response) {
 // POST /api/v1/google/sync → cron (x-cron-secret, sin sesión) o admin de la
 // clínica (Bearer). Ruta pública: valida el token inline en el modo manual.
 export async function postSync(req: Request, res: Response) {
-  const headerSecret = req.headers['x-cron-secret']
-  const isCron = Boolean(env.cronSecret && headerSecret === env.cronSecret)
+  const isCron = cronSecretValido(req.headers['x-cron-secret'])
   const targetUserId = typeof req.body?.userId === 'string' ? req.body.userId : null
   // full: ignora el token incremental y rehace un snapshot completo (recuperación
   // cuando el syncToken quedó ciego a los cambios del calendario).
