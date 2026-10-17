@@ -352,5 +352,12 @@ export async function actualizarMedioPago(db: TenantClient, id: string, body: Re
 export async function eliminarMedioPago(db: TenantClient, id: string) {
   const existing = await db.medioPago.findUnique({ where: { id }, select: { id: true } })
   if (!existing) throw notFound('Medio de pago no encontrado')
+  // Si hay cobros que lo usan, NO se borra: la FK es SetNull y perdería la atribución del medio en
+  // el histórico/reportes. Se DESACTIVA (como los boxes). Si no lo usa nadie, se borra limpio.
+  const usos = await db.cobro.count({ where: { OR: [{ medioPagoId: id }, { medioPago2Id: id }] } })
+  if (usos > 0) {
+    await db.medioPago.update({ where: { id }, data: { activo: false } })
+    return
+  }
   await db.medioPago.delete({ where: { id } })
 }

@@ -136,9 +136,20 @@ export async function procesarWebhookFlow(db: TenantClient, token: string): Prom
   if (!estado.ok) return
   // 2 = pagada. El resto: pendiente/rechazada/anulada.
   const nuevoEstado = estado.estado === 2 ? 'PAGADO' : estado.estado === 3 ? 'RECHAZADO' : estado.estado === 4 ? 'ANULADO' : 'PENDIENTE'
-  if (pago.estado === 'PAGADO') return // idempotencia
-  await db.pagoOnline.update({ where: { id: pago.id }, data: { estado: nuevoEstado, pagadoAt: nuevoEstado === 'PAGADO' ? new Date() : null } })
-  if (nuevoEstado !== 'PAGADO') return
+  if (nuevoEstado !== 'PAGADO') {
+    if (pago.estado !== 'PAGADO') await db.pagoOnline.update({ where: { id: pago.id }, data: { estado: nuevoEstado, pagadoAt: null } })
+    return
+  }
+  // Antes de confirmar: el monto y la orden que reporta Flow deben COINCIDIR con los del pago (si
+  // el cobro se editó entre crear el link y pagar, no se confirma con el monto viejo).
+  if (Math.round(estado.amount) !== Math.round(pago.monto) || (pago.commerceOrder && estado.commerceOrder && estado.commerceOrder !== pago.commerceOrder)) {
+    console.warn(`[flow] webhook descartado por desajuste monto/orden (pago ${pago.id}: monto ${pago.monto} vs ${estado.amount}, orden ${pago.commerceOrder} vs ${estado.commerceOrder})`)
+    return
+  }
+  // Idempotencia ATÓMICA: solo UN webhook concurrente gana la transición a PAGADO (updateMany
+  // condicional); el resto sale sin repetir los efectos (doble email de confirmación / doble conversión CRM).
+  const claim = await db.pagoOnline.updateMany({ where: { id: pago.id, estado: { not: 'PAGADO' } }, data: { estado: 'PAGADO', pagadoAt: new Date() } })
+  if (claim.count === 0) return
 
   // Si se pagó y el cobro seguía pendiente, lo marca pagado con el MEDIO "Flow" (no
   // solo el string metodoPago): así la UI lo muestra como Flow y no como "sin medio".

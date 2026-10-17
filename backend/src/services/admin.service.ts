@@ -640,6 +640,10 @@ export async function actualizarPlanSuscripcion(id: string, body: Record<string,
 }
 
 export async function eliminarPlanSuscripcion(id: string) {
+  // Los planes de sistema no se borran: la lógica de negocio los referencia por código (p. ej.
+  // registrarPago asigna 'BASICO' al confirmar un pago de un TRIAL). Borrarlos dejaría clínicas
+  // apuntando a un plan inexistente (MRR en $0).
+  if (['TRIAL', 'BASICO'].includes(id)) throw conflict('No se puede eliminar un plan del sistema (TRIAL / BASICO): la plataforma lo usa en la lógica de suscripción. Desactívalo si no lo ofreces.')
   const enUso = await control.clinica.count({ where: { plan: id } })
   if (enUso > 0) throw conflict(`No se puede eliminar: ${enUso} clínica(s) usan este plan. Migrá esas clínicas o desactivá el plan.`)
   await control.planSuscripcion.delete({ where: { id } })

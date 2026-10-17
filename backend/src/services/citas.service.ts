@@ -317,6 +317,9 @@ export async function reprogramarCita(db: TenantClient, id: string, userName: st
   void emitirEventoCita(db, 'appointment.cancelled', id)
   void pushCita(db, nueva.id).catch(swallowGoogle('pushCita'))
   void emitirEventoCita(db, 'appointment.created', nueva.id)
+  // Re-apuntar el lead vinculado a la cita ORIGINAL hacia la nueva: si no, queda referenciando la
+  // cita cancelada y la fecha vieja (métricas de CRM/fechaAgenda desfasadas).
+  void db.lead.updateMany({ where: { citaId: id }, data: { citaId: nueva.id, fechaAgenda: inicio } }).catch(() => {})
   // Si el paciente venía de un no-show, su lead vuelve a AGENDADO (limpia recaptura).
   void reengancharLeadReagenda(db, orig.pacienteId, nueva.id, inicio)
   return toDTO(nueva)
