@@ -3,9 +3,10 @@ import { login, getSessionUser, cambiarPassword, setup2FA, verify2FA } from '@/s
 import { loginSchema } from '@/validators/schemas'
 import { badRequest } from '@/lib/errors'
 
+// IP real del cliente: req.ip ya la resuelve Express con `trust proxy` (el primer
+// elemento de X-Forwarded-For es texto del cliente y permite burlar el rate-limit).
 function clientIp(req: Request): string {
-  const xf = (req.headers['x-forwarded-for'] as string) ?? ''
-  return xf.split(',')[0].trim() || req.ip || 'unknown'
+  return req.ip || 'unknown'
 }
 
 export async function postLogin(req: Request, res: Response) {

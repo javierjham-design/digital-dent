@@ -40,7 +40,7 @@ export function actorName(p: JwtPayload): string {
 export function verifyToken(token: string): JwtPayload {
   let decoded: unknown
   try {
-    decoded = jwt.verify(token, env.jwtSecret)
+    decoded = jwt.verify(token, env.jwtSecret, { algorithms: ['HS256'] })
   } catch {
     throw unauthorized('Sesión inválida o expirada')
   }
@@ -60,7 +60,7 @@ function signChallenge(sub: string, modo: Modo2FA): string {
 
 function verifyChallenge(token: string): Challenge2FA {
   let d: unknown
-  try { d = jwt.verify(token, env.jwtSecret) } catch { throw unauthorized('Desafío 2FA inválido o expirado') }
+  try { d = jwt.verify(token, env.jwtSecret, { algorithms: ['HS256'] }) } catch { throw unauthorized('Desafío 2FA inválido o expirado') }
   if (!d || typeof d !== 'object' || (d as { stage?: string }).stage !== '2fa') throw unauthorized('Desafío 2FA inválido')
   const { sub, modo } = d as { sub?: string; modo?: string }
   if (!sub || (modo !== 'alta' && modo !== 'codigo')) throw unauthorized('Desafío 2FA inválido')

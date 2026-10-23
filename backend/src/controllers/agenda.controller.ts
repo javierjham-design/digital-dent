@@ -30,7 +30,7 @@ export async function getHorarios(req: Request, res: Response) {
 
 export async function postHorarios(req: Request, res: Response) {
   const { doctorId, days } = guardarHorariosSchema.parse(req.body)
-  res.json(await guardarHorarios(tenantDb(req), doctorId, days))
+  res.json(await guardarHorarios(tenantDb(req), req.auth!, doctorId, days))
 }
 
 // ── Bloqueos ──

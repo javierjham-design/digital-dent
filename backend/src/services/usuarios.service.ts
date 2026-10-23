@@ -5,6 +5,7 @@ import type { JwtPayload } from '@/services/auth.service'
 import type { DoctorDTO, UsuarioDTO } from '@shared/types'
 import { conTitulo, normalizarTitulo } from '@shared/utils/nombre'
 import { getLimiteProfesionales, PROFESIONAL_EXTRA_PRECIO } from '@/lib/plans'
+import { audit } from '@/lib/audit'
 
 const ROLES_PERMITIDOS = ['admin', 'doctor', 'medico', 'staff']
 const ROLES_CON_AGENDA = ['doctor', 'medico']
@@ -208,6 +209,9 @@ export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, tar
   }
 
   if (typeof body.password === 'string' && body.password.length > 0) {
+    // Resetear la contraseña de OTRO usuario permite loguearse COMO él (y firmar actos
+    // clínicos con su identidad): reservado al administrador, no al gestor de equipo.
+    if (editandoOtro && !isAdmin) throw forbidden('Solo un administrador puede resetear la contraseña de otro usuario.')
     if (body.password.length < 8) throw badRequest('Password muy corto (mínimo 8, con letra y número)')
     data.password = await bcrypt.hash(body.password, 10)
     data.passwordChangedAt = new Date()
@@ -222,6 +226,15 @@ export async function actualizarUsuario(db: TenantClient, actor: JwtPayload, tar
 
   if ('role' in data && !ROLES_CON_AGENDA.includes(String(data.role))) {
     await db.horarioDoctor.deleteMany({ where: { doctorId: targetId } })
+  }
+  // Cambios sensibles de cuenta (rol, permisos, activo, password de terceros) quedan auditados.
+  const sensibles = Object.keys(data).filter((k) => k === 'role' || k === 'activo' || k.startsWith('puede') || k === 'password')
+  if (sensibles.length > 0) {
+    await audit(db, actor.sub, {
+      accion: 'EDITAR', entidad: 'User', entidadId: targetId,
+      resumen: `Editó la cuenta de ${usuario.name ?? usuario.username ?? targetId}: ${sensibles.map((k) => (k === 'password' ? 'password (reset)' : k)).join(', ')}`,
+      datosPrevios: { role: existing.role, activo: existing.activo },
+    })
   }
   return toDTO(usuario)
 }

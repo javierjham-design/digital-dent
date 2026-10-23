@@ -1,6 +1,7 @@
-import { createHmac } from 'crypto'
+import { createHmac, timingSafeEqual } from 'crypto'
 import { google } from 'googleapis'
 import type { TenantClient } from '@/db/tenant'
+import { env } from '@/config/env'
 import { decrypt, encrypt } from '@/lib/crypto'
 
 // Database-per-tenant: los tokens de Google viven en la Configuracion (singleton)
@@ -48,10 +49,10 @@ export interface OAuthState {
   iat: number   // segundos epoch
 }
 
-// Secreto para firmar el state OAuth. Reusa NEXTAUTH_SECRET (compatibilidad
-// con el monolito) o cae al JWT_SECRET del backend.
+// Secreto para firmar el state OAuth. Reusa el secreto del JWT del backend
+// (env.jwtSecret ya resuelve JWT_SECRET/NEXTAUTH_SECRET y falla en prod si falta).
 function stateSecret(): string {
-  return process.env.NEXTAUTH_SECRET ?? process.env.JWT_SECRET ?? 'dev-insecure-secret-change-me'
+  return env.jwtSecret
 }
 
 export function signOAuthState(payload: Omit<OAuthState, 'iat'>): string {
@@ -67,7 +68,8 @@ export function verifyOAuthState(token: string, maxAgeSec = 600): OAuthState | n
     const [body, sig] = token.split('.')
     if (!body || !sig) return null
     const expected = createHmac('sha256', stateSecret()).update(body).digest('base64url')
-    if (sig !== expected) return null
+    const a = Buffer.from(sig); const b = Buffer.from(expected)
+    if (a.length !== b.length || !timingSafeEqual(a, b)) return null
     const data = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as OAuthState
     if (!data.iat || Math.floor(Date.now() / 1000) - data.iat > maxAgeSec) return null
     if (!data.clinicaId || !data.slug || !data.userId) return null

@@ -7,7 +7,7 @@ function audit(req: Request): AuditCtx {
   return {
     actorId: req.auth!.sub,
     actorEmail: req.auth!.email ?? '',
-    ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ?? req.ip ?? null,
+    ip: req.ip ?? null,
     userAgent: req.headers['user-agent'] ?? null,
   }
 }

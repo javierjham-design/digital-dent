@@ -32,21 +32,22 @@ export async function getClinicaModulos(clinicaId: string): Promise<string[]> {
 }
 
 // Revalidación de sesión: un usuario desactivado/borrado NO debe seguir operando con su JWT
-// vigente (hasta 12 h). Se chequea `activo` con un TTL corto (reflejo en ≤30 s sin reiniciar).
-// Fail-open ante error de BD (no bloquear por una caída de infra); fail-closed si no existe o
-// está inactivo. Clave por (dbName, userId).
-const userCache = new Map<string, { activo: boolean; at: number }>()
-async function usuarioSigueActivo(db: TenantClient, dbName: string, userId: string): Promise<boolean> {
+// vigente (hasta 12 h), y un usuario DEGRADADO de rol no debe conservar el rol del token
+// (requireAdmin/requirePermiso confían en req.auth.role). Se chequea con un TTL corto
+// (reflejo en ≤30 s sin reiniciar). Fail-open ante error de BD (no bloquear por una caída
+// de infra); fail-closed si no existe o está inactivo. Clave por (dbName, userId).
+const userCache = new Map<string, { activo: boolean; role: string | null; at: number }>()
+async function estadoUsuario(db: TenantClient, dbName: string, userId: string): Promise<{ activo: boolean; role: string | null }> {
   const key = `${dbName}:${userId}`
   const cached = userCache.get(key)
-  if (cached && Date.now() - cached.at < TTL_MS) return cached.activo
+  if (cached && Date.now() - cached.at < TTL_MS) return cached
   try {
-    const u = await db.user.findUnique({ where: { id: userId }, select: { activo: true } })
-    const activo = u?.activo ?? false // no encontrado (borrado) → bloquear
-    userCache.set(key, { activo, at: Date.now() })
-    return activo
+    const u = await db.user.findUnique({ where: { id: userId }, select: { activo: true, role: true } })
+    const estado = { activo: u?.activo ?? false, role: u?.role ?? null } // no encontrado (borrado) → bloquear
+    userCache.set(key, { ...estado, at: Date.now() })
+    return estado
   } catch {
-    return true // error de BD: no bloquear al usuario por un problema de infraestructura
+    return { activo: true, role: null } // error de BD: no bloquear al usuario por un problema de infraestructura
   }
 }
 
@@ -69,8 +70,13 @@ export async function requireTenant(req: Request, _res: Response, next: NextFunc
     // Revocación de sesión: si el usuario de la clínica fue desactivado/borrado, se corta aquí
     // (no espera a que expire el JWT). Los super-admin de plataforma no son usuarios del tenant.
     if (req.auth && !req.auth.isPlatformAdmin) {
-      if (!(await usuarioSigueActivo(req.tenant, info.dbName, req.auth.sub))) {
+      const estado = await estadoUsuario(req.tenant, info.dbName, req.auth.sub)
+      if (!estado.activo) {
         throw unauthorized('Tu usuario ya no está activo en esta clínica. Inicia sesión de nuevo.')
+      }
+      // Rol degradado/cambiado después de emitir el token: el claim del JWT ya no vale.
+      if (estado.role !== null && estado.role !== req.auth.role) {
+        throw unauthorized('Tu rol en la clínica cambió. Inicia sesión de nuevo.')
       }
     }
     // Etiqueta el contexto de logging/Sentry con la clínica de esta request.

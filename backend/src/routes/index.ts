@@ -77,6 +77,10 @@ const prestacionesTenant = [requireAuth, requireTenant, requirePermiso('puedeGes
 // Reportes (descargas XLSX con datos sensibles: nómina de pacientes, cobros, morosos):
 // admin o usuario con el permiso "puedeVerReportes".
 const reportesTenant = [requireAuth, requireTenant, requirePermiso('puedeVerReportes')]
+// Contratos y liquidaciones de profesionales (comisiones, montos): admin o
+// "puedeGestionarLiquidaciones". Las lecturas "propias" quedan en `tenant` y
+// filtran por actor en el service.
+const liquidacionesTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarLiquidaciones')]
 // Asistente de IA (módulo asignable 'asistente' + interruptor global ASISTENTE_ENABLED).
 const asistenteTenant = [requireAuth, requireTenant, requireModulo('asistente'), requireAsistenteHabilitado]
 
@@ -143,7 +147,7 @@ apiRouter.post('/google/reconcile-bloqueos', tenant, asyncHandler(googlec.postRe
 // ── Pacientes (convertido a database-per-tenant) ─────────────────────────────
 apiRouter.get('/pacientes', tenant, asyncHandler(getPacientes))
 // Rutas estáticas ANTES de /pacientes/:id (si no, ":id" captura export/template/import).
-apiRouter.get('/pacientes/export', tenant, asyncHandler(getExport))
+apiRouter.get('/pacientes/export', reportesTenant, asyncHandler(getExport)) // nómina completa: mismo permiso que /reportes/pacientes
 apiRouter.get('/pacientes/template', tenant, asyncHandler(getTemplate))
 apiRouter.get('/pacientes/sin-proxima-cita', tenant, asyncHandler(getPacientesSinProxima))
 apiRouter.post('/pacientes/import', adminTenant, upload.single('file'), asyncHandler(postImport))
@@ -314,10 +318,11 @@ apiRouter.patch('/categorias-prestacion/:id', prestacionesTenant, asyncHandler(p
 apiRouter.delete('/categorias-prestacion/:id', prestacionesTenant, asyncHandler(deleteCategoria))
 
 // ── Medios de pago (convertido a database-per-tenant) ────────────────────────
+// Escrituras: la comisión del medio afecta montoNeto/liquidaciones → configTenant.
 apiRouter.get('/medios-pago', tenant, asyncHandler(getMediosPago))
-apiRouter.post('/medios-pago', tenant, asyncHandler(postMedioPago))
-apiRouter.patch('/medios-pago/:id', tenant, asyncHandler(patchMedioPago))
-apiRouter.delete('/medios-pago/:id', tenant, asyncHandler(deleteMedioPago))
+apiRouter.post('/medios-pago', configTenant, asyncHandler(postMedioPago))
+apiRouter.patch('/medios-pago/:id', configTenant, asyncHandler(patchMedioPago))
+apiRouter.delete('/medios-pago/:id', configTenant, asyncHandler(deleteMedioPago))
 
 // ── Configuración de la clínica (convertido a database-per-tenant) ───────────
 apiRouter.get('/clinica', tenant, asyncHandler(getClinica))
@@ -422,10 +427,12 @@ apiRouter.post('/emails/enviar', tenant, asyncHandler(email.postEnviar))
 apiRouter.get('/emails', tenant, asyncHandler(email.getEmails))
 
 // ── Contratos ────────────────────────────────────────────────────────────────
+// GET queda en `tenant` (cada profesional ve SU contrato); el service filtra por
+// actor. Las escrituras tocan comisiones/montos → exigen gestionar liquidaciones.
 apiRouter.get('/contratos', tenant, asyncHandler(liq.getContratos))
-apiRouter.post('/contratos', tenant, asyncHandler(liq.postContrato))
-apiRouter.patch('/contratos/:id', tenant, asyncHandler(liq.patchContrato))
-apiRouter.delete('/contratos/:id', tenant, asyncHandler(liq.deleteContrato))
+apiRouter.post('/contratos', liquidacionesTenant, asyncHandler(liq.postContrato))
+apiRouter.patch('/contratos/:id', liquidacionesTenant, asyncHandler(liq.patchContrato))
+apiRouter.delete('/contratos/:id', liquidacionesTenant, asyncHandler(liq.deleteContrato))
 
 // Montos fijos por prestación (override del contrato base, por profesional).
 apiRouter.get('/montos-fijos/:doctorId', tenant, asyncHandler(liq.getMontosFijos))

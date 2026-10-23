@@ -1,8 +1,17 @@
 import type { TenantClient } from '@/db/tenant'
-import { badRequest, notFound } from '@/lib/errors'
+import { badRequest, forbidden, notFound } from '@/lib/errors'
+import type { JwtPayload } from '@/services/auth.service'
 import type { HorarioDTO } from '@shared/types'
 
 const ROLES_CON_AGENDA = ['doctor', 'medico']
+
+// Mismo criterio que bloqueos: admin o gestor de agenda toca cualquier horario;
+// el resto, solo el propio (el horario define cupos de la reserva pública y TuBot).
+async function puedeGestionarAgenda(db: TenantClient, actor: JwtPayload): Promise<boolean> {
+  if (actor.role === 'admin' || actor.isPlatformAdmin) return true
+  const u = await db.user.findUnique({ where: { id: actor.sub }, select: { puedeGestionarAgenda: true } })
+  return Boolean(u?.puedeGestionarAgenda)
+}
 
 function toDTO(h: {
   id: string; doctorId: string; diaSemana: number; horaInicio: string; horaFin: string; activo: boolean
@@ -26,8 +35,11 @@ export interface DiaHorarioInput {
   sobrecupoActivo?: boolean; sobrecupoInicio?: string | null; sobrecupoFin?: string | null
 }
 
-export async function guardarHorarios(db: TenantClient, doctorId: string, days: DiaHorarioInput[]): Promise<HorarioDTO[]> {
+export async function guardarHorarios(db: TenantClient, actor: JwtPayload, doctorId: string, days: DiaHorarioInput[]): Promise<HorarioDTO[]> {
   if (!doctorId) throw badRequest('Doctor requerido')
+  if (!(await puedeGestionarAgenda(db, actor)) && doctorId !== actor.sub) {
+    throw forbidden('Solo puedes modificar tu propio horario.')
+  }
   const doctor = await db.user.findUnique({ where: { id: doctorId }, select: { id: true, role: true } })
   if (!doctor) throw notFound('Doctor no encontrado')
   if (!ROLES_CON_AGENDA.includes(doctor.role)) {

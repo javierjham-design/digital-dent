@@ -6,7 +6,7 @@ import { crearContratoSchema, crearMontoFijoSchema } from '@/validators/schemas'
 
 // ── Contratos ──
 export async function getContratos(req: Request, res: Response) {
-  res.json(await svc.listarContratos(tenantDb(req)))
+  res.json(await svc.listarContratos(tenantDb(req), req.auth!))
 }
 export async function postContrato(req: Request, res: Response) {
   const input = crearContratoSchema.parse(req.body)

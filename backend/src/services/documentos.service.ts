@@ -5,7 +5,13 @@ import type { JwtPayload } from '@/services/auth.service'
 
 // Radiografías y documentos del paciente (bytes en la base de la clínica).
 const TIPOS = ['PERIAPICAL', 'BITEWING_IZQ', 'BITEWING_DER', 'PANORAMICA', 'TELERRADIOGRAFIA', 'CBCT', 'FOTO', 'INFORME', 'OTRO']
-const mimeOk = (m: string) => m.startsWith('image/') || m === 'application/pdf'
+// Whitelist de formatos concretos: `image/*` dejaba pasar SVG, que ejecuta scripts al
+// servirse inline desde el origin de la API (XSS almacenado con la cookie de sesión).
+const MIMES_PERMITIDOS = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/bmp', 'image/tiff', 'image/heic', 'image/heif', 'application/pdf'])
+const mimeOk = (m: string) => MIMES_PERMITIDOS.has(m.toLowerCase())
+// Para servir: un documento legacy con mime fuera de la whitelist (p.ej. SVG subido
+// antes del endurecimiento) va como descarga, nunca inline.
+export const esMimeSeguroInline = (m: string) => MIMES_PERMITIDOS.has((m ?? '').toLowerCase())
 const META = { id: true, tipo: true, dientes: true, descripcion: true, nombre: true, mime: true, size: true, subidoPorNombre: true, createdAt: true } as const
 
 export async function listarDocumentos(db: TenantClient, pacienteId: string) {

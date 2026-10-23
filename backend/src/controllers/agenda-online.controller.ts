@@ -45,6 +45,9 @@ async function resolverTenant(slug: string): Promise<TenantClient> {
 }
 
 export async function getPublicAgenda(req: Request, res: Response) {
+  // El cálculo de slots recorre días/horarios: sin límite es abusable como DoS barato.
+  const rl = rateLimit(`agenda-pub:ip:${req.ip ?? 'unknown'}`, { limit: 60, windowMs: 60 * 60_000 })
+  if (!rl.ok) throw tooMany('Demasiadas consultas seguidas. Intenta nuevamente en un rato.')
   const { slug, token } = req.params
   const db = await resolverTenant(slug)
   const link = await svc.obtenerLinkPorToken(db, token)

@@ -81,6 +81,10 @@ export async function crearDemo(input: CrearDemoInput, ip: string): Promise<Demo
   if (!rlIp.ok) throw tooMany('Generaste varias demos seguidas. Intenta nuevamente en un rato.')
   const rlEmail = rateLimit(`demo:email:${email}`, { limit: 2, windowMs: 24 * 60 * 60_000 })
   if (!rlEmail.ok) throw tooMany('Ya creaste una demo con este correo hoy. Revisa tu bandeja o escríbenos.')
+  // Tope GLOBAL (defensa en profundidad): cada demo crea una base Postgres real;
+  // un abuso distribuido no debe poder agotar disco/conexiones del cluster.
+  const rlGlobal = rateLimit('demo:global', { limit: 20, windowMs: 60 * 60_000 })
+  if (!rlGlobal.ok) throw tooMany('Estamos recibiendo muchas solicitudes de demo. Intenta nuevamente en un rato.')
 
   let slug = slugDemo()
   while (await control.clinica.findUnique({ where: { slug } })) slug = slugDemo()

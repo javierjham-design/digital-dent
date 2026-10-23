@@ -17,8 +17,13 @@ export async function postDocumento(req: Request, res: Response) {
 }
 export async function getDocumento(req: Request, res: Response) {
   const d = await svc.descargarDocumento(tenantDb(req), req.params.id)
-  res.setHeader('Content-Type', d.mime)
-  res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(d.nombre)}"`)
+  // Inline solo para formatos seguros; cualquier otro (p.ej. SVG legacy, que ejecuta
+  // scripts en el origin de la API) se fuerza como descarga y sin capacidades activas.
+  const inline = svc.esMimeSeguroInline(d.mime)
+  res.setHeader('Content-Type', inline ? d.mime : 'application/octet-stream')
+  res.setHeader('X-Content-Type-Options', 'nosniff')
+  if (!inline) res.setHeader('Content-Security-Policy', "sandbox; default-src 'none'")
+  res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(d.nombre)}"`)
   res.send(Buffer.from(d.data))
 }
 export async function deleteDocumento(req: Request, res: Response) {

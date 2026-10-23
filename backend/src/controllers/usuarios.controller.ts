@@ -22,9 +22,9 @@ export async function postUsuario(req: Request, res: Response) {
 
 export async function patchUsuario(req: Request, res: Response) {
   const result = await actualizarUsuario(tenantDb(req), req.auth!, req.params.id, req.body ?? {}, req.clinica?.id)
-  // Si cambió el estado `activo`, invalida el cache de revocación de sesión para que el
-  // lockout (o la reactivación) tome efecto de inmediato y no en ≤30 s por el TTL.
-  if (req.body && typeof req.body === 'object' && 'activo' in req.body && req.clinica?.dbName) {
+  // Si cambió `activo` o `role`, invalida el cache de revocación de sesión para que el
+  // lockout (o la degradación de rol) tome efecto de inmediato y no en ≤30 s por el TTL.
+  if (req.body && typeof req.body === 'object' && ('activo' in req.body || 'role' in req.body) && req.clinica?.dbName) {
     invalidateUserCache(req.clinica.dbName, req.params.id)
   }
   res.json(result)

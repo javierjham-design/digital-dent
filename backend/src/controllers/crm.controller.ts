@@ -94,6 +94,8 @@ async function resolverTenant(slug: string): Promise<TenantClient> {
 }
 
 export async function getPublicForm(req: Request, res: Response) {
+  const rl = rateLimit(`form-pub:ip:${req.ip ?? 'unknown'}`, { limit: 60, windowMs: 60 * 60_000 })
+  if (!rl.ok) throw tooMany('Demasiadas consultas seguidas. Intenta nuevamente en un rato.')
   const { slug, token } = req.params
   const db = await resolverTenant(slug)
   const cfg = await svc.obtenerFormPublico(db, token)

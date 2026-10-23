@@ -16,8 +16,12 @@ async function puedeGestionar(db: TenantClient, actor: JwtPayload): Promise<bool
 
 // ── Contratos ────────────────────────────────────────────────────────────────
 
-export async function listarContratos(db: TenantClient) {
+// El gestor de liquidaciones (o admin) ve todos los contratos; cualquier otro
+// usuario solo el propio (la pantalla Equipo → "Mi contrato" usa este listado).
+export async function listarContratos(db: TenantClient, actor: JwtPayload) {
+  const todos = await puedeGestionar(db, actor)
   return db.contrato.findMany({
+    where: todos ? undefined : { doctorId: actor.sub },
     include: { doctor: { select: { id: true, name: true, email: true, especialidad: true } } },
     orderBy: { createdAt: 'desc' },
   })
@@ -287,7 +291,10 @@ export async function finalizarLiquidacion(db: TenantClient, actor: JwtPayload, 
   const contrato = await db.contrato.findFirst({ where: { doctorId, activo: true } })
   if (!contrato) throw badRequest('El profesional no tiene contrato activo')
 
-  const finCorte = rangoFechasUtc(undefined, corte).lte! // fin del día de corte (hora Chile)
+  // fechaCompletado es FECHA-SOLA a medianoche UTC: el corte va en límites UTC del día.
+  // Con el fin "hora Chile" (02:59Z del día siguiente) entraban —y se PAGABAN— acciones
+  // evolucionadas el día DESPUÉS del corte.
+  const finCorte = rangoFechasUtc(undefined, corte, 'UTC').lte!
   const esNoLiq = await filtroNoLiquidable(db)
   const montosFijos = await montosFijosDeDoctor(db, doctorId)
   // Lock por profesional + lectura (acciones aún no liquidadas) + create en la MISMA transacción:
