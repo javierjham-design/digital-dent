@@ -4,6 +4,7 @@ import { actorName, type JwtPayload } from '@/services/auth.service'
 import type { BloqueoDTO } from '@shared/types'
 import { pushBloqueo, deleteBloqueoInGoogle, swallowGoogle } from '@/lib/google-sync'
 import { assertDentroDeAtencion } from '@/lib/atencion'
+import { lockAgendaDoctor } from '@/lib/agenda-lock'
 import { conTitulo } from '@shared/utils/nombre'
 
 // La sincronización con Google es best-effort (fire-and-forget): nunca debe
@@ -72,16 +73,21 @@ export async function crearBloqueo(db: TenantClient, actor: JwtPayload, input: {
   await assertDentroDeAtencion(db, input.doctorId, inicio, fin)
 
   const motivo = input.motivo?.trim() || null
-  const bloqueo = await db.bloqueoAgenda.create({
-    data: { doctorId: input.doctorId, inicio, fin, motivo, createdById: actor.sub, createdByName: actorName(actor) },
-    include: INCLUDE,
+  // Mismo lock que las citas: un bloqueo y una cita creados a la vez sobre el mismo
+  // hueco ya no conviven (el que llega segundo ve al primero dentro de su tx).
+  const bloqueo = await db.$transaction(async (tx) => {
+    await lockAgendaDoctor(tx, input.doctorId)
+    return tx.bloqueoAgenda.create({
+      data: { doctorId: input.doctorId, inicio, fin, motivo, createdById: actor.sub, createdByName: actorName(actor) },
+      include: INCLUDE,
+    })
   })
   void pushBloqueo(db, bloqueo.id).catch(swallowGoogle('pushBloqueo'))
   return toDTO(bloqueo)
 }
 
 export async function actualizarBloqueo(db: TenantClient, actor: JwtPayload, id: string, body: { inicio?: string; fin?: string; motivo?: string }): Promise<BloqueoDTO> {
-  const existing = await db.bloqueoAgenda.findUnique({ where: { id }, select: { id: true, doctorId: true } })
+  const existing = await db.bloqueoAgenda.findUnique({ where: { id }, select: { id: true, doctorId: true, inicio: true, fin: true } })
   if (!existing) throw notFound('Bloqueo no encontrado')
   // Admin o gestor de agenda: edita bloqueos de cualquiera. El resto, solo los suyos.
   if (!(await puedeGestionarAgenda(db, actor)) && existing.doctorId !== actor.sub) {
@@ -98,6 +104,13 @@ export async function actualizarBloqueo(db: TenantClient, actor: JwtPayload, id:
     const fin = new Date(body.fin)
     if (Number.isNaN(fin.getTime())) throw badRequest('Fecha de fin inválida.')
     data.fin = fin
+  }
+  // Coherencia con los valores EFECTIVOS (un update parcial podía dejar fin <= inicio).
+  const inicioEf = (data.inicio as Date | undefined) ?? existing.inicio
+  const finEf = (data.fin as Date | undefined) ?? existing.fin
+  if (finEf <= inicioEf) throw badRequest('La fecha de fin debe ser posterior al inicio.')
+  if (data.inicio !== undefined || data.fin !== undefined) {
+    await assertDentroDeAtencion(db, existing.doctorId, inicioEf, finEf)
   }
   if (body.motivo !== undefined) data.motivo = body.motivo?.trim() || null
 

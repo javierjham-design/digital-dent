@@ -27,9 +27,15 @@ export async function postWebhook(req: Request, res: Response) {
   const evento = tubotProvider.parseInbound(rawBody)
   if (evento) {
     const db = tenantClient(resolved.dbName)
-    // Idempotente y best-effort: respondemos 2xx apenas procesamos; TuBot reintenta
-    // sólo ante 5xx (ver contrato). Un error interno acá NO debe dar 5xx en cascada.
-    await procesarEventoEntrante(db, resolved.wa, evento).catch(() => undefined)
+    // Idempotente: procesarEventoEntrante LIBERA su sello de idempotencia si el
+    // procesamiento falla, y acá respondemos 503 para que TuBot reintente (antes un
+    // error transitorio de BD perdía el botón del paciente para siempre).
+    try {
+      await procesarEventoEntrante(db, resolved.wa, evento)
+    } catch {
+      res.status(503).json({ error: 'retry' })
+      return
+    }
   }
   res.status(200).json({ ok: true })
 }

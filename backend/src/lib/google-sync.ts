@@ -27,6 +27,7 @@ import { google, calendar_v3 } from 'googleapis'
 import { control } from '@/db/control'
 import { tenantClient, disposeTenant, type TenantClient } from '@/db/tenant'
 import { getAuthorizedClient } from '@/lib/google'
+import { tzDePais, wallClockToUtc } from '@/lib/tz'
 import { log, serializeError } from '@/lib/logger'
 import { captureError } from '@/lib/observability'
 
@@ -99,13 +100,16 @@ export async function getGoogleHealth(db: TenantClient): Promise<GoogleHealth> {
     return { connected: false, problema: null, desde: null, ultimoSync: null, email: null, doctoresMapeados: 0, staleMinutos: STALE_MINUTOS }
   }
 
+  // _min, no _max: con _max un solo calendar sano "tapaba" a los doctores cuyo sync
+  // está roto (el dead-man's switch quedaba ciego por doctor).
   const agg = await db.user.aggregate({
     where: { activo: true, googleCalendarId: { not: null } },
+    _min: { googleSyncedAt: true },
     _max: { googleSyncedAt: true },
     _count: { _all: true },
   })
   const doctores = agg._count._all
-  const ultimoSync = agg._max.googleSyncedAt
+  const ultimoSync = agg._min.googleSyncedAt ?? agg._max.googleSyncedAt
 
   let problema: GoogleHealth['problema'] = null
   let desde: Date | null = null
@@ -231,6 +235,9 @@ export async function pushCita(db: TenantClient, citaId: string): Promise<void> 
     },
   })
   if (!cita || !cita.doctor.googleCalendarId) return
+  // Una cita CANCELADA nunca se (re)inserta: editar sus notas tras la cancelación
+  // re-creaba el evento (googleEventId quedó null tras el delete) como bloque fantasma.
+  if (cita.estado === 'CANCELADA') return
 
   const calendar = await getCalendarClient(db)
   if (!calendar) return
@@ -552,10 +559,16 @@ async function reconcileEvent(
   if (ev.status === 'cancelled') {
     const cita = await db.cita.findFirst({ where: { googleEventId: ev.id } })
     if (cita) {
-      await db.cita.update({
-        where: { id: cita.id },
-        data: { estado: 'CANCELADA', googleEventId: null, googleSyncedAt: new Date() },
-      })
+      // El evento murió en Google: se desvincula siempre.
+      await db.cita.update({ where: { id: cita.id }, data: { googleEventId: null, googleSyncedAt: new Date() } })
+      // Cancelar SOLO citas abiertas: que el dentista "limpie" eventos pasados de su
+      // calendar no debe reescribir la historia clínica (ATENDIDA/NO_ASISTIO). Vía
+      // cambiarEstadoCita para que quede log, se emita appointment.cancelled a TuBot
+      // y se propague al lead (antes era un update mudo). Import dinámico (ciclo de módulos).
+      if (!['ATENDIDA', 'NO_ASISTIO', 'CANCELADA'].includes(cita.estado)) {
+        const { cambiarEstadoCita } = await import('@/services/citas.service')
+        await cambiarEstadoCita(db, cita.id, 'CANCELADA', 'Google Calendar').catch(() => undefined)
+      }
       return 'cancelled'
     }
     const bloqueo = await db.bloqueoAgenda.findFirst({ where: { googleEventId: ev.id } })
@@ -566,11 +579,23 @@ async function reconcileEvent(
     return 'ignored'
   }
 
-  const start = ev.start?.dateTime ?? (ev.start?.date ? `${ev.start.date}T00:00:00` : null)
-  const end   = ev.end?.dateTime   ?? (ev.end?.date   ? `${ev.end.date}T23:59:59`   : null)
-  if (!start || !end) return 'ignored'
-  const startDate = new Date(start)
-  const endDate = new Date(end)
+  // Fechas: dateTime trae offset (instante exacto). Un evento ALL-DAY trae solo fecha:
+  // se interpreta en la zona de la CLÍNICA (parsearlo en la TZ del server lo corría de
+  // día) y su `end.date` es EXCLUSIVO según Google (usarlo como 23:59 bloqueaba un día
+  // hábil de más).
+  let startDate: Date
+  let endDate: Date
+  if (ev.start?.dateTime && ev.end?.dateTime) {
+    startDate = new Date(ev.start.dateTime)
+    endDate = new Date(ev.end.dateTime)
+  } else if (ev.start?.date && ev.end?.date) {
+    const cfgPais = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+    const tz = tzDePais(cfgPais?.pais)
+    startDate = wallClockToUtc(ev.start.date, '00:00', tz)
+    endDate = wallClockToUtc(ev.end.date, '00:00', tz) // exclusivo: fin = inicio del end.date
+  } else {
+    return 'ignored'
+  }
 
   // 2) Evento ya generado por Cláriva. Cláriva gana → re-pusheamos para
   //    sobrescribir cualquier edición manual que el dentista haya hecho.
@@ -590,6 +615,10 @@ async function reconcileEvent(
       return 're_asserted'
     }
   }
+  // Un evento CON marca clariva pero SIN fila local es un huérfano (la cita/bloqueo se
+  // eliminó con Google caído, o un doble-push dejó un evento extra). Jamás debe caer al
+  // paso 4 y renacer como cita nueva por coincidencia de nombre.
+  if (kind === 'cita' || kind === 'bloqueo') return 'ignored'
 
   // 2.b) Idempotencia: si el evento YA está importado como cita (con o sin la marca
   //      clarivaKind), no crear otra en un re-pull. Reflejamos el horario si cambió.

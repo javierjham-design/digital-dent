@@ -121,7 +121,9 @@ export async function reconciliarVinculosTodasLasClinicas(): Promise<void> {
 const NOSHOW_HORAS_DEFAULT = 3
 const RECAPTURA_DIAS_PERDIDO_DEFAULT = 5
 const NOSHOW_VENTANA_DIAS = 7 // no marca no-show citas más viejas que esto (evita tocar backlog)
-const ESTADOS_PRE_ASISTENCIA_JOB = ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO', 'EN_ESPERA'] // EN_ATENCION ya está en el sillón
+// EN_ATENCION ya está en el sillón y EN_ESPERA ya llegó a la clínica: ninguno es un
+// no-show (marcarlo mandaba recaptura de "faltaste" a un paciente presente).
+const ESTADOS_PRE_ASISTENCIA_JOB = ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO']
 const clampHoras = (n: unknown) => { const v = Math.round(Number(n)); return Number.isFinite(v) ? Math.min(72, Math.max(1, v)) : NOSHOW_HORAS_DEFAULT }
 const clampDiasPerdido = (n: unknown) => { const v = Math.round(Number(n)); return Number.isFinite(v) ? Math.min(60, Math.max(1, v)) : RECAPTURA_DIAS_PERDIDO_DEFAULT }
 
@@ -139,8 +141,12 @@ export async function cerrarNoShowsTodasLasClinicas(): Promise<void> {
           const vencidas = await db.cita.findMany({ where: { estado: { in: ESTADOS_PRE_ASISTENCIA_JOB }, fecha: { lt: corte, gte: piso } }, select: { id: true } })
           let noShows = 0
           for (const cita of vencidas) {
-            await cambiarEstadoCita(db, cita.id, 'NO_ASISTIO', 'Sistema (no-show automático)')
-            noShows++
+            try {
+              // soloDesde: si recepción marcó la cita (p.ej. ATENDIDA) entre el snapshot
+              // y este punto, el cambio automático NO se aplica (antes la pisaba).
+              await cambiarEstadoCita(db, cita.id, 'NO_ASISTIO', 'Sistema (no-show automático)', { soloDesde: ESTADOS_PRE_ASISTENCIA_JOB })
+              noShows++
+            } catch { /* la cita cambió de estado mientras corría el job: se respeta */ }
           }
           const corteP = new Date(ahora - clampDiasPerdido(cfg?.recapturaDiasPerdido ?? RECAPTURA_DIAS_PERDIDO_DEFAULT) * 86400_000)
           // No-show que NO re-agendó en X días → PERDIDO. Se mide desde la fecha de la cita

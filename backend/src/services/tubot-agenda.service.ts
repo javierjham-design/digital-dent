@@ -5,7 +5,7 @@ import { slotsLibres } from '@/services/agenda-online.service'
 import { buscarLeadParaReserva, dispararEtapaCrmMeta, dispararScheduleMeta } from '@/services/crm.service'
 import { crearCita, editarCita, cambiarEstadoCita } from '@/services/citas.service'
 import { crearPaciente, listarPacientesPaginado, obtenerPaciente, listarComentarios, crearComentario } from '@/services/pacientes.service'
-import { todayYmd, addDaysYmd } from '@/lib/tz'
+import { todayYmd, addDaysYmd, tzDePais } from '@/lib/tz'
 import { badRequest, notFound } from '@/lib/errors'
 import { encryptNullable } from '@/lib/crypto'
 import { citaToAppointment, CITA_FULL_SEL, type CitaFullRow } from '@/lib/tubot-webhooks'
@@ -49,12 +49,9 @@ export interface CreateAppointmentInput {
   clinicId?: string; professionalId: string; serviceId?: string; patient: SchedPatient; start: string; end?: string; notes?: string
 }
 
-// Zona horaria IANA por país (Configuracion.pais). Chile por defecto.
-const TZ: Record<string, string> = {
-  CL: 'America/Santiago', CR: 'America/Costa_Rica', PA: 'America/Panama',
-  PE: 'America/Lima', MX: 'America/Mexico_City', AR: 'America/Argentina/Buenos_Aires', CO: 'America/Bogota',
-}
-const tzDe = (pais?: string | null) => TZ[(pais ?? 'CL').toUpperCase()] ?? 'America/Santiago'
+// Zona horaria IANA por país: ÚNICA fuente en lib/tz (acá había una copia incompleta
+// que reportaba America/Santiago a TuBot para los países que le faltaban).
+const tzDe = (pais?: string | null) => tzDePais(pais)
 
 const ROLES_CON_AGENDA = ['doctor', 'medico']
 
@@ -287,7 +284,9 @@ export async function createAppointment(db: TenantClient, slug: string, input: C
 // (scheduleCapiEnviado) y valida config/llaves de match.
 async function vincularLeadYSchedule(db: TenantClient, pac: PacienteRow, cita: { id: string; inicio: string }) {
   const fechaCita = new Date(cita.inicio)
-  const existente = await buscarLeadParaReserva(db, { rut: pac.rut, telefono: pac.telefono, email: pac.email })
+  // incluirConvertidos: el paciente convertido que agenda por el bot avanza su MISMO
+  // lead (la rama de update no lo degrada), en vez de duplicarse.
+  const existente = await buscarLeadParaReserva(db, { rut: pac.rut, telefono: pac.telefono, email: pac.email }, { incluirConvertidos: true })
   let lead
   if (existente) {
     // PROGRESIÓN: el contacto ya era lead (campaña/landing/form) y ahora el bot le
@@ -299,6 +298,8 @@ async function vincularLeadYSchedule(db: TenantClient, pac: PacienteRow, cita: {
         estado: existente.estado === 'CONVERTIDO' ? existente.estado : 'AGENDADO',
         pacienteId: existente.pacienteId ?? pac.id, citaId: cita.id,
         fechaAgenda: fechaCita, agendaFuente: 'TuBot', ultimaGestionAt: new Date(),
+        // Re-agendó: limpiar el no-show anterior (mismo reenganche que reagendar por recepción).
+        asistio: null, recapturaNoShowAt: null,
         telefono: existente.telefono ?? pac.telefono, email: existente.email ?? pac.email, rut: existente.rut ?? pac.rut,
         // Reset del Schedule landing SOLO para leads no-Meta (los de Form van al dataset CRM).
         ...(esLeadgen ? {} : { scheduleEventId: randomUUID(), scheduleCapiEnviado: false }),

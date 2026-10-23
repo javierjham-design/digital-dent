@@ -128,6 +128,10 @@ export async function crearCita(db: TenantClient, userName: string, input: Crear
   // reserva concurrente (la validación de arriba es el aviso rápido; esta es la autoritativa).
   const cita = await db.$transaction(async (tx) => {
     await lockAgendaDoctor(tx, input.doctorId)
+    // Re-chequeo del bloqueo DENTRO de la tx: un bloqueo creado entre la validación de
+    // arriba y este punto ya no deja pasar la cita (mismo criterio que reservarPublico).
+    const bloqueoTx = await tx.bloqueoAgenda.findFirst({ where: { doctorId: input.doctorId, inicio: { lt: fin }, fin: { gt: inicio } }, select: { id: true } })
+    if (bloqueoTx) throw conflict('El doctor tiene un bloqueo en ese horario.')
     if (!sobrecupo) {
       const solapada = await findSolapada(tx as unknown as TenantClient, { doctorId: input.doctorId, inicio, fin })
       if (solapada) {
@@ -369,35 +373,50 @@ export async function eliminarCita(db: TenantClient, id: string): Promise<void> 
   await db.cita.delete({ where: { id } })
 }
 
-export async function cambiarEstadoCita(db: TenantClient, id: string, estado: string, userName: string): Promise<CitaDTO> {
+// Salidas permitidas desde los estados TERMINALES de asistencia: reclasificar el par
+// Atendida↔No asistió, cancelar, o devolver a "En atención" (corrección de un mal clic).
+// Volver a PENDIENTE/CONFIRMADA re-expone la cita al cron de no-show y a los
+// recordatorios: una cita ya atendida terminaría con recaptura de inasistencia.
+const SALIDAS_DESDE_TERMINAL = ['ATENDIDA', 'NO_ASISTIO', 'CANCELADA', 'EN_ATENCION']
+
+export async function cambiarEstadoCita(db: TenantClient, id: string, estado: string, userName: string, opts?: { soloDesde?: string[] }): Promise<CitaDTO> {
   if (!CITA_ESTADOS_KEYS.includes(estado)) throw badRequest('Estado inválido')
   const current = await db.cita.findUnique({ where: { id }, select: { estado: true, fecha: true, duracion: true, doctorId: true, sobrecupo: true } })
   if (!current) throw notFound('Cita no encontrada')
-
-  // H3: reabrir una cita que NO ocupaba (Cancelada/No asistió) hacia un estado que SÍ ocupa
-  // debe revalidar que el cupo no lo haya retomado otra cita, o quedarían dos citas encima.
-  const volviaAOcupar = ESTADOS_NO_OCUPAN.includes(current.estado) && !ESTADOS_NO_OCUPAN.includes(estado)
-  if (volviaAOcupar && !current.sobrecupo && estado !== current.estado) {
-    const solapada = await findSolapada(db, { doctorId: current.doctorId, inicio: current.fecha, fin: addMinutes(current.fecha, current.duracion), excluir: id })
-    if (solapada) {
-      const hora = solapada.fecha.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
-      throw conflict(`No se puede reabrir: el horario ya fue tomado por otra cita a las ${hora} (${solapada.paciente.nombre} ${solapada.paciente.apellido}). Reagenda esta cita a otro horario.`)
-    }
+  // Guard para cambios AUTOMÁTICOS (cron no-show): si el estado cambió entre el snapshot
+  // del job y este punto (p.ej. recepción marcó ATENDIDA), el cambio no se aplica.
+  if (opts?.soloDesde && !opts.soloDesde.includes(current.estado)) {
+    throw conflict('La cita cambió de estado: no se aplica el cambio automático.')
+  }
+  if (['ATENDIDA', 'NO_ASISTIO'].includes(current.estado) && estado !== current.estado && !SALIDAS_DESDE_TERMINAL.includes(estado)) {
+    throw badRequest('La asistencia de esta cita ya quedó registrada. Puedes reclasificarla (Atendida/No asistió), devolverla a "En atención" o cancelarla.')
   }
 
   const from = CITA_ESTADO_LABELS[current.estado] ?? current.estado
   const to = CITA_ESTADO_LABELS[estado] ?? estado
 
-  const cita = await db.cita.update({
-    where: { id },
-    data: {
-      estado,
-      ...(estado !== current.estado
-        ? { logs: { create: { tipo: 'ESTADO', detalle: `Estado cambiado de "${from}" a "${to}"`, userName } } }
-        : {}),
-    },
-    include: INCLUDE,
-  })
+  // H3: reabrir una cita que NO ocupaba (Cancelada/No asistió) hacia un estado que SÍ ocupa
+  // debe revalidar que el cupo no lo haya retomado otra cita, o quedarían dos citas encima.
+  // Con lock + re-chequeo DENTRO de la transacción (una reserva concurrente del mismo hueco
+  // pasaba entre la validación y el update).
+  const volviaAOcupar = ESTADOS_NO_OCUPAN.includes(current.estado) && !ESTADOS_NO_OCUPAN.includes(estado)
+  const dataUpdate = {
+    estado,
+    ...(estado !== current.estado
+      ? { logs: { create: { tipo: 'ESTADO', detalle: `Estado cambiado de "${from}" a "${to}"`, userName } } }
+      : {}),
+  }
+  const cita = volviaAOcupar && !current.sobrecupo && estado !== current.estado
+    ? await db.$transaction(async (tx) => {
+        await lockAgendaDoctor(tx, current.doctorId)
+        const solapada = await findSolapada(tx as unknown as TenantClient, { doctorId: current.doctorId, inicio: current.fecha, fin: addMinutes(current.fecha, current.duracion), excluir: id })
+        if (solapada) {
+          const hora = solapada.fecha.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })
+          throw conflict(`No se puede reabrir: el horario ya fue tomado por otra cita a las ${hora} (${solapada.paciente.nombre} ${solapada.paciente.apellido}). Reagenda esta cita a otro horario.`)
+        }
+        return tx.cita.update({ where: { id }, data: dataUpdate, include: INCLUDE })
+      })
+    : await db.cita.update({ where: { id }, data: dataUpdate, include: INCLUDE })
   // Cancelar → quitar de Google; cualquier otro estado → reflejar la versión nuestra.
   if (estado === 'CANCELADA') void deleteCitaInGoogle(db, cita.id).catch(swallowGoogle('deleteCita'))
   else void pushCita(db, cita.id).catch(swallowGoogle('pushCita'))
@@ -480,13 +499,19 @@ export async function marcarAsistenciaPorActividad(db: TenantClient, pacienteId:
   }
 }
 
-// Lead vinculado a una cita: preferente por citaId; si no, el lead más reciente del mismo
-// paciente que no esté cerrado. Para propagar asistencia/no-show al embudo y la atribución.
+// Lead vinculado a una cita: preferente por citaId; si no, el lead ABIERTO más reciente
+// del mismo paciente SIN cita propia y con actividad reciente (90 días). El fallback
+// amplio atribuía la asistencia de una cita cualquiera al lead de otra campaña.
+const FALLBACK_LEAD_DIAS = 90
 async function leadDeCita(db: TenantClient, citaId: string, pacienteId: string) {
   const porCita = await db.lead.findFirst({ where: { citaId }, select: { id: true, recapturaNoShowAt: true } })
   if (porCita) return porCita
   return db.lead.findFirst({
-    where: { pacienteId, estado: { notIn: ['PERDIDO', 'CONVERTIDO'] } },
+    where: {
+      pacienteId, estado: { notIn: ['PERDIDO', 'CONVERTIDO'] },
+      citaId: null, // un lead ya atado a OTRA cita no hereda la asistencia de esta
+      ultimoIngresoAt: { gte: new Date(Date.now() - FALLBACK_LEAD_DIAS * 86400_000) },
+    },
     orderBy: { ultimoIngresoAt: 'desc' }, select: { id: true, recapturaNoShowAt: true },
   })
 }
@@ -514,7 +539,12 @@ export async function propagarAsistenciaLead(db: TenantClient, cita: { id: strin
 // ni se re-cuenta como no-show). Best-effort.
 export async function reengancharLeadReagenda(db: TenantClient, pacienteId: string, citaId: string, fecha: Date): Promise<void> {
   try {
-    const lead = await db.lead.findFirst({ where: { pacienteId, asistio: false, estado: { not: 'CONVERTIDO' } }, orderBy: { ultimoIngresoAt: 'desc' }, select: { id: true } })
+    // Acotado a no-shows RECIENTES (90 días): re-agendar hoy no debe revivir un lead
+    // perdido de hace un año (quedaría AGENDADO y contaminaría el embudo por campaña).
+    const lead = await db.lead.findFirst({
+      where: { pacienteId, asistio: false, estado: { not: 'CONVERTIDO' }, fechaAgenda: { gte: new Date(Date.now() - FALLBACK_LEAD_DIAS * 86400_000) } },
+      orderBy: { ultimoIngresoAt: 'desc' }, select: { id: true },
+    })
     if (!lead) return
     await db.lead.update({ where: { id: lead.id }, data: { estado: 'AGENDADO', asistio: null, recapturaNoShowAt: null, citaId, fechaAgenda: fecha, ultimaGestionAt: new Date() } })
   } catch (e) {

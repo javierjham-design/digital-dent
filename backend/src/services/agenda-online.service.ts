@@ -7,6 +7,8 @@ import { crearLinkParaCobro } from '@/services/pagos-online.service'
 import { siguienteNumero } from '@/lib/correlativo'
 import { enviarConfirmacionHora } from '@/services/email.service'
 import { enviarEventoMeta, metaHabilitado } from '@/lib/meta'
+import { emitirEventoCita } from '@/lib/tubot-webhooks'
+import { pushCita } from '@/lib/google-sync'
 import { ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
 import { lockAgendaDoctor } from '@/lib/agenda-lock'
@@ -362,10 +364,11 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
       })
     })
     pacienteCreado = true
-  } else if (emailForm) {
-    // Paciente existente sin email: lo completamos (necesario para el pago del abono).
-    await db.paciente.updateMany({ where: { id: paciente.id, email: null }, data: { email: emailForm } }).catch(() => {})
   }
+  // OJO: NO escribimos el email del formulario en una ficha EXISTENTE: cualquiera que
+  // conozca el teléfono/RUT de un paciente podría inyectar su propio correo y recibir
+  // las confirmaciones y links de pago futuros. El pago del abono usa el email del
+  // formulario directamente (opts de crearLinkParaCobro), sin tocar la ficha.
 
   // Match robusto lead→paciente al crear la ficha desde la agenda online (no solo el flujo
   // del botón de agendar del CRM): si hay UN único lead huérfano que coincide por
@@ -386,7 +389,8 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     const bloqueo = await tx.bloqueoAgenda.findFirst({ where: { doctorId, inicio: { lt: fin }, fin: { gt: inicio } }, select: { id: true } })
     if (bloqueo) throw conflict('Ese horario ya no está disponible.')
     const ocupadas = await tx.cita.findMany({
-      where: { doctorId, estado: { notIn: ESTADOS_NO_OCUPAN }, fecha: { lt: fin, gte: new Date(inicio.getTime() - 12 * 3600_000) } },
+      // Lookback de 24 h, igual que findSolapada (12 h dejaba escapar citas largas).
+      where: { doctorId, estado: { notIn: ESTADOS_NO_OCUPAN }, fecha: { lt: fin, gte: new Date(inicio.getTime() - 24 * 3600_000) } },
       select: { fecha: true, duracion: true },
     })
     if (ocupadas.some((o) => intervalsOverlap(o.fecha, addMinutes(o.fecha, o.duracion), inicio, fin))) {
@@ -449,7 +453,9 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     // ¿La persona ya era un lead (formulario/campaña)? Si es así, lo AVANZAMOS a
     // Agendado en vez de duplicarlo → se cierra el embudo y el Schedule de Meta
     // queda atado al mismo external_id que su Lead original.
-    const existente = await buscarLeadParaReserva(db, { rut, telefono, email: emailNorm, fbp: input.fbp, fbc: input.fbc, externalId: input.externalId })
+    // incluirConvertidos: un paciente ya CONVERTIDO que reserva online debe avanzar su
+    // MISMO lead (la rama de update no lo degrada), no crear un lead duplicado.
+    const existente = await buscarLeadParaReserva(db, { rut, telefono, email: emailNorm, fbp: input.fbp, fbc: input.fbc, externalId: input.externalId }, { incluirConvertidos: true })
 
     let lead
     if (existente) {
@@ -465,6 +471,9 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
           // dejaría "AGENDADO con customer"); si no, avanza a AGENDADO.
           estado: existente.estado === 'CONVERTIDO' ? existente.estado : 'AGENDADO', pacienteId: existente.pacienteId ?? paciente.id, citaId: cita.id,
           fechaAgenda: cita.fecha, agendaFuente: link.nombre, ultimaGestionAt: new Date(),
+          // Re-agendó: el no-show anterior deja de contar (mismo reenganche que reagendar
+          // por recepción); si no, el lead seguía como inasistente en el embudo.
+          asistio: null, recapturaNoShowAt: null,
           // Completar identificadores/tracking que ahora tenemos y al lead le faltaban
           telefono: existente.telefono ?? telefono, email: existente.email ?? emailNorm, rut: existente.rut ?? rut,
           externalId: existente.externalId ?? t(input.externalId),
@@ -472,7 +481,9 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
           fbclid: existente.fbclid ?? t(input.fbclid), ctwaClid: existente.ctwaClid ?? t(input.ctwaClid),
           landing: existente.landing ?? t(input.landing),
           // Reset del Schedule landing SOLO para leads no-Meta (los de Meta Form van al CRM).
-          ...(esLeadgen ? {} : { scheduleEventId: eventId, scheduleCapiEnviado: false }),
+          // Si este ciclo YA emitió un Schedule, se conserva su event_id (Meta deduplica):
+          // resetearlo en cada re-reserva contaba una conversión nueva por reserva.
+          ...(esLeadgen || (existente.scheduleCapiEnviado && existente.scheduleEventId) ? {} : { scheduleEventId: eventId, scheduleCapiEnviado: false }),
           notas: { create: { tipo: 'SISTEMA', texto: `Agendó por el link online · ${link.nombre}` } },
         },
       })
@@ -501,17 +512,28 @@ export async function reservarPublico(db: TenantClient, link: Link, input: Reser
     //    de CRM, atado al leadgenId ORIGINAL de la ficha (event_id crm_{id}_Schedule_N).
     //  · lead de landing/otro → Schedule landing al dataset web (comportamiento actual).
     const externalId = lead.externalId || rut || lead.id
+    // Con reuso de ciclo, el event_id es el que quedó en el lead (Meta deduplica).
+    const eventIdEnvio = lead.scheduleEventId ?? eventId
     if (lead.leadgenId) {
       void dispararEtapaCrmMeta(db, lead.id, 'Schedule')
     } else if (enviado) {
       // Confirmador: registramos el resultado real (events_received) en el lead.
       void enviarEventoMeta(cfg, {
-        eventName: 'Schedule', eventId, email: input.email, telefono, nombre, apellido,
+        eventName: 'Schedule', eventId: eventIdEnvio, email: input.email, telefono, nombre, apellido,
         externalId, ctwaClid: t(input.ctwaClid), pais: 'cl',
         fbp: input.fbp, fbc: input.fbc, custom: { content_name: link.tipoCita },
       }).then((res) => registrarEnvioMeta(db, lead.id, 'Schedule', res, 'scheduleCapiEnviado'))
     }
   } catch { /* best-effort */ }
+
+  // La reserva online sigue el MISMO camino post-creación que una cita de recepción:
+  // evento appointment.created a TuBot (gated por el Gestor de IA → confirmación y
+  // recordatorios) y push al Google Calendar del doctor (antes la cita no aparecía en
+  // Google hasta que alguien la tocara). Con abono pendiente se difiere al pago (webhook Flow).
+  if (!requiereAbono) {
+    void emitirEventoCita(db, 'appointment.created', cita.id)
+    void pushCita(db, cita.id).catch(() => undefined)
+  }
 
   const profe = link.profesionales.find((p) => p.userId === doctorId)?.user
 

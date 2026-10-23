@@ -178,16 +178,23 @@ export function interpretarRespuesta(texto: string): RespuestaPaciente {
 }
 
 // Correlaciona un evento entrante con una cita: por el messageId respondido
-// (replyTo → waMessageSid) o, si no, por el teléfono del paciente.
+// (replyTo → waMessageSid) o, si no, por el teléfono del paciente. En AMBOS caminos
+// solo citas abiertas (pre-asistencia) y no muy pasadas: un botón tocado en un
+// recordatorio viejo revivía una cita CANCELADA (encima del cupo reocupado) o
+// cancelaba una ATENDIDA.
+const ESTADOS_RESPONDIBLES = ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO']
 async function citaDelEvento(db: TenantClient, args: { replyTo: string | null; from: string }) {
   if (args.replyTo) {
-    const c = await db.cita.findFirst({ where: { waMessageSid: args.replyTo }, select: { id: true, estado: true, fecha: true, paciente: { select: { telefono: true } } } })
+    const c = await db.cita.findFirst({
+      where: { waMessageSid: args.replyTo, estado: { in: ESTADOS_RESPONDIBLES }, fecha: { gte: new Date(Date.now() - 3600_000) } },
+      select: { id: true, estado: true, fecha: true, paciente: { select: { telefono: true } } },
+    })
     if (c) return c
   }
   const digits = args.from.replace(/\D/g, '')
   const sinPais = digits.startsWith('56') ? digits.slice(2) : digits
   const candidatos = await db.cita.findMany({
-    where: { waMessageSid: { not: null }, estado: { in: ['PENDIENTE', 'CONFIRMADA', 'CONFIRMADO'] }, fecha: { gte: new Date(Date.now() - 3600_000) } },
+    where: { waMessageSid: { not: null }, estado: { in: ESTADOS_RESPONDIBLES }, fecha: { gte: new Date(Date.now() - 3600_000) } },
     include: { paciente: { select: { telefono: true } } }, orderBy: { fecha: 'asc' }, take: 50,
   })
   const m = candidatos.find((c) => { const t = (c.paciente.telefono ?? '').replace(/\D/g, ''); return t.length >= 8 && (t.endsWith(sinPais) || sinPais.endsWith(t)) })
@@ -206,6 +213,17 @@ export async function procesarEventoEntrante(db: TenantClient, wa: WaConfig, eve
   } catch {
     return // ya procesado
   }
+  try {
+    await aplicarEventoEntrante(db, wa, evento)
+  } catch (e) {
+    // El sello se puso ANTES de aplicar los efectos: si fallan (p.ej. BD transitoria),
+    // se libera para que el reintento de TuBot pueda re-procesar el botón del paciente.
+    await db.waEventoEntrante.delete({ where: { providerMsgId: evento.providerMsgId } }).catch(() => undefined)
+    throw e
+  }
+}
+
+async function aplicarEventoEntrante(db: TenantClient, wa: WaConfig, evento: EventoEntrante): Promise<void> {
 
   // ── Evento de estado de entrega ──
   if (evento.tipo === 'status') {
@@ -235,11 +253,27 @@ export async function procesarEventoEntrante(db: TenantClient, wa: WaConfig, eve
   let ack: string | null = null
 
   if (respuesta === 'CONFIRMAR') {
-    await db.cita.update({ where: { id: cita.id }, data: { estado: 'CONFIRMADO', confirmadoWA: true, logs: { create: { tipo: 'ESTADO', detalle: 'Cita confirmada por el paciente vía WhatsApp', userName: 'Paciente (WhatsApp)' } } } })
-    ack = `¡Gracias! Tu cita del ${cuando} quedó confirmada. Te esperamos.`
+    // Por cambiarEstadoCita (no update directo): guarda de estados terminales, lock +
+    // revalidación de solape si reabre, push a Google y evento a TuBot — igual que recepción.
+    // Import dinámico para evitar un ciclo de módulos (citas ↔ whatsapp).
+    const { cambiarEstadoCita } = await import('@/services/citas.service')
+    try {
+      await cambiarEstadoCita(db, cita.id, 'CONFIRMADO', 'Paciente (WhatsApp)', { soloDesde: ESTADOS_RESPONDIBLES })
+      await db.cita.update({ where: { id: cita.id }, data: { confirmadoWA: true } })
+      ack = `¡Gracias! Tu cita del ${cuando} quedó confirmada. Te esperamos.`
+    } catch {
+      await db.cita.update({ where: { id: cita.id }, data: { logs: { create: { tipo: 'ESTADO', detalle: 'El paciente intentó CONFIRMAR por WhatsApp pero la cita ya había cambiado de estado', userName: 'Sistema' } } } }).catch(() => undefined)
+      ack = `Recibimos tu respuesta, pero la cita del ${cuando} cambió en la clínica. Te contactaremos para coordinar.`
+    }
   } else if (respuesta === 'CANCELAR') {
-    await db.cita.update({ where: { id: cita.id }, data: { estado: 'CANCELADA', logs: { create: { tipo: 'ESTADO', detalle: 'Cita cancelada por el paciente vía WhatsApp', userName: 'Paciente (WhatsApp)' } } } })
-    ack = `Tu cita del ${cuando} fue cancelada. Si quieres reagendar, contáctanos.`
+    const { cambiarEstadoCita } = await import('@/services/citas.service')
+    try {
+      await cambiarEstadoCita(db, cita.id, 'CANCELADA', 'Paciente (WhatsApp)', { soloDesde: ESTADOS_RESPONDIBLES })
+      ack = `Tu cita del ${cuando} fue cancelada. Si quieres reagendar, contáctanos.`
+    } catch {
+      await db.cita.update({ where: { id: cita.id }, data: { logs: { create: { tipo: 'ESTADO', detalle: 'El paciente intentó CANCELAR por WhatsApp pero la cita ya había cambiado de estado', userName: 'Sistema' } } } }).catch(() => undefined)
+      ack = `Recibimos tu respuesta, pero la cita del ${cuando} cambió en la clínica. Te contactaremos para coordinar.`
+    }
   } else if (respuesta === 'REAGENDAR') {
     // Se MARCA y se DERIVA a la clínica (visible en agenda). El reagendamiento
     // automático es de la integración inversa, no de este módulo.
