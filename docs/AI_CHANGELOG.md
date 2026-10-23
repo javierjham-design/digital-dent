@@ -5,6 +5,126 @@
 
 ---
 
+## 2026-10-23 — Auditoría completa (3ª ronda) + remediación integral en 6 olas
+
+Auditoría funcional+seguridad con 7 agentes solo-lectura + verificación manual (hallazgos y veredicto
+por dominio en `docs/AUDITORIA_2026-10-23.md`, que también lista las decisiones que quedaron para Javier).
+Remediación aplicada completa; lo más relevante por archivo:
+
+**Seguridad**
+- `routes/index.ts`: `/contratos` escritura → `puedeGestionarLiquidaciones` (GET filtra por actor en el
+  service); `/pacientes/export` → `reportesTenant`; `/medios-pago` escritura → `configTenant`.
+- `middlewares/tenant.ts`: la revalidación de sesión ahora compara también el ROL real vs el claim del
+  JWT (admin degradado pierde poderes en ≤30 s; invalidación inmediata al editar role).
+- `usuarios.service.ts`: reset de contraseña de terceros SOLO admin; cambios de rol/permisos/password
+  auditados.
+- `auth/demo/admin.controller.ts`: IP real por `req.ip` (el primer elemento de X-Forwarded-For es del
+  cliente y permitía burlar los rate-limits → demos ilimitadas/spraying de login). `demo.service.ts`:
+  tope global 20 demos/h.
+- `auth.service.ts`: `jwt.verify` con `algorithms:['HS256']`. `lib/google.ts`: fuera el literal
+  dev-insecure muerto; state OAuth comparado con `timingSafeEqual`.
+- `documentos.service/controller.ts`: whitelist de mimes (SVG ya no entra: XSS almacenado en el origin
+  de la API); legacy no-whitelist se sirve como descarga con CSP sandbox.
+- `agenda-online/crm.controller.ts`: rate-limit en los GET públicos (slots 60/h/IP, form 60/h/IP).
+
+**Dinero**
+- `lib/caja.ts` + `caja.service.ts` + `reportes.service.ts`: pago DIVIDIDO clasificado por TRAMOS
+  (monto−monto2 al medio 1, monto2 al 2) en arqueo, desglose por medio, reporte-pagos y XLSX (columnas
+  Medio 2/Monto 2). Antes el 100% caía en el medio principal y cada split con efectivo descuadraba un
+  arqueo REAL (el diferido M9 estaba mal clasificado como latente: la UI sí envía split).
+- `pagos-online.service.ts`: el webhook de Flow compara también contra `cobro.monto` VIGENTE (editar el
+  monto con link vivo dejaba un cobro PAGADO por más plata de la que entró); el reuso de link exige
+  monto igual; pago contra cobro anulado queda con warn.
+- `cobros.service.ts`: tope POR ACCIÓN en `validarItemsCobro` (sobrepago inflaba la liquidación del
+  profesional); validaciones de caja/sesión/medio ANTES de aplicar el abono-pie (fallar después dejaba
+  el crédito ya reasignado); tope de abono libre revalidado DENTRO de la tx con advisory lock; lock de
+  caja + re-check de sesión abierta en la tx de creación; `cerrarSesion` toma el mismo lock (cobro
+  concurrente ya no cae en sesión sellada); editar `fechaPago` mueve el MovimientoCaja; `eliminarCobro`
+  auditado y anula links PENDIENTES (igual que editar monto y anular).
+- `validators/schemas.ts`: montos de ítems `.int().positive()`; `duracion` de cita `.max(1440)`.
+
+**Agenda**
+- `lib/whatsapp.ts` + `whatsapp.controller.ts`: el botón del paciente solo opera citas ABIERTAS y
+  recientes (un "Confirmar" en un recordatorio viejo revivía una cita CANCELADA encima del cupo
+  reocupado) y pasa por `cambiarEstadoCita` (lock, Google, evento TuBot, lead). El sello de
+  idempotencia se LIBERA si el procesamiento falla y el webhook responde 503 → TuBot reintenta.
+- `citas.service.ts`: matriz de transiciones (desde ATENDIDA/NO_ASISTIO solo reclasificar, cancelar o
+  EN_ATENCION); reabrir una cancelada va en tx+lock; re-check de bloqueo dentro de la tx de crearCita;
+  `leadDeCita`/`reengancharLeadReagenda` acotados (citaId:null + 90 días).
+- `lib/google-sync.ts`: borrar un evento en Google ya NO cancela citas ATENDIDAS (y la cancelación
+  legítima deja log + evento a TuBot + lead); eventos all-day en la tz de la clínica con end EXCLUSIVO
+  (bloqueaban un día hábil de más); eventos con marca clariva huérfanos se ignoran (no renacen como
+  cita por nombre); `pushCita` salta CANCELADAS; dead-man's switch por `_min` (un calendar sano ya no
+  tapa al roto).
+- `lib/maintenance.ts`: el no-show automático excluye EN_ESPERA (paciente que llegó) y usa guard
+  `soloDesde` (no pisa una cita marcada durante el job).
+- `agenda-online.service.ts`: la reserva online emite `appointment.created` + push a Google (gated por
+  el Gestor de IA; con abono, al confirmarse el pago en el webhook); NO escribe el email del formulario
+  en fichas existentes (inyección de correo ajeno); lookback de solape 24 h.
+- `bloqueos.service.ts`: update valida el rango EFECTIVO + re-corre atención; crear toma el lock.
+- `tubot-agenda.service.ts`: tz única desde `lib/tz` (la copia local le reportaba Santiago a medio
+  continente); re-agendar por el bot limpia el no-show del lead.
+
+**Clínico**
+- `tratamientos.service.ts`: `eliminarPlan` BLOQUEADO si el plan tiene pagos (quedaba crédito invisible,
+  misma clase del incidente Patricio Mora); CANCELAR una acción pagada vuelca sus CobroItem a abono
+  libre del plan (Dinero#5, mismo patrón de eliminar); coherencia paciente↔plan↔sección↔acción validada
+  en crear/editar/evolucionar; estados whitelisteados; precio NaN/negativo imposible; odontograma
+  auditado con estado previo.
+- `consentimientos.service.ts`: borrar uno FIRMADO = solo admin, y el delete va EN LA MISMA tx que el
+  registro de auditoría con el contenido firmado completo (si no se puede dejar evidencia, no se borra).
+- `pacientes.service.ts`: `guardarFicha` auditada con valores previos; import con dedupe por CLAVE de
+  RUT (matchea fichas legacy sin puntos), dedupe de filas sin RUT (en archivo y contra BD por
+  nombre+contacto), fechas con rangos validados (el formato US ya no entra corrido) y `avisos` en el
+  resumen (fila ilegible, carrera de RUT).
+- `presupuestos.service.ts`: subtotales y total RECALCULADOS en el server.
+- `pacientes.controller.ts`: leer la ficha clínica registra el acceso (historial legal), no solo el GET
+  del paciente.
+
+**Reportes + Asistente**
+- `lib/excel.ts` + `reportes.service.ts`: fechas/horas de INSTANTES en la zona de la clínica
+  (`isoDateTz`/`isoDateTimeTz`); fecha-sola sigue en UTC; `fechaPago` con heurística mixta (medianoche
+  UTC = legacy). Una cita de las 21:00 ya no sale en el día siguiente.
+- `reportes.service.ts`: con `estado=PAGADO` se excluyen anulados; tope 50.000 filas por export;
+  morosos con `diasMin` no numérico → 0.
+- `frontend Reportes.tsx`: la tarjeta Cobros manda `campo=fechaPago&estado=PAGADO` → el XLSX por fin
+  cuadra con el reporte de pagos de Gestión de cajas.
+- `liquidaciones.service.ts`: corte en límites UTC (entraban y se PAGABAN acciones evolucionadas el día
+  siguiente al corte).
+- Asistente: índice de seudonimización incluye inactivos; 2ª pasada de seudonimización sobre los
+  RESULTADOS de herramientas (nombres en texto libre); métricas sobre `fechaCompletado` en límites UTC
+  (`fechaSola` en el catálogo); reserva atómica del cupo (fila `en_curso` actualizada al cerrar) —
+  N consultas paralelas ya no burlan los límites.
+- `caja.service.ts` + `ext.service.ts`: rangos y "hoy" en la tz del país de la clínica.
+
+**CRM (dirección conservadora: nada re-matchea datos históricos)**
+- `crm.service.ts`: reingreso de un CONVERTIDO conserva el estado (volverlo NUEVO borraba su
+  facturación del ROI); matching telefónico de las escrituras AUTOMÁTICAS por número COMPLETO
+  (autolink, convertir-por-cobro, clasificación del cron) — las sugerencias manuales de la ficha siguen
+  con últimos-8; `fusionarLeadsDuplicados` con guard de NOMBRE (familias con el mismo teléfono no se
+  fusionan: quedan reportadas); ingesta Meta con mutex por leadgenId (dos entregas concurrentes creaban
+  dos leads) + guard de reentrega por `ultimoLeadgenId`; la denormalización del ruteo al control-plane
+  ya no es silenciosa si falla.
+- `agenda-online/tubot-agenda.service.ts`: la reserva de un CONVERTIDO avanza su MISMO lead (antes se
+  duplicaba); el Schedule reusa el event_id del ciclo (Meta deduplica; cada re-reserva emitía una
+  conversión nueva).
+- `meta-leadads.service.ts`: fallo de Graph (token de página vencido) ahora llega a Sentry con el
+  leadgen_id para reproceso.
+- `ext.service.ts`: `estadisticas_plataforma` calcula "hoy" en la tz de la clínica.
+
+**Frontend/Web**
+- `useAuth.tsx`: banner 10 minutos antes de expirar la sesión (el cierre en seco perdía evoluciones a
+  medio escribir). `Crm/GestionCajas/Cobros.tsx`: error de carga VISIBLE con botón Reintentar (antes un
+  500 se veía como "Sin leads/cajas"). `Pacientes.tsx`: botón Exportar gated por permiso + avisos del
+  import. `Equipo.tsx`: hoyISO local. `Asistente.tsx`: export con error visible. `GestorIA.tsx`: inputs
+  numéricos sin NaN. `web Landing.tsx`: FAQ sin la promesa de PWA. `main.tsx`: desregistro one-time del
+  SW del monolito. `App.tsx` + `lib/pdf.ts` + `DocumentoConsentimiento.tsx`: lazy por ruta (Agenda/
+  Ficha/CRM/Asistente) + html2pdf on-demand → **bundle inicial 1.99 MB → 680 KB (gzip 179 KB)**.
+
+**Riesgos/pendientes**: ver §Remediación y §Decisiones de `docs/AUDITORIA_2026-10-23.md` (canal legado
+de recordatorios sin gatear por el maestro, L4 import por nombre, aviso de deuda sin imputación al plan,
+reversa de liquidación, JWT_SECRET en Railway, semántica mixta de fechaPago).
+
 ## 2026-10-17 — QA ronda 2: regresiones de los fixes de la ronda 1 + huecos nuevos (todo corregido)
 
 Re-auditoría completa (7 agentes solo-lectura) sobre el código YA remediado para cazar regresiones que

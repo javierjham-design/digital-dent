@@ -3,7 +3,16 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: QA ronda 1 + ronda 2 (plataforma lista para el lunes 2026-10-19)
+## Último trabajo: Auditoría completa 2026-10-23 + remediación integral (6 olas)
+
+Tercera ronda de auditoría (funcional + seguridad, 7 agentes + verificación manual) y
+remediación COMPLETA de todas las olas: seguridad, dinero, agenda, clínico, reportes+asistente,
+CRM y frontend/web. **Leé `docs/AUDITORIA_2026-10-23.md`** (hallazgos, qué se corrigió, y las
+6 decisiones que quedaron para Javier) y la entrada 2026-10-23 de `AI_CHANGELOG.md` (detalle
+por archivo). Bundle del frontend: 1.99 MB → 680 KB. Pendiente al cierre: dependencias
+(xlsx 0.20.3 oficial + npm audit fix), suites finales y commit/push (deploy con OK de Javier).
+
+## Trabajo previo: QA ronda 1 + ronda 2 (plataforma lista para el lunes 2026-10-19)
 
 **Desplegado (2026-10-17, commit `b3ac65e`).** Simulación tester/carga completa + remediación en 2 rondas.
 - **Ronda 1**: `docs/AUDITORIA_QA_2026-10-17.md` (1 crítico, 14 altos, 26 medios, 25 bajos) → olas 1–9 con
