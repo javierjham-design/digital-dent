@@ -1,6 +1,17 @@
 import type { TenantClient } from '@/db/tenant'
-import { buildXlsx, clp, formatRUT, isoDate, isoDateTime } from '@/lib/excel'
+import { buildXlsx, clp, formatRUT, isoDate, isoDateTz, isoDateTimeTz } from '@/lib/excel'
 import { rangoFechasUtc, tzDePais } from '@/lib/tz'
+
+// Zona horaria de la clínica (para RENDERIZAR instantes en el XLSX: en UTC una cita de
+// las 21:00 salía con hora corrida y fecha del día siguiente).
+async function tzDe(db: TenantClient): Promise<string> {
+  const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+  return tzDePais(cfg?.pais)
+}
+// Campo de semántica MIXTA (fechaPago): instante en los datos nuevos, medianoche UTC en
+// los retro-fechados/legacy. Igual criterio que fmtEvolucion del frontend.
+const esMedianocheUtc = (d: Date) => d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && d.getUTCMilliseconds() === 0
+const fechaMixta = (d: Date | null | undefined, tz: string): string => (!d ? '' : esMedianocheUtc(d) ? isoDate(d) : isoDateTz(d, tz))
 
 // Cada reporte devuelve { buffer, filenameBase }; el controller arma la
 // respuesta HTTP de descarga. Misma lógica de filtros que el monolito.
@@ -29,7 +40,12 @@ function rangoUtc(desde?: string, hasta?: string): { desde?: Date; hasta?: Date 
   return { desde: r.gte, hasta: r.lte }
 }
 
+// Tope de filas por export: un click "sin rango" en una clínica con años de datos no
+// debe armar un XLSX ilimitado en memoria. 50.000 filas cubren cualquier uso real.
+const MAX_FILAS_EXPORT = 50_000
+
 export async function reportePacientes(db: TenantClient, q: Q): Promise<ReporteResult> {
+  const tz = await tzDe(db)
   const { desde, hasta } = await rangoTz(db, q.desde, q.hasta)
   const soloActivos = q.soloActivos === '1'
   const pacientes = await db.paciente.findMany({
@@ -38,6 +54,7 @@ export async function reportePacientes(db: TenantClient, q: Q): Promise<ReporteR
       ...(desde || hasta ? { createdAt: { ...(desde ? { gte: desde } : {}), ...(hasta ? { lte: hasta } : {}) } } : {}),
     },
     orderBy: [{ apellido: 'asc' }, { nombre: 'asc' }],
+    take: MAX_FILAS_EXPORT,
   })
   const buffer = buildXlsx(pacientes, [
     { header: 'Nombres', width: 18, value: (p) => p.nombre },
@@ -50,7 +67,7 @@ export async function reportePacientes(db: TenantClient, q: Q): Promise<ReporteR
     { header: 'Previsión', width: 14, value: (p) => p.prevision ?? '' },
     { header: 'Género', width: 10, value: (p) => p.genero ?? '' },
     { header: 'Activo', width: 8, value: (p) => (p.activo ? 'Sí' : 'No') },
-    { header: 'Creado', width: 12, value: (p) => isoDate(p.createdAt) },
+    { header: 'Creado', width: 12, value: (p) => isoDateTz(p.createdAt, tz) },
   ], 'Pacientes')
   return { buffer, filenameBase: 'pacientes' }
 }
@@ -67,14 +84,16 @@ export async function citasDatos(db: TenantClient, q: Q) {
     },
     include: { paciente: { select: { nombre: true, apellido: true, rut: true, telefono: true } }, doctor: { select: { name: true } } },
     orderBy: { fecha: 'asc' },
+    take: MAX_FILAS_EXPORT,
   })
 }
 
 export async function reporteCitas(db: TenantClient, q: Q): Promise<ReporteResult> {
+  const tz = await tzDe(db)
   const citas = await citasDatos(db, q)
   const buffer = buildXlsx(citas, [
-    { header: 'Fecha', width: 12, value: (c) => isoDate(c.fecha) },
-    { header: 'Hora', width: 8, value: (c) => isoDateTime(c.fecha).slice(11) },
+    { header: 'Fecha', width: 12, value: (c) => isoDateTz(c.fecha, tz) },
+    { header: 'Hora', width: 8, value: (c) => isoDateTimeTz(c.fecha, tz).slice(11) },
     { header: 'Duración (min)', width: 12, value: (c) => c.duracion },
     { header: 'Paciente', width: 28, value: (c) => `${c.paciente.nombre} ${c.paciente.apellido}` },
     { header: 'RUT', width: 14, value: (c) => c.paciente.rut ?? '' },
@@ -90,6 +109,7 @@ export async function reporteCitas(db: TenantClient, q: Q): Promise<ReporteResul
 }
 
 export async function reporteCobros(db: TenantClient, q: Q): Promise<ReporteResult> {
+  const tz = await tzDe(db)
   const usarFechaPago = q.campo === 'fechaPago'
   // fechaPago puede ser fecha-sola (retro-fechada) → límites UTC; createdAt es instante → zona clínica.
   const { desde, hasta } = usarFechaPago ? rangoUtc(q.desde, q.hasta) : await rangoTz(db, q.desde, q.hasta)
@@ -97,15 +117,23 @@ export async function reporteCobros(db: TenantClient, q: Q): Promise<ReporteResu
   const cobros = await db.cobro.findMany({
     where: {
       ...(q.estado ? { estado: q.estado } : {}),
+      // "Pagos recibidos" (estado=PAGADO) excluye los anulados: contarlos inflaba el
+      // total frente al reporte de pagos de Gestión de cajas.
+      ...(q.estado === 'PAGADO' ? { anulado: false } : {}),
       ...(filtroFecha ? (usarFechaPago ? { fechaPago: filtroFecha } : { createdAt: filtroFecha }) : {}),
     },
-    include: { paciente: { select: { nombre: true, apellido: true, rut: true } }, medioPago: { select: { nombre: true } }, reciboUsuario: { select: { name: true } } },
+    include: {
+      paciente: { select: { nombre: true, apellido: true, rut: true } },
+      medioPago: { select: { nombre: true } }, medioPago2: { select: { nombre: true } },
+      reciboUsuario: { select: { name: true } },
+    },
     orderBy: { createdAt: 'desc' },
+    take: MAX_FILAS_EXPORT,
   })
   const buffer = buildXlsx(cobros, [
     { header: 'Nº', width: 8, value: (c) => c.numero },
-    { header: 'Fecha creación', width: 14, value: (c) => isoDate(c.createdAt) },
-    { header: 'Fecha pago', width: 14, value: (c) => isoDate(c.fechaPago) },
+    { header: 'Fecha creación', width: 14, value: (c) => isoDateTz(c.createdAt, tz) },
+    { header: 'Fecha pago', width: 14, value: (c) => fechaMixta(c.fechaPago, tz) },
     { header: 'Paciente', width: 28, value: (c) => `${c.paciente.nombre} ${c.paciente.apellido}` },
     { header: 'RUT', width: 14, value: (c) => c.paciente.rut ?? '' },
     { header: 'Concepto', width: 32, value: (c) => c.concepto },
@@ -114,6 +142,9 @@ export async function reporteCobros(db: TenantClient, q: Q): Promise<ReporteResu
     { header: 'Comisión', width: 10, value: (c) => clp(c.comisionMonto ?? 0) },
     { header: 'Estado', width: 12, value: (c) => c.estado },
     { header: 'Medio de pago', width: 16, value: (c) => c.medioPago?.nombre ?? c.metodoPago ?? '' },
+    // Pago dividido: la porción del segundo medio (el "Monto" es el total del cobro).
+    { header: 'Medio 2', width: 14, value: (c) => c.medioPago2?.nombre ?? '' },
+    { header: 'Monto medio 2', width: 12, value: (c) => (c.monto2 && c.monto2 > 0 ? clp(c.monto2) : '') },
     { header: 'Recibió', width: 22, value: (c) => c.reciboUsuario?.name ?? '' },
     { header: 'Notas', width: 32, value: (c) => c.notas ?? '' },
   ], 'Cobros')
@@ -121,6 +152,7 @@ export async function reporteCobros(db: TenantClient, q: Q): Promise<ReporteResu
 }
 
 export async function reporteTratamientos(db: TenantClient, q: Q): Promise<ReporteResult> {
+  const tz = await tzDe(db)
   const usarFechaCompletado = q.campo === 'fechaCompletado'
   // fechaCompletado es fecha-sola (evoluciones) → límites UTC; fecha (plan.) es instante → zona clínica.
   const { desde, hasta } = usarFechaCompletado ? rangoUtc(q.desde, q.hasta) : await rangoTz(db, q.desde, q.hasta)
@@ -137,10 +169,11 @@ export async function reporteTratamientos(db: TenantClient, q: Q): Promise<Repor
       ficha: { select: { paciente: { select: { nombre: true, apellido: true, rut: true } } } },
     },
     orderBy: { fecha: 'desc' },
+    take: MAX_FILAS_EXPORT,
   })
   const buffer = buildXlsx(tratamientos, [
-    { header: 'Fecha plan.', width: 14, value: (t) => isoDate(t.fecha) },
-    { header: 'Fecha completado', width: 16, value: (t) => isoDate(t.fechaCompletado) },
+    { header: 'Fecha plan.', width: 14, value: (t) => isoDateTz(t.fecha, tz) },
+    { header: 'Fecha completado', width: 16, value: (t) => isoDate(t.fechaCompletado) }, // fecha-sola (medianoche UTC)
     { header: 'Paciente', width: 28, value: (t) => `${t.ficha.paciente.nombre} ${t.ficha.paciente.apellido}` },
     { header: 'RUT', width: 14, value: (t) => t.ficha.paciente.rut ?? '' },
     { header: 'Prestación', width: 28, value: (t) => t.prestacion.nombre },
@@ -156,6 +189,7 @@ export async function reporteTratamientos(db: TenantClient, q: Q): Promise<Repor
 }
 
 export async function reporteLiquidaciones(db: TenantClient, q: Q): Promise<ReporteResult> {
+  const tz = await tzDe(db)
   const liquidaciones = await db.liquidacion.findMany({
     where: {
       ...(q.periodo ? { periodo: q.periodo } : {}),
@@ -180,8 +214,8 @@ export async function reporteLiquidaciones(db: TenantClient, q: Q): Promise<Repo
     { header: 'Total bruto', width: 14, value: (l) => clp(l.totalBruto) },
     { header: 'Total liquidado', width: 14, value: (l) => clp(l.totalLiquidado) },
     { header: 'Estado', width: 12, value: (l) => l.estado },
-    { header: 'Fecha pago', width: 14, value: (l) => isoDate(l.fechaPago) },
-    { header: 'Creada', width: 14, value: (l) => isoDate(l.createdAt) },
+    { header: 'Fecha pago', width: 14, value: (l) => fechaMixta(l.fechaPago, tz) },
+    { header: 'Creada', width: 14, value: (l) => isoDateTz(l.createdAt, tz) },
     { header: 'Notas', width: 32, value: (l) => l.notas ?? '' },
   ], 'Liquidaciones')
   return { buffer, filenameBase: 'liquidaciones' }
@@ -200,13 +234,15 @@ export async function movimientosCajaDatos(db: TenantClient, q: Q) {
       cobro: { select: { numero: true, medioPago: { select: { nombre: true } }, metodoPago: true, paciente: { select: { nombre: true, apellido: true } } } },
     },
     orderBy: { fecha: 'desc' },
+    take: MAX_FILAS_EXPORT,
   })
 }
 
 export async function reporteCaja(db: TenantClient, q: Q): Promise<ReporteResult> {
+  const tz = await tzDe(db)
   const movs = await movimientosCajaDatos(db, q)
   const buffer = buildXlsx(movs, [
-    { header: 'Fecha', width: 16, value: (m) => isoDate(m.fecha) },
+    { header: 'Fecha', width: 16, value: (m) => isoDateTimeTz(m.fecha, tz) },
     { header: 'Caja', width: 18, value: (m) => m.caja.nombre },
     { header: 'Tipo', width: 10, value: (m) => m.tipo },
     { header: 'Categoría', width: 14, value: (m) => m.categoria ?? '' },
@@ -254,7 +290,10 @@ export async function morososDatos(db: TenantClient, diasMin = 0): Promise<Moros
 }
 
 export async function reporteMorosos(db: TenantClient, q: Q): Promise<ReporteResult> {
-  const rows = await morososDatos(db, Number(q.diasMin ?? 0))
+  const tz = await tzDe(db)
+  // diasMin no numérico → 0 (antes NaN filtraba TODO y el Excel salía vacío sin aviso).
+  const diasMin = Number(q.diasMin ?? 0)
+  const rows = await morososDatos(db, Number.isFinite(diasMin) ? diasMin : 0)
   const buffer = buildXlsx(rows, [
     { header: 'Paciente', width: 28, value: (r) => `${r.paciente.nombre} ${r.paciente.apellido}` },
     { header: 'RUT', width: 14, value: (r) => formatRUT(r.paciente.rut) },
@@ -262,7 +301,7 @@ export async function reporteMorosos(db: TenantClient, q: Q): Promise<ReporteRes
     { header: 'Correo', width: 28, value: (r) => r.paciente.email ?? '' },
     { header: 'Cobros pendientes', width: 14, value: (r) => r.cobrosCount },
     { header: 'Monto adeudado', width: 16, value: (r) => clp(r.montoTotal) },
-    { header: 'Cobro más antiguo', width: 16, value: (r) => isoDate(r.cobroMasAntiguo) },
+    { header: 'Cobro más antiguo', width: 16, value: (r) => isoDateTz(r.cobroMasAntiguo, tz) },
     { header: 'Días mora', width: 12, value: (r) => r.diasMora },
   ], 'Morosos')
   return { buffer, filenameBase: 'morosos' }

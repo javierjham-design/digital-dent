@@ -50,8 +50,10 @@ export async function compilar(db: TenantClient, consulta: Consulta, tz: string)
     if (!d || !TIPOS_FILTRABLES.has(d.tipo)) throw new ErrorHerramienta(`No se puede filtrar por "${f.campo}" en ${metrica.clave}.`)
   }
 
-  // Where: filtros implícitos + rango de fecha (hora de la clínica) + filtros del usuario.
-  const rango = rangoFechasUtc(consulta.periodo.desde, consulta.periodo.hasta, tz)
+  // Where: filtros implícitos + rango de fecha + filtros del usuario. Instantes en la
+  // zona de la clínica; campos fecha-sola (medianoche UTC) en límites UTC.
+  const tzRango = metrica.fechaSola ? 'UTC' : tz
+  const rango = rangoFechasUtc(consulta.periodo.desde, consulta.periodo.hasta, tzRango)
   const where: Record<string, unknown> = {
     ...(metrica.where ?? {}),
     [metrica.campoFecha]: { ...(rango.gte ? { gte: rango.gte } : {}), ...(rango.lte ? { lte: rango.lte } : {}) },
@@ -76,7 +78,7 @@ export async function compilar(db: TenantClient, consulta: Consulta, tz: string)
     const claves: Record<string, string | null> = {}
     for (const d of dims) {
       claves[d.clave] = d.tipo === 'tiempo'
-        ? bucketTiempo(fila[metrica.campoFecha] as Date, d.granularidad!, tz)
+        ? bucketTiempo(fila[metrica.campoFecha] as Date, d.granularidad!, tzRango)
         : (fila[d.campo] == null ? null : String(fila[d.campo]))
     }
     const key = dims.map((d) => claves[d.clave] ?? '∅').join('∥')

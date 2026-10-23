@@ -12,6 +12,10 @@ export function formatRUT(rut: string | null | undefined): string {
   return `${body.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}-${dv}`
 }
 
+// isoDate/isoDateTime cortan el ISO en UTC: SOLO para campos "fecha-sola" guardados a
+// medianoche UTC (fechaCompletado, fechaPago retro legacy, fechaNacimiento). Para un
+// INSTANTE real (cita.fecha, createdAt, movimiento.fecha) usá las variantes *Tz: en UTC
+// una cita de las 21:00 de Chile salía con hora corrida +3/4 h y FECHA del día siguiente.
 export function isoDate(d: Date | string | null | undefined): string {
   if (!d) return ''
   const date = d instanceof Date ? d : new Date(d)
@@ -24,6 +28,31 @@ export function isoDateTime(d: Date | string | null | undefined): string {
   const date = d instanceof Date ? d : new Date(d)
   if (isNaN(date.getTime())) return ''
   return date.toISOString().slice(0, 16).replace('T', ' ')
+}
+
+// Partes de un instante en una zona horaria dada (es-CL con en-CA da YYYY-MM-DD).
+function partesTz(date: Date, tz: string): { ymd: string; hm: string } {
+  const f = new Intl.DateTimeFormat('en-CA', {
+    timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  })
+  const p = Object.fromEntries(f.formatToParts(date).map((x) => [x.type, x.value]))
+  return { ymd: `${p.year}-${p.month}-${p.day}`, hm: `${p.hour}:${p.minute}` }
+}
+
+export function isoDateTz(d: Date | string | null | undefined, tz: string): string {
+  if (!d) return ''
+  const date = d instanceof Date ? d : new Date(d)
+  if (isNaN(date.getTime())) return ''
+  return partesTz(date, tz).ymd
+}
+
+export function isoDateTimeTz(d: Date | string | null | undefined, tz: string): string {
+  if (!d) return ''
+  const date = d instanceof Date ? d : new Date(d)
+  if (isNaN(date.getTime())) return ''
+  const { ymd, hm } = partesTz(date, tz)
+  return `${ymd} ${hm}`
 }
 
 export function clp(n: number | null | undefined): number {

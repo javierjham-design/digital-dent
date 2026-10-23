@@ -63,7 +63,9 @@ export const produccionPorProfesional: Herramienta<{ desde: string; hasta: strin
     } else if (!esGestor) {
       doctorFiltro = ctx.userId // sin permiso de gestión: solo la propia
     }
-    const r = rangoUtc(desde, hasta, ctx.tz)
+    // fechaCompletado es fecha-sola a medianoche UTC: rango en límites UTC (con la zona
+    // de la clínica cada acción caía un día antes y no cuadraba con /reportes/tratamientos).
+    const r = rangoUtc(desde, hasta, 'UTC')
     const trats = await ctx.db.tratamiento.findMany({
       where: {
         estado: 'COMPLETADO',

@@ -24,6 +24,10 @@ export interface MetricaDef {
   etiqueta: string // descripción en lenguaje natural para el modelo
   modelo: 'cobro' | 'cita' | 'planTratamiento' | 'tratamiento' | 'lead' | 'movimientoCaja' | 'paciente'
   campoFecha: string
+  // true si campoFecha es "fecha-sola" guardada a medianoche UTC (fechaCompletado): el
+  // rango y los buckets van en límites UTC; con la zona de la clínica cada acción caía
+  // un día antes y no cuadraba con /reportes/tratamientos.
+  fechaSola?: boolean
   agregacion: Agregacion
   // Para sum/avg: campos a traer y función que calcula el valor por fila.
   selectValor?: string[]
@@ -128,7 +132,7 @@ export const CATALOGO: MetricaDef[] = [
   },
   {
     clave: 'tratamientos_ejecutados', etiqueta: 'Acciones ejecutadas (completadas)', modelo: 'tratamiento',
-    campoFecha: 'fechaCompletado', agregacion: 'count', where: { estado: 'COMPLETADO' },
+    campoFecha: 'fechaCompletado', fechaSola: true, agregacion: 'count', where: { estado: 'COMPLETADO' },
     etiquetaValor: 'Acciones', tipoValor: 'entero', requiere: { permiso: 'puedeVerReportes' },
     dimensiones: [
       { clave: 'profesional', etiqueta: 'por profesional', tipo: 'profesional', campo: 'doctorId' },
@@ -138,7 +142,7 @@ export const CATALOGO: MetricaDef[] = [
   },
   {
     clave: 'tratamientos_monto', etiqueta: 'Monto de acciones ejecutadas (neto)', modelo: 'tratamiento',
-    campoFecha: 'fechaCompletado', agregacion: 'sum', selectValor: ['precio', 'descuento'], valor: neto,
+    campoFecha: 'fechaCompletado', fechaSola: true, agregacion: 'sum', selectValor: ['precio', 'descuento'], valor: neto,
     where: { estado: 'COMPLETADO' }, etiquetaValor: 'Monto', tipoValor: 'dinero',
     requiere: { permiso: 'puedeVerReportes' },
     dimensiones: [

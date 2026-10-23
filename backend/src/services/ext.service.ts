@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { control } from '@/db/control'
 import type { TenantClient } from '@/db/tenant'
+import { rangoFechasUtc, todayYmd, tzDePais } from '@/lib/tz'
 
 // Acceso externo read-only (servidor MCP de Claude / integraciones). Cada clínica
 // tiene su propia API key; se guarda HASHEADA en el control-plane y se muestra en
@@ -41,7 +42,12 @@ export async function revocarTubotApiKey(clinicaId: string) {
 
 // Estadísticas generales de la clínica para el MCP (agregados, sin PII).
 export async function estadisticasPlataforma(db: TenantClient) {
-  const inicioHoy = new Date(); inicioHoy.setHours(0, 0, 0, 0)
+  // "Hoy" en la zona de la CLÍNICA (el server corre en UTC: con setHours el MCP veía un
+  // "hoy" distinto al de la agenda del frontend entre las 21:00 y medianoche de Chile).
+  const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+  const tz = tzDePais(cfg?.pais)
+  const hoy = todayYmd(tz)
+  const inicioHoy = rangoFechasUtc(hoy, hoy, tz).gte!
   const finHoy = new Date(inicioHoy.getTime() + 24 * 3600_000)
   const en7 = new Date(inicioHoy.getTime() + 7 * 24 * 3600_000)
   const [pacientes, pacientesActivos, citasHoy, citasSemana, leadsEstado, leadsOrigen] = await Promise.all([

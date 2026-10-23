@@ -87,11 +87,16 @@ export async function ejecutarTurno(p: ParamsTurno): Promise<ResultadoTurno> {
     throw tooMany(excedido)
   }
 
+  // Reserva del cupo ANTES de tocar al proveedor (ver reservarCupo).
+  const reservaId = await reservarCupo(db, { userId: actor.userId, sesionId, modelo })
+
   const sesion = await db.asistenteSesion.findUnique({ where: { id: sesionId }, select: { mapaCifrado: true } })
   const mapa = MapaSeudonimos.cargar(sesion?.mapaCifrado ?? null)
 
   // ── Seudonimizar la pregunta y guardarla ───────────────────────────────────
-  const indice: PacienteIndice[] = await db.paciente.findMany({ where: { activo: true }, select: { id: true, nombre: true, apellido: true } })
+  // El índice incluye TAMBIÉN pacientes inactivos: si el usuario pregunta por uno,
+  // su nombre debe tokenizarse igual (antes viajaba en claro al proveedor).
+  const indice: PacienteIndice[] = await db.paciente.findMany({ select: { id: true, nombre: true, apellido: true } })
   const preguntaSeud = haciaModelo(texto, indice, mapa)
   const previos = await db.asistenteMensaje.count({ where: { sesionId } })
   await db.asistenteMensaje.create({ data: { sesionId, rol: 'user', contenido: preguntaSeud } })
@@ -113,7 +118,7 @@ export async function ejecutarTurno(p: ParamsTurno): Promise<ResultadoTurno> {
   try {
     salida = await conTimeout(bucle(), TIMEOUT_TURNO_MS, 'turno')
   } catch (err) {
-    await auditar(db, { userId: actor.userId, sesionId, modelo, uso, iteraciones, herramientas: [...usadas], estado: 'error', error: err instanceof Error ? err.name : 'error', latenciaMs: Date.now() - t0 })
+    await auditar(db, { userId: actor.userId, sesionId, modelo, uso, iteraciones, herramientas: [...usadas], estado: 'error', error: err instanceof Error ? err.name : 'error', latenciaMs: Date.now() - t0, reservaId })
     // Nunca se reenvía el mensaje del proveedor al usuario.
     throw serviceUnavailable('El asistente no está disponible en este momento. Intentá de nuevo en un rato.')
   }
@@ -141,7 +146,10 @@ export async function ejecutarTurno(p: ParamsTurno): Promise<ResultadoTurno> {
         try {
           const res = await ejecutarHerramienta(h, ctx, tu.input, mapa)
           resultados.push(res)
-          return { tipo: 'tool_result', toolUseId: tu.id, contenido: contenidoParaModelo(res) }
+          // Segunda pasada de seudonimización sobre el RESULTADO: los campos de texto
+          // libre (nombre de un plan "Ortodoncia María Pérez", resúmenes con alergias)
+          // pueden traer nombres/RUT/emails que la tokenización por columna no cubre.
+          return { tipo: 'tool_result', toolUseId: tu.id, contenido: haciaModelo(contenidoParaModelo(res), indice, mapa) }
         } catch (e) {
           const msg = e instanceof ErrorHerramienta ? e.message : 'No se pudo completar la consulta.'
           return { tipo: 'tool_result', toolUseId: tu.id, contenido: msg, esError: true }
@@ -170,7 +178,7 @@ export async function ejecutarTurno(p: ParamsTurno): Promise<ResultadoTurno> {
     }),
   ))
   await db.asistenteSesion.update({ where: { id: sesionId }, data: { mapaCifrado: mapa.guardar(), ...(tituloNuevo ? { titulo: tituloNuevo } : {}) } })
-  await auditar(db, { userId: actor.userId, sesionId, mensajeId: msgAsistente.id, modelo, uso, iteraciones, herramientas: [...usadas], estado, latenciaMs: Date.now() - t0 })
+  await auditar(db, { userId: actor.userId, sesionId, mensajeId: msgAsistente.id, modelo, uso, iteraciones, herramientas: [...usadas], estado, latenciaMs: Date.now() - t0, reservaId })
 
   // ── Rehidratar para el usuario ─────────────────────────────────────────────
   const resolver = await construirResolver(db, mapa)
@@ -269,21 +277,42 @@ interface FilaAuditoria {
   userId: string; sesionId: string; mensajeId?: string; modelo: string
   uso: UsoTokens; iteraciones: number; herramientas: string[]
   estado: 'ok' | 'error' | 'limite' | 'sin_herramienta'; error?: string; latenciaMs: number
+  reservaId?: string | null
 }
 
 async function auditar(db: TenantClient, f: FilaAuditoria): Promise<void> {
   try {
-    await db.asistenteAuditoria.create({
-      data: {
-        userId: f.userId, sesionId: f.sesionId, mensajeId: f.mensajeId ?? null, modelo: f.modelo,
-        herramientas: JSON.stringify(f.herramientas), iteraciones: f.iteraciones,
-        tokensEntrada: f.uso.entrada, tokensSalida: f.uso.salida,
-        tokensCacheLeidos: f.uso.cacheLeidos, tokensCacheEscritos: f.uso.cacheEscritos,
-        costoUsd: calcularCostoUsd(f.modelo, f.uso), latenciaMs: f.latenciaMs,
-        estado: f.estado, error: f.error ?? null,
-      },
-    })
+    const data = {
+      userId: f.userId, sesionId: f.sesionId, mensajeId: f.mensajeId ?? null, modelo: f.modelo,
+      herramientas: JSON.stringify(f.herramientas), iteraciones: f.iteraciones,
+      tokensEntrada: f.uso.entrada, tokensSalida: f.uso.salida,
+      tokensCacheLeidos: f.uso.cacheLeidos, tokensCacheEscritos: f.uso.cacheEscritos,
+      costoUsd: calcularCostoUsd(f.modelo, f.uso), latenciaMs: f.latenciaMs,
+      estado: f.estado, error: f.error ?? null,
+    }
+    // Si hubo RESERVA previa (fila 'en_curso'), se completa esa fila; si no, se crea.
+    if (f.reservaId) await db.asistenteAuditoria.update({ where: { id: f.reservaId }, data })
+    else await db.asistenteAuditoria.create({ data })
   } catch {
     // La auditoría nunca debe romper el turno.
+  }
+}
+
+// Reserva ATÓMICA del cupo: una fila 'en_curso' que `contadores` ya cuenta. Sin esto,
+// N consultas en paralelo pasaban todas el chequeo con el mismo contador (la auditoría
+// se escribía recién al FINAL del turno) y excedían el límite por el factor de concurrencia.
+async function reservarCupo(db: TenantClient, f: { userId: string; sesionId: string; modelo: string }): Promise<string | null> {
+  try {
+    const r = await db.asistenteAuditoria.create({
+      data: {
+        userId: f.userId, sesionId: f.sesionId, modelo: f.modelo, herramientas: '[]', iteraciones: 0,
+        tokensEntrada: 0, tokensSalida: 0, tokensCacheLeidos: 0, tokensCacheEscritos: 0,
+        costoUsd: 0, latenciaMs: 0, estado: 'en_curso',
+      },
+      select: { id: true },
+    })
+    return r.id
+  } catch {
+    return null // sin reserva: se audita al final como antes
   }
 }
