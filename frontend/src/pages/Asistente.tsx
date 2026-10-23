@@ -243,12 +243,15 @@ function TablaResultado({ r }: { r: ResultadoAsistenteDTO }) {
   const [pagina, setPagina] = useState(0)
   const [comoAbierto, setComoAbierto] = useState(false)
   const [bajando, setBajando] = useState(false)
+  const [errorExport, setErrorExport] = useState<string | null>(null)
   const totalPaginas = Math.max(1, Math.ceil(r.filas.length / FILAS_POR_PAGINA))
   const visibles = r.filas.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA)
 
   async function exportar() {
-    setBajando(true)
-    try { await descargarResultadoXlsx(r.id, r.herramienta) } catch { /* noop */ } finally { setBajando(false) }
+    setBajando(true); setErrorExport(null)
+    try { await descargarResultadoXlsx(r.id, r.herramienta) }
+    catch { setErrorExport('No se pudo exportar el Excel. Intenta de nuevo (si persiste, recarga la página).') }
+    finally { setBajando(false) }
   }
 
   if (r.columnas.length === 0 || r.filas.length === 0) {
@@ -291,6 +294,7 @@ function TablaResultado({ r }: { r: ResultadoAsistenteDTO }) {
           </button>
         </div>
       </div>
+      {errorExport && <p className="px-3 py-2 border-t border-rose-100 bg-rose-50 text-xs text-rose-600">{errorExport}</p>}
       {comoAbierto && (
         <div className="px-3 py-2 border-t border-slate-100 text-xs text-slate-500">
           <p>Herramienta: <span className="font-mono text-slate-700">{r.herramienta}</span></p>

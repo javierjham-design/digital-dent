@@ -13,6 +13,8 @@ const waLink = (tel?: string | null) => { const n = (tel ?? '').replace(/\D/g, '
 export function Pacientes() {
   const { user } = useAuth()
   const esAdmin = user?.role === 'admin'
+  // El export de la nómina exige el mismo permiso que los reportes (el backend lo valida).
+  const puedeExportar = esAdmin || Boolean(user?.permisos?.puedeVerReportes)
   const [tab, setTab] = useState<Tab>('todos')
   const [pacientes, setPacientes] = useState<PacienteDTO[]>([])
   const [recall, setRecall] = useState<PacienteRecall[]>([])
@@ -69,9 +71,11 @@ export function Pacientes() {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <h1 className="text-2xl font-bold text-slate-900">Pacientes</h1>
         <div className="flex items-center gap-2">
-          <button onClick={() => descarga('export')} disabled={io.tipo !== null} className="px-3 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 text-sm rounded-xl">
-            {io.tipo === 'export' ? 'Exportando…' : 'Exportar XLSX'}
-          </button>
+          {puedeExportar && (
+            <button onClick={() => descarga('export')} disabled={io.tipo !== null} className="px-3 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 text-sm rounded-xl">
+              {io.tipo === 'export' ? 'Exportando…' : 'Exportar XLSX'}
+            </button>
+          )}
           {esAdmin && (
             <>
               <button onClick={() => descarga('plantilla')} disabled={io.tipo !== null} className="px-3 py-2 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 text-sm rounded-xl">Plantilla</button>
@@ -93,6 +97,14 @@ export function Pacientes() {
               <summary className="text-rose-600 cursor-pointer">{resultado.errores.length} fila(s) con error</summary>
               <ul className="mt-1 text-xs text-rose-600 list-disc pl-5">
                 {resultado.errores.slice(0, 20).map((er, i) => <li key={i}>Fila {er.fila}: {er.motivo}</li>)}
+              </ul>
+            </details>
+          )}
+          {(resultado.avisos?.length ?? 0) > 0 && (
+            <details className="mt-1">
+              <summary className="text-amber-600 cursor-pointer">{resultado.avisos!.length} aviso(s)</summary>
+              <ul className="mt-1 text-xs text-amber-700 list-disc pl-5">
+                {resultado.avisos!.slice(0, 20).map((av, i) => <li key={i}>{av.fila > 0 ? `Fila ${av.fila}: ` : ''}{av.motivo}</li>)}
               </ul>
             </details>
           )}

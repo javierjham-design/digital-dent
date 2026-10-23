@@ -55,7 +55,11 @@ const AREAS_FLAGS: [keyof UsuarioDTO, string][] = [
 ]
 
 const DIAS: [number, string][] = [[1, 'Lunes'], [2, 'Martes'], [3, 'Miércoles'], [4, 'Jueves'], [5, 'Viernes'], [6, 'Sábado'], [0, 'Domingo']]
-const hoyISO = () => new Date().toISOString().slice(0, 10)
+// Día LOCAL del navegador (toISOString es UTC: de tarde/noche en Chile caía en mañana).
+const hoyISO = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 const fmtCLP = fmtMonto
 
 interface ContratoLite {

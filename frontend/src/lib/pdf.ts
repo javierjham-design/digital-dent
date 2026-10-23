@@ -1,4 +1,6 @@
-import html2pdf from 'html2pdf.js'
+// html2pdf (~600KB con html2canvas+jsPDF) se carga on-demand: solo quien genera un
+// PDF lo baja, no toda la app en el bundle inicial.
+const cargarHtml2pdf = () => import('html2pdf.js').then((m) => m.default)
 
 // Espera a que las imágenes del elemento (ej. logo de la clínica) terminen de
 // cargar. Sin esto, html2canvas puede capturar antes de tiempo y salir en blanco.
@@ -23,6 +25,7 @@ export async function elementoAPdfBase64(el: HTMLElement): Promise<string> {
     pagebreak: { mode: ['css', 'legacy'] },
   }
    
+  const html2pdf = await cargarHtml2pdf()
   const dataUri: string = await html2pdf().set(opts as any).from(el).outputPdf('datauristring')
   const base64 = dataUri.replace(/^data:.*;base64,/, '')
   if (!base64 || base64.length < 800) {

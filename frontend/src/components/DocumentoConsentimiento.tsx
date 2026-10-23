@@ -1,5 +1,4 @@
 import { forwardRef } from 'react'
-import html2pdf from 'html2pdf.js'
 
 // Estilos del documento (se incrustan en el propio nodo para que html2pdf los
 // capture al generar el PDF).
@@ -45,7 +44,8 @@ export const DocumentoConsentimiento = forwardRef<HTMLDivElement, Props>(functio
   )
 })
 
-// Genera y descarga el PDF a partir del nodo del documento.
+// Genera y descarga el PDF a partir del nodo del documento. html2pdf se carga
+// on-demand (pesa ~600KB; no tiene por qué viajar en el bundle inicial).
 export async function descargarConsentimientoPDF(el: HTMLElement, filename: string) {
   const opts = {
     margin: [10, 10, 12, 10],
@@ -55,6 +55,7 @@ export async function descargarConsentimientoPDF(el: HTMLElement, filename: stri
     jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
     pagebreak: { mode: ['css', 'legacy'] },
   }
-   
+  const html2pdf = (await import('html2pdf.js')).default
+
   await html2pdf().set(opts as any).from(el).save()
 }

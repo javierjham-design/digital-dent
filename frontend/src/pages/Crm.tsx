@@ -155,9 +155,12 @@ export function Crm() {
     else if (p === 'todo') { setDesde(''); setHasta('') }
   }
 
+  // Un 500 al cargar se muestra como error con reintento: silenciarlo dejaba la lista
+  // "Sin leads…" y la clínica creía que no había nada que gestionar.
+  const [errorCarga, setErrorCarga] = useState(false)
   const cargar = () => {
     crmService.leads({ estado: estado || undefined, campana: campana || undefined, q: q.trim().length >= 2 ? q.trim() : undefined, desde: desde || undefined, hasta: hasta || undefined })
-      .then(setLeads).catch(() => {}).finally(() => setCargando(false))
+      .then((r) => { setLeads(r); setErrorCarga(false) }).catch(() => setErrorCarga(true)).finally(() => setCargando(false))
     crmService.resumen().then(setResumen).catch(() => {})
   }
   const cargarCampanas = () => crmService.campanas({ desde: desde || undefined, hasta: hasta || undefined }).then((r) => setCampanas(r.campanas)).catch(() => {})
@@ -176,6 +179,12 @@ export function Crm() {
 
   return (
     <div>
+      {errorCarga && (
+        <div className="mb-3 flex items-center justify-between gap-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+          <span>No se pudieron cargar los leads (error del servidor o de conexión). Los datos siguen ahí.</span>
+          <button onClick={() => { setCargando(true); cargar() }} className="shrink-0 px-3 py-1 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg">Reintentar</button>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
         <h1 className="text-2xl font-bold text-slate-900">CRM · Leads</h1>
         <div className="flex gap-2 flex-wrap">

@@ -29,6 +29,7 @@ function tokenExpMs(token: string): number | null {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUserDTO | null>(null)
   const [cargando, setCargando] = useState(true)
+  const [sesionPorExpirar, setSesionPorExpirar] = useState(false)
 
   useEffect(() => {
     // Handoff de sesión desde la landing/demo: si llega ?#token=<jwt> en la URL
@@ -48,6 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Cierre de sesión proactivo: a las 12 h del login (exp del JWT) la sesión se
   // cierra sola aunque la pestaña esté inactiva (no espera a la próxima request).
+  // 10 minutos antes se muestra un aviso: el cierre en seco a mitad de una evolución
+  // o un cobro perdía el trabajo del usuario sin ninguna advertencia.
   useEffect(() => {
     if (!user) return
     const token = tokenStore.get()
@@ -57,7 +60,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const cerrar = () => { tokenStore.clear(); setUser(null) } // ProtectedRoute redirige a /login
     if (ms <= 0) { cerrar(); return }
     const t = setTimeout(cerrar, ms)
-    return () => clearTimeout(t)
+    let aviso: ReturnType<typeof setTimeout> | null = null
+    if (ms > 10 * 60_000) {
+      setSesionPorExpirar(false)
+      aviso = setTimeout(() => setSesionPorExpirar(true), ms - 10 * 60_000)
+    } else {
+      setSesionPorExpirar(true)
+    }
+    return () => { clearTimeout(t); if (aviso) clearTimeout(aviso) }
   }, [user])
 
   const login = async (body: LoginRequest) => {
@@ -86,6 +96,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider value={{ user, cargando, login, setup2FA, verify2FA, logout, refrescar }}>
+      {user && sesionPorExpirar && (
+        <div className="fixed top-0 inset-x-0 z-[100] bg-amber-500 text-white text-sm font-medium text-center px-4 py-2 shadow">
+          Tu sesión expira en menos de 10 minutos. Guarda lo que estés haciendo: luego deberás iniciar sesión de nuevo.
+        </div>
+      )}
       {children}
     </AuthContext.Provider>
   )

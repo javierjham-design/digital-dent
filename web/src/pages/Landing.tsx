@@ -31,7 +31,7 @@ function buildPasos(_termino: string, lugar: string) {
 }
 function buildFaqs(termino: string, lugar: string) {
   return [
-    { q: '¿Necesito instalar algo?', a: 'No. Cláriva funciona desde el navegador y también puedes instalarla como app en tu celular o computador con un toque. No requiere servidores ni mantención de tu parte.' },
+    { q: '¿Necesito instalar algo?', a: 'No. Cláriva funciona 100% desde el navegador, en tu computador, tablet o celular. No requiere instalación, servidores ni mantención de tu parte.' },
     { q: '¿Mis datos están seguros?', a: `Sí. Los datos viajan cifrados (HTTPS), las credenciales sensibles se guardan encriptadas, hay control de acceso por rol y respaldos automáticos en la nube. Cada ${lugar} está aislado de los demás.` },
     { q: `¿Puedo migrar mis ${termino}?`, a: `Sí. Puedes importar tu base de ${termino} desde Excel y partir con todo cargado. Te acompañamos en el proceso.` },
     { q: '¿Cómo funcionan las confirmaciones por WhatsApp?', a: `Es un servicio adicional. Configuramos el envío automático de recordatorios con botones de Confirmar, Reagendar o Cancelar; la respuesta del paciente actualiza la cita sola. Se cobra aparte según el volumen de tu ${lugar}.` },

@@ -1,12 +1,11 @@
+import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from '@/hooks/useAuth'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { DashboardLayout } from '@/layouts/DashboardLayout'
 import { SuperAdminLayout } from '@/layouts/SuperAdminLayout'
 import { Login } from '@/pages/Login'
-import { Agenda } from '@/pages/Agenda'
 import { Pacientes } from '@/pages/Pacientes'
-import { FichaPacienteRoute } from '@/pages/FichaPacienteRoute'
 import { Equipo } from '@/pages/Equipo'
 import { Prestaciones } from '@/pages/Prestaciones'
 import { Configuracion } from '@/pages/Configuracion'
@@ -14,9 +13,15 @@ import { GestorIA } from '@/pages/GestorIA'
 import { Cobros } from '@/pages/Cobros'
 import { AgendaOnline } from '@/pages/AgendaOnline'
 import { AgendarPublico } from '@/pages/AgendarPublico'
-import { Crm } from '@/pages/Crm'
 import { Consentimientos } from '@/pages/Consentimientos'
-import { AgendaPreview } from '@/pages/AgendaPreview'
+
+// Páginas pesadas con carga diferida: FullCalendar (Agenda), la ficha del paciente y
+// el CRM concentraban casi 2MB en el bundle inicial. Cada una baja recién al entrar.
+const Agenda = lazy(() => import('@/pages/Agenda').then((m) => ({ default: m.Agenda })))
+const AgendaPreview = lazy(() => import('@/pages/AgendaPreview').then((m) => ({ default: m.AgendaPreview })))
+const FichaPacienteRoute = lazy(() => import('@/pages/FichaPacienteRoute').then((m) => ({ default: m.FichaPacienteRoute })))
+const Crm = lazy(() => import('@/pages/Crm').then((m) => ({ default: m.Crm })))
+const Asistente = lazy(() => import('@/pages/Asistente').then((m) => ({ default: m.Asistente })))
 import { Boxes } from '@/pages/Boxes'
 import { Suscripcion } from '@/pages/Suscripcion'
 import { GestionCajas } from '@/pages/GestionCajas'
@@ -31,7 +36,6 @@ import { PagosPrint } from '@/pages/PagosPrint'
 import { ReporteCajasPrint } from '@/pages/ReporteCajasPrint'
 import { Presupuestos } from '@/pages/Presupuestos'
 import { Reportes } from '@/pages/Reportes'
-import { Asistente } from '@/pages/Asistente'
 import { Ayuda } from '@/pages/Ayuda'
 import { AdminDashboard } from '@/pages/admin/Dashboard'
 import { AdminClinicas } from '@/pages/admin/Clinicas'
@@ -52,6 +56,7 @@ export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <Suspense fallback={<div className="min-h-screen grid place-items-center text-sm text-slate-400">Cargando…</div>}>
         <Routes>
           <Route path="/login" element={<Login />} />
           {/* Páginas públicas (sin sesión): reserva de hora + formulario de captación. */}
@@ -105,6 +110,7 @@ export default function App() {
           <Route path="/print/reporte-cajas" element={<ProtectedRoute><ReporteCajasPrint /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/agenda" replace />} />
         </Routes>
+        </Suspense>
       </BrowserRouter>
     </AuthProvider>
   )

@@ -91,7 +91,7 @@ export interface ResumenPaciente { tratamientosCount: number; activos: number; f
 export interface ComentarioDTO { id: string; texto: string; autorNombre: string | null; createdAt: string }
 export interface MensajeDTO { id: string; tipo: string; categoria: string; asunto: string | null; cuerpo: string | null; enviadoA: string | null; estado: string; createdAt: string }
 
-export interface ImportResultado { total: number; creados: number; duplicados: number; sinRut: number; errores: { fila: number; motivo: string }[] }
+export interface ImportResultado { total: number; creados: number; duplicados: number; sinRut: number; errores: { fila: number; motivo: string }[]; avisos?: { fila: number; motivo: string }[] }
 
 // Descargas/subidas que no pasan por el wrapper JSON (blob / multipart).
 export const pacientesIO = {

@@ -77,9 +77,11 @@ export function Cobros() {
   const [aviso, setAviso] = useState<{ t: string; ok: boolean } | null>(null)
   const notify = (t: string, ok = true) => { setAviso({ t, ok }); setTimeout(() => setAviso(null), 3500) }
 
+  const [errorCarga, setErrorCarga] = useState(false)
   const cargar = useCallback(() => {
-    cajasService.resumen().then((r) => setResumenes(r as ResumenCaja[])).catch(() => {})
-    cobrosService.listar().then((c) => setCobros((c as Cobro[]).slice(0, 20))).catch(() => {})
+    setErrorCarga(false)
+    cajasService.resumen().then((r) => setResumenes(r as ResumenCaja[])).catch(() => setErrorCarga(true))
+    cobrosService.listar().then((c) => setCobros((c as Cobro[]).slice(0, 20))).catch(() => setErrorCarga(true))
   }, [])
   useEffect(() => { cargar(); mediosPagoService.listar().then((m) => setMedios(m.filter((x) => x.activo))).catch(() => {}) }, [cargar])
 
@@ -106,6 +108,12 @@ export function Cobros() {
 
   return (
     <div>
+      {errorCarga && (
+        <div className="mb-3 flex items-center justify-between gap-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+          <span>No se pudieron cargar las cajas o los cobros (error del servidor o de conexión).</span>
+          <button onClick={cargar} className="shrink-0 px-3 py-1 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg">Reintentar</button>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3 mb-5 flex-wrap">
         <h1 className="text-2xl font-bold text-slate-900">Cobros y cajas</h1>
         {puedeCrearCaja && !miCaja && <button onClick={() => setNuevaCaja(true)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-semibold rounded-xl">Crear mi caja</button>}

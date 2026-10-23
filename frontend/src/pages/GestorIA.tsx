@@ -70,7 +70,9 @@ export function GestorIA() {
   if (cargando) return <p className="text-slate-500 text-sm">Cargando…</p>
   if (!a) return <p className="text-rose-600 text-sm">{error || 'No se pudo cargar.'}</p>
 
-  const num = (v: string) => (v === '' ? 0 : Number(v))
+  // Texto no numérico (inputs con inputMode numérico pero type=text) → 0, nunca NaN
+  // (NaN se serializa como null y el backend responde un error de validación críptico).
+  const num = (v: string) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
   const inp = 'w-24 px-3 py-2 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-50 disabled:text-slate-400'
   const off = !a.maestroActivo
   const sinPlantillas = a.plantillasDisponibles.length === 0

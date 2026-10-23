@@ -2,12 +2,15 @@ import { useState } from 'react'
 import { descargarReporte, type ReporteTipo } from '@/services/reportes.service'
 import { ApiError } from '@/services/api'
 
-interface ReporteDef { tipo: ReporteTipo; titulo: string; descripcion: string; usaFechas: boolean }
+interface ReporteDef { tipo: ReporteTipo; titulo: string; descripcion: string; usaFechas: boolean; params?: Record<string, string> }
 
 const REPORTES: ReporteDef[] = [
   { tipo: 'pacientes', titulo: 'Pacientes', descripcion: 'Nómina de pacientes con datos de contacto y previsión.', usaFechas: true },
   { tipo: 'citas', titulo: 'Citas', descripcion: 'Agenda histórica con paciente, profesional, estado y notas.', usaFechas: true },
-  { tipo: 'cobros', titulo: 'Cobros', descripcion: 'Pagos recibidos con monto neto, comisión y medio de pago.', usaFechas: true },
+  // "Pagos recibidos" de verdad: por FECHA DE PAGO y solo PAGADOS (sin estos params el
+  // backend filtra por fecha de creación e incluye pendientes/anulados, y el total no
+  // cuadra con el reporte de pagos de Gestión de cajas).
+  { tipo: 'cobros', titulo: 'Cobros', descripcion: 'Pagos recibidos (pagados, por fecha de pago) con monto neto, comisión y medio de pago.', usaFechas: true, params: { campo: 'fechaPago', estado: 'PAGADO' } },
   { tipo: 'tratamientos', titulo: 'Tratamientos', descripcion: 'Prestaciones planificadas y realizadas por profesional.', usaFechas: true },
   { tipo: 'liquidaciones', titulo: 'Liquidaciones', descripcion: 'Liquidaciones de honorarios por período y profesional.', usaFechas: false },
   { tipo: 'caja', titulo: 'Movimientos de caja', descripcion: 'Ingresos y egresos de caja, con anulaciones.', usaFechas: true },
@@ -20,13 +23,13 @@ export function Reportes() {
   const [bajando, setBajando] = useState<ReporteTipo | null>(null)
   const [error, setError] = useState('')
 
-  async function descargar(tipo: ReporteTipo) {
-    setBajando(tipo); setError('')
+  async function descargar(r: ReporteDef) {
+    setBajando(r.tipo); setError('')
     try {
-      const params: Record<string, string> = {}
+      const params: Record<string, string> = { ...(r.params ?? {}) }
       if (desde) params.desde = desde
       if (hasta) params.hasta = hasta
-      await descargarReporte(tipo, params)
+      await descargarReporte(r.tipo, params)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'No se pudo generar el reporte')
     } finally {
@@ -66,7 +69,7 @@ export function Reportes() {
           <div key={r.tipo} className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col">
             <h2 className="font-semibold text-slate-800">{r.titulo}</h2>
             <p className="text-sm text-slate-500 mt-1 flex-1">{r.descripcion}</p>
-            <button onClick={() => descargar(r.tipo)} disabled={bajando !== null}
+            <button onClick={() => descargar(r)} disabled={bajando !== null}
               className="mt-3 self-start px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-colors">
               {bajando === r.tipo ? 'Generando…' : 'Descargar XLSX'}
             </button>

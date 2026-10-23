@@ -34,7 +34,8 @@ export function GestionCajas() {
   const [abrirUsuario, setAbrirUsuario] = useState(false)
   const [tab, setTab] = useState<'abiertas' | 'cerradas' | 'reportes'>('abiertas')
 
-  const cargar = () => cajasService.gestion().then((r) => setCajas(r as CajaGestion[])).catch(() => {}).finally(() => setCargando(false))
+  const [errorCarga, setErrorCarga] = useState(false)
+  const cargar = () => cajasService.gestion().then((r) => { setCajas(r as CajaGestion[]); setErrorCarga(false) }).catch(() => setErrorCarga(true)).finally(() => setCargando(false))
   useEffect(() => { cargar() }, [])
 
   if (!autorizado) return (
@@ -51,6 +52,12 @@ export function GestionCajas() {
 
   return (
     <div>
+      {errorCarga && (
+        <div className="mb-3 flex items-center justify-between gap-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+          <span>No se pudieron cargar las cajas (error del servidor o de conexión).</span>
+          <button onClick={() => { setCargando(true); cargar() }} className="shrink-0 px-3 py-1 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-lg">Reintentar</button>
+        </div>
+      )}
       <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
         <h1 className="text-2xl font-bold text-slate-900">Gestión de cajas</h1>
         <button onClick={() => setAbrirUsuario(true)} className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold rounded-xl">Abrir caja de un usuario</button>
