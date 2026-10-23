@@ -52,7 +52,7 @@
     "prisma": "^5.22.0",
     "qrcode": "^1.5.4",
     "tsx": "^4.19.2",
-    "xlsx": "^0.18.5",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
     "zod": "^4.4.2"
   },
   "devDependencies": {
