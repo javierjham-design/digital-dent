@@ -627,7 +627,12 @@ export function abreReingreso(existente: LeadReingreso, flujoNuevo: string): boo
 // Decide el estado tras un reingreso (regla del negocio). Devuelve también si hay
 // que resetear el ciclo de Schedule (para que un nuevo agendamiento dispare).
 async function decidirEstadoReingreso(db: TenantClient, l: LeadReingreso): Promise<{ estado: string; resetSchedule: boolean }> {
-  if (l.estado === 'PERDIDO' || l.estado === 'CONVERTIDO') return { estado: 'NUEVO', resetSchedule: true }
+  // Un CONVERTIDO conserva su estado: volverlo NUEVO borraba toda su facturación del
+  // ROI por campaña (ingresosPorCampana cuenta convertidos) hasta el próximo cobro.
+  // El reingreso igual sube el lead al tope, apila el toque y deja la nota de sistema,
+  // así recepción lo ve; el ciclo de Schedule se resetea para poder re-agendar.
+  if (l.estado === 'CONVERTIDO') return { estado: 'CONVERTIDO', resetSchedule: true }
+  if (l.estado === 'PERDIDO') return { estado: 'NUEVO', resetSchedule: true }
   if (l.estado === 'AGENDADO') {
     // Cita FUTURA pendiente (y no marcada como no-asistió) → mantener AGENDADO: ya
     // está agendado, resetearlo falsearía la métrica de agendamiento.
@@ -821,7 +826,27 @@ export interface IngestaMetaInput {
   motivo?: string; tratamiento?: string; camposExtra?: string
   leadgenId: string; formId?: string; adId?: string; adsetId?: string; campaignId?: string; pageId?: string
 }
+// Serializa ingestas CONCURRENTES del mismo leadgen (webhook nativo + intake de Make a
+// la vez, o reintento de Meta): el check de idempotencia es findFirst→create y sin esto
+// dos entregas simultáneas creaban dos leads. Mutex en memoria por proceso (misma
+// suposición de instancia única que el rate-limit; el índice único en BD requeriría migración).
+const ingestasEnCurso = new Map<string, Promise<unknown>>()
+
 export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput, ctx?: { ip?: string; userAgent?: string }) {
+  const leadgenKey = clean(input.leadgenId)
+  if (!leadgenKey) throw badRequest('Falta el leadgenId del formulario Meta.')
+  const previa = ingestasEnCurso.get(leadgenKey)
+  if (previa) await previa.catch(() => undefined)
+  const p = ingestarLeadMetaInterno(db, input, ctx)
+  ingestasEnCurso.set(leadgenKey, p)
+  try {
+    return await p
+  } finally {
+    if (ingestasEnCurso.get(leadgenKey) === p) ingestasEnCurso.delete(leadgenKey)
+  }
+}
+
+async function ingestarLeadMetaInterno(db: TenantClient, input: IngestaMetaInput, ctx?: { ip?: string; userAgent?: string }) {
   const leadgenId = clean(input.leadgenId)
   if (!leadgenId) throw badRequest('Falta el leadgenId del formulario Meta.')
   const utmCampaign = clean(input.campaignId), utmTerm = clean(input.adsetId), utmContent = clean(input.adId)
@@ -836,6 +861,9 @@ export async function ingestarLeadMeta(db: TenantClient, input: IngestaMetaInput
   // tope + historial + regla de estado) y se completan los datos faltantes.
   const existente = await buscarLeadParaReserva(db, { telefono: input.telefono, email: input.email, rut: input.rut }, { incluirConvertidos: true })
   if (existente) {
+    // Reentrega del MISMO leadgen de una persona cuya llave quedó en otro leadgenId
+    // (el check de arriba no la ve): no-op para no apilar toques/notas duplicadas.
+    if (existente.ultimoLeadgenId === leadgenId) return { lead: { id: existente.id }, reconciliado: false, duplicado: true }
     // Nueva captura META_FORM: ¿abre reingreso (fuera de la ventana de 7 días u otro
     // flujo) o cae en el ciclo vigente (mismo flujo, dentro de ventana)?
     const nuevoCiclo = abreReingreso(existente, 'META_FORM')
@@ -952,7 +980,8 @@ export async function marcarConvertidoPorCobro(db: TenantClient, pacienteId: str
       const tieneLead = await db.lead.findFirst({ where: { pacienteId }, select: { id: true } })
       if (tieneLead) return
       const pac = await db.paciente.findUnique({ where: { id: pacienteId }, select: { telefono: true, email: true, rut: true } })
-      const matches = pac ? await leadsSinVincularPorIdentidad(db, pac.telefono, pac.email, pac.rut) : []
+      // telEstricto: es una escritura automática (vincula + convierte) → número completo.
+      const matches = pac ? await leadsSinVincularPorIdentidad(db, pac.telefono, pac.email, pac.rut, { telEstricto: true }) : []
       if (matches.length !== 1) return
       leadId = matches[0].id
       await db.lead.update({ where: { id: leadId }, data: { pacienteId } })
@@ -1003,8 +1032,13 @@ const mismaIdentidad = (a: { telefono: string | null; email?: string | null; rut
 // Leads SIN pacienteId que coinciden por teléfono, EMAIL o RUT con la identidad dada.
 // (Muchos leads de Meta traen email pero el teléfono vino en otro formato o sin RUT, así
 // que el email es clave para no perder la atribución.)
-export async function leadsSinVincularPorIdentidad(db: TenantClient, telefono: string | null, email: string | null, rut: string | null) {
+// `telEstricto`: el teléfono compara por NÚMERO COMPLETO (no últimos-8). Es el modo de
+// las ESCRITURAS AUTOMÁTICAS (autolink, convertir por cobro): últimos-8 confundía un
+// móvil con un fijo que compartieran esos dígitos y vinculaba a la persona equivocada.
+// Las sugerencias manuales (aviso de la ficha) siguen con últimos-8 para no perder recall.
+export async function leadsSinVincularPorIdentidad(db: TenantClient, telefono: string | null, email: string | null, rut: string | null, opts?: { telEstricto?: boolean }) {
   const tk = telKey(telefono), ek = emailCanonico(email), rk = rutKey(rut)
+  const tkFull = telCanonicoFull(telefono)
   if (!tk && !ek && !rk) return []
   // El match por teléfono/email no se puede expresar en SQL (normalización), así que se traen
   // los leads sin vincular con teléfono/email/RUT y se filtra en memoria (son pocos).
@@ -1013,7 +1047,11 @@ export async function leadsSinVincularPorIdentidad(db: TenantClient, telefono: s
     select: { id: true, nombre: true, apellido: true, telefono: true, email: true, rut: true, estado: true, createdAt: true },
     orderBy: { createdAt: 'desc' },
   })
-  return candidatos.filter((l) => mismaIdentidad(l, tk, ek, rk))
+  if (!opts?.telEstricto) return candidatos.filter((l) => mismaIdentidad(l, tk, ek, rk))
+  return candidatos.filter((l) =>
+    (!!tkFull && telCanonicoFull(l.telefono) === tkFull) ||
+    (!!ek && emailCanonico(l.email) === ek) ||
+    (!!rk && rutKey(l.rut) === rk))
 }
 
 // Clasifica leads SIN pacienteId contra los pacientes existentes (por RUT / email /
@@ -1023,19 +1061,22 @@ export async function leadsSinVincularPorIdentidad(db: TenantClient, telefono: s
 export interface IdentMatch { id: string; telefono: string | null; email: string | null; rut: string | null }
 export function clasificarVinculosHuerfanos<P extends IdentMatch, L extends IdentMatch>(pacientes: P[], leadsSin: L[]): { inequivocos: { lead: L; pacienteId: string; via: string }[]; dudosos: { lead: L; motivo: string }[] } {
   const pushMap = <K, V>(m: Map<K, V[]>, k: K, v: V) => { const a = m.get(k) ?? []; a.push(v); m.set(k, a) }
+  // Teléfono por NÚMERO COMPLETO (telCanonicoFull, no últimos-8): esta clasificación la
+  // consume el cron que auto-vincula sin revisión humana; últimos-8 mezclaba móviles y
+  // fijos. Los que ya no matchean caen al aviso manual de la ficha, no se pierden.
   const porTel = new Map<string, P[]>(), porRut = new Map<string, P[]>(), porEmail = new Map<string, P[]>()
   for (const p of pacientes) {
-    const tk = telKey(p.telefono); if (tk) pushMap(porTel, tk, p)
+    const tk = telCanonicoFull(p.telefono); if (tk) pushMap(porTel, tk, p)
     const rk = rutKey(p.rut); if (rk) pushMap(porRut, rk, p)
     const ek = emailCanonico(p.email); if (ek) pushMap(porEmail, ek, p)
   }
   const leadsPorTel = new Map<string, number>()
-  for (const l of leadsSin) { const tk = telKey(l.telefono); if (tk) leadsPorTel.set(tk, (leadsPorTel.get(tk) ?? 0) + 1) }
+  for (const l of leadsSin) { const tk = telCanonicoFull(l.telefono); if (tk) leadsPorTel.set(tk, (leadsPorTel.get(tk) ?? 0) + 1) }
 
   const inequivocos: { lead: L; pacienteId: string; via: string }[] = []
   const dudosos: { lead: L; motivo: string }[] = []
   for (const l of leadsSin) {
-    const tk = telKey(l.telefono), ek = emailCanonico(l.email), rk = rutKey(l.rut)
+    const tk = telCanonicoFull(l.telefono), ek = emailCanonico(l.email), rk = rutKey(l.rut)
     const cRut = rk ? porRut.get(rk) ?? [] : []
     const cEmail = ek ? porEmail.get(ek) ?? [] : []
     const cTel = tk ? porTel.get(tk) ?? [] : []
@@ -1081,7 +1122,8 @@ export async function vincularLeadPaciente(db: TenantClient, leadId: string, pac
 // vincular y la ficha muestra el aviso para elegir. Best-effort: no rompe el alta del paciente.
 export async function autolinkLeadAlCrearPaciente(db: TenantClient, paciente: { id: string; telefono: string | null; email?: string | null; rut: string | null }): Promise<{ vinculado: boolean; ambiguos: number }> {
   try {
-    const matches = await leadsSinVincularPorIdentidad(db, paciente.telefono, paciente.email ?? null, paciente.rut)
+    // telEstricto: vínculo automático → número completo (los ambiguos caen al aviso de la ficha).
+    const matches = await leadsSinVincularPorIdentidad(db, paciente.telefono, paciente.email ?? null, paciente.rut, { telEstricto: true })
     if (matches.length === 1) {
       await vincularLeadPaciente(db, matches[0].id, paciente.id, { motivo: 'coincidencia al crear la ficha' })
       return { vinculado: true, ambiguos: 0 }
@@ -1320,7 +1362,19 @@ export async function fusionarLeadsDuplicados(db: TenantClient): Promise<MergeDu
   }
   let gruposConDup = 0, fusionados = 0
   const detalle: string[] = []
-  for (const [, arr] of grupos) {
+  for (const [, grupoCompleto] of grupos) {
+    if (grupoCompleto.length < 2) continue
+    // Guard de NOMBRE: dos personas de la misma familia comparten teléfono/email (mamá
+    // e hijo es frecuente en dental). Si los nombres difieren, NO se fusiona (borrar es
+    // irreversible); queda reportado como dudoso para resolución manual.
+    const nombreDe = (l: { nombre?: string | null; apellido?: string | null }) => norm(`${l.nombre ?? ''} ${l.apellido ?? ''}`.trim())
+    const base = grupoCompleto[0]
+    const arr = grupoCompleto.filter((l) => {
+      const a = nombreDe(l), b = nombreDe(base)
+      return !a || !b || a === b || a.startsWith(b) || b.startsWith(a)
+    })
+    const dudosos = grupoCompleto.length - arr.length
+    if (dudosos > 0) detalle.push(`${base.nombre ?? base.id.slice(-6)}: ${dudosos} posible(s) duplicado(s) con NOMBRE distinto — no se fusionaron (revisar a mano)`)
     if (arr.length < 2) continue
     gruposConDup++
     // Canónico: el que tiene leadgenId (META_FORM); si varios/ninguno, el más antiguo.
@@ -1435,7 +1489,12 @@ export async function guardarConfigCrm(db: TenantClient, body: Record<string, un
     const ctl: Record<string, unknown> = {}
     if (data.metaPageId !== undefined) ctl.metaPageId = data.metaPageId
     if (data.metaLeadAdsEnabled !== undefined) ctl.metaLeadAdsEnabled = data.metaLeadAdsEnabled
-    await control.clinica.update({ where: { slug: ctx.slug }, data: ctl }).catch(() => {})
+    // Si esta denormalización falla, el webhook rutea con datos VIEJOS (leads perdidos
+    // o en otra clínica): el error debe verse, no tragarse.
+    await control.clinica.update({ where: { slug: ctx.slug }, data: ctl }).catch((e) => {
+      log.error('crm: no se pudo denormalizar metaPageId/metaLeadAdsEnabled al control-plane (el ruteo del webhook queda desactualizado)', { slug: ctx.slug, err: serializeError(e) })
+      captureError(e instanceof Error ? e : new Error(String(e)), { route: 'guardarConfigCrm-denormalizar' })
+    })
   }
   return obtenerConfigCrm(db)
 }

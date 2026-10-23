@@ -5,6 +5,7 @@ import { tenantClient } from '@/db/tenant'
 import { ingestarLeadMeta, getMetaLeadAdsConfig, registrarLeadAdsRecibido } from '@/services/crm.service'
 import { graphBase } from '@/lib/meta'
 import { log, serializeError } from '@/lib/logger'
+import { captureError } from '@/lib/observability'
 
 // Recepción NATIVA de leads del Formulario Instantáneo de Meta (Lead Ads), sin
 // Make/Zapier. Una sola App de Meta (plataforma) recibe el webhook `leadgen`;
@@ -240,10 +241,13 @@ async function procesarUnLead(v: LeadgenValue): Promise<void> {
   // TAREA 4/5: fetch + mapeo + dedup/ingesta (mismo pipeline que el reproceso).
   const res = await ejecutarPipeline(db, { leadgenId, pageToken: cfg.pageToken, pageId, formId: v.form_id, adId: v.ad_id, adsetId: v.adgroup_id, campaignId: v.campaign_id })
   if (res.resultado === 'error') {
-    // Antes el fallo era silencioso (Meta reportaba éxito y no aparecía nada). Ahora
-    // se registra el error de Graph con code/subcode y el tenant resuelto.
+    // Antes el fallo era silencioso (Meta reportaba éxito y no aparecía nada). Se registra
+    // el error de Graph, LLEGA a Sentry (típico: token de página vencido a los 60 días →
+    // todos los leads se pierden hasta renovarlo) y queda el leadgen_id para reprocesarlo
+    // a mano con /admin/meta/reprocesar-lead.
     const e = res.graphError
     log.error('meta-leadads: Graph fetch FALLÓ', { page_id: pageId, leadgen_id: leadgenId, form_id: v.form_id ?? null, tenant: clinica.slug, graphStatus: res.graphStatus, code: e?.code, subcode: e?.subcode, message: e?.message })
+    captureError(new Error(`meta-leadads: Graph fetch falló (lead PERDIDO hasta reproceso) · tenant=${clinica.slug} leadgen=${leadgenId} page=${pageId}: ${e?.message ?? res.graphStatus}`), { route: 'meta-leadads-webhook' })
     return
   }
   await registrarLeadAdsRecibido(db, { leadgenId, leadId: res.leadId, duplicado: res.resultado === 'duplicado' })
