@@ -81,5 +81,5 @@ export async function getHistorial(req: Request, res: Response) {
 // ── Odontograma ──
 export async function postDiente(req: Request, res: Response) {
   const input = upsertDienteSchema.parse(req.body)
-  res.json(await svc.upsertDiente(tenantDb(req), input))
+  res.json(await svc.upsertDiente(tenantDb(req), req.auth!.sub, input))
 }

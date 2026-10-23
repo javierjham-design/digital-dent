@@ -62,11 +62,15 @@ export async function postVincularLead(req: Request, res: Response) {
 }
 
 export async function getFicha(req: Request, res: Response) {
-  res.json(await obtenerFicha(tenantDb(req), req.params.id))
+  const db = tenantDb(req)
+  const dto = await obtenerFicha(db, req.params.id)
+  // Leer la ficha clínica directa también cuenta como acceso (registro legal).
+  if (req.auth) void registrarAccesoFicha(db, req.auth.sub, req.params.id)
+  res.json(dto)
 }
 
 export async function putFicha(req: Request, res: Response) {
-  res.json(await guardarFicha(tenantDb(req), req.params.id, req.body ?? {}))
+  res.json(await guardarFicha(tenantDb(req), req.auth!.sub, req.params.id, req.body ?? {}))
 }
 
 export async function getComentarios(req: Request, res: Response) {

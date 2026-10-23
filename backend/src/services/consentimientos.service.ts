@@ -1,5 +1,5 @@
 import type { TenantClient } from '@/db/tenant'
-import { badRequest, notFound } from '@/lib/errors'
+import { badRequest, forbidden, notFound } from '@/lib/errors'
 import { audit } from '@/lib/audit'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import { getPais } from '@shared/constants/paises'
@@ -362,10 +362,32 @@ export async function obtenerConsentimiento(db: TenantClient, id: string) {
   return c
 }
 
-// Eliminar: SOLO administrador (se controla en la ruta) + queda auditado.
+// Eliminar: permiso "puedeEliminar" (se controla en la ruta) + queda auditado.
+// Un consentimiento FIRMADO es evidencia legal: solo el administrador puede borrarlo,
+// el registro de auditoría preserva el contenido firmado (datosPrevios), y el borrado
+// va EN LA MISMA transacción que el registro (si no se puede dejar rastro, no se borra).
 export async function eliminarConsentimiento(db: TenantClient, actor: JwtPayload, id: string) {
-  const c = await db.consentimiento.findUnique({ where: { id }, select: { id: true, titulo: true, estado: true, pacienteId: true } })
+  const c = await db.consentimiento.findUnique({ where: { id } })
   if (!c) throw notFound('Consentimiento no encontrado')
+  if (c.estado === 'FIRMADO') {
+    if (actor.role !== 'admin' && !actor.isPlatformAdmin) {
+      throw forbidden('Un consentimiento FIRMADO es evidencia legal: solo un administrador puede eliminarlo.')
+    }
+    const u = await db.user.findUnique({ where: { id: actor.sub }, select: { name: true, email: true } }).catch(() => null)
+    await db.$transaction(async (tx) => {
+      await tx.auditLog.create({
+        data: {
+          userId: actor.sub, userNombre: u?.name ?? u?.email ?? null,
+          accion: 'ELIMINAR', entidad: 'Consentimiento', entidadId: id, pacienteId: c.pacienteId,
+          resumen: `Eliminó consentimiento FIRMADO "${c.titulo}"`.slice(0, 500),
+          // Evidencia completa: no se trunca a los 4000 del helper genérico.
+          datosPrevios: JSON.stringify({ titulo: c.titulo, firmadoAt: c.firmadoAt, firmaTipo: c.firmaTipo, responsableNombre: c.responsableNombre, contenidoHtml: c.contenidoHtml }),
+        },
+      })
+      await tx.consentimiento.delete({ where: { id } })
+    })
+    return { ok: true as const }
+  }
   await db.consentimiento.delete({ where: { id } })
   await audit(db, actor.sub, { accion: 'ELIMINAR', entidad: 'Consentimiento', entidadId: id, pacienteId: c.pacienteId, resumen: `Eliminó consentimiento "${c.titulo}" (${c.estado})` })
   return { ok: true as const }

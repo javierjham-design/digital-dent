@@ -1,5 +1,5 @@
 import type { TenantClient } from '@/db/tenant'
-import { badRequest, forbidden, notFound } from '@/lib/errors'
+import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import type { JwtPayload } from '@/services/auth.service'
 import { audit } from '@/lib/audit'
 import { advisoryLock } from '@/lib/agenda-lock'
@@ -157,11 +157,16 @@ export async function obtenerPlan(db: TenantClient, id: string) {
   return conTitularNombre({ ...plan, abonoLibre: abono._sum.monto ?? 0 })
 }
 
+const ESTADOS_PLAN = ['ACTIVO', 'FINALIZADO']
+
 export async function actualizarPlan(db: TenantClient, actorId: string, id: string, body: Record<string, unknown>) {
   const data: Record<string, unknown> = {}
   if (typeof body.nombre === 'string') data.nombre = body.nombre
   if (typeof body.notas === 'string' || body.notas === null) data.notas = body.notas
-  if (typeof body.estado === 'string') data.estado = body.estado
+  if (typeof body.estado === 'string') {
+    if (!ESTADOS_PLAN.includes(body.estado)) throw badRequest(`Estado de plan inválido. Use: ${ESTADOS_PLAN.join(', ')}`)
+    data.estado = body.estado
+  }
   if (typeof body.bloqueado === 'boolean') {
     // DESBLOQUEAR un presupuesto (bloqueado=false) exige permiso: al imprimir/enviar
     // el plan queda bloqueado y sólo puede reabrirlo un admin o quien tenga el permiso.
@@ -191,10 +196,23 @@ async function assertPlanDesbloqueado(db: TenantClient, planId: string | null | 
 }
 
 export async function eliminarPlan(db: TenantClient, actorId: string, id: string) {
-  const plan = await db.planTratamiento.findUnique({ where: { id }, select: { id: true, nombre: true, pacienteId: true } })
+  const plan = await db.planTratamiento.findUnique({ where: { id }, select: { id: true, nombre: true, pacienteId: true, tratamientos: { select: { id: true } } } })
   if (!plan) throw notFound('Plan no existe')
   // Eliminar un plan retira acciones de la ficha clínica: solo el administrador.
   if (!(await esAdmin(db, actorId))) throw forbidden('Solo un administrador puede eliminar un plan de tratamiento.')
+  // Un plan con PAGOS no se borra: sus acciones quedarían con planId=null (SetNull) y
+  // los abonos del plan apuntando a un plan inexistente → crédito pagado INVISIBLE en
+  // la ficha financiera (misma clase de incidente que protegió eliminarTratamiento).
+  const tratIds = plan.tratamientos.map((t) => t.id)
+  const pagos = await db.cobroItem.count({
+    where: {
+      cobro: { estado: 'PAGADO', anulado: false },
+      OR: [{ planId: id }, ...(tratIds.length ? [{ tratamientoId: { in: tratIds } }] : [])],
+    },
+  })
+  if (pagos > 0) {
+    throw conflict('El plan tiene pagos registrados (acciones pagadas o abonos). Anula los cobros o deriva el abono a otro plan antes de eliminarlo.')
+  }
   await db.planTratamiento.delete({ where: { id } })
   await audit(db, actorId, { accion: 'ELIMINAR', entidad: 'PlanTratamiento', entidadId: id, pacienteId: plan.pacienteId, resumen: `Eliminó el plan "${plan.nombre}"` })
 }
@@ -275,14 +293,21 @@ export async function crearTratamiento(db: TenantClient, actorId: string, body: 
   }
 
   const me = await actorPermisos(db, actorId)
-  const precioFinal = me.permisos.puedeModificarPrecio ? Number(body.precio) : prestacion.precio
+  // Precio del body solo si es un número válido y no negativo; si no (p.ej. body sin
+  // precio → NaN, que Postgres acepta y rompe los totales del plan), el de la prestación.
+  const precioBody = Number(body.precio)
+  const precioFinal = me.permisos.puedeModificarPrecio && Number.isFinite(precioBody) && precioBody >= 0
+    ? Math.round(precioBody) : prestacion.precio
   const descuentoFinal = me.permisos.puedeAplicarDescuento && typeof body.descuento === 'number'
     ? Math.max(0, Math.min(100, body.descuento)) : 0
 
   let doctorIdDefault: string | null = null
   if (body.planId) {
-    const plan = await db.planTratamiento.findUnique({ where: { id: body.planId }, select: { id: true, doctorTitularId: true, area: true } })
+    const plan = await db.planTratamiento.findUnique({ where: { id: body.planId }, select: { id: true, doctorTitularId: true, area: true, pacienteId: true } })
     if (!plan) throw notFound('Plan no encontrado')
+    // Coherencia de ficha: la acción se crea en la ficha del paciente del body; el plan
+    // debe ser del MISMO paciente (si no, queda una acción colgada del plan de otro).
+    if (plan.pacienteId !== body.pacienteId) throw badRequest('El plan pertenece a otro paciente.')
     doctorIdDefault = plan.doctorTitularId
     // Un plan es de UN área: la acción debe ser de esa misma área (la de su prestación).
     if (plan.area && area !== plan.area) {
@@ -290,8 +315,9 @@ export async function crearTratamiento(db: TenantClient, actorId: string, body: 
     }
   }
   if (body.seccionId) {
-    const seccion = await db.seccionPlan.findUnique({ where: { id: body.seccionId }, select: { id: true } })
+    const seccion = await db.seccionPlan.findUnique({ where: { id: body.seccionId }, select: { id: true, planId: true } })
     if (!seccion) throw notFound('Sección no encontrada')
+    if (body.planId && seccion.planId !== body.planId) throw badRequest('La sección no pertenece al plan indicado.')
   }
 
   let ficha = await db.fichaClinica.findUnique({ where: { pacienteId: body.pacienteId } })
@@ -327,6 +353,8 @@ export async function crearTratamiento(db: TenantClient, actorId: string, body: 
   return creados
 }
 
+const ESTADOS_ACCION = ['PLANIFICADO', 'COMPLETADO', 'CANCELADO']
+
 export async function actualizarTratamiento(db: TenantClient, actorId: string, id: string, body: Record<string, unknown>) {
   const existing = await db.tratamiento.findUnique({
     where: { id },
@@ -349,6 +377,7 @@ export async function actualizarTratamiento(db: TenantClient, actorId: string, i
   }
 
   if (typeof body.estado === 'string') {
+    if (!ESTADOS_ACCION.includes(body.estado)) throw badRequest(`Estado de acción inválido. Use: ${ESTADOS_ACCION.join(', ')}`)
     const saliendoDeCompletado = existing.estado === 'COMPLETADO' && body.estado !== 'COMPLETADO'
     if (saliendoDeCompletado) {
       if (!me.permisos.puedeRevertirCompletado) {
@@ -367,21 +396,54 @@ export async function actualizarTratamiento(db: TenantClient, actorId: string, i
   if (typeof body.diente === 'number' || body.diente === null) data.diente = body.diente
   if (typeof body.cara === 'string' || body.cara === null) data.cara = body.cara
   if (typeof body.doctorId === 'string' || body.doctorId === null) data.doctorId = body.doctorId
-  if (typeof body.planId === 'string' || body.planId === null) data.planId = body.planId
-  if (typeof body.seccionId === 'string' || body.seccionId === null) data.seccionId = body.seccionId
+  // planId/seccionId: validar existencia y PERTENENCIA (un id crudo podía colgar la
+  // acción —con sus pagos— del plan de otro paciente).
+  if (typeof body.planId === 'string' || body.planId === null) {
+    if (typeof body.planId === 'string') {
+      const plan = await db.planTratamiento.findUnique({ where: { id: body.planId }, select: { pacienteId: true } })
+      if (!plan) throw notFound('Plan no encontrado')
+      if (plan.pacienteId !== existing.ficha.pacienteId) throw badRequest('El plan pertenece a otro paciente.')
+    }
+    data.planId = body.planId
+  }
+  if (typeof body.seccionId === 'string' || body.seccionId === null) {
+    if (typeof body.seccionId === 'string') {
+      const planEfectivo = (data.planId as string | null | undefined) !== undefined ? (data.planId as string | null) : existing.planId
+      const seccion = await db.seccionPlan.findUnique({ where: { id: body.seccionId }, select: { planId: true } })
+      if (!seccion) throw notFound('Sección no encontrada')
+      if (seccion.planId !== planEfectivo) throw badRequest('La sección no pertenece al plan de la acción.')
+    }
+    data.seccionId = body.seccionId
+  }
   if (body.fechaCompletado === null) data.fechaCompletado = null
   else if (typeof body.fechaCompletado === 'string') data.fechaCompletado = new Date(body.fechaCompletado)
 
   if (typeof body.precio === 'number') {
     if (!me.permisos.puedeModificarPrecio) throw forbidden('No tienes permisos para modificar el precio')
-    data.precio = body.precio
+    if (!Number.isFinite(body.precio) || body.precio < 0) throw badRequest('Precio inválido')
+    data.precio = Math.round(body.precio)
   }
   if (typeof body.descuento === 'number') {
     if (!me.permisos.puedeAplicarDescuento) throw forbidden('No tienes permisos para aplicar descuentos')
+    if (!Number.isFinite(body.descuento)) throw badRequest('Descuento inválido')
     data.descuento = Math.max(0, Math.min(100, body.descuento))
   }
 
-  const updated = await db.tratamiento.update({ where: { id }, data, include: { prestacion: true } })
+  // Dinero#5: CANCELAR una acción con pagos hacía "desaparecer" su pago (totalesDePlan
+  // excluye CANCELADO) → tope de abono inflado y plata invisible. Igual que al eliminar,
+  // sus CobroItem se convierten en abono libre del plan; sin plan y con pagos, se bloquea.
+  const cancelando = data.estado === 'CANCELADO' && existing.estado !== 'CANCELADO'
+  const updated = cancelando
+    ? await db.$transaction(async (tx) => {
+        if (existing.planId) {
+          await tx.cobroItem.updateMany({ where: { tratamientoId: id }, data: { tratamientoId: null, planId: existing.planId } })
+        } else {
+          const pagos = await tx.cobroItem.count({ where: { tratamientoId: id, cobro: { estado: 'PAGADO', anulado: false } } })
+          if (pagos > 0) throw badRequest('Esta acción tiene pagos y no pertenece a un plan. Muévela a un plan antes de cancelarla para no perder el abono.')
+        }
+        return tx.tratamiento.update({ where: { id }, data, include: { prestacion: true } })
+      })
+    : await db.tratamiento.update({ where: { id }, data, include: { prestacion: true } })
   if (tocaPresupuesto && Object.keys(data).length > 0) {
     await audit(db, actorId, {
       accion: 'EDITAR', entidad: 'Tratamiento', entidadId: id, pacienteId: existing.ficha.pacienteId,
@@ -552,8 +614,10 @@ export async function crearEvolucion(db: TenantClient, actorId: string, body: { 
   const paciente = await db.paciente.findUnique({ where: { id: body.pacienteId }, select: { id: true } })
   if (!paciente) throw notFound('Paciente no encontrado')
   if (body.tratamientoId) {
-    const t = await db.tratamiento.findUnique({ where: { id: body.tratamientoId }, select: { id: true } })
+    const t = await db.tratamiento.findUnique({ where: { id: body.tratamientoId }, select: { id: true, ficha: { select: { pacienteId: true } } } })
     if (!t) throw notFound('Tratamiento no encontrado')
+    // Coherencia de ficha: la evolución del paciente A no puede colgarse de la acción del B.
+    if (t.ficha.pacienteId !== body.pacienteId) throw badRequest('La acción pertenece a otro paciente.')
   }
   const creada = await db.evolucion.create({
     data: {
@@ -589,8 +653,9 @@ export async function eliminarEvolucion(db: TenantClient, actor: JwtPayload, id:
 
 // ── Odontograma ──────────────────────────────────────────────────────────────
 
-export async function upsertDiente(db: TenantClient, body: { pacienteId?: string; fichaId?: string; numero: number; estado: string }) {
+export async function upsertDiente(db: TenantClient, actorId: string, body: { pacienteId?: string; fichaId?: string; numero: number; estado: string }) {
   let fichaId = body.fichaId
+  let pacienteId = body.pacienteId ?? null
   if (!fichaId) {
     if (!body.pacienteId) throw badRequest('Falta pacienteId o fichaId')
     const paciente = await db.paciente.findUnique({ where: { id: body.pacienteId }, select: { id: true } })
@@ -599,12 +664,23 @@ export async function upsertDiente(db: TenantClient, body: { pacienteId?: string
     if (!ficha) ficha = await db.fichaClinica.create({ data: { pacienteId: body.pacienteId } })
     fichaId = ficha.id
   } else {
-    const ficha = await db.fichaClinica.findUnique({ where: { id: fichaId }, select: { id: true } })
+    const ficha = await db.fichaClinica.findUnique({ where: { id: fichaId }, select: { id: true, pacienteId: true } })
     if (!ficha) throw notFound('Ficha no encontrada')
+    pacienteId = ficha.pacienteId
   }
-  return db.diente.upsert({
+  const previo = await db.diente.findUnique({ where: { fichaId_numero_cara: { fichaId, numero: body.numero, cara: '' } }, select: { estado: true } })
+  const diente = await db.diente.upsert({
     where: { fichaId_numero_cara: { fichaId, numero: body.numero, cara: '' } },
     update: { estado: body.estado },
     create: { fichaId, numero: body.numero, cara: '', estado: body.estado },
   })
+  // Trazabilidad del registro clínico: cambiar el estado de un diente deja constancia.
+  if (previo?.estado !== body.estado) {
+    await audit(db, actorId, {
+      accion: previo ? 'EDITAR' : 'CREAR', entidad: 'Diente', entidadId: diente.id, pacienteId,
+      resumen: `Odontograma: pieza ${body.numero} → ${body.estado}${previo ? ` (antes ${previo.estado})` : ''}`,
+      datosPrevios: previo ?? undefined,
+    })
+  }
+  return diente
 }

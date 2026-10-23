@@ -294,7 +294,7 @@ export async function obtenerFicha(db: TenantClient, pacienteId: string) {
 
 const FICHA_FLAGS = ['grupoSanguineo', 'fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia', 'anticoagulantes', 'medicamentos', 'notasClinicas', 'alertasMedicas', 'enfermedadesNotas', 'motivoAtencion', 'impresionMedica', 'resumenDiagnostico']
 
-export async function guardarFicha(db: TenantClient, pacienteId: string, body: Record<string, unknown>) {
+export async function guardarFicha(db: TenantClient, actorId: string, pacienteId: string, body: Record<string, unknown>) {
   const paciente = await db.paciente.findUnique({ where: { id: pacienteId }, select: { id: true } })
   if (!paciente) throw notFound('Paciente no encontrado')
   const data: Record<string, unknown> = {}
@@ -304,7 +304,18 @@ export async function guardarFicha(db: TenantClient, pacienteId: string, body: R
     if (['fumador', 'embarazada', 'diabetico', 'hipertenso', 'cardiopatia', 'anticoagulantes'].includes(k)) data[k] = Boolean(v)
     else data[k] = v ? String(v) : null
   }
-  return db.fichaClinica.upsert({ where: { pacienteId }, update: data, create: { pacienteId, ...data } })
+  // Auditoría (Ley 20.584): cambiar alertas médicas/notas clínicas de la ficha debe
+  // dejar traza con los valores previos (antes era un upsert mudo).
+  const previa = await db.fichaClinica.findUnique({ where: { pacienteId } })
+  const resultado = await db.fichaClinica.upsert({ where: { pacienteId }, update: data, create: { pacienteId, ...data } })
+  const previos: Record<string, unknown> = {}
+  if (previa) for (const k of Object.keys(data)) previos[k] = (previa as Record<string, unknown>)[k]
+  await audit(db, actorId, {
+    accion: previa ? 'EDITAR' : 'CREAR', entidad: 'FichaClinica', entidadId: resultado.id, pacienteId,
+    resumen: `${previa ? 'Editó' : 'Creó'} la ficha clínica (${Object.keys(data).join(', ') || 'sin cambios'})`,
+    datosPrevios: previa ? previos : undefined,
+  })
+  return resultado
 }
 
 async function assertPaciente(db: TenantClient, pacienteId: string) {
@@ -406,22 +417,32 @@ function pickString(row: Row, keys: string[]): string {
   for (const k of keys) { const v = row[k]; if (v == null) continue; const s = String(v).trim(); if (s) return s }
   return ''
 }
+// Componentes de fecha VALIDADOS: "05/15/1990" (mes 15, formato US) antes pasaba el
+// regex d/m/y y Date.UTC lo normalizaba en silencio al 5-mar-1991.
+function fechaValida(y: number, m: number, d: number): Date | null {
+  if (m < 1 || m > 12 || d < 1 || d > 31) return null
+  const f = new Date(Date.UTC(y, m - 1, d))
+  return f.getUTCMonth() === m - 1 && f.getUTCDate() === d ? f : null
+}
 function parseFecha(raw: unknown): Date | null {
   if (raw == null || raw === '') return null
   if (typeof raw === 'number' && Number.isFinite(raw)) {
     const p = XLSX.SSF.parse_date_code(raw)
-    if (p) return new Date(Date.UTC(p.y, p.m - 1, p.d))
+    if (p) return fechaValida(p.y, p.m, p.d)
   }
   if (raw instanceof Date && !isNaN(raw.getTime())) return new Date(Date.UTC(raw.getFullYear(), raw.getMonth(), raw.getDate()))
   const s = String(raw).trim()
   if (!s) return null
   const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/)
-  if (iso) return new Date(Date.UTC(+iso[1], +iso[2] - 1, +iso[3]))
+  if (iso) return fechaValida(+iso[1], +iso[2], +iso[3])
   const dmy = s.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})/)
-  if (dmy) { let y = +dmy[3]; if (y < 100) y += y < 50 ? 2000 : 1900; return new Date(Date.UTC(y, +dmy[2] - 1, +dmy[1])) }
+  if (dmy) { let y = +dmy[3]; if (y < 100) y += y < 50 ? 2000 : 1900; return fechaValida(y, +dmy[2], +dmy[1]) }
   const fb = new Date(s)
   return isNaN(fb.getTime()) ? null : fb
 }
+// Clave de RUT por dígitos (sin puntos/guión): el dedupe contra la BD debe matchear
+// también fichas legacy guardadas sin formato ("12345678-9" vs "12.345.678-9").
+const claveRut = (r: string) => r.replace(/[^0-9kK]/g, '').toUpperCase()
 
 export async function importarPacientes(db: TenantClient, fileBuffer: Buffer) {
   let rows: Row[]
@@ -436,8 +457,10 @@ export async function importarPacientes(db: TenantClient, fileBuffer: Buffer) {
 
   const pais = await paisDe(db)
   const errores: { fila: number; motivo: string }[] = []
-  const validos: { rut: string | null; nombre: string; apellido: string; telefono: string | null; email: string | null; direccion: string | null; fechaNacimiento: Date | null }[] = []
+  const avisos: { fila: number; motivo: string }[] = []
+  const validos: { fila: number; rut: string | null; nombre: string; apellido: string; telefono: string | null; email: string | null; direccion: string | null; fechaNacimiento: Date | null }[] = []
   const rutsEnArchivo = new Set<string>()
+  const contactosEnArchivo = new Set<string>()
 
   rows.forEach((row, idx) => {
     const fila = idx + 2
@@ -462,19 +485,57 @@ export async function importarPacientes(db: TenantClient, fileBuffer: Buffer) {
       if (rutsEnArchivo.has(norm)) { errores.push({ fila, motivo: `RUT duplicado en el archivo: ${norm}` }); return }
       rutsEnArchivo.add(norm)
       rut = norm
+    } else {
+      // Sin RUT, el dedupe es por nombre+contacto: re-subir el mismo archivo duplicaba
+      // TODAS las filas sin RUT.
+      const contacto = (telefono || email || '').toLowerCase()
+      if (contacto) {
+        const clave = `${nombre.toLowerCase()}|${apellido.toLowerCase()}|${contacto}`
+        if (contactosEnArchivo.has(clave)) { errores.push({ fila, motivo: 'Fila repetida en el archivo (mismo nombre y contacto)' }); return }
+        contactosEnArchivo.add(clave)
+      }
     }
-    validos.push({ rut, nombre, apellido, telefono: telefono || null, email: email || null, direccion: direccion || null, fechaNacimiento: parseFecha(fechaRaw) })
+    const fechaNacimiento = parseFecha(fechaRaw)
+    if (fechaRaw != null && String(fechaRaw).trim() && !fechaNacimiento) {
+      avisos.push({ fila, motivo: `Fecha de nacimiento ilegible ("${String(fechaRaw).trim().slice(0, 20)}"): la fila se importó sin fecha` })
+    }
+    validos.push({ fila, rut, nombre, apellido, telefono: telefono || null, email: email || null, direccion: direccion || null, fechaNacimiento })
   })
 
   let duplicadosEnDB = 0
-  const rutsConsulta = validos.map((v) => v.rut).filter((r): r is string => r !== null)
-  if (rutsConsulta.length > 0) {
-    const existentes = await db.paciente.findMany({ where: { rut: { in: rutsConsulta } }, select: { rut: true } })
-    const setExistentes = new Set(existentes.map((e) => e.rut).filter((r): r is string => r !== null))
-    if (setExistentes.size > 0) {
-      const filtrados = validos.filter((v) => { if (v.rut && setExistentes.has(v.rut)) { duplicadosEnDB++; return false } return true })
-      validos.length = 0
-      validos.push(...filtrados)
+  const quitarDuplicado = (pred: (v: (typeof validos)[number]) => boolean) => {
+    const filtrados = validos.filter((v) => { if (pred(v)) { duplicadosEnDB++; return false } return true })
+    validos.length = 0
+    validos.push(...filtrados)
+  }
+  if (validos.some((v) => v.rut !== null)) {
+    // Comparación por CLAVE de RUT (solo dígitos): también matchea fichas legacy
+    // guardadas sin puntos (importes previos al endurecimiento de formato).
+    const existentes = await db.paciente.findMany({ where: { rut: { not: null } }, select: { rut: true } })
+    const setExistentes = new Set(existentes.map((e) => claveRut(e.rut!)))
+    if (setExistentes.size > 0) quitarDuplicado((v) => v.rut !== null && setExistentes.has(claveRut(v.rut)))
+  }
+  // Dedupe contra la BD de las filas SIN RUT: mismo nombre+apellido y mismo teléfono o email.
+  const sinRutConContacto = validos.filter((v) => v.rut === null && (v.telefono || v.email))
+  if (sinRutConContacto.length > 0) {
+    const tels = [...new Set(sinRutConContacto.map((v) => v.telefono).filter((t): t is string => Boolean(t)))]
+    const emails = [...new Set(sinRutConContacto.map((v) => v.email).filter((e): e is string => Boolean(e)))]
+    const candidatos = await db.paciente.findMany({
+      where: { OR: [...(tels.length ? [{ telefono: { in: tels } }] : []), ...(emails.length ? [{ email: { in: emails } }] : [])] },
+      select: { nombre: true, apellido: true, telefono: true, email: true },
+    })
+    const clavesDB = new Set<string>()
+    for (const c of candidatos) {
+      const base = `${c.nombre.toLowerCase()}|${c.apellido.toLowerCase()}`
+      if (c.telefono) clavesDB.add(`${base}|${c.telefono.toLowerCase()}`)
+      if (c.email) clavesDB.add(`${base}|${c.email.toLowerCase()}`)
+    }
+    if (clavesDB.size > 0) {
+      quitarDuplicado((v) => {
+        if (v.rut !== null) return false
+        const base = `${v.nombre.toLowerCase()}|${v.apellido.toLowerCase()}`
+        return Boolean((v.telefono && clavesDB.has(`${base}|${v.telefono.toLowerCase()}`)) || (v.email && clavesDB.has(`${base}|${v.email.toLowerCase()}`)))
+      })
     }
   }
 
@@ -489,10 +550,14 @@ export async function importarPacientes(db: TenantClient, fileBuffer: Buffer) {
     const esSqlite = Boolean(process.env.VITEST)
     const result = await db.$transaction(async (tx) => {
       const primero = await siguienteNumero(tx, 'paciente')
-      const data = validos.map((v, i) => ({ ...v, numero: primero + i, activo: true }))
+      const data = validos.map(({ fila: _fila, ...v }, i) => ({ ...v, numero: primero + i, activo: true }))
       return tx.paciente.createMany({ data, ...(esSqlite ? {} : { skipDuplicates: true }) })
     })
     creados = result.count
+    // Filas omitidas por skipDuplicates (carrera de RUT): que el resumen lo explique.
+    if (creados < validos.length) {
+      avisos.push({ fila: 0, motivo: `${validos.length - creados} fila(s) omitida(s) por RUT creado por otra persona durante la importación` })
+    }
   }
-  return { total: rows.length, creados, duplicados: duplicadosEnDB, sinRut: validos.filter((v) => v.rut === null).length, errores }
+  return { total: rows.length, creados, duplicados: duplicadosEnDB, sinRut: validos.filter((v) => v.rut === null).length, errores, avisos }
 }
