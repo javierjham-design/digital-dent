@@ -33,23 +33,24 @@ export async function crearPresupuesto(db: TenantClient, body: { pacienteId: str
   if (!paciente) throw notFound('Paciente no encontrado')
   if (!Array.isArray(body.items) || body.items.length === 0) throw badRequest('Agrega al menos un ítem al presupuesto')
 
+  // El documento es informativo (no alimenta cobros), pero sale con la identidad de la
+  // clínica: los subtotales y el total se RECALCULAN en el server, no se confía en el cliente.
+  const items = body.items.map((it) => {
+    const cantidad = Math.max(1, Math.round(Number(it.cantidad) || 1))
+    const precioUnitario = Math.round(Number(it.precioUnitario))
+    if (!Number.isFinite(precioUnitario) || precioUnitario < 0) throw badRequest('Precio unitario inválido en un ítem')
+    const descuento = Math.max(0, Math.min(100, Number(it.descuento) || 0))
+    const subtotal = Math.round(cantidad * precioUnitario * (1 - descuento / 100))
+    return { prestacionId: it.prestacionId, cantidad, precioUnitario, descuento, subtotal }
+  })
+  const total = items.reduce((s, it) => s + it.subtotal, 0)
+
   // Correlativo dentro de la transacción (advisory lock) para que dos presupuestos
   // simultáneos no obtengan el mismo número (numero es @unique).
   return db.$transaction(async (tx) => {
     const numero = await siguienteNumero(tx, 'presupuesto')
     return tx.presupuesto.create({
-      data: {
-        pacienteId: body.pacienteId, numero, total: Number(body.total),
-        items: {
-          create: body.items.map((it) => ({
-            prestacionId: it.prestacionId,
-            cantidad: it.cantidad,
-            precioUnitario: it.precioUnitario,
-            descuento: it.descuento ?? 0,
-            subtotal: it.subtotal,
-          })),
-        },
-      },
+      data: { pacienteId: body.pacienteId, numero, total, items: { create: items } },
       include: { items: true },
     })
   })

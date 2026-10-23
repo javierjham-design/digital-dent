@@ -82,11 +82,15 @@ export async function crearLinkParaCobro(db: TenantClient, cobroId: string, opts
     return { estado: 'no_configurada', mensaje: 'Aún no están cargadas las credenciales de Flow de la clínica. Configúralas en Ajustes → Pagos online.' }
   }
 
-  // ¿Ya hay un link para este cobro? Si sigue VIGENTE (dentro de las 48 h), se reutiliza
-  // en vez de crear otro. Los PENDIENTES ya EXPIRADOS se marcan ANULADO (link muerto).
+  // ¿Ya hay un link para este cobro? Si sigue VIGENTE (dentro de las 48 h) Y su monto
+  // coincide con el monto ACTUAL del cobro, se reutiliza. Un link con monto distinto
+  // (el cobro se editó después de generarlo) se anula: pagarlo dejaría el cobro PAGADO
+  // por más/menos plata de la que realmente entró.
   const previos = await db.pagoOnline.findMany({ where: { cobroId: cobro.id, estado: 'PENDIENTE' }, orderBy: { createdAt: 'desc' } })
   for (const p of previos) {
-    if (estaVigente(p)) return { estado: 'ok', url: p.url!, pagoId: p.id, expiraEn: expiraDe(p.createdAt).toISOString(), reusado: true }
+    if (estaVigente(p) && Math.round(p.monto) === Math.round(cobro.monto)) {
+      return { estado: 'ok', url: p.url!, pagoId: p.id, expiraEn: expiraDe(p.createdAt).toISOString(), reusado: true }
+    }
     await db.pagoOnline.update({ where: { id: p.id }, data: { estado: 'ANULADO' } }).catch(() => {})
   }
 
@@ -159,8 +163,14 @@ export async function procesarWebhookFlow(db: TenantClient, token: string): Prom
     // string metodoPago): así la UI lo muestra como Flow y no como "sin medio". La caja se
     // concilia aparte: aquí no generamos movimiento de caja automáticamente.
     if (pago.cobroId) {
-      const cobro = await tx.cobro.findUnique({ where: { id: pago.cobroId }, select: { estado: true, anulado: true } })
-      if (cobro && !cobro.anulado && cobro.estado !== 'PAGADO') {
+      const cobro = await tx.cobro.findUnique({ where: { id: pago.cobroId }, select: { estado: true, anulado: true, monto: true } })
+      if (cobro && Math.round(cobro.monto) !== Math.round(pago.monto)) {
+        // El cobro se editó después de generar el link: lo pagado NO cubre el monto
+        // vigente. El pago queda PAGADO (la plata entró) pero el cobro sigue PENDIENTE
+        // para que la clínica lo concilie a mano, en vez de marcar PAGADO por un monto
+        // distinto al que realmente entró.
+        console.warn(`[flow] pago ${pago.id} recibido por ${pago.monto} pero el cobro ${pago.cobroId} vale ${cobro.monto}: el cobro queda PENDIENTE para conciliación manual`)
+      } else if (cobro && !cobro.anulado && cobro.estado !== 'PAGADO') {
         // Medio "Flow" (filtro en JS, no `mode:insensitive` que SQLite —los tests— no soporta).
         const medios = await tx.medioPago.findMany({ select: { id: true, nombre: true } })
         const medioFlow = medios.find((m) => m.nombre.trim().toLowerCase() === 'flow') ?? null
@@ -169,6 +179,9 @@ export async function procesarWebhookFlow(db: TenantClient, token: string): Prom
           data: { estado: 'PAGADO', metodoPago: 'FLOW', fechaPago: new Date(), ...(medioFlow ? { medioPagoId: medioFlow.id } : {}) },
         })
         cobroConciliado = true
+      } else if (cobro && cobro.anulado) {
+        // Plata real contra un cobro ANULADO: no se toca el cobro, pero queda rastro.
+        console.warn(`[flow] pago ${pago.id} PAGADO contra el cobro ANULADO ${pago.cobroId}: revisar devolución/conciliación manual`)
       }
     }
     return true
@@ -192,6 +205,14 @@ export async function procesarWebhookFlow(db: TenantClient, token: string): Prom
     })
     if (cita && !cita.abonoPagado) {
       await db.cita.update({ where: { id: cita.id }, data: { abonoPagado: true, logs: { create: { tipo: 'AGENDADA', detalle: 'Abono pagado y confirmado (Flow)', userName: 'Sistema' } } } }).catch(() => {})
+      // Con el abono pagado, la cita entra al flujo normal: evento a TuBot (gated por el
+      // Gestor de IA) + push a Google. Imports dinámicos para evitar ciclos de módulos.
+      try {
+        const { emitirEventoCita } = await import('@/lib/tubot-webhooks')
+        const { pushCita } = await import('@/lib/google-sync')
+        void emitirEventoCita(db, 'appointment.created', cita.id)
+        void pushCita(db, cita.id).catch(() => undefined)
+      } catch { /* best-effort */ }
       // Import dinámico para evitar un ciclo de módulos (pagos ↔ email ↔ cobros).
       const { enviarConfirmacionHora } = await import('@/services/email.service')
       void enviarConfirmacionHora(db, {

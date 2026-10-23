@@ -21,7 +21,8 @@ export const crearCitaSchema = z.object({
   pacienteId: z.string().min(1),
   doctorId: z.string().min(1),
   fecha: z.string().min(1),
-  duracion: z.number().int().positive().optional(),
+  // Tope 24 h: una cita más larga que el lookback de findSolapada escapaba al anti-solape.
+  duracion: z.number().int().positive().max(1440).optional(),
   tipo: z.string().optional(),
   notas: z.string().nullish(),
   sobrecupo: z.boolean().optional(),
@@ -35,7 +36,7 @@ export const cambiarEstadoSchema = z.object({
 
 export const editarCitaSchema = z.object({
   fecha: z.string().optional(),
-  duracion: z.number().int().positive().optional(),
+  duracion: z.number().int().positive().max(1440).optional(),
   doctorId: z.string().optional(),
   tipo: z.string().optional(),
   notas: z.string().nullish(),
@@ -46,7 +47,7 @@ export const editarCitaSchema = z.object({
 export const reprogramarCitaSchema = z.object({
   fecha: z.string().min(1),
   doctorId: z.string().optional(),
-  duracion: z.number().int().positive().optional(),
+  duracion: z.number().int().positive().max(1440).optional(),
   sobrecupo: z.boolean().optional(),
   boxId: z.string().nullish(),
 })
@@ -198,7 +199,7 @@ export const crearCobroSchema = z.object({
   medioPagoId: z.string().optional(),
   // Segundo medio de pago (pago dividido): monto2 va a este medio.
   medioPago2Id: z.string().optional(),
-  monto2: z.number().optional(),
+  monto2: z.number().int().positive().optional(),
   numeroReferencia2: z.string().optional(),
   aplicarAbonoLibre: z.boolean().optional(),
   reciboUsuarioId: z.string().optional(),
@@ -210,7 +211,7 @@ export const crearCobroSchema = z.object({
     tratamientoId: z.string().optional(),
     planId: z.string().optional(),
     descripcion: z.string().min(1),
-    monto: z.number(),
+    monto: z.number().int('El monto debe ser un entero (CLP)').positive('El monto debe ser mayor a 0'),
   })).min(1, 'Agrega al menos un item.'),
 })
 
@@ -221,7 +222,7 @@ export const cobroLinkPagoSchema = z.object({
     tratamientoId: z.string().optional(),
     planId: z.string().optional(),
     descripcion: z.string().min(1),
-    monto: z.number(),
+    monto: z.number().int('El monto debe ser un entero (CLP)').positive('El monto debe ser mayor a 0'),
   })).min(1, 'Agrega al menos un item.'),
 })
 

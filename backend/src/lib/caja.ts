@@ -29,13 +29,11 @@ export async function calcularSaldoSugerido(db: TenantClient, cajaId: string): P
   const caja = await db.caja.findUnique({ where: { id: cajaId }, select: { saldoInicial: true } })
   const orphans = await db.movimientoCaja.findMany({
     where: { cajaId, sesionCajaId: null, anulado: false },
-    select: { tipo: true, monto: true, cobro: { select: { medioPago: { select: { nombre: true } } } } },
+    select: { tipo: true, monto: true, cobro: { select: { monto: true, monto2: true, medioPago: { select: { nombre: true } }, medioPago2: { select: { nombre: true } } } } },
   })
-  // Sólo el efectivo afecta el saldo físico de caja (ingresos con tarjeta no).
-  const orphanSaldo = orphans.reduce((s, m) => {
-    if (m.tipo === 'EGRESO') return s - m.monto
-    return cobroEsEfectivo(m.cobro) ? s + m.monto : s
-  }, 0)
+  // Sólo el efectivo afecta el saldo físico de caja (ingresos con tarjeta no);
+  // un pago dividido aporta solamente su tramo en efectivo.
+  const orphanSaldo = orphans.reduce((s, m) => (m.tipo === 'EGRESO' ? s - m.monto : s + efectivoDeIngreso(m)), 0)
   return (caja?.saldoInicial ?? 0) + orphanSaldo
 }
 
@@ -67,6 +65,26 @@ export const esMedioEfectivo = (nombre?: string | null): boolean => !nombre || /
 export const cobroEsEfectivo = (cobro: { medioPago: { nombre: string | null } | null } | null | undefined): boolean =>
   !cobro || !cobro.medioPago || esMedioEfectivo(cobro.medioPago.nombre)
 
+// Pago DIVIDIDO: monto2 va al segundo medio y el resto (monto − monto2) al primero.
+// Clasificar el cobro completo por el medio principal inflaba/deflactaba el efectivo
+// esperado del arqueo en cada split que mezclara efectivo con otro medio.
+export interface CobroConMedios {
+  monto: number; monto2?: number | null
+  medioPago: { nombre: string | null } | null
+  medioPago2?: { nombre: string | null } | null
+}
+export function tramosDeCobro(c: CobroConMedios): { nombre: string; monto: number }[] {
+  const monto2 = c.monto2 && c.monto2 > 0 ? c.monto2 : 0
+  const tramos = [{ nombre: c.medioPago?.nombre || 'Efectivo', monto: c.monto - monto2 }]
+  if (monto2 > 0) tramos.push({ nombre: c.medioPago2?.nombre || 'Efectivo', monto: monto2 })
+  return tramos
+}
+// Porción en EFECTIVO de un ingreso (bruto): manual → su monto; cobro → sus tramos efectivo.
+export function efectivoDeIngreso(m: { monto: number; cobro: CobroConMedios | null }): number {
+  if (!m.cobro) return m.monto
+  return tramosDeCobro(m.cobro).reduce((s, t) => (esMedioEfectivo(t.nombre) ? s + t.monto : s), 0)
+}
+
 // Resumen acumulado de una sesión. IMPORTANTE: el dinero FÍSICO en caja
 // (saldoEsperado/efectivoEsperado) considera SÓLO el efectivo; los pagos con
 // tarjeta/transferencia se registran por su medio pero NO suman al efectivo.
@@ -90,7 +108,7 @@ export async function calcularResumenSesion(db: TenantClient, sesionId: string) 
         { sesionCajaId: null, fecha: { gte: sesion.abiertaAt, lte: hasta } },
       ],
     },
-    select: { tipo: true, monto: true, cobro: { select: { monto: true, medioPago: { select: { nombre: true } } } } },
+    select: { tipo: true, monto: true, cobro: { select: { monto: true, monto2: true, medioPago: { select: { nombre: true } }, medioPago2: { select: { nombre: true } } } } },
   })
   // La caja registra lo EXACTAMENTE cobrado (bruto): si el movimiento viene de un
   // cobro, se usa el monto bruto del cobro (sin descontar la retención del medio,
@@ -99,15 +117,20 @@ export async function calcularResumenSesion(db: TenantClient, sesionId: string) 
   const ingresosMov = movs.filter((m) => m.tipo === 'INGRESO')
   const egresos = movs.filter((m) => m.tipo === 'EGRESO').reduce((s, m) => s + m.monto, 0)
   const ingresos = ingresosMov.reduce((s, m) => s + bruto(m), 0) // recaudación total (todos los medios)
-  const ingresosEfectivo = ingresosMov.filter((m) => cobroEsEfectivo(m.cobro)).reduce((s, m) => s + bruto(m), 0)
+  // Efectivo por TRAMO: un pago dividido suma al efectivo solo su porción en efectivo.
+  const ingresosEfectivo = ingresosMov.reduce((s, m) => s + efectivoDeIngreso(m), 0)
   const ingresosOtros = ingresos - ingresosEfectivo
 
-  // Desglose por método de pago (para el reporte de recaudación).
+  // Desglose por método de pago (para el reporte de recaudación), por tramo.
   const map = new Map<string, { monto: number; cantidad: number }>()
+  const sumar = (metodo: string, monto: number) => {
+    const key = esMedioEfectivo(metodo) ? 'Efectivo' : metodo
+    const e = map.get(key) ?? { monto: 0, cantidad: 0 }
+    e.monto += monto; e.cantidad++; map.set(key, e)
+  }
   for (const m of ingresosMov) {
-    const metodo = cobroEsEfectivo(m.cobro) ? 'Efectivo' : (m.cobro?.medioPago?.nombre ?? 'Otro')
-    const e = map.get(metodo) ?? { monto: 0, cantidad: 0 }
-    e.monto += bruto(m); e.cantidad++; map.set(metodo, e)
+    if (!m.cobro) { sumar('Efectivo', m.monto); continue }
+    for (const t of tramosDeCobro(m.cobro)) sumar(t.nombre, t.monto)
   }
   const porMetodo = [...map.entries()].map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto)
 

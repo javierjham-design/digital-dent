@@ -3,10 +3,17 @@ import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import {
   abrirSesion as abrirSesionCore, calcularResumenSesion, calcularSaldoSugerido, getSesionAbierta,
-  getUltimaSesionCerrada,
+  getUltimaSesionCerrada, tramosDeCobro, type CobroConMedios,
 } from '@/lib/caja'
-import { rangoFechasUtc } from '@/lib/tz'
+import { rangoFechasUtc, tzDePais } from '@/lib/tz'
 import { siguienteNumero } from '@/lib/correlativo'
+import { advisoryLock } from '@/lib/agenda-lock'
+
+// Zona horaria de la clínica (país de Configuracion; Chile por defecto).
+async function tzClinica(db: TenantClient): Promise<string> {
+  const cfg = await db.configuracion.findUnique({ where: { id: 'singleton' }, select: { pais: true } })
+  return tzDePais(cfg?.pais)
+}
 
 const CATEGORIAS_EGRESO = ['ARRIENDO', 'INSUMOS', 'SUELDO', 'SERVICIOS', 'RETIRO', 'OTRO']
 
@@ -238,11 +245,14 @@ export async function cerrarSesion(db: TenantClient, actor: JwtPayload, cajaId: 
   if (retirado + dejado > saldoReal) throw badRequest('Lo retirado más lo que queda en la caja no puede superar el efectivo contado.')
   const observaciones = body.observaciones?.trim() || null
 
-  const sesion = await getSesionAbierta(db, cajaId)
-  if (!sesion) throw conflict('Esta caja no tiene una sesión abierta para cerrar.')
-
   const cerradaAt = new Date()
   return db.$transaction(async (tx) => {
+    // Mismo lock que la apertura: serializa el cierre contra cobros concurrentes que
+    // chequean "sesión abierta" (un cobro no puede caer en la sesión mientras se sella
+    // el cuadre) y contra un doble-clic de cierre.
+    await advisoryLock(tx, `caja:${cajaId}`)
+    const sesion = await getSesionAbierta(tx as unknown as TenantClient, cajaId)
+    if (!sesion) throw conflict('Esta caja no tiene una sesión abierta para cerrar.')
     await tx.movimientoCaja.updateMany({
       where: { cajaId, sesionCajaId: null, fecha: { gte: sesion.abiertaAt, lte: cerradaAt } },
       data: { sesionCajaId: sesion.id },
@@ -281,8 +291,9 @@ export async function detalleSesion(db: TenantClient, actor: JwtPayload, cajaId:
       user: { select: { id: true, name: true, email: true } },
       cobro: {
         select: {
-          id: true, numero: true, monto: true, montoNeto: true, comisionMonto: true, anulado: true,
+          id: true, numero: true, monto: true, monto2: true, montoNeto: true, comisionMonto: true, anulado: true,
           medioPago: { select: { id: true, nombre: true } },
+          medioPago2: { select: { id: true, nombre: true } },
           paciente: { select: { id: true, nombre: true, apellido: true } },
         },
       },
@@ -302,7 +313,7 @@ export async function listarMovimientos(db: TenantClient, actor: JwtPayload, caj
       cajaId,
       // Rango en hora de la clínica (no UTC-local del server): un movimiento de las 21:00
       // del último día ya no queda fuera. Mismo helper que los reportes de caja.
-      ...(rango.from || rango.to ? { fecha: rangoFechasUtc(rango.from, rango.to) } : {}),
+      ...(rango.from || rango.to ? { fecha: rangoFechasUtc(rango.from, rango.to, await tzClinica(db)) } : {}),
     },
     include: {
       user: { select: { id: true, name: true, email: true } },
@@ -363,12 +374,13 @@ async function cobrosDelPeriodo(db: TenantClient, f: ReporteFiltro) {
   return db.cobro.findMany({
     where: {
       estado: 'PAGADO', anulado: false,
-      ...(f.desde || f.hasta ? { fechaPago: rangoFechasUtc(f.desde, f.hasta) } : {}),
+      ...(f.desde || f.hasta ? { fechaPago: rangoFechasUtc(f.desde, f.hasta, await tzClinica(db)) } : {}),
     },
     select: {
-      id: true, numero: true, monto: true, fechaPago: true,
+      id: true, numero: true, monto: true, monto2: true, fechaPago: true,
       paciente: { select: { nombre: true, apellido: true } },
       medioPago: { select: { nombre: true } },
+      medioPago2: { select: { nombre: true } },
       reciboUsuario: { select: { id: true, name: true, email: true } },
       // Nº de la CAJA = correlativo del ciclo (sesión) en que se recibió el pago.
       movimientos: { where: { tipo: 'INGRESO' }, select: { sesion: { select: { numero: true } } }, orderBy: { fecha: 'asc' }, take: 1 },
@@ -378,14 +390,18 @@ async function cobrosDelPeriodo(db: TenantClient, f: ReporteFiltro) {
 }
 type CobroPeriodo = Awaited<ReturnType<typeof cobrosDelPeriodo>>[number]
 
-const metodoDeCobro = (c: { medioPago: { nombre: string | null } | null }) => c.medioPago?.nombre || 'Efectivo'
+// Etiqueta del cobro: un pago dividido muestra ambos medios ("Tarjeta + Efectivo").
+const metodoDeCobro = (c: CobroConMedios) => tramosDeCobro(c).map((t) => t.nombre).join(' + ')
 
-function agruparPorMetodo(cobros: { monto: number; medioPago: { nombre: string | null } | null }[]) {
+// Desglose por medio POR TRAMO: un pago dividido atribuye cada porción a su medio
+// (antes el 100% caía en el medio principal y el desglose no cuadraba con la caja).
+function agruparPorMetodo(cobros: CobroConMedios[]) {
   const map = new Map<string, { monto: number; cantidad: number }>()
   for (const c of cobros) {
-    const metodo = metodoDeCobro(c)
-    const e = map.get(metodo) ?? { monto: 0, cantidad: 0 }
-    e.monto += c.monto; e.cantidad++; map.set(metodo, e)
+    for (const t of tramosDeCobro(c)) {
+      const e = map.get(t.nombre) ?? { monto: 0, cantidad: 0 }
+      e.monto += t.monto; e.cantidad++; map.set(t.nombre, e)
+    }
   }
   return [...map.entries()].map(([metodo, v]) => ({ metodo, ...v })).sort((a, b) => b.monto - a.monto)
 }

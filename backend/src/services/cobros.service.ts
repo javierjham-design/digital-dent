@@ -2,6 +2,7 @@ import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, forbidden, notFound } from '@/lib/errors'
 import { actorName, type JwtPayload } from '@/services/auth.service'
 import { getSesionAbierta } from '@/lib/caja'
+import { advisoryLock } from '@/lib/agenda-lock'
 import { audit } from '@/lib/audit'
 import { crearLinkParaCobro, type ResultadoLinkPago } from '@/services/pagos-online.service'
 import { aplicarAbonoLibreAAccion } from '@/services/tratamientos.service'
@@ -141,14 +142,38 @@ async function validarItemsCobro(
   if (tratIds.length > 0) {
     const trats = await db.tratamiento.findMany({
       where: { id: { in: tratIds } },
-      select: { id: true, planId: true, ficha: { select: { pacienteId: true } } },
+      select: { id: true, planId: true, precio: true, descuento: true, ficha: { select: { pacienteId: true } }, prestacion: { select: { nombre: true } } },
     })
     const tratMap = new Map(trats.map((t) => [t.id, t]))
+    // Ya pagado por acción (cobros PAGADO no anulados): para el tope por acción.
+    const pagados = await db.cobroItem.groupBy({
+      by: ['tratamientoId'],
+      where: { tratamientoId: { in: tratIds }, cobro: { estado: 'PAGADO', anulado: false } },
+      _sum: { monto: true },
+    })
+    const pagadoDe = new Map(pagados.map((p) => [p.tratamientoId, Math.round(p._sum.monto ?? 0)]))
+    // Lo que este cobro intenta pagar por acción (puede venir en más de un ítem).
+    const pagoPorAccion = new Map<string, number>()
+    for (const it of items) {
+      if (it.tratamientoId) pagoPorAccion.set(it.tratamientoId, (pagoPorAccion.get(it.tratamientoId) ?? 0) + Math.round(Number(it.monto)))
+    }
     for (const tid of tratIds) {
       const t = tratMap.get(tid)
       if (!t) throw notFound('Acción de tratamiento no encontrada')
       if (t.ficha.pacienteId !== pacienteId) throw badRequest('La acción no pertenece a este paciente.')
       if (!t.planId) throw badRequest('Cada pago debe estar asociado a un plan de tratamiento. Hay una acción que no pertenece a ningún plan.')
+      // Tope POR ACCIÓN: no se puede pagar más que su neto restante. Un sobrepago
+      // inflaría el "abonado" del plan y la liquidación del profesional (que paga
+      // sobre montoPagado cuando la acción está al día).
+      const neto = Math.round(t.precio * (1 - (t.descuento || 0) / 100))
+      const restante = neto - (pagadoDe.get(tid) ?? 0)
+      const pago = pagoPorAccion.get(tid) ?? 0
+      if (pago > restante) {
+        const nombre = t.prestacion?.nombre ?? 'la acción'
+        throw badRequest(restante <= 0
+          ? `"${nombre}" ya está completamente pagada: no admite otro pago.`
+          : `El pago a "${nombre}" supera su saldo. Máximo a pagar: ${fmtMoney(restante)}.`)
+      }
     }
   }
   if (planIds.length > 0) {
@@ -178,6 +203,29 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
 
   let items = input.items ?? []
   await validarItemsCobro(db, input.pacienteId, items)
+
+  // Validaciones de caja/sesión/medio ANTES de tocar el abono libre: aplicar el "pie"
+  // y recién después fallar por caja sin sesión (o medio inválido) dejaba el crédito
+  // ya reasignado aunque el cobro nunca se creó.
+  let caja: { id: string; usuarios: { userId: string }[] } | null = null
+  if (input.cajaId) {
+    caja = await db.caja.findFirst({ where: { id: input.cajaId, activo: true }, include: { usuarios: { select: { userId: true } } } })
+    if (!caja) throw notFound('Caja no encontrada')
+    // La caja es EXCLUSIVA de su usuario: nadie más (ni el administrador) puede
+    // recibir pagos con la caja de otro.
+    if (!caja.usuarios.some((cu) => cu.userId === actor.sub)) throw forbidden('Esta caja es de otro usuario. Recibe los pagos con tu propia caja.')
+  }
+  const sesion = caja ? await getSesionAbierta(db, caja.id) : null
+  if (caja && !sesion) throw conflict('La caja seleccionada no tiene una sesión abierta. Abre la caja antes de recibir pagos.')
+  // Existencia/reglas de los medios (lo dependiente del monto final se calcula después).
+  for (const [medioId, cual] of [[input.medioPagoId, 'principal'], [input.medioPago2Id, 'secundario']] as const) {
+    if (!medioId) continue
+    const medio = await db.medioPago.findUnique({ where: { id: medioId }, select: { nombre: true } })
+    if (!medio) throw badRequest(`Medio de pago ${cual} inválido`)
+    if (medio.nombre.trim().toLowerCase() === 'flow') {
+      throw badRequest('Flow es un pago online: genera un "Link de pago" para enviarle al paciente. El pago se registra cuando lo complete.')
+    }
+  }
 
   // Abono libre como "pie": descuenta del cobro el crédito ya abonado al plan y
   // asignado a las acciones que se están cobrando (capado a lo que se cobra de cada
@@ -211,14 +259,9 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
     }
   }
 
-  if (!input.cajaId) throw badRequest('Debes seleccionar una caja.')
-  const caja = await db.caja.findFirst({ where: { id: input.cajaId, activo: true }, include: { usuarios: { select: { userId: true } } } })
-  if (!caja) throw notFound('Caja no encontrada')
-  // La caja es EXCLUSIVA de su usuario: nadie más (ni el administrador) puede
-  // recibir pagos con la caja de otro.
-  if (!caja.usuarios.some((cu) => cu.userId === actor.sub)) throw forbidden('Esta caja es de otro usuario. Recibe los pagos con tu propia caja.')
+  if (!caja || !sesion) throw badRequest('Debes seleccionar una caja.')
 
-  const monto = items.reduce((s, i) => s + Number(i.monto), 0)
+  const monto = items.reduce((s, i) => s + Math.round(Number(i.monto)), 0)
 
   const numeroReferencia = input.numeroReferencia?.trim() || null
   const numeroBoleta = input.numeroBoleta?.trim() || null
@@ -263,10 +306,20 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
   const concepto = items.map((i) => i.descripcion).join(', ')
   const fechaPago = input.fechaPago ? new Date(input.fechaPago) : new Date()
 
-  const sesion = await getSesionAbierta(db, caja.id)
-  if (!sesion) throw conflict('La caja seleccionada no tiene una sesión abierta. Abre la caja antes de recibir pagos.')
-
   const nuevo = await db.$transaction(async (tx) => {
+    // Tope de abono libre revalidado DENTRO de la tx con lock por plan: dos cobros
+    // simultáneos con abono al mismo plan leían el mismo saldo y ambos pasaban.
+    const planesAbono = [...new Set(items.filter((i) => i.planId && !i.tratamientoId).map((i) => i.planId!))].sort()
+    if (planesAbono.length > 0) {
+      for (const pid of planesAbono) await advisoryLock(tx, `abono:${pid}`)
+      await validarTopeAbonoLibre(tx as unknown as TenantClient, items)
+    }
+    // Lock de la caja + re-chequeo de sesión ABIERTA dentro de la tx: el cierre de
+    // sesión toma el mismo lock, así un cobro no puede caer en una sesión que se está
+    // sellando (movimiento en sesión CERRADA no contado en el arqueo congelado).
+    await advisoryLock(tx, `caja:${caja.id}`)
+    const sesionTx = await getSesionAbierta(tx as unknown as TenantClient, caja.id)
+    if (!sesionTx || sesionTx.id !== sesion.id) throw conflict('La caja se cerró mientras registrabas el pago. Ábrela de nuevo e intenta otra vez.')
     // El correlativo se genera DENTRO de la transacción (advisory lock) para que
     // dos cobros simultáneos no lean el mismo máximo y choquen con el @unique.
     const numero = await siguienteNumero(tx, 'cobro')
@@ -276,7 +329,7 @@ export async function crearCobro(db: TenantClient, actor: JwtPayload, input: Cre
         estado: 'PAGADO', medioPagoId: input.medioPagoId || null, reciboUsuarioId: input.reciboUsuarioId || actor.sub,
         medioPago2Id, monto2: esDividido ? monto2 : null, numeroReferencia2,
         cajaId: caja.id, fechaPago, notas: input.notas || null, numeroReferencia, numeroBoleta,
-        items: { create: items.map((i) => ({ tratamientoId: i.tratamientoId || null, planId: i.planId || null, descripcion: i.descripcion, monto: Number(i.monto) })) },
+        items: { create: items.map((i) => ({ tratamientoId: i.tratamientoId || null, planId: i.planId || null, descripcion: i.descripcion, monto: Math.round(Number(i.monto)) })) },
       },
       include: COBRO_INCLUDE,
     })
@@ -486,6 +539,14 @@ export async function actualizarCobro(db: TenantClient, actor: JwtPayload, id: s
       const nuevoMonto = Number(data.monto)
       if (itemUnicoId) await tx.cobroItem.update({ where: { id: itemUnicoId }, data: { monto: nuevoMonto } })
       await tx.movimientoCaja.updateMany({ where: { cobroId: id, tipo: 'INGRESO', anulado: false }, data: { monto: nuevoMonto } })
+      // Un link de pago Flow vigente quedó con el monto viejo: se anula para que el
+      // paciente no pague un monto distinto al del cobro editado.
+      await tx.pagoOnline.updateMany({ where: { cobroId: id, estado: 'PENDIENTE' }, data: { estado: 'ANULADO' } })
+    }
+    // Editar la fecha del pago también mueve el movimiento de caja: reporte-pagos
+    // (por fechaPago) y movimientos de caja (por mov.fecha) deben hablar del mismo día.
+    if (body.fechaPago !== undefined && data.fechaPago instanceof Date) {
+      await tx.movimientoCaja.updateMany({ where: { cobroId: id, tipo: 'INGRESO', anulado: false }, data: { fecha: data.fechaPago } })
     }
   })
   const actualizado = await db.cobro.findUnique({ where: { id }, include: COBRO_INCLUDE })
@@ -518,6 +579,9 @@ export async function anularCobro(db: TenantClient, actor: JwtPayload, id: strin
       where: { cobroId: id, anulado: false },
       data: { anulado: true, motivoAnulacion: `Cobro anulado · ${motivo.trim()}`, anuladoAt: new Date(), anuladoPorId: actor.sub, anuladoPorNombre: nombre },
     })
+    // Los links de pago Flow PENDIENTES del cobro mueren con él: si no, el paciente
+    // podía pagar un cobro ya anulado y la plata entraba sin reflejo en el sistema.
+    await tx.pagoOnline.updateMany({ where: { cobroId: id, estado: 'PENDIENTE' }, data: { estado: 'ANULADO' } })
     return u
   })
   await audit(db, actor.sub, {
@@ -581,13 +645,19 @@ export async function derivarAbono(db: TenantClient, actor: JwtPayload, fromPlan
 }
 
 export async function eliminarCobro(db: TenantClient, actor: JwtPayload, id: string) {
-  const existing = await db.cobro.findUnique({ where: { id }, select: { id: true } })
+  const existing = await db.cobro.findUnique({ where: { id }, select: { id: true, numero: true, monto: true, pacienteId: true, concepto: true, fechaPago: true } })
   if (!existing) throw notFound('Cobro no encontrado')
   if (actor.role !== 'admin') throw forbidden('Para borrar usa "Anular" con motivo. Solo admin puede eliminar.')
   // El MovimientoCaja NO tiene onDelete cascade: si solo borramos el cobro, queda cobroId=null y
   // `cobroEsEfectivo(null)` lo cuenta como EFECTIVO → cuadre inflado. Se borra junto con el cobro.
   await db.$transaction(async (tx) => {
     await tx.movimientoCaja.deleteMany({ where: { cobroId: id } })
+    await tx.pagoOnline.updateMany({ where: { cobroId: id, estado: 'PENDIENTE' }, data: { estado: 'ANULADO' } })
     await tx.cobro.delete({ where: { id } })
+  })
+  // Un borrado duro de dinero sin rastro: queda al menos la auditoría con lo borrado.
+  await audit(db, actor.sub, {
+    accion: 'ELIMINAR', entidad: 'Cobro', entidadId: id, pacienteId: existing.pacienteId,
+    resumen: `ELIMINÓ el pago #${existing.numero} por ${fmtMoney(existing.monto)} (${existing.concepto || 'sin concepto'})`,
   })
 }
