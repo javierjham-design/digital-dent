@@ -19,6 +19,11 @@ process.on('uncaughtException', (err) => {
   void flushSentry(2000).finally(() => process.exit(1))
 })
 
+// Fail-fast del API: fuerza la resolución del secreto de firma (el getter lanza en prod si
+// falta JWT_SECRET/NEXTAUTH_SECRET). Se hace ACÁ y no al importar `env`, para que los scripts
+// (backup/restore/prune/drill) que importan `env` pero no emiten JWT no requieran el secreto.
+if (!env.jwtSecret) throw new Error('Secreto de firma de JWT vacío al arrancar el API.')
+
 const app = createApp()
 
 app.listen(env.port, () => {

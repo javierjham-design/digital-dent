@@ -47,8 +47,12 @@ export const env = {
   // Fuente de la migración de datos F7: la base COMPARTIDA del monolito (con
   // clinicaId). Solo la usa el script `npm run migrate:data`.
   legacyDatabaseUrl: process.env.LEGACY_DATABASE_URL ?? process.env.DATABASE_URL ?? 'postgresql://localhost:5432/clariva',
-  // Secreto para firmar los JWT que emite ESTE backend.
-  jwtSecret: resolveJwtSecret(),
+  // Secreto para firmar los JWT que emite ESTE backend. LAZY (getter): se resuelve en el
+  // PRIMER uso (firmar/verificar un JWT), no al importar `env`. Así los scripts que importan
+  // `env` pero NUNCA emiten JWT —backup / restore / prune / drill, que corren como servicios
+  // cron separados sin el secreto en su entorno— no se caen al arrancar. El API fuerza la
+  // resolución al bootear (ver src/index.ts), conservando el fail-fast en producción.
+  get jwtSecret(): string { return resolveJwtSecret() },
   jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? '12h',
   // Orígenes permitidos para CORS (el frontend Vite + otros explícitos).
   corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
