@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { PacienteDTO, PacienteRecall } from '@shared/types'
-import { pacientesService, pacientesIO, type ImportResultado } from '@/services/clinica.service'
+import type { PacienteDTO, PacienteRecall, PendienteReagendarDTO } from '@shared/types'
+import { pacientesService, citasService, pacientesIO, type ImportResultado } from '@/services/clinica.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
 
-type Tab = 'todos' | 'recall'
+type Tab = 'todos' | 'recall' | 'reagendar'
 const fechaCorta = (iso: string) => new Date(iso).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })
 const diasDesde = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
 const waLink = (tel?: string | null) => { const n = (tel ?? '').replace(/\D/g, ''); return n.length >= 8 ? `https://wa.me/${n}` : null }
@@ -18,6 +18,7 @@ export function Pacientes() {
   const [tab, setTab] = useState<Tab>('todos')
   const [pacientes, setPacientes] = useState<PacienteDTO[]>([])
   const [recall, setRecall] = useState<PacienteRecall[]>([])
+  const [reagendar, setReagendar] = useState<PendienteReagendarDTO[]>([])
   const [q, setQ] = useState('')
   const [verInactivos, setVerInactivos] = useState(false) // ver pacientes dados de baja (reactivar)
   const [page, setPage] = useState(1)
@@ -32,7 +33,12 @@ export function Pacientes() {
 
   function cargar() {
     setCargando(true)
-    if (tab === 'recall') {
+    if (tab === 'reagendar') {
+      // Lista corta y accionable (no paginada); el buscador filtra en el cliente.
+      citasService.pendientesReagendar()
+        .then((r) => { setReagendar(r); setTotal(r.length) })
+        .finally(() => setCargando(false))
+    } else if (tab === 'recall') {
       pacientesService.sinProximaCita(q.trim() || undefined, page, pageSize)
         .then((r) => { setRecall(r.items); setTotal(r.total) })
         .finally(() => setCargando(false))
@@ -47,7 +53,17 @@ export function Pacientes() {
     return () => clearTimeout(t)
   }, [q, page, pageSize, tab, verInactivos]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Precarga el conteo de "pendientes de reagendar" al montar, para que la pestaña muestre su
+  // contador aunque el usuario no la haya abierto todavía.
+  useEffect(() => { citasService.pendientesReagendar().then(setReagendar).catch(() => undefined) }, [])
+
   function cambiarTab(t: Tab) { setTab(t); setPage(1) }
+
+  // Filtro en el cliente para la pestaña "Pendientes de reagendar" (lista no paginada).
+  const qNorm = q.trim().toLowerCase()
+  const reagendarFiltrados = qNorm
+    ? reagendar.filter((it) => it.pacienteNombre.toLowerCase().includes(qNorm) || (it.pacienteRut ?? '').toLowerCase().includes(qNorm))
+    : reagendar
 
   async function descarga(tipo: 'export' | 'plantilla') {
     setIo({ tipo }); setResultado(null)
@@ -121,10 +137,19 @@ export function Pacientes() {
           className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${tab === 'recall' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
           Sin próxima cita
         </button>
+        <button onClick={() => cambiarTab('reagendar')}
+          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tab === 'reagendar' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+          Pendientes de reagendar
+          {tab !== 'reagendar' && reagendar.length > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{reagendar.length}</span>}
+        </button>
       </div>
 
       {tab === 'recall' && (
         <p className="text-sm text-slate-500 mb-4">Pacientes que asistieron o tuvieron una cita en el pasado y <span className="font-medium">no tienen ninguna cita futura agendada</span>. Contáctalos para reagendar. Ordenados por su última cita (más reciente primero).</p>
+      )}
+
+      {tab === 'reagendar' && (
+        <p className="text-sm text-slate-500 mb-4">Pacientes que pidieron reagendar por WhatsApp y <span className="font-medium">todavía no volvieron a agendar</span>. La lista se vacía sola en cuanto el paciente toma una nueva hora. Ordenados por la cancelación más reciente.</p>
       )}
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
@@ -177,6 +202,29 @@ export function Pacientes() {
               </div>
             )
           })
+        ) : tab === 'reagendar' ? (
+          reagendarFiltrados.length === 0 ? (
+            <p className="px-5 py-10 text-center text-slate-500 text-sm">{q ? 'Ningún paciente coincide con la búsqueda.' : 'No hay pacientes pendientes de reagendar. ¡Todos tomaron su nueva hora!'}</p>
+          ) : reagendarFiltrados.map((it) => {
+            const wa = waLink(it.pacienteTelefono)
+            const dias = diasDesde(it.canceladaEn)
+            return (
+              <div key={it.pacienteId} className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
+                <Link to={`/pacientes/${it.pacienteId}`} className="min-w-0 flex-1">
+                  <p className="font-semibold text-cyan-800 flex items-center gap-2 flex-wrap">
+                    {it.pacienteNombre}
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Pidió reagendar</span>
+                  </p>
+                  <p className="text-xs text-slate-500 font-mono">{it.pacienteRut ?? 'Sin RUT'}{it.pacienteTelefono ? ` · ${it.pacienteTelefono}` : ''}</p>
+                  <p className="text-[11px] text-slate-400">Canceló la hora del {fechaCorta(it.inicioOriginal)}{it.doctor ? ` · ${it.doctor}` : ''} · hace {dias} día{dias === 1 ? '' : 's'}</p>
+                </Link>
+                <div className="flex items-center gap-2 shrink-0">
+                  {wa && <a href={wa} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="px-3 py-1.5 border border-emerald-200 text-emerald-600 hover:bg-emerald-50 text-xs font-semibold rounded-lg">WhatsApp</a>}
+                  <Link to={`/pacientes/${it.pacienteId}`} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-semibold rounded-lg">Ver ficha</Link>
+                </div>
+              </div>
+            )
+          })
         ) : pacientes.length === 0 ? (
           <p className="px-5 py-10 text-center text-slate-500 text-sm">Sin pacientes.</p>
         ) : (
@@ -192,7 +240,11 @@ export function Pacientes() {
         )}
       </div>
 
-      {!cargando && total > 0 && (
+      {!cargando && tab === 'reagendar' && reagendarFiltrados.length > 0 && (
+        <p className="mt-4 text-sm text-slate-600">{reagendarFiltrados.length.toLocaleString('es-CL')} paciente{reagendarFiltrados.length === 1 ? '' : 's'} pendiente{reagendarFiltrados.length === 1 ? '' : 's'} de reagendar</p>
+      )}
+
+      {!cargando && tab !== 'reagendar' && total > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-slate-600">
           <span>{total.toLocaleString('es-CL')} paciente{total === 1 ? '' : 's'} · página {page} de {totalPages}</span>
           <div className="flex items-center gap-2">

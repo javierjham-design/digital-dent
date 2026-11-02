@@ -3,6 +3,15 @@ import { tenantDb } from '@/middlewares/tenant'
 import * as svc from '@/services/tubot-agenda.service'
 import { estadoTubotApiKey, rotarTubotApiKey, revocarTubotApiKey } from '@/services/ext.service'
 import { AppError } from '@/lib/errors'
+import { MOTIVOS_CANCELACION_VALIDOS } from '@shared/constants/cita-estados'
+
+// El cancel acepta un motivo en el body ({ reason }). Solo persistimos los valores del
+// contrato (docs/TUBOT_AGENDA.md); cualquier otra cosa se ignora (queda sin motivo).
+function normalizarMotivoCancelacion(reason: unknown): string | null {
+  if (typeof reason !== 'string') return null
+  const r = reason.trim()
+  return MOTIVOS_CANCELACION_VALIDOS.includes(r) ? r : null
+}
 
 // API que consume TuBot para agendar (contrato docs/TUBOT_AGENDA.md). Autenticada
 // por token dedicado (requireTubotApiKey), que resuelve el tenant en req.clinica/req.tenant.
@@ -104,12 +113,13 @@ export async function patchAppointment(req: Request, res: Response) {
   }
 }
 
-async function cambiarEstado(req: Request, res: Response, estado: string) {
-  const appt = await svc.setEstadoAppointment(tenantDb(req), req.clinica!.slug, req.params.id, estado)
+async function cambiarEstado(req: Request, res: Response, estado: string, opts?: { motivoCancelacion?: string | null }) {
+  const appt = await svc.setEstadoAppointment(tenantDb(req), req.clinica!.slug, req.params.id, estado, opts)
   if (!appt) return res.status(404).json({ error: 'not_found' })
   res.json(appt)
 }
-export const cancelAppointment = (req: Request, res: Response) => cambiarEstado(req, res, 'CANCELADA')
+export const cancelAppointment = (req: Request, res: Response) =>
+  cambiarEstado(req, res, 'CANCELADA', { motivoCancelacion: normalizarMotivoCancelacion(req.body?.reason) })
 export const confirmAppointment = (req: Request, res: Response) => cambiarEstado(req, res, 'CONFIRMADO')
 export function attendanceAppointment(req: Request, res: Response) {
   const attended = req.body?.attended !== false
