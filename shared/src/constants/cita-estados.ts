@@ -27,22 +27,6 @@ export const CITA_ESTADOS: Record<string, EstadoCitaConfig> = {
   CANCELADA:   { label: 'Cancelada',                color: '#cbd5e1', bg: '#f1f5f9', text: '#64748b', badgeClass: 'bg-slate-100 text-slate-500',     orden: 8 },
 }
 
-// Motivos de cancelación que puede informar un canal externo (TuBot/WhatsApp) en el body del
-// cancel y que Cláriva persiste en `Cita.motivoCancelacion`. 'patient_reschedule' (el paciente
-// quiere mover la hora) alimenta la lista "Pacientes pendientes de reagendar"; 'patient_cancel'
-// es una cancelación sin intención de reagendar. Una cancelación manual en el panel no lleva motivo.
-export const MOTIVO_CANCELACION = {
-  REAGENDAR: 'patient_reschedule',
-  CANCELAR: 'patient_cancel',
-} as const
-export type MotivoCancelacion = (typeof MOTIVO_CANCELACION)[keyof typeof MOTIVO_CANCELACION]
-export const MOTIVOS_CANCELACION_VALIDOS: string[] = Object.values(MOTIVO_CANCELACION)
-// Texto para el historial de la cita cuando la cancelación trae motivo.
-export const MOTIVO_CANCELACION_LABEL: Record<string, string> = {
-  [MOTIVO_CANCELACION.REAGENDAR]: 'el paciente pidió reagendar',
-  [MOTIVO_CANCELACION.CANCELAR]: 'cancelada por el paciente',
-}
-
 export const CITA_ESTADOS_KEYS = Object.keys(CITA_ESTADOS)
 export const CITA_ESTADO_LABELS: Record<string, string> = Object.fromEntries(
   Object.entries(CITA_ESTADOS).map(([k, v]) => [k, v.label]),

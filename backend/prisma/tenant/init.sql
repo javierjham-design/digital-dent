@@ -230,7 +230,6 @@ CREATE TABLE "Cita" (
     "waDeliveryReason" TEXT,
     "waReenvios" INTEGER NOT NULL DEFAULT 0,
     "recapturaAt" TIMESTAMP(3),
-    "motivoCancelacion" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

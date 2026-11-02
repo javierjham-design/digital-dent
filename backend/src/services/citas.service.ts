@@ -1,7 +1,7 @@
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
-import { CITA_ESTADOS_KEYS, CITA_ESTADO_LABELS, ESTADOS_NO_OCUPAN, MOTIVO_CANCELACION, MOTIVO_CANCELACION_LABEL } from '@shared/constants/cita-estados'
-import type { CitaDTO, PendienteReagendarDTO } from '@shared/types'
+import { CITA_ESTADOS_KEYS, CITA_ESTADO_LABELS, ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
+import type { CitaDTO } from '@shared/types'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
 import { pushCita, deleteCitaInGoogle, swallowGoogle } from '@/lib/google-sync'
 import { enviarConfirmacionHora } from '@/services/email.service'
@@ -379,7 +379,7 @@ export async function eliminarCita(db: TenantClient, id: string): Promise<void> 
 // recordatorios: una cita ya atendida terminaría con recaptura de inasistencia.
 const SALIDAS_DESDE_TERMINAL = ['ATENDIDA', 'NO_ASISTIO', 'CANCELADA', 'EN_ATENCION']
 
-export async function cambiarEstadoCita(db: TenantClient, id: string, estado: string, userName: string, opts?: { soloDesde?: string[]; motivoCancelacion?: string | null }): Promise<CitaDTO> {
+export async function cambiarEstadoCita(db: TenantClient, id: string, estado: string, userName: string, opts?: { soloDesde?: string[] }): Promise<CitaDTO> {
   if (!CITA_ESTADOS_KEYS.includes(estado)) throw badRequest('Estado inválido')
   const current = await db.cita.findUnique({ where: { id }, select: { estado: true, fecha: true, duracion: true, doctorId: true, sobrecupo: true } })
   if (!current) throw notFound('Cita no encontrada')
@@ -400,16 +400,10 @@ export async function cambiarEstadoCita(db: TenantClient, id: string, estado: st
   // Con lock + re-chequeo DENTRO de la transacción (una reserva concurrente del mismo hueco
   // pasaba entre la validación y el update).
   const volviaAOcupar = ESTADOS_NO_OCUPAN.includes(current.estado) && !ESTADOS_NO_OCUPAN.includes(estado)
-  // Motivo de cancelación: SOLO aplica a CANCELADA (lo informa un canal externo como TuBot en el
-  // body del cancel). En cualquier otro estado se limpia, para no arrastrar un motivo viejo si la
-  // cita se reabre. Una cancelación manual en el panel no trae motivo → queda null.
-  const motivoCancelacion = estado === 'CANCELADA' ? (opts?.motivoCancelacion ?? null) : null
-  const motivoTxt = motivoCancelacion ? MOTIVO_CANCELACION_LABEL[motivoCancelacion] : undefined
   const dataUpdate = {
     estado,
-    motivoCancelacion,
     ...(estado !== current.estado
-      ? { logs: { create: { tipo: 'ESTADO', detalle: `Estado cambiado de "${from}" a "${to}"${motivoTxt ? ` — ${motivoTxt}` : ''}`, userName } } }
+      ? { logs: { create: { tipo: 'ESTADO', detalle: `Estado cambiado de "${from}" a "${to}"`, userName } } }
       : {}),
   }
   const cita = volviaAOcupar && !current.sobrecupo && estado !== current.estado
@@ -437,52 +431,6 @@ export async function cambiarEstadoCita(db: TenantClient, id: string, estado: st
     void propagarAsistenciaLead(db, { id: cita.id, pacienteId: cita.pacienteId }, estado === 'ATENDIDA')
   }
   return toDTO(cita)
-}
-
-// Pacientes cuya cita fue cancelada con motivo "patient_reschedule" (quieren mover la hora) y que
-// TODAVÍA no tienen una cita futura activa. La lista se vacía sola cuando el paciente vuelve a
-// agendar: la cita nueva la crea Cláriva (p. ej. TuBot vía POST /appointments), así que detectar
-// "cita futura activa" no necesita ningún aviso extra del canal. Cada paciente aparece UNA vez
-// (su cancelación más reciente). Ver docs/TUBOT_AGENDA.md.
-export async function listarPendientesReagendar(db: TenantClient): Promise<PendienteReagendarDTO[]> {
-  const ahora = new Date()
-  // Cancelaciones "para reagendar", más reciente primero. updatedAt ≈ momento de la cancelación
-  // (la cancelación fue la última modificación de la cita).
-  const canceladas = await db.cita.findMany({
-    where: { estado: 'CANCELADA', motivoCancelacion: MOTIVO_CANCELACION.REAGENDAR },
-    orderBy: { updatedAt: 'desc' },
-    select: {
-      id: true, fecha: true, updatedAt: true, pacienteId: true,
-      paciente: { select: { nombre: true, apellido: true, rut: true, telefono: true } },
-      doctor: { select: { name: true, titulo: true, email: true } },
-    },
-  })
-  if (canceladas.length === 0) return []
-  // Pacientes con una cita futura activa (fecha ≥ ahora y estado que ocupa el cupo): ya reagendaron.
-  const pacienteIds = [...new Set(canceladas.map((c) => c.pacienteId))]
-  const conFutura = await db.cita.findMany({
-    where: { pacienteId: { in: pacienteIds }, fecha: { gte: ahora }, estado: { notIn: ESTADOS_NO_OCUPAN } },
-    select: { pacienteId: true },
-    distinct: ['pacienteId'],
-  })
-  const yaReagendaron = new Set(conFutura.map((c) => c.pacienteId))
-  const vistos = new Set<string>()
-  const pendientes: PendienteReagendarDTO[] = []
-  for (const c of canceladas) {
-    if (yaReagendaron.has(c.pacienteId) || vistos.has(c.pacienteId)) continue
-    vistos.add(c.pacienteId)
-    pendientes.push({
-      pacienteId: c.pacienteId,
-      pacienteNombre: `${c.paciente.nombre} ${c.paciente.apellido}`,
-      pacienteRut: c.paciente.rut,
-      pacienteTelefono: c.paciente.telefono,
-      citaId: c.id,
-      doctor: conTitulo(c.doctor.titulo, c.doctor.name) || c.doctor.email,
-      inicioOriginal: c.fecha.toISOString(),
-      canceladaEn: c.updatedAt.toISOString(),
-    })
-  }
-  return pendientes
 }
 
 // Reenvío MANUAL "por el bot": recepción pide que TuBot vuelva a enviar la confirmación por el

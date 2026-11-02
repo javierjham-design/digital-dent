@@ -1,7 +1,7 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
 import { actorName } from '@/services/auth.service'
-import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas, listarLogsCita, listarPendientesReagendar, reenviarConfirmacionPorBot, reprogramarCita } from '@/services/citas.service'
+import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas, listarLogsCita, reenviarConfirmacionPorBot, reprogramarCita } from '@/services/citas.service'
 import { cambiarEstadoSchema, crearCitaSchema, editarCitaSchema, reprogramarCitaSchema } from '@/validators/schemas'
 
 function userName(req: Request): string {
@@ -13,12 +13,6 @@ export async function getCitas(req: Request, res: Response) {
   const to = typeof req.query.to === 'string' ? req.query.to : undefined
   const pacienteId = typeof req.query.pacienteId === 'string' ? req.query.pacienteId : undefined
   res.json(await listarCitas(tenantDb(req), { from, to, pacienteId }))
-}
-
-// Pacientes que pidieron reagendar (cancelación con motivo "patient_reschedule") y todavía no
-// volvieron a agendar. Lista accionable para que recepción los llame.
-export async function getPendientesReagendar(req: Request, res: Response) {
-  res.json(await listarPendientesReagendar(tenantDb(req)))
 }
 
 export async function postCita(req: Request, res: Response) {

@@ -389,10 +389,10 @@ export async function marcarNotificadoWhatsapp(db: TenantClient, id: string, det
   return { ok: true, estado: (data.estado as string) ?? cita.estado }
 }
 
-export async function setEstadoAppointment(db: TenantClient, slug: string, id: string, estado: string, opts?: { motivoCancelacion?: string | null }): Promise<SchedAppointment | null> {
+export async function setEstadoAppointment(db: TenantClient, slug: string, id: string, estado: string): Promise<SchedAppointment | null> {
   const exists = await db.cita.findUnique({ where: { id }, select: { id: true } })
   if (!exists) return null
-  await cambiarEstadoCita(db, id, estado, 'TuBot', opts)
+  await cambiarEstadoCita(db, id, estado, 'TuBot')
   const c = await db.cita.findUnique({ where: { id }, select: CITA_SEL })
   return c ? toAppointment(c, slug) : null
 }

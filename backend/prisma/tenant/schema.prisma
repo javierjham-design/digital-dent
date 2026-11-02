@@ -313,7 +313,6 @@ model Cita {
   waDeliveryReason String? // motivo cuando failed (número inválido, bloqueó a la clínica…)
   waReenvios       Int               @default(0) // reenvíos MANUALES: el envío auto usa n=1; el manual n=2+
   recapturaAt      DateTime?         // recaptura de no-show enviada por WhatsApp para esta cita (idempotencia)
-  motivoCancelacion String?          // motivo informado por un canal externo al cancelar (TuBot): 'patient_reschedule' | 'patient_cancel'. Alimenta la lista "Pacientes pendientes de reagendar".
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   paciente         Paciente          @relation(fields: [pacienteId], references: [id])

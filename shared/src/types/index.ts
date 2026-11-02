@@ -185,20 +185,6 @@ export interface CitaDTO {
   box?: { id: string; nombre: string } | null
 }
 
-// Un paciente cuya cita fue cancelada por un canal externo con motivo "patient_reschedule"
-// (quiere mover la hora) y que todavía NO tiene una cita futura activa. La lista se vacía sola
-// cuando el paciente vuelve a agendar (la cita nueva la crea Cláriva). Ver docs/TUBOT_AGENDA.md.
-export interface PendienteReagendarDTO {
-  pacienteId: string
-  pacienteNombre: string
-  pacienteRut: string | null
-  pacienteTelefono: string | null
-  citaId: string          // la cita cancelada más reciente del paciente
-  doctor: string | null   // profesional de la cita cancelada
-  inicioOriginal: string  // ISO — la hora que tenía la cita cancelada
-  canceladaEn: string     // ISO — cuándo se canceló (aprox., última modificación de la cita)
-}
-
 export interface DoctorDTO {
   id: string
   name: string | null
