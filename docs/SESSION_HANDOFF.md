@@ -3,7 +3,23 @@
 > **Leé este archivo PRIMERO al iniciar una sesión.** Resume dónde quedó el trabajo,
 > sin depender del historial de chat anterior. Rama de trabajo/deploy: `arch/split-frontend-backend`.
 
-## Último trabajo: Auditoría completa 2026-10-23 + remediación integral (6 olas)
+## Último trabajo: Motivo de cancelación (TuBot) + lista "Pacientes pendientes de reagendar" (2026-11-02)
+
+Cuando un paciente pide reagendar por WhatsApp, TuBot cancela la cita y ahora envía el motivo en el
+cancel (`POST /appointments/:id/cancel` con `{ reason: "patient_reschedule" | "patient_cancel" }`).
+Dos cosas, detalle por archivo en `AI_CHANGELOG.md` (entrada 2026-11-02):
+1. **Se persiste el motivo** en `Cita.motivoCancelacion` (columna aditiva nullable; `init.sql`
+   regenerado, guard verde; se aplica sola en el `prestart` del deploy). Solo se guarda en CANCELADA;
+   cancelación manual del panel = sin motivo.
+2. **Lista nativa** (pestaña "Pendientes de reagendar" en Pacientes, junto a "Sin próxima cita"):
+   `GET /citas/pendientes-reagendar` → pacientes con `patient_reschedule` que aún no tienen cita futura
+   activa. **Se vacía sola** al reagendar (la cita nueva la crea Cláriva; no requiere aviso de Conversia).
+Verde: typecheck/lint (back+front), unit 158, integración 235 (4 nuevos en `tubot-agenda.test.ts`),
+contrato 302. Sin migración manual en prod (aditiva, vía prestart). **Pendiente externo: TuBot debe
+empezar a mandar `reason`** (recién ahí se puebla la lista; cancelaciones viejas no traen motivo).
+Commit/push/deploy según corresponda.
+
+## Trabajo previo: Auditoría completa 2026-10-23 + remediación integral (6 olas)
 
 Tercera ronda de auditoría (funcional + seguridad, 7 agentes + verificación manual) y
 remediación COMPLETA de todas las olas: seguridad, dinero, agenda, clínico, reportes+asistente,

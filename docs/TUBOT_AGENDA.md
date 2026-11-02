@@ -51,7 +51,11 @@ CANCELADA→`cancelled`. Reagendar (PATCH) deja la cita en PENDIENTE.
   TODOS los estados, enriquecida con `professionalName`/`clinicName`; `serviceId` no se persiste
   en la cita → se ignora como filtro; `clinicId` = slug, un solo tenant),
   `GET /appointments/:id`, `PATCH /appointments/:id` (reagenda → vuelve a `pending`),
-  `POST /appointments/:id/{cancel|confirm|attendance}` (attended:false → `no_show`),
+  `POST /appointments/:id/{cancel|confirm|attendance}` (attended:false → `no_show`;
+  `cancel` acepta en el body `{ reason: "patient_reschedule" | "patient_cancel" }` → se persiste en
+  `Cita.motivoCancelacion`. `patient_reschedule` alimenta la lista interna "Pacientes pendientes de
+  reagendar" del panel (`GET /citas/pendientes-reagendar`), que se vacía sola al crear la cita nueva;
+  cualquier otro valor se ignora),
   `PUT /patients` (upsert por documento/teléfono; no pisa datos de la ficha),
   `GET /patients/:phone/appointments`. Reusa `crearCita`/`editarCita`/`cambiarEstadoCita`
   (validan horario de atención + solapamiento). El paciente se resuelve por RUT o por los

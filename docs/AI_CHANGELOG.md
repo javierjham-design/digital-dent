@@ -5,6 +5,41 @@
 
 ---
 
+## 2026-11-02 — Motivo de cancelación (TuBot) + lista "Pacientes pendientes de reagendar"
+
+Cuando un paciente pide reagendar por WhatsApp, TuBot cancela su cita y ahora manda el motivo en el
+body del cancel (`POST /api/v1/appointments/:id/cancel` → `{ "reason": "patient_reschedule" }` o
+`"patient_cancel"`). Dos partes:
+
+**1) Persistir el motivo**
+- `prisma/tenant/schema.prisma`: nueva columna aditiva `Cita.motivoCancelacion String?` (regenerado
+  `init.sql` con `tenant:initsql`; el guard `init-sql-sync` queda verde). Se aplica sola a los tenants
+  existentes en el `prestart` del deploy (`migrate:tenants`).
+- `shared/constants/cita-estados.ts`: `MOTIVO_CANCELACION` (`patient_reschedule` / `patient_cancel`) +
+  validación + etiquetas para el historial.
+- `citas.service.ts` (`cambiarEstadoCita`): persiste el motivo SOLO en CANCELADA (en cualquier otro
+  estado se limpia, para no arrastrar un motivo viejo si la cita se reabre) y lo anota en el log de la
+  cita. Una cancelación manual en el panel (sin motivo) deja la columna en null.
+- `controllers/tubot-agenda.controller.ts` + `services/tubot-agenda.service.ts`: el cancel lee
+  `body.reason`, lo normaliza (solo valores del contrato; lo demás se ignora) y lo propaga.
+
+**2) Lista nativa "Pacientes pendientes de reagendar"**
+- `citas.service.ts` (`listarPendientesReagendar`) + `GET /api/v1/citas/pendientes-reagendar` (scope
+  `tenant`): pacientes con cancelación `patient_reschedule` que TODAVÍA no tienen una cita futura activa
+  (`fecha ≥ ahora` y estado que ocupa el cupo). Cada paciente aparece una vez (su cancelación más
+  reciente). **Se vacía sola** cuando el paciente vuelve a agendar: la cita nueva la crea Cláriva, así
+  que no hace falta ningún aviso extra de Conversia/TuBot.
+- `shared/types`: `PendienteReagendarDTO`.
+- `frontend` (`Pacientes.tsx` + `citasService.pendientesReagendar`): nueva pestaña "Pendientes de
+  reagendar" junto a "Sin próxima cita" (mismo patrón: lista accionable con link a WhatsApp + ficha,
+  buscador cliente, contador en la pestaña precargado al montar).
+
+Verificación: backend typecheck ✓, lint ✓, unit 158 ✓ (incl. `init-sql-sync`), integración 235 ✓
+(4 casos nuevos en `tubot-agenda.test.ts`: motivo persistido, entra/no entra a la lista, se vacía al
+reagendar, cancelación manual sin motivo no entra), contrato ✓ (302 rutas); frontend typecheck ✓, lint ✓.
+Riesgos: ninguno destructivo (columna nullable aditiva). Pendiente: TuBot debe empezar a enviar `reason`
+(la lista se puebla desde ese momento; cancelaciones viejas no tienen motivo).
+
 ## 2026-10-23 — Auditoría completa (3ª ronda) + remediación integral en 6 olas
 
 Auditoría funcional+seguridad con 7 agentes solo-lectura + verificación manual (hallazgos y veredicto

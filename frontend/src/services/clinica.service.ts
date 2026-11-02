@@ -1,5 +1,5 @@
 import { api, tokenStore, ApiError } from './api'
-import type { BloqueoDTO, CitaDTO, HorarioDTO, PacienteDTO, PacientesPagina, PacientesRecallPagina } from '@shared/types'
+import type { BloqueoDTO, CitaDTO, HorarioDTO, PacienteDTO, PacientesPagina, PacientesRecallPagina, PendienteReagendarDTO } from '@shared/types'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
 
@@ -23,6 +23,9 @@ export const citasService = {
   eliminar: (id: string) => api.del<{ ok: true }>(`/citas/${id}`),
   // Reenvía la confirmación por el flujo automático del bot (TuBot confirma/reagenda e insiste).
   reenviarBot: (id: string) => api.post<{ ok: true }>(`/citas/${id}/reenviar-bot`, {}),
+  // Pacientes que pidieron reagendar por WhatsApp (cancelación con motivo "patient_reschedule")
+  // y todavía no volvieron a agendar. La lista se vacía sola cuando el paciente agenda de nuevo.
+  pendientesReagendar: () => api.get<PendienteReagendarDTO[]>('/citas/pendientes-reagendar'),
 }
 
 export const bloqueosService = {
