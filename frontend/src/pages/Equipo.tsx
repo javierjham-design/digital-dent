@@ -44,6 +44,7 @@ const PERMISOS: [keyof UsuarioDTO, string][] = [
   ['puedeGestionarEquipo', 'Gestionar el equipo (crear/editar usuarios y asignar permisos)'],
   ['puedeGestionarPrestaciones', 'Gestionar prestaciones (editar catálogo y secciones)'],
   ['puedeVerReportes', 'Ver y descargar reportes (nómina de pacientes, cobros, morosos)'],
+  ['puedeGestionarPacientes', 'Gestión de pacientes (acceder a «Sin próxima cita» y «Pendientes de reagendar» y recibir el aviso de gestión)'],
   ['puedeDesbloquearPlanes', 'Desbloquear presupuestos (reabrir un plan bloqueado al imprimir/enviar)'],
 ]
 // Áreas clínicas que trabaja el usuario (disponibles solo si la clínica contrató

@@ -1,5 +1,5 @@
 import { api, tokenStore, ApiError } from './api'
-import type { BloqueoDTO, CitaDTO, HorarioDTO, PacienteDTO, PacientesPagina, PacientesRecallPagina, PendienteReagendarDTO } from '@shared/types'
+import type { BloqueoDTO, CitaDTO, HorarioDTO, PacienteDTO, PacientesPagina, PacientesRecallPagina, PendientesReagendarPagina, ReagendaResueltosPagina } from '@shared/types'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api/v1'
 
@@ -23,9 +23,31 @@ export const citasService = {
   eliminar: (id: string) => api.del<{ ok: true }>(`/citas/${id}`),
   // Reenvía la confirmación por el flujo automático del bot (TuBot confirma/reagenda e insiste).
   reenviarBot: (id: string) => api.post<{ ok: true }>(`/citas/${id}/reenviar-bot`, {}),
-  // Pacientes que pidieron reagendar por WhatsApp (cancelación con motivo "patient_reschedule")
-  // y todavía no volvieron a agendar. La lista se vacía sola cuando el paciente agenda de nuevo.
-  pendientesReagendar: () => api.get<PendienteReagendarDTO[]>('/citas/pendientes-reagendar'),
+  // Pacientes que quedaron sin hora futura por una cancelación "para reagendar" o una inasistencia
+  // y todavía no volvieron a agendar. Lista server-side con búsqueda/paginado; se vacía sola cuando
+  // el paciente agenda de nuevo. `soloAlerta` deja solo los que llevan más de un mes.
+  pendientesReagendar: (opts?: { q?: string; page?: number; pageSize?: number; soloAlerta?: boolean }) => {
+    const p = new URLSearchParams()
+    if (opts?.q) p.set('q', opts.q)
+    p.set('page', String(opts?.page ?? 1))
+    p.set('pageSize', String(opts?.pageSize ?? 25))
+    if (opts?.soloAlerta) p.set('soloAlerta', '1')
+    return api.get<PendientesReagendarPagina>(`/citas/pendientes-reagendar?${p.toString()}`)
+  },
+  // Clasifica un pendiente de reagendar (lo saca de la lista): 'AGENDADO' | 'NO_REAGENDA' | 'PERDIDO'.
+  resolverReagendar: (pacienteId: string, estado: 'AGENDADO' | 'NO_REAGENDA' | 'PERDIDO', nota?: string) =>
+    api.post<{ ok: true }>('/citas/pendientes-reagendar/resolver', { pacienteId, estado, nota }),
+  // Deshace la clasificación: el paciente vuelve a la lista si todavía corresponde.
+  reabrirReagendar: (pacienteId: string) =>
+    api.post<{ ok: true }>('/citas/pendientes-reagendar/reabrir', { pacienteId }),
+  // Pendientes ya clasificados a mano (perdido/agendado), con búsqueda/paginado.
+  reagendarResueltos: (opts?: { q?: string; page?: number; pageSize?: number }) => {
+    const p = new URLSearchParams()
+    if (opts?.q) p.set('q', opts.q)
+    p.set('page', String(opts?.page ?? 1))
+    p.set('pageSize', String(opts?.pageSize ?? 25))
+    return api.get<ReagendaResueltosPagina>(`/citas/pendientes-reagendar/resueltos?${p.toString()}`)
+  },
 }
 
 export const bloqueosService = {

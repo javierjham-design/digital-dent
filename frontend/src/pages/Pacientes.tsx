@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import type { PacienteDTO, PacienteRecall, PendienteReagendarDTO } from '@shared/types'
+import type { PacienteDTO, PacienteRecall, PendienteReagendarDTO, ReagendaResueltoDTO } from '@shared/types'
+import { REAGENDA_ALERTA_DIAS, REAGENDA_ORIGEN, REAGENDA_RESOLUCION_LABEL, REAGENDA_RESOLUCION_BADGE } from '@shared/constants/cita-estados'
 import { pacientesService, citasService, pacientesIO, type ImportResultado } from '@/services/clinica.service'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
@@ -9,16 +10,27 @@ type Tab = 'todos' | 'recall' | 'reagendar'
 const fechaCorta = (iso: string) => new Date(iso).toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })
 const diasDesde = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000)
 const waLink = (tel?: string | null) => { const n = (tel ?? '').replace(/\D/g, ''); return n.length >= 8 ? `https://wa.me/${n}` : null }
+const esNoShow = (origen: string) => origen === REAGENDA_ORIGEN.NO_SHOW
 
 export function Pacientes() {
   const { user } = useAuth()
   const esAdmin = user?.role === 'admin'
   // El export de la nómina exige el mismo permiso que los reportes (el backend lo valida).
   const puedeExportar = esAdmin || Boolean(user?.permisos?.puedeVerReportes)
+  // "Gestión de pacientes": habilita las pestañas de trabajo "Sin próxima cita" y "Pendientes de
+  // reagendar". El LISTADO de pacientes (pestaña "Todos") lo ve todo el equipo, sin este permiso.
+  const puedeGestionPacientes = esAdmin || Boolean(user?.permisos?.puedeGestionarPacientes)
   const [tab, setTab] = useState<Tab>('todos')
   const [pacientes, setPacientes] = useState<PacienteDTO[]>([])
   const [recall, setRecall] = useState<PacienteRecall[]>([])
   const [reagendar, setReagendar] = useState<PendienteReagendarDTO[]>([])
+  const [conAlerta, setConAlerta] = useState(0)
+  const [reagendarTotal, setReagendarTotal] = useState(0) // total sin filtrar (para el contador de la pestaña)
+  const [soloAlerta, setSoloAlerta] = useState(false)      // ver solo los que llevan +1 mes
+  const [verResueltos, setVerResueltos] = useState(false)  // ver los ya clasificados (perdido/agendado)
+  const [resueltos, setResueltos] = useState<ReagendaResueltoDTO[]>([])
+  const [accionId, setAccionId] = useState<string | null>(null) // paciente en proceso de clasificar/reabrir
+  const [accionError, setAccionError] = useState<string | null>(null)
   const [q, setQ] = useState('')
   const [verInactivos, setVerInactivos] = useState(false) // ver pacientes dados de baja (reactivar)
   const [page, setPage] = useState(1)
@@ -34,10 +46,18 @@ export function Pacientes() {
   function cargar() {
     setCargando(true)
     if (tab === 'reagendar') {
-      // Lista corta y accionable (no paginada); el buscador filtra en el cliente.
-      citasService.pendientesReagendar()
-        .then((r) => { setReagendar(r); setTotal(r.length) })
-        .finally(() => setCargando(false))
+      if (verResueltos) {
+        citasService.reagendarResueltos({ q: q.trim() || undefined, page, pageSize })
+          .then((r) => { setResueltos(r.items); setTotal(r.total) })
+          .finally(() => setCargando(false))
+      } else {
+        citasService.pendientesReagendar({ q: q.trim() || undefined, page, pageSize, soloAlerta })
+          .then((r) => {
+            setReagendar(r.items); setConAlerta(r.conAlerta); setTotal(r.total)
+            if (!q.trim() && !soloAlerta) setReagendarTotal(r.total) // refresca el contador cuando la vista es completa
+          })
+          .finally(() => setCargando(false))
+      }
     } else if (tab === 'recall') {
       pacientesService.sinProximaCita(q.trim() || undefined, page, pageSize)
         .then((r) => { setRecall(r.items); setTotal(r.total) })
@@ -51,19 +71,32 @@ export function Pacientes() {
   useEffect(() => {
     const t = setTimeout(cargar, 250)
     return () => clearTimeout(t)
-  }, [q, page, pageSize, tab, verInactivos]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [q, page, pageSize, tab, verInactivos, soloAlerta, verResueltos]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Precarga el conteo de "pendientes de reagendar" al montar, para que la pestaña muestre su
-  // contador aunque el usuario no la haya abierto todavía.
-  useEffect(() => { citasService.pendientesReagendar().then(setReagendar).catch(() => undefined) }, [])
+  // Precarga el conteo (sin filtrar) de "pendientes de reagendar" al montar, para que la pestaña
+  // muestre su contador aunque el usuario no la haya abierto todavía.
+  function refrescarContador() {
+    if (!puedeGestionPacientes) return
+    citasService.pendientesReagendar({ page: 1, pageSize: 25 }).then((r) => setReagendarTotal(r.total)).catch(() => undefined)
+  }
+  useEffect(() => { refrescarContador() }, [puedeGestionPacientes]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function cambiarTab(t: Tab) { setTab(t); setPage(1) }
+  function cambiarTab(t: Tab) { setTab(t); setPage(1); setSoloAlerta(false); setVerResueltos(false); setAccionError(null) }
 
-  // Filtro en el cliente para la pestaña "Pendientes de reagendar" (lista no paginada).
-  const qNorm = q.trim().toLowerCase()
-  const reagendarFiltrados = qNorm
-    ? reagendar.filter((it) => it.pacienteNombre.toLowerCase().includes(qNorm) || (it.pacienteRut ?? '').toLowerCase().includes(qNorm))
-    : reagendar
+  // Clasificar un pendiente (lo saca de la lista) o reabrir (lo devuelve). Tras la acción recarga
+  // la vista actual y el contador de la pestaña.
+  async function clasificar(pacienteId: string, estado: 'AGENDADO' | 'NO_REAGENDA' | 'PERDIDO') {
+    setAccionId(pacienteId); setAccionError(null)
+    try { await citasService.resolverReagendar(pacienteId, estado); cargar(); refrescarContador() }
+    catch (e) { setAccionError(e instanceof ApiError ? e.message : 'No se pudo clasificar al paciente') }
+    finally { setAccionId(null) }
+  }
+  async function reabrir(pacienteId: string) {
+    setAccionId(pacienteId); setAccionError(null)
+    try { await citasService.reabrirReagendar(pacienteId); cargar(); refrescarContador() }
+    catch (e) { setAccionError(e instanceof ApiError ? e.message : 'No se pudo reabrir al paciente') }
+    finally { setAccionId(null) }
+  }
 
   async function descarga(tipo: 'export' | 'plantilla') {
     setIo({ tipo }); setResultado(null)
@@ -133,15 +166,21 @@ export function Pacientes() {
           className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${tab === 'todos' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
           Todos
         </button>
-        <button onClick={() => cambiarTab('recall')}
-          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${tab === 'recall' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-          Sin próxima cita
-        </button>
-        <button onClick={() => cambiarTab('reagendar')}
-          className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tab === 'reagendar' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-          Pendientes de reagendar
-          {tab !== 'reagendar' && reagendar.length > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{reagendar.length}</span>}
-        </button>
+        {/* "Sin próxima cita" y "Pendientes de reagendar" son listas de trabajo: solo las ve quien
+            tenga el permiso "Gestión de pacientes". El listado "Todos" queda visible para todo el equipo. */}
+        {puedeGestionPacientes && (
+          <>
+            <button onClick={() => cambiarTab('recall')}
+              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${tab === 'recall' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              Sin próxima cita
+            </button>
+            <button onClick={() => cambiarTab('reagendar')}
+              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${tab === 'reagendar' ? 'border-cyan-600 text-cyan-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+              Pendientes de reagendar
+              {tab !== 'reagendar' && reagendarTotal > 0 && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">{reagendarTotal}</span>}
+            </button>
+          </>
+        )}
       </div>
 
       {tab === 'recall' && (
@@ -149,11 +188,11 @@ export function Pacientes() {
       )}
 
       {tab === 'reagendar' && (
-        <p className="text-sm text-slate-500 mb-4">Pacientes que pidieron reagendar por WhatsApp y <span className="font-medium">todavía no volvieron a agendar</span>. La lista se vacía sola en cuanto el paciente toma una nueva hora. Ordenados por la cancelación más reciente.</p>
+        <p className="text-sm text-slate-500 mb-4">Pacientes que <span className="font-medium">pidieron reagendar</span> por WhatsApp o <span className="font-medium">no asistieron</span> a su última cita y todavía no volvieron a agendar. La lista se vacía sola en cuanto el paciente toma una nueva hora. Clasifícalos como <span className="font-medium">agendado</span>, <span className="font-medium">no reagenda</span> o <span className="font-medium">perdido</span> para sacarlos de aquí (pasan al listado general de pacientes).</p>
       )}
 
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder="Buscar por nombre o RUT…"
+        <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder="Buscar por nombre, RUT o teléfono…"
           className="flex-1 min-w-[16rem] max-w-md px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500" />
         <label className="flex items-center gap-2 text-sm text-slate-500 whitespace-nowrap">
           Ver
@@ -171,7 +210,31 @@ export function Pacientes() {
             {verInactivos ? 'Viendo dados de baja ✕' : 'Ver dados de baja'}
           </button>
         )}
+        {tab === 'reagendar' && (
+          <>
+            <button onClick={() => { setSoloAlerta((v) => !v); setPage(1) }} disabled={verResueltos}
+              className={`px-3 py-2 rounded-xl text-sm font-medium border whitespace-nowrap disabled:opacity-40 ${soloAlerta ? 'bg-rose-100 text-rose-700 border-rose-200' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+              {soloAlerta ? 'Solo +1 mes ✕' : 'Solo +1 mes'}
+            </button>
+            <button onClick={() => { setVerResueltos((v) => !v); setPage(1); setSoloAlerta(false) }}
+              className={`px-3 py-2 rounded-xl text-sm font-medium border whitespace-nowrap ${verResueltos ? 'bg-slate-700 text-white border-slate-700' : 'border-slate-200 text-slate-500 hover:bg-slate-50'}`}>
+              {verResueltos ? 'Ver pendientes' : 'Ver resueltos'}
+            </button>
+          </>
+        )}
       </div>
+
+      {accionError && <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2 mb-3">{accionError}</p>}
+
+      {/* Banner de alerta: pendientes que llevan más de un mes sin reagendar. */}
+      {tab === 'reagendar' && !verResueltos && !soloAlerta && conAlerta > 0 && (
+        <div className="flex items-center justify-between gap-3 text-sm bg-rose-50 border border-rose-200 rounded-xl px-4 py-3 mb-3">
+          <p className="text-rose-700">
+            ⚠ <span className="font-semibold">{conAlerta.toLocaleString('es-CL')}</span> paciente{conAlerta === 1 ? '' : 's'} lleva{conAlerta === 1 ? '' : 'n'} más de un mes sin reagendar.
+          </p>
+          <button onClick={() => { setSoloAlerta(true); setPage(1) }} className="shrink-0 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg">Ver solo estos</button>
+        </div>
+      )}
 
       <div className="bg-white rounded-2xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
         {cargando ? (
@@ -202,25 +265,63 @@ export function Pacientes() {
               </div>
             )
           })
-        ) : tab === 'reagendar' ? (
-          reagendarFiltrados.length === 0 ? (
-            <p className="px-5 py-10 text-center text-slate-500 text-sm">{q ? 'Ningún paciente coincide con la búsqueda.' : 'No hay pacientes pendientes de reagendar. ¡Todos tomaron su nueva hora!'}</p>
-          ) : reagendarFiltrados.map((it) => {
+        ) : tab === 'reagendar' && verResueltos ? (
+          resueltos.length === 0 ? (
+            <p className="px-5 py-10 text-center text-slate-500 text-sm">{q ? 'Ningún paciente coincide con la búsqueda.' : 'Todavía no has clasificado pacientes como agendados o perdidos.'}</p>
+          ) : resueltos.map((it) => {
             const wa = waLink(it.pacienteTelefono)
-            const dias = diasDesde(it.canceladaEn)
+            const dias = diasDesde(it.resueltoEn)
             return (
               <div key={it.pacienteId} className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
                 <Link to={`/pacientes/${it.pacienteId}`} className="min-w-0 flex-1">
                   <p className="font-semibold text-cyan-800 flex items-center gap-2 flex-wrap">
                     {it.pacienteNombre}
-                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Pidió reagendar</span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${REAGENDA_RESOLUCION_BADGE[it.estado] ?? 'bg-slate-100 text-slate-600'}`}>{REAGENDA_RESOLUCION_LABEL[it.estado] ?? it.estado}</span>
                   </p>
                   <p className="text-xs text-slate-500 font-mono">{it.pacienteRut ?? 'Sin RUT'}{it.pacienteTelefono ? ` · ${it.pacienteTelefono}` : ''}</p>
-                  <p className="text-[11px] text-slate-400">Canceló la hora del {fechaCorta(it.inicioOriginal)}{it.doctor ? ` · ${it.doctor}` : ''} · hace {dias} día{dias === 1 ? '' : 's'}</p>
+                  <p className="text-[11px] text-slate-400">Clasificado{it.resueltoPor ? ` por ${it.resueltoPor}` : ''} · hace {dias} día{dias === 1 ? '' : 's'}{it.nota ? ` · ${it.nota}` : ''}</p>
+                </Link>
+                <div className="flex items-center gap-2 shrink-0">
+                  {wa && <a href={wa} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="px-3 py-1.5 border border-emerald-200 text-emerald-600 hover:bg-emerald-50 text-xs font-semibold rounded-lg">WhatsApp</a>}
+                  <button onClick={() => reabrir(it.pacienteId)} disabled={accionId === it.pacienteId}
+                    className="px-3 py-1.5 border border-slate-200 text-slate-600 hover:bg-slate-50 disabled:opacity-50 text-xs font-semibold rounded-lg">
+                    {accionId === it.pacienteId ? '…' : 'Reabrir'}
+                  </button>
+                </div>
+              </div>
+            )
+          })
+        ) : tab === 'reagendar' ? (
+          reagendar.length === 0 ? (
+            <p className="px-5 py-10 text-center text-slate-500 text-sm">{q || soloAlerta ? 'Ningún paciente coincide con el filtro.' : 'No hay pacientes pendientes de reagendar. ¡Todos tomaron su nueva hora!'}</p>
+          ) : reagendar.map((it) => {
+            const wa = waLink(it.pacienteTelefono)
+            const dias = diasDesde(it.desde)
+            const alerta = dias > REAGENDA_ALERTA_DIAS
+            const noShow = esNoShow(it.origen)
+            const actuando = accionId === it.pacienteId
+            return (
+              <div key={it.pacienteId} className="flex items-center justify-between gap-3 px-5 py-3 hover:bg-slate-50 transition-colors">
+                <Link to={`/pacientes/${it.pacienteId}`} className="min-w-0 flex-1">
+                  <p className="font-semibold text-cyan-800 flex items-center gap-2 flex-wrap">
+                    {it.pacienteNombre}
+                    {noShow
+                      ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700">No asistió</span>
+                      : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">Pidió reagendar</span>}
+                    {alerta && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700">⚠ +1 mes</span>}
+                  </p>
+                  <p className="text-xs text-slate-500 font-mono">{it.pacienteRut ?? 'Sin RUT'}{it.pacienteTelefono ? ` · ${it.pacienteTelefono}` : ''}</p>
+                  <p className="text-[11px] text-slate-400">{noShow ? 'No asistió a la hora del' : 'Canceló la hora del'} {fechaCorta(it.inicioOriginal)}{it.doctor ? ` · ${it.doctor}` : ''} · hace {dias} día{dias === 1 ? '' : 's'}</p>
                 </Link>
                 <div className="flex items-center gap-2 shrink-0">
                   {wa && <a href={wa} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="px-3 py-1.5 border border-emerald-200 text-emerald-600 hover:bg-emerald-50 text-xs font-semibold rounded-lg">WhatsApp</a>}
                   <Link to={`/pacientes/${it.pacienteId}`} className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white text-xs font-semibold rounded-lg">Ver ficha</Link>
+                  <button onClick={() => clasificar(it.pacienteId, 'AGENDADO')} disabled={actuando} title="Ya tomó hora o ya no corresponde seguirlo"
+                    className="px-3 py-1.5 border border-emerald-200 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 text-xs font-semibold rounded-lg">Agendado</button>
+                  <button onClick={() => clasificar(it.pacienteId, 'NO_REAGENDA')} disabled={actuando} title="El paciente no quiere / no va a reagendar"
+                    className="px-3 py-1.5 border border-slate-200 text-slate-600 hover:bg-slate-100 disabled:opacity-50 text-xs font-semibold rounded-lg">No reagenda</button>
+                  <button onClick={() => clasificar(it.pacienteId, 'PERDIDO')} disabled={actuando} title="No se logró recuperar al paciente"
+                    className="px-3 py-1.5 border border-rose-200 text-rose-600 hover:bg-rose-50 disabled:opacity-50 text-xs font-semibold rounded-lg">Perdido</button>
                 </div>
               </div>
             )
@@ -240,11 +341,7 @@ export function Pacientes() {
         )}
       </div>
 
-      {!cargando && tab === 'reagendar' && reagendarFiltrados.length > 0 && (
-        <p className="mt-4 text-sm text-slate-600">{reagendarFiltrados.length.toLocaleString('es-CL')} paciente{reagendarFiltrados.length === 1 ? '' : 's'} pendiente{reagendarFiltrados.length === 1 ? '' : 's'} de reagendar</p>
-      )}
-
-      {!cargando && tab !== 'reagendar' && total > 0 && (
+      {!cargando && total > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 mt-4 text-sm text-slate-600">
           <span>{total.toLocaleString('es-CL')} paciente{total === 1 ? '' : 's'} · página {page} de {totalPages}</span>
           <div className="flex items-center gap-2">

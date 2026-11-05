@@ -5,6 +5,72 @@
 
 ---
 
+## 2026-11-05 — Gestión de pacientes: permiso + aviso ⚠, estado "No reagenda", y visor de imágenes
+
+Tres pedidos del dueño sobre la misma zona (Pacientes) + un visor de imágenes en pantalla.
+
+**1) Estado "No reagenda".** Tercer estado de clasificación además de Agendado/Perdido: el paciente
+no quiere / no va a reagendar. Sale de la lista y queda en el listado general. `REAGENDA_RESOLUCION`
+pasa a `AGENDADO|NO_REAGENDA|PERDIDO` (+ `REAGENDA_RESOLUCION_LABEL`/`_BADGE`); el backend ya validaba
+contra `REAGENDA_RESOLUCIONES_VALIDAS` (sin cambios de servicio) y el validador zod acota el enum.
+
+**2) Permiso "Gestión de pacientes"** (`User.puedeGestionarPacientes`, nueva columna `@default(false)`,
+el admin lo tiene siempre). Habilita las pestañas *Sin próxima cita* y *Pendientes de reagendar* y un
+**aviso ⚠ en el menú** (junto a "Pacientes") con cuántos hay pendientes (rojo si alguno lleva +1 mes),
+visible SOLO para quien tenga el permiso. El **listado de pacientes NO se gatea**: lo ve todo el equipo.
+Backend: `requirePermiso('puedeGestionarPacientes')` protege `GET /pacientes/sin-proxima-cita` y las 4
+rutas `/citas/pendientes-reagendar*`. Hilo completo: schema `User` · `auth.service` (sesión) ·
+`usuarios.service` (SELECT+CAMPOS_ADMIN) · `permiso.ts` · `shared/types` (`SessionUserDTO`/`UsuarioDTO`) ·
+`Equipo.tsx` (checkbox) · `Pacientes.tsx` (gate de pestañas) · `DashboardLayout.tsx` (aviso).
+Test nuevo: 403 sin permiso / 200 con él, y el listado abierto a todos (guardián probado en ambos sentidos).
+
+**3) Visor de imágenes en pantalla** (`components/VisorImagenes.tsx`): reemplaza el "abrir en pestaña
+nueva" de las radiografías/fotos del paciente por un lightbox con zoom (rueda/botones/doble clic),
+desplazamiento (arrastrar) y navegación (← →, Esc). PDFs: rasteriza la 1ª página (pdfjs, import dinámico)
++ botón "PDF completo". Reusa la descarga autenticada existente (`documentosService.blobUrl`); se engancha
+en `DocumentosPaciente.tsx` (la grilla abre el visor por índice). Sin cambios de backend.
+
+**Migrate-first (crítico):** el mismo `prisma db push` del tenant crea la tabla `ReagendaResolucion`
+Y la columna `User.puedeGestionarPacientes`. OJO: esta columna la LEE el login (`findUnique` sin
+select) → si no queda en algún tenant, se cae el INICIO DE SESIÓN (trampa withTenant). El script
+`scripts/migrar-reagenda-tabla.ts` (one-off) aplica+verifica AMBAS en los 3 tenants ANTES de desplegar.
+
+## 2026-11-03 — "Pendientes de reagendar" v2: no-shows + buscador + alerta +1 mes + clasificar
+
+Ampliación de la lista "Pacientes pendientes de reagendar" (Pacientes → pestaña) pedida por el dueño:
+sumar las inasistencias, cubrir el histórico (retroactivo) y poder gestionar la lista para que nadie
+quede ahí eternamente.
+
+**Diseño:** la lista se DERIVA de la agenda (no hay tabla de "la lista"): un paciente está pendiente
+cuando su última cita (por `updatedAt`) es una cancelación `patient_reschedule` **o** un no-show
+(`NO_ASISTIO`) y no tiene hora futura activa. Así el histórico aparece solo (no hace falta un
+"barrido" que inserte) y la lista se vacía sola al reagendar. Ventana: último año; sólo pacientes
+activos; excluye cancelaciones administrativas (sin motivo).
+
+**Lo único persistente** es la clasificación manual: nueva tabla **aditiva** `ReagendaResolucion`
+(`pacienteId`, `estado` AGENDADO|PERDIDO, `nota`, `resueltoPor`, `creadoEn`; FK a Paciente, sin FK a
+la agenda). Oculta al paciente si la resolución es posterior al evento; si vuelve a no-asistir/cancelar
+después, reaparece solo. **Migrate-first:** la tabla se crea y verifica en los 3 tenants ANTES de
+desplegar el código (lección del incidente del 2-nov). Ningún path de la agenda lee esta tabla.
+
+- `shared/constants/cita-estados.ts`: `REAGENDA_ORIGEN`, `REAGENDA_RESOLUCION`, `REAGENDA_ALERTA_DIAS` (30).
+- `shared/types`: `PendienteReagendarDTO` ahora trae `origen` + `desde` (reemplaza `canceladaEn`);
+  `PendientesReagendarPagina {items,total,conAlerta,...}`, `ReagendaResueltoDTO`/`...Pagina`.
+- `citas.service.ts`: `listarPendientesReagendar` server-side (búsqueda nombre/RUT/teléfono, paginado,
+  `soloAlerta`); `resolverReagendar`, `reabrirReagendar`, `listarReagendarResueltos`.
+- Endpoints (scope `tenant`): `GET /citas/pendientes-reagendar` (q/page/pageSize/soloAlerta),
+  `GET …/resueltos`, `POST …/resolver`, `POST …/reabrir`.
+- `frontend/Pacientes.tsx`: pestaña con búsqueda+paginado server-side, badge de origen (Pidió
+  reagendar / No asistió), alerta roja "+1 mes" + banner + filtro "solo +1 mes", botones Agendado /
+  Perdido, sub-vista "Ver resueltos" con Reabrir.
+- Tests: `tubot-agenda.test.ts` actualizado a la forma paginada + no-show entra con `origen: no_show`
+  + clasificar/reabrir. `init-sql-sync` verde. (2 fallos preexistentes en `pagos-liquidaciones` por
+  fecha, ajenos a este cambio.)
+
+**Pendiente del lado TuBot/Conversia:** la parte de reschedule depende de que el worker mande el
+`reason` (PR #598, ya en main). Los no-shows ya se registran en Cláriva, así que esa parte del
+histórico aparece de inmediato.
+
 ## 2026-11-02 — Motivo de cancelación (TuBot) + lista "Pacientes pendientes de reagendar"
 
 Cuando un paciente pide reagendar por WhatsApp, TuBot cancela su cita y ahora manda el motivo en el

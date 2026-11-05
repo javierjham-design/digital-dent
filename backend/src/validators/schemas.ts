@@ -52,6 +52,14 @@ export const reprogramarCitaSchema = z.object({
   boxId: z.string().nullish(),
 })
 
+// Clasificar un "pendiente de reagendar": AGENDADO (se le dio hora / ya no corresponde),
+// NO_REAGENDA (el paciente no quiere reagendar) o PERDIDO (no se logró recuperar).
+export const resolverReagendarSchema = z.object({
+  pacienteId: z.string().min(1),
+  estado: z.enum(['AGENDADO', 'NO_REAGENDA', 'PERDIDO']),
+  nota: z.string().max(500).nullish(),
+})
+
 export const crearUsuarioSchema = z.object({
   name: z.string().min(1, 'Falta el nombre'),
   username: z.string().min(2),

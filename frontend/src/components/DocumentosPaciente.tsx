@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { documentosService, type DocumentoMeta } from '@/services/documentos.service'
 import { EnviarCorreoModal } from '@/components/EnviarCorreoModal'
+import { VisorImagenes } from '@/components/VisorImagenes'
 import { RecetasCertificados } from '@/components/RecetasCertificados'
 import { useAuth } from '@/hooks/useAuth'
 import { ApiError } from '@/services/api'
@@ -25,6 +26,7 @@ export function DocumentosPaciente({ pacienteId, pacienteNombre, pacienteEmail }
   const puedeEliminar = Boolean(user?.permisos?.puedeEliminar)
   const [subtab, setSubtab] = useState<'radiografias' | 'documentos'>('radiografias')
   const [enviar, setEnviar] = useState<DocumentoMeta | null>(null)
+  const [viendo, setViendo] = useState<number | null>(null) // índice del archivo abierto en el visor
   const [items, setItems] = useState<DocumentoMeta[]>([])
   const [cargando, setCargando] = useState(true)
   const [tipo, setTipo] = useState('PERIAPICAL')
@@ -89,9 +91,13 @@ export function DocumentosPaciente({ pacienteId, pacienteNombre, pacienteEmail }
         : items.length === 0 ? <p className="px-4 py-8 text-center text-slate-400 text-sm">Sin radiografías ni documentos aún.</p>
         : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {items.map((d) => <Card key={d.id} d={d} puedeEliminar={puedeEliminar} onEliminar={() => eliminar(d.id)} onEnviar={() => setEnviar(d)} />)}
+            {items.map((d, i) => <Card key={d.id} d={d} puedeEliminar={puedeEliminar} onAbrir={() => setViendo(i)} onEliminar={() => eliminar(d.id)} onEnviar={() => setEnviar(d)} />)}
           </div>
         )}
+
+      {viendo !== null && items[viendo] && (
+        <VisorImagenes items={items} index={viendo} onClose={() => setViendo(null)} onIndex={setViendo} />
+      )}
 
       {enviar && (
         <EnviarCorreoModal
@@ -106,10 +112,10 @@ export function DocumentosPaciente({ pacienteId, pacienteNombre, pacienteEmail }
   )
 }
 
-function Card({ d, puedeEliminar, onEliminar, onEnviar }: { d: DocumentoMeta; puedeEliminar: boolean; onEliminar: () => void; onEnviar: () => void }) {
+function Card({ d, puedeEliminar, onAbrir, onEliminar, onEnviar }: { d: DocumentoMeta; puedeEliminar: boolean; onAbrir: () => void; onEliminar: () => void; onEnviar: () => void }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-      <button onClick={() => documentosService.abrir(d.id).catch(() => {})} className="block w-full aspect-square bg-slate-100" title="Abrir">
+      <button onClick={onAbrir} className="block w-full aspect-square bg-slate-100" title="Ver">
         {esImagen(d.mime) ? <Thumb id={d.id} /> : <div className="w-full h-full flex flex-col items-center justify-center text-slate-400"><span className="text-4xl">📄</span><span className="text-[10px] mt-1">PDF</span></div>}
       </button>
       <div className="p-2">

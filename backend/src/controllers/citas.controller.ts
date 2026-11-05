@@ -1,8 +1,9 @@
 import type { Request, Response } from 'express'
 import { tenantDb } from '@/middlewares/tenant'
 import { actorName } from '@/services/auth.service'
-import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas, listarLogsCita, listarPendientesReagendar, reenviarConfirmacionPorBot, reprogramarCita } from '@/services/citas.service'
-import { cambiarEstadoSchema, crearCitaSchema, editarCitaSchema, reprogramarCitaSchema } from '@/validators/schemas'
+import { cambiarEstadoCita, crearCita, editarCita, eliminarCita, listarCitas, listarLogsCita, listarPendientesReagendar, listarReagendarResueltos, reabrirReagendar, reenviarConfirmacionPorBot, reprogramarCita, resolverReagendar } from '@/services/citas.service'
+import { cambiarEstadoSchema, crearCitaSchema, editarCitaSchema, reprogramarCitaSchema, resolverReagendarSchema } from '@/validators/schemas'
+import { badRequest } from '@/lib/errors'
 
 function userName(req: Request): string {
   return req.auth ? actorName(req.auth) : 'Sistema'
@@ -15,10 +16,37 @@ export async function getCitas(req: Request, res: Response) {
   res.json(await listarCitas(tenantDb(req), { from, to, pacienteId }))
 }
 
-// Pacientes que pidieron reagendar (cancelación con motivo "patient_reschedule") y todavía no
-// volvieron a agendar. Lista accionable para que recepción los llame.
+function pageParams(req: Request): { q?: string; page: number; pageSize: number } {
+  const q = typeof req.query.q === 'string' ? req.query.q : undefined
+  const page = Number(req.query.page) || 1
+  const pageSize = Number(req.query.pageSize) || 25
+  return { q, page, pageSize }
+}
+
+// Pacientes que quedaron sin hora futura por una cancelación "para reagendar" o una inasistencia,
+// y todavía no volvieron a agendar. Lista accionable (server-side, con búsqueda y paginado) para
+// que recepción los llame. ?soloAlerta=1 deja solo los que llevan más de un mes.
 export async function getPendientesReagendar(req: Request, res: Response) {
-  res.json(await listarPendientesReagendar(tenantDb(req)))
+  const soloAlerta = req.query.soloAlerta === '1' || req.query.soloAlerta === 'true'
+  res.json(await listarPendientesReagendar(tenantDb(req), { ...pageParams(req), soloAlerta }))
+}
+
+// Clasificar un pendiente de reagendar (recepción lo saca de la lista): AGENDADO | PERDIDO.
+export async function postResolverReagendar(req: Request, res: Response) {
+  const { pacienteId, estado, nota } = resolverReagendarSchema.parse(req.body)
+  res.json(await resolverReagendar(tenantDb(req), pacienteId, estado, userName(req), nota))
+}
+
+// Deshacer la clasificación de un pendiente (vuelve a la lista si todavía corresponde).
+export async function postReabrirReagendar(req: Request, res: Response) {
+  const pacienteId = typeof req.body?.pacienteId === 'string' ? req.body.pacienteId : ''
+  if (!pacienteId) throw badRequest('Falta pacienteId')
+  res.json(await reabrirReagendar(tenantDb(req), pacienteId))
+}
+
+// Pendientes que ya fueron clasificados a mano (perdido/agendado).
+export async function getReagendarResueltos(req: Request, res: Response) {
+  res.json(await listarReagendarResueltos(tenantDb(req), pageParams(req)))
 }
 
 export async function postCita(req: Request, res: Response) {

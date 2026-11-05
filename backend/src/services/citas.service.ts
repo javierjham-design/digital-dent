@@ -1,7 +1,7 @@
 import type { TenantClient } from '@/db/tenant'
 import { badRequest, conflict, notFound } from '@/lib/errors'
-import { CITA_ESTADOS_KEYS, CITA_ESTADO_LABELS, ESTADOS_NO_OCUPAN, MOTIVO_CANCELACION, MOTIVO_CANCELACION_LABEL } from '@shared/constants/cita-estados'
-import type { CitaDTO, PendienteReagendarDTO } from '@shared/types'
+import { CITA_ESTADOS_KEYS, CITA_ESTADO_LABELS, ESTADOS_NO_OCUPAN, MOTIVO_CANCELACION, MOTIVO_CANCELACION_LABEL, REAGENDA_ORIGEN, REAGENDA_ALERTA_DIAS, REAGENDA_RESOLUCIONES_VALIDAS } from '@shared/constants/cita-estados'
+import type { CitaDTO, PendientesReagendarPagina, ReagendaResueltosPagina } from '@shared/types'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
 import { pushCita, deleteCitaInGoogle, swallowGoogle } from '@/lib/google-sync'
 import { enviarConfirmacionHora } from '@/services/email.service'
@@ -439,50 +439,212 @@ export async function cambiarEstadoCita(db: TenantClient, id: string, estado: st
   return toDTO(cita)
 }
 
-// Pacientes cuya cita fue cancelada con motivo "patient_reschedule" (quieren mover la hora) y que
-// TODAVÍA no tienen una cita futura activa. La lista se vacía sola cuando el paciente vuelve a
-// agendar: la cita nueva la crea Cláriva (p. ej. TuBot vía POST /appointments), así que detectar
-// "cita futura activa" no necesita ningún aviso extra del canal. Cada paciente aparece UNA vez
-// (su cancelación más reciente). Ver docs/TUBOT_AGENDA.md.
-export async function listarPendientesReagendar(db: TenantClient): Promise<PendienteReagendarDTO[]> {
+// ── Pendientes de reagendar ───────────────────────────────────────────────────
+// Lista DERIVADA de la agenda (sin tabla propia para la detección): un paciente está pendiente
+// cuando su ÚLTIMA cita (por updatedAt) es una cancelación "para reagendar" (motivo
+// 'patient_reschedule') o una inasistencia (NO_ASISTIO) y NO tiene una cita futura activa. Así el
+// histórico aparece solo (retroactivo) y la lista se vacía sola cuando el paciente toma una hora
+// nueva (la cita la crea Cláriva, p. ej. TuBot vía POST /appointments). Recepción puede sacar a un
+// paciente a mano (perdido/agendado): eso vive en ReagendaResolucion. Ver docs/TUBOT_AGENDA.md.
+const PAGE_SIZES_REAGENDAR = [25, 50, 100]
+const VENTANA_REAGENDAR_DIAS = 365 // sólo actividad del último año entra a la lista (más viejo = recall frío)
+
+// True si el error es "la tabla ReagendaResolucion no existe" (Prisma P2021 / Postgres 42P01):
+// cubre el intervalo entre desplegar el código y que el tenant tenga la tabla migrada. SOLO se usa
+// para DEGRADAR lecturas (no hay resoluciones todavía); nunca enmascara otros errores.
+function tablaReagendaFalta(e: unknown): boolean {
+  const code = (e as { code?: string })?.code
+  const msg = e instanceof Error ? e.message : String(e)
+  return code === 'P2021' || /ReagendaResolucion.*does not exist|relation .*ReagendaResolucion.* does not exist/i.test(msg)
+}
+
+// Normaliza para buscar (sin acentos, minúsculas).
+function normReag(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
+}
+function coincideReag(it: { pacienteNombre: string; pacienteRut: string | null; pacienteTelefono: string | null }, needle: string, digitos: string): boolean {
+  if (normReag(it.pacienteNombre).includes(needle)) return true
+  if (it.pacienteRut && normReag(it.pacienteRut).includes(needle)) return true
+  if (digitos.length >= 3 && it.pacienteTelefono && it.pacienteTelefono.replace(/\D/g, '').includes(digitos)) return true
+  return false
+}
+
+export async function listarPendientesReagendar(
+  db: TenantClient,
+  opts?: { q?: string; page?: number; pageSize?: number; soloAlerta?: boolean },
+): Promise<PendientesReagendarPagina> {
+  const pageSize = PAGE_SIZES_REAGENDAR.includes(Number(opts?.pageSize)) ? Number(opts?.pageSize) : 25
+  const page = Math.max(1, Number(opts?.page) || 1)
   const ahora = new Date()
-  // Cancelaciones "para reagendar", más reciente primero. updatedAt ≈ momento de la cancelación
-  // (la cancelación fue la última modificación de la cita).
-  const canceladas = await db.cita.findMany({
-    where: { estado: 'CANCELADA', motivoCancelacion: MOTIVO_CANCELACION.REAGENDAR },
+  const piso = new Date(ahora.getTime() - VENTANA_REAGENDAR_DIAS * 86400_000)
+  const vacio: PendientesReagendarPagina = { items: [], total: 0, conAlerta: 0, page, pageSize }
+
+  // 1) Universo: pacientes con un evento "pendiente" reciente (cancelación para reagendar o no-show),
+  //    por updatedAt (cuándo la cita quedó en ese estado).
+  const conEvento = await db.cita.findMany({
+    where: {
+      updatedAt: { gte: piso },
+      OR: [
+        { estado: 'NO_ASISTIO' },
+        { estado: 'CANCELADA', motivoCancelacion: MOTIVO_CANCELACION.REAGENDAR },
+      ],
+    },
+    select: { pacienteId: true }, distinct: ['pacienteId'],
+  })
+  if (conEvento.length === 0) return vacio
+  const ids = conEvento.map((c) => c.pacienteId)
+
+  // 2) Quiénes ya tienen hora futura activa → ya reagendaron, fuera.
+  const conFutura = await db.cita.findMany({
+    where: { pacienteId: { in: ids }, fecha: { gte: ahora }, estado: { notIn: ESTADOS_NO_OCUPAN } },
+    select: { pacienteId: true }, distinct: ['pacienteId'],
+  })
+  const yaReagendaron = new Set(conFutura.map((c) => c.pacienteId))
+  const candidatos = ids.filter((id) => !yaReagendaron.has(id))
+  if (candidatos.length === 0) return vacio
+
+  // 3) La ÚLTIMA cita (por updatedAt) de cada candidato: sólo sigue pendiente si esa última cita
+  //    ES el evento (si después atendió o tiene otra posterior, ya no es "pendiente de reagendar").
+  const ultimas = await db.cita.findMany({
+    where: { pacienteId: { in: candidatos } },
     orderBy: { updatedAt: 'desc' },
     select: {
-      id: true, fecha: true, updatedAt: true, pacienteId: true,
-      paciente: { select: { nombre: true, apellido: true, rut: true, telefono: true } },
+      id: true, pacienteId: true, fecha: true, updatedAt: true, estado: true, motivoCancelacion: true,
       doctor: { select: { name: true, titulo: true, email: true } },
     },
   })
-  if (canceladas.length === 0) return []
-  // Pacientes con una cita futura activa (fecha ≥ ahora y estado que ocupa el cupo): ya reagendaron.
-  const pacienteIds = [...new Set(canceladas.map((c) => c.pacienteId))]
-  const conFutura = await db.cita.findMany({
-    where: { pacienteId: { in: pacienteIds }, fecha: { gte: ahora }, estado: { notIn: ESTADOS_NO_OCUPAN } },
-    select: { pacienteId: true },
-    distinct: ['pacienteId'],
+  const ultimaPorPac = new Map<string, (typeof ultimas)[number]>()
+  for (const c of ultimas) if (!ultimaPorPac.has(c.pacienteId)) ultimaPorPac.set(c.pacienteId, c)
+  const triggers = [...ultimaPorPac.values()].filter((c) =>
+    c.updatedAt >= piso &&
+    (c.estado === 'NO_ASISTIO' || (c.estado === 'CANCELADA' && c.motivoCancelacion === MOTIVO_CANCELACION.REAGENDAR)),
+  )
+  if (triggers.length === 0) return vacio
+  const trigIds = triggers.map((t) => t.pacienteId)
+
+  // 4) Resolución manual más reciente por paciente: lo oculta si se resolvió DESPUÉS del evento
+  //    (si el evento es posterior a la resolución, reapareció solo → se muestra). Tolerante a que
+  //    la tabla todavía no exista en un tenant (intervalo entre deploy y migración): sin tabla no
+  //    hay resoluciones, así que degradar a "ninguna" es correcto y nunca rompe la lista.
+  const resoluciones = await db.reagendaResolucion.findMany({
+    where: { pacienteId: { in: trigIds } },
+    orderBy: { creadoEn: 'desc' }, distinct: ['pacienteId'],
+    select: { pacienteId: true, creadoEn: true },
+  }).catch((e) => { if (tablaReagendaFalta(e)) return []; throw e })
+  const resueltoHasta = new Map(resoluciones.map((r) => [r.pacienteId, r.creadoEn]))
+
+  // 5) Sólo pacientes activos (no dados de baja).
+  const pacientes = await db.paciente.findMany({
+    where: { id: { in: trigIds }, activo: true },
+    select: { id: true, nombre: true, apellido: true, rut: true, telefono: true },
   })
-  const yaReagendaron = new Set(conFutura.map((c) => c.pacienteId))
-  const vistos = new Set<string>()
-  const pendientes: PendienteReagendarDTO[] = []
-  for (const c of canceladas) {
-    if (yaReagendaron.has(c.pacienteId) || vistos.has(c.pacienteId)) continue
-    vistos.add(c.pacienteId)
-    pendientes.push({
-      pacienteId: c.pacienteId,
-      pacienteNombre: `${c.paciente.nombre} ${c.paciente.apellido}`,
-      pacienteRut: c.paciente.rut,
-      pacienteTelefono: c.paciente.telefono,
-      citaId: c.id,
-      doctor: conTitulo(c.doctor.titulo, c.doctor.name) || c.doctor.email,
-      inicioOriginal: c.fecha.toISOString(),
-      canceladaEn: c.updatedAt.toISOString(),
+  const mapPac = new Map(pacientes.map((p) => [p.id, p]))
+
+  let items = triggers
+    .filter((t) => {
+      if (!mapPac.has(t.pacienteId)) return false
+      const res = resueltoHasta.get(t.pacienteId)
+      return !(res && res >= t.updatedAt)
     })
+    .map((t) => {
+      const pac = mapPac.get(t.pacienteId)!
+      return {
+        pacienteId: t.pacienteId,
+        pacienteNombre: `${pac.nombre} ${pac.apellido}`,
+        pacienteRut: pac.rut,
+        pacienteTelefono: pac.telefono,
+        citaId: t.id,
+        doctor: conTitulo(t.doctor.titulo, t.doctor.name) || t.doctor.email,
+        origen: t.estado === 'NO_ASISTIO' ? REAGENDA_ORIGEN.NO_SHOW : REAGENDA_ORIGEN.REAGENDAR,
+        inicioOriginal: t.fecha.toISOString(),
+        desde: t.updatedAt.toISOString(),
+        _desde: t.updatedAt,
+      }
+    })
+
+  // Búsqueda por nombre / RUT / teléfono.
+  const q = (opts?.q ?? '').trim()
+  if (q.length >= 2) {
+    const needle = normReag(q)
+    const digitos = q.replace(/\D/g, '')
+    items = items.filter((it) => coincideReag(it, needle, digitos))
   }
-  return pendientes
+
+  // Alerta: lleva más de REAGENDA_ALERTA_DIAS sin reagendar (sobre lo que coincide con la búsqueda).
+  const alertaCorte = new Date(ahora.getTime() - REAGENDA_ALERTA_DIAS * 86400_000)
+  const conAlerta = items.filter((it) => it._desde < alertaCorte).length
+  if (opts?.soloAlerta) items = items.filter((it) => it._desde < alertaCorte)
+
+  items.sort((a, b) => +b._desde - +a._desde) // más reciente primero
+  const total = items.length
+  const start = (page - 1) * pageSize
+  const pagina = items.slice(start, start + pageSize).map(({ _desde, ...rest }) => rest)
+  return { items: pagina, total, conAlerta, page, pageSize }
+}
+
+// Recepción saca a un paciente de la lista de pendientes clasificándolo (AGENDADO = se le dio
+// hora / ya no corresponde · PERDIDO = no se recuperó). No borra nada de la agenda: solo registra
+// la resolución. Si el paciente vuelve a no-asistir/cancelar después, reaparece solo.
+export async function resolverReagendar(
+  db: TenantClient, pacienteId: string, estado: string, userName: string, nota?: string | null,
+): Promise<{ ok: true }> {
+  if (!REAGENDA_RESOLUCIONES_VALIDAS.includes(estado)) throw badRequest('Estado de resolución inválido')
+  const pac = await db.paciente.findUnique({ where: { id: pacienteId }, select: { id: true } })
+  if (!pac) throw notFound('Paciente no encontrado')
+  await db.reagendaResolucion.create({ data: { pacienteId, estado, nota: nota?.trim() || null, resueltoPor: userName } })
+  return { ok: true }
+}
+
+// Deshacer la última clasificación: borra la resolución más reciente del paciente, que vuelve a la
+// lista de pendientes (si todavía corresponde por su agenda).
+export async function reabrirReagendar(db: TenantClient, pacienteId: string): Promise<{ ok: true }> {
+  const ultima = await db.reagendaResolucion.findFirst({ where: { pacienteId }, orderBy: { creadoEn: 'desc' }, select: { id: true } })
+  if (ultima) await db.reagendaResolucion.delete({ where: { id: ultima.id } })
+  return { ok: true }
+}
+
+// Pacientes que recepción resolvió a mano (perdido/agendado): su clasificación VIGENTE (la más
+// reciente por paciente), para el apartado "Resueltos" con opción de reabrir.
+export async function listarReagendarResueltos(
+  db: TenantClient, opts?: { q?: string; page?: number; pageSize?: number },
+): Promise<ReagendaResueltosPagina> {
+  const pageSize = PAGE_SIZES_REAGENDAR.includes(Number(opts?.pageSize)) ? Number(opts?.pageSize) : 25
+  const page = Math.max(1, Number(opts?.page) || 1)
+  const todas = await db.reagendaResolucion.findMany({
+    orderBy: { creadoEn: 'desc' }, distinct: ['pacienteId'],
+    select: { pacienteId: true, estado: true, nota: true, resueltoPor: true, creadoEn: true },
+  }).catch((e) => { if (tablaReagendaFalta(e)) return []; throw e })
+  if (todas.length === 0) return { items: [], total: 0, page, pageSize }
+  const pacientes = await db.paciente.findMany({
+    where: { id: { in: todas.map((r) => r.pacienteId) }, activo: true },
+    select: { id: true, nombre: true, apellido: true, rut: true, telefono: true },
+  })
+  const mapPac = new Map(pacientes.map((p) => [p.id, p]))
+  let items = todas
+    .filter((r) => mapPac.has(r.pacienteId))
+    .map((r) => {
+      const pac = mapPac.get(r.pacienteId)!
+      return {
+        pacienteId: r.pacienteId,
+        pacienteNombre: `${pac.nombre} ${pac.apellido}`,
+        pacienteRut: pac.rut,
+        pacienteTelefono: pac.telefono,
+        estado: r.estado, nota: r.nota, resueltoPor: r.resueltoPor,
+        resueltoEn: r.creadoEn.toISOString(),
+        _creadoEn: r.creadoEn,
+      }
+    })
+  const q = (opts?.q ?? '').trim()
+  if (q.length >= 2) {
+    const needle = normReag(q)
+    const digitos = q.replace(/\D/g, '')
+    items = items.filter((it) => coincideReag(it, needle, digitos))
+  }
+  items.sort((a, b) => +b._creadoEn - +a._creadoEn)
+  const total = items.length
+  const start = (page - 1) * pageSize
+  const pagina = items.slice(start, start + pageSize).map(({ _creadoEn, ...rest }) => rest)
+  return { items: pagina, total, page, pageSize }
 }
 
 // Reenvío MANUAL "por el bot": recepción pide que TuBot vuelva a enviar la confirmación por el

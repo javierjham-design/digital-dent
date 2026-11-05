@@ -35,6 +35,9 @@ export interface SessionUserDTO {
     puedeDesbloquearPlanes: boolean
     puedeGestionarAgenda: boolean
     puedeVerReportes: boolean
+    // Habilita las listas de trabajo de pacientes ("Sin próxima cita" y "Pendientes de
+    // reagendar") + el aviso de gestión. El LISTADO de pacientes lo ve todo el equipo.
+    puedeGestionarPacientes: boolean
   }
 }
 
@@ -185,18 +188,48 @@ export interface CitaDTO {
   box?: { id: string; nombre: string } | null
 }
 
-// Un paciente cuya cita fue cancelada por un canal externo con motivo "patient_reschedule"
-// (quiere mover la hora) y que todavía NO tiene una cita futura activa. La lista se vacía sola
-// cuando el paciente vuelve a agendar (la cita nueva la crea Cláriva). Ver docs/TUBOT_AGENDA.md.
+// Un paciente que quedó SIN hora futura porque su última cita fue una cancelación "para
+// reagendar" (motivo 'patient_reschedule') o una inasistencia (no-show), y todavía no volvió a
+// agendar. La lista se vacía sola cuando el paciente toma una nueva hora (la cita la crea
+// Cláriva). Recepción puede clasificarlo manualmente (perdido/agendado). Ver docs/TUBOT_AGENDA.md.
 export interface PendienteReagendarDTO {
   pacienteId: string
   pacienteNombre: string
   pacienteRut: string | null
   pacienteTelefono: string | null
-  citaId: string          // la cita cancelada más reciente del paciente
-  doctor: string | null   // profesional de la cita cancelada
-  inicioOriginal: string  // ISO — la hora que tenía la cita cancelada
-  canceladaEn: string     // ISO — cuándo se canceló (aprox., última modificación de la cita)
+  citaId: string          // la última cita (cancelada / no asistida) del paciente
+  doctor: string | null   // profesional de esa cita
+  origen: string          // REAGENDA_ORIGEN: 'patient_reschedule' | 'no_show'
+  inicioOriginal: string  // ISO — la hora que tenía esa cita
+  desde: string           // ISO — cuándo quedó pendiente (última modificación de la cita)
+}
+
+// Página de "pendientes de reagendar" (lista server-side con búsqueda y paginado). `conAlerta`
+// es cuántos del total llevan más de REAGENDA_ALERTA_DIAS días sin reagendar (para el banner).
+export interface PendientesReagendarPagina {
+  items: PendienteReagendarDTO[]
+  total: number
+  conAlerta: number
+  page: number
+  pageSize: number
+}
+
+// Un pendiente de reagendar que recepción resolvió a mano (sale de la lista activa).
+export interface ReagendaResueltoDTO {
+  pacienteId: string
+  pacienteNombre: string
+  pacienteRut: string | null
+  pacienteTelefono: string | null
+  estado: string          // REAGENDA_RESOLUCION: 'AGENDADO' | 'NO_REAGENDA' | 'PERDIDO'
+  nota: string | null
+  resueltoPor: string | null
+  resueltoEn: string      // ISO
+}
+export interface ReagendaResueltosPagina {
+  items: ReagendaResueltoDTO[]
+  total: number
+  page: number
+  pageSize: number
 }
 
 export interface DoctorDTO {
@@ -237,6 +270,7 @@ export interface UsuarioDTO {
   puedeDesbloquearPlanes?: boolean
   puedeGestionarAgenda?: boolean
   puedeVerReportes?: boolean
+  puedeGestionarPacientes?: boolean
   areaDental?: boolean
   areaEstetica?: boolean
   areaMedico?: boolean

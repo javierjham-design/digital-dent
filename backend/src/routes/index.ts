@@ -9,7 +9,7 @@ import {
   getComentarios, postComentario, getMensajes, postMensaje, getResumen,
   getExport, getTemplate, postImport, getPacientesSinProxima, getLeadsSugeridos, postVincularLead,
 } from '@/controllers/pacientes.controller'
-import { getCitas, getPendientesReagendar, postCita, patchCita, deleteCita, patchEstado, getLogsCita, postReenviarBot, postReprogramar } from '@/controllers/citas.controller'
+import { getCitas, getPendientesReagendar, getReagendarResueltos, postResolverReagendar, postReabrirReagendar, postCita, patchCita, deleteCita, patchEstado, getLogsCita, postReenviarBot, postReprogramar } from '@/controllers/citas.controller'
 import * as box from '@/controllers/boxes.controller'
 import { getUsuarios, getDoctores, getCupoProfesionales, postUsuario, patchUsuario } from '@/controllers/usuarios.controller'
 import { getHorarios, postHorarios, getBloqueos, postBloqueo, patchBloqueo, deleteBloqueo, getDisponibilidad } from '@/controllers/agenda.controller'
@@ -77,6 +77,9 @@ const prestacionesTenant = [requireAuth, requireTenant, requirePermiso('puedeGes
 // Reportes (descargas XLSX con datos sensibles: nómina de pacientes, cobros, morosos):
 // admin o usuario con el permiso "puedeVerReportes".
 const reportesTenant = [requireAuth, requireTenant, requirePermiso('puedeVerReportes')]
+// Gestión de pacientes: las listas de trabajo "Sin próxima cita" y "Pendientes de reagendar"
+// (y el aviso de gestión). El LISTADO de pacientes NO se gatea: lo ve todo el equipo (ruta /pacientes).
+const pacientesGestionTenant = [requireAuth, requireTenant, requirePermiso('puedeGestionarPacientes')]
 // Contratos y liquidaciones de profesionales (comisiones, montos): admin o
 // "puedeGestionarLiquidaciones". Las lecturas "propias" quedan en `tenant` y
 // filtran por actor en el service.
@@ -149,7 +152,7 @@ apiRouter.get('/pacientes', tenant, asyncHandler(getPacientes))
 // Rutas estáticas ANTES de /pacientes/:id (si no, ":id" captura export/template/import).
 apiRouter.get('/pacientes/export', reportesTenant, asyncHandler(getExport)) // nómina completa: mismo permiso que /reportes/pacientes
 apiRouter.get('/pacientes/template', tenant, asyncHandler(getTemplate))
-apiRouter.get('/pacientes/sin-proxima-cita', tenant, asyncHandler(getPacientesSinProxima))
+apiRouter.get('/pacientes/sin-proxima-cita', pacientesGestionTenant, asyncHandler(getPacientesSinProxima))
 apiRouter.post('/pacientes/import', adminTenant, upload.single('file'), asyncHandler(postImport))
 apiRouter.post('/pacientes', tenant, asyncHandler(postPaciente))
 apiRouter.get('/pacientes/:id', tenant, asyncHandler(getPaciente))
@@ -167,7 +170,10 @@ apiRouter.get('/pacientes/:id/resumen', tenant, asyncHandler(getResumen))
 
 // ── Citas / Agenda (convertido a database-per-tenant) ────────────────────────
 apiRouter.get('/citas', tenant, asyncHandler(getCitas))
-apiRouter.get('/citas/pendientes-reagendar', tenant, asyncHandler(getPendientesReagendar)) // pacientes que pidieron reagendar y no volvieron a agendar
+apiRouter.get('/citas/pendientes-reagendar', pacientesGestionTenant, asyncHandler(getPendientesReagendar)) // pacientes que pidieron reagendar / no asistieron y no volvieron a agendar
+apiRouter.get('/citas/pendientes-reagendar/resueltos', pacientesGestionTenant, asyncHandler(getReagendarResueltos)) // los ya clasificados a mano (agendado/no reagenda/perdido)
+apiRouter.post('/citas/pendientes-reagendar/resolver', pacientesGestionTenant, asyncHandler(postResolverReagendar)) // clasificar
+apiRouter.post('/citas/pendientes-reagendar/reabrir', pacientesGestionTenant, asyncHandler(postReabrirReagendar)) // deshacer la clasificación
 apiRouter.post('/citas', tenant, asyncHandler(postCita))
 apiRouter.patch('/citas/:id', tenant, asyncHandler(patchCita))
 apiRouter.post('/citas/:id/reprogramar', tenant, asyncHandler(postReprogramar)) // reagendar preservando la original como Cancelada

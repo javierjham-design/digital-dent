@@ -75,6 +75,7 @@ type TenantUserRow = {
   puedeGestionarCajas: boolean; puedeRecibirPagos: boolean
   puedeConfigurarClinica: boolean; puedeGestionarEquipo: boolean; puedeGestionarPrestaciones: boolean
   puedeDesbloquearPlanes: boolean; puedeGestionarAgenda: boolean; puedeVerReportes: boolean
+  puedeGestionarPacientes: boolean
   areaDental: boolean; areaEstetica: boolean; areaMedico: boolean
 }
 function tenantUserDTO(u: TenantUserRow, clinicaId: string, pais: string, modulos: string[]): SessionUserDTO {
@@ -105,6 +106,7 @@ function tenantUserDTO(u: TenantUserRow, clinicaId: string, pais: string, modulo
       puedeDesbloquearPlanes: isAdmin || u.puedeDesbloquearPlanes,
       puedeGestionarAgenda: isAdmin || u.puedeGestionarAgenda,
       puedeVerReportes: isAdmin || u.puedeVerReportes,
+      puedeGestionarPacientes: isAdmin || u.puedeGestionarPacientes,
     },
   }
 }
@@ -116,7 +118,7 @@ function platformAdminDTO(a: { id: string; name: string | null; email: string; p
     permisos: {
       puedeModificarPrecio: true, puedeAplicarDescuento: true, puedeRevertirCompletado: true,
       puedeEditarPagos: true, puedeGestionarLiquidaciones: true, puedeGestionarCrm: true, puedeEliminar: true, puedeGestionarCajas: true, puedeRecibirPagos: true,
-      puedeConfigurarClinica: true, puedeGestionarEquipo: true, puedeGestionarPrestaciones: true, puedeDesbloquearPlanes: true, puedeGestionarAgenda: true, puedeVerReportes: true,
+      puedeConfigurarClinica: true, puedeGestionarEquipo: true, puedeGestionarPrestaciones: true, puedeDesbloquearPlanes: true, puedeGestionarAgenda: true, puedeVerReportes: true, puedeGestionarPacientes: true,
     },
   }
 }

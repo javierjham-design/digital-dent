@@ -54,8 +54,7 @@ CANCELADA→`cancelled`. Reagendar (PATCH) deja la cita en PENDIENTE.
   `POST /appointments/:id/{cancel|confirm|attendance}` (attended:false → `no_show`;
   `cancel` acepta en el body `{ reason: "patient_reschedule" | "patient_cancel" }` → se persiste en
   `Cita.motivoCancelacion`. `patient_reschedule` alimenta la lista interna "Pacientes pendientes de
-  reagendar" del panel (`GET /citas/pendientes-reagendar`), que se vacía sola al crear la cita nueva;
-  cualquier otro valor se ignora),
+  reagendar" del panel (ver abajo); cualquier otro valor se ignora),
   `PUT /patients` (upsert por documento/teléfono; no pisa datos de la ficha),
   `GET /patients/:phone/appointments`. Reusa `crearCita`/`editarCita`/`cambiarEstadoCita`
   (validan horario de atención + solapamiento). El paciente se resuelve por RUT o por los
@@ -81,6 +80,41 @@ CANCELADA→`cancelled`. Reagendar (PATCH) deja la cita en PENDIENTE.
   (true=ATENDIDA, false=NO_ASISTIO); `patient.updated` = `{firstName, lastName?, phone, email?, documentId?}`.
   `clinicId` = slug (request-context). Mapper compartido `citaToAppointment` en `lib/tubot-webhooks.ts`.
   Gestión self-serve (Configuración → Agenda TuBot) o Super Admin.
+
+## Pacientes pendientes de reagendar
+
+Lista de trabajo del panel (Pacientes → pestaña "Pendientes de reagendar") para no perder al
+paciente que quedó sin hora futura. Es **derivada de la agenda** (no hay tabla de "la lista"): un
+paciente está pendiente cuando su **última cita** (por `updatedAt`) es:
+- una **cancelación para reagendar** (`Cita.motivoCancelacion = 'patient_reschedule'`, que manda
+  TuBot en el `cancel`), o
+- una **inasistencia** (`NO_ASISTIO`, que marca el cron de no-show o recepción),
+
+y **no** tiene ninguna cita futura activa. Así el histórico aparece solo (retroactivo) y la lista
+se vacía sola cuando el paciente toma una hora nueva (la crea Cláriva). Ventana: último año; sólo
+pacientes activos; excluye cancelaciones administrativas (sin motivo). Cada fila trae `origen`
+(`patient_reschedule` | `no_show`) y `desde` (cuándo quedó pendiente); los que llevan más de 30
+días se marcan en alerta.
+
+Recepción puede **clasificar** a un paciente para sacarlo de la lista (pasa al listado general):
+`AGENDADO` = se le dio hora o ya no corresponde · `NO_REAGENDA` = el paciente no quiere/va a
+reagendar · `PERDIDO` = no se logró recuperar. Eso se guarda en la tabla `ReagendaResolucion`
+(aditiva, sin FK a la agenda): oculta al paciente si la resolución es **posterior** al evento que
+lo puso pendiente; si vuelve a no-asistir/cancelar después, **reaparece solo**. "Reabrir" borra la
+última resolución.
+
+**Permiso "Gestión de pacientes"** (`User.puedeGestionarPacientes`, el admin lo tiene siempre):
+habilita en el panel las pestañas *Sin próxima cita* y *Pendientes de reagendar* y el **aviso ⚠**
+del menú (cuántos hay pendientes; rojo si alguno lleva +1 mes). El **listado de pacientes NO se
+gatea**: lo ve todo el equipo. En el backend protege `GET /pacientes/sin-proxima-cita` y las 4 rutas
+`/citas/pendientes-reagendar*` (middleware `requirePermiso('puedeGestionarPacientes')`).
+
+Endpoints (scope `pacientesGestionTenant` = auth + tenant + permiso):
+`GET /citas/pendientes-reagendar?q=&page=&pageSize=&soloAlerta=` →
+`{items, total, conAlerta, page, pageSize}`; `POST /citas/pendientes-reagendar/resolver`
+`{pacienteId, estado, nota?}` (`estado` ∈ AGENDADO|NO_REAGENDA|PERDIDO);
+`POST /citas/pendientes-reagendar/reabrir` `{pacienteId}`;
+`GET /citas/pendientes-reagendar/resueltos?q=&page=&pageSize=`.
 
 ## Alta de una clínica
 

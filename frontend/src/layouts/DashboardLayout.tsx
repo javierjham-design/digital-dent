@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import type { PacienteDTO } from '@shared/types'
 import { useAuth } from '@/hooks/useAuth'
-import { pacientesService } from '@/services/clinica.service'
+import { pacientesService, citasService } from '@/services/clinica.service'
 import { clinicaService } from '@/services/catalogo.service'
 import { CambiarPasswordModal } from '@/components/CambiarPasswordModal'
 import { HelpWidget } from '@/components/HelpWidget'
@@ -152,6 +152,19 @@ export function DashboardLayout() {
   const forzado = Boolean(user?.requirePasswordChange)
   useEffect(() => { if (forzado) setCambiarPass(true) }, [forzado])
 
+  // Aviso de gestión: cuántos pacientes están pendientes de reagendar (para el ⚠ del menú).
+  // Solo lo consultan (y lo ven) los usuarios con el permiso "Gestión de pacientes". Se refresca
+  // al navegar, así baja en cuanto recepción los clasifica. El listado de pacientes no se gatea.
+  const { pathname } = useLocation()
+  const puedeGestionPacientes = user?.role === 'admin' || Boolean(user?.permisos?.puedeGestionarPacientes)
+  const [pendReagendar, setPendReagendar] = useState<{ total: number; conAlerta: number } | null>(null)
+  useEffect(() => {
+    if (!puedeGestionPacientes) { setPendReagendar(null); return }
+    citasService.pendientesReagendar({ page: 1, pageSize: 1 })
+      .then((r) => setPendReagendar({ total: r.total, conAlerta: r.conAlerta }))
+      .catch(() => undefined)
+  }, [puedeGestionPacientes, pathname])
+
   if (user?.isPlatformAdmin) return <Navigate to="/plataforma" replace />
   const puedeCrm = Boolean(user?.permisos?.puedeGestionarCrm)
   const puedeCajas = Boolean(user?.permisos?.puedeGestionarCajas)
@@ -182,7 +195,20 @@ export function DashboardLayout() {
           <button onClick={logout} className="text-sm text-slate-500 hover:text-rose-600">Salir</button>
         </div>
         <nav className="flex flex-wrap items-center gap-1 w-full order-4 sm:order-3 sm:w-auto sm:flex-1">
-          {NAV_PRE.map((n) => <NavLink key={n.to} to={n.to} className={linkCls}>{n.label}</NavLink>)}
+          {NAV_PRE.map((n) => (
+            <NavLink key={n.to} to={n.to} className={linkCls}>
+              {n.to === '/pacientes' && puedeGestionPacientes && pendReagendar && pendReagendar.total > 0 ? (
+                <span className="inline-flex items-center gap-1.5">
+                  {n.label}
+                  <span
+                    title={`${pendReagendar.total} paciente${pendReagendar.total === 1 ? '' : 's'} pendiente${pendReagendar.total === 1 ? '' : 's'} de reagendar${pendReagendar.conAlerta > 0 ? ` · ${pendReagendar.conAlerta} lleva${pendReagendar.conAlerta === 1 ? '' : 'n'} más de un mes` : ''} — revisar en Pacientes`}
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${pendReagendar.conAlerta > 0 ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>
+                    ⚠ {pendReagendar.total}
+                  </span>
+                </span>
+              ) : n.label}
+            </NavLink>
+          ))}
           {/* CRM es trabajo diario (leads sin gestionar): va anclado en el header, no
               escondido en el desplegable. Misma condición de visibilidad que antes. */}
           {modCrm && (esAdmin || puedeCrm) && <NavLink to="/crm" className={linkCls}>CRM · Leads</NavLink>}

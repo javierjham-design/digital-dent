@@ -185,6 +185,7 @@ model User {
   puedeDesbloquearPlanes      Boolean @default(false) // desbloquear presupuestos bloqueados (al imprimir/enviar quedan bloqueados)
   puedeGestionarAgenda        Boolean @default(false) // gestionar la agenda de cualquier profesional: bloqueos y citas (crear/editar/eliminar)
   puedeVerReportes            Boolean @default(false) // descargar los reportes XLSX (nómina de pacientes, cobros, morosos, etc.)
+  puedeGestionarPacientes     Boolean @default(false) // habilita «Sin próxima cita» y «Pendientes de reagendar» + el aviso de gestión (el listado de pacientes lo ve todo el equipo)
   // Áreas clínicas que trabaja el usuario (disponible = clínica contrató el área
   // Y el usuario la tiene). Dental default true: todos los usuarios actuales
   // siguen operando exactamente igual.
@@ -260,6 +261,26 @@ model Paciente {
   mensajes         MensajePaciente[]
   consentimientos  Consentimiento[]
   documentos       DocumentoPaciente[]
+  reagendaResoluciones ReagendaResolucion[]
+}
+
+// Resolución MANUAL de un pendiente de reagendar. La lista "Pacientes pendientes de reagendar"
+// se DERIVA de la agenda (última cita = cancelación 'patient_reschedule' o no-show, sin hora
+// futura); esta tabla solo guarda cuándo recepción sacó a un paciente de esa lista a mano
+// (AGENDADO = se le dio hora / ya no corresponde · PERDIDO = no se recuperó) para que no quede
+// ahí eternamente. Un paciente se oculta de la lista si su resolución es POSTERIOR al evento que
+// lo puso pendiente; si vuelve a no-asistir/cancelar después, reaparece solo (no hace falta
+// borrar la resolución). Database-per-tenant: sin clinicaId. Ver docs/TUBOT_AGENDA.md.
+model ReagendaResolucion {
+  id          String   @id @default(cuid())
+  pacienteId  String
+  estado      String // AGENDADO | PERDIDO
+  nota        String?
+  resueltoPor String? // nombre del usuario que lo clasificó
+  creadoEn    DateTime @default(now()) // se compara con la fecha del evento pendiente (un evento posterior reabre)
+  paciente    Paciente @relation(fields: [pacienteId], references: [id], onDelete: Cascade)
+
+  @@index([pacienteId, creadoEn])
 }
 
 model ComentarioAdministrativo {

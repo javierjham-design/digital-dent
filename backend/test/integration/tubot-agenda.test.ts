@@ -7,6 +7,7 @@ import { tenantClient } from './tenant-test'
 import { control } from './control-test'
 import { hashApiKey } from '@/services/ext.service'
 import { todayYmd, addDaysYmd, wallClockToUtc } from '@/lib/tz'
+import bcrypt from 'bcryptjs'
 
 // Clave de cifrado para el secreto del webhook (crypto la lee de env).
 process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'test-encryption-key-clariva-tubot-webhooks-1234'
@@ -485,10 +486,12 @@ describe('TuBot agenda — motivo de cancelación + lista "pendientes de reagend
     expect(cita!.motivoCancelacion).toBe('patient_reschedule')
     const lista = await listaPendientes()
     expect(lista.status).toBe(200)
-    const item = lista.body.find((x: { pacienteTelefono: string | null }) => (x.pacienteTelefono ?? '').includes('44448888'))
+    const item = lista.body.items.find((x: { pacienteTelefono: string | null }) => (x.pacienteTelefono ?? '').includes('44448888'))
     expect(item).toBeTruthy()
     expect(item.citaId).toBe(apptId)
     expect(item.pacienteNombre).toContain('Rea')
+    expect(item.origen).toBe('patient_reschedule')
+    expect(typeof lista.body.total).toBe('number')
   })
 
   it('al volver a agendar (cita futura) el paciente sale solo de la lista', async () => {
@@ -496,7 +499,7 @@ describe('TuBot agenda — motivo de cancelación + lista "pendientes de reagend
     const nueva = await post('/appointments', { professionalId: doctorId, start: wallClockToUtc(d2, '10:00').toISOString(), end: wallClockToUtc(d2, '10:30').toISOString(), patient: { firstName: 'Rea', lastName: 'Genda', phone } })
     expect(nueva.status).toBe(201)
     const lista = await listaPendientes()
-    const item = lista.body.find((x: { pacienteTelefono: string | null }) => (x.pacienteTelefono ?? '').includes('44448888'))
+    const item = lista.body.items.find((x: { pacienteTelefono: string | null }) => (x.pacienteTelefono ?? '').includes('44448888'))
     expect(item).toBeFalsy()
   })
 
@@ -509,7 +512,7 @@ describe('TuBot agenda — motivo de cancelación + lista "pendientes de reagend
     const cita = await db.cita.findUnique({ where: { id: appt.body.id }, select: { motivoCancelacion: true } })
     expect(cita!.motivoCancelacion).toBe('patient_cancel')
     const lista = await listaPendientes()
-    const item = lista.body.find((x: { pacienteTelefono: string | null }) => (x.pacienteTelefono ?? '').includes('44449999'))
+    const item = lista.body.items.find((x: { pacienteTelefono: string | null }) => (x.pacienteTelefono ?? '').includes('44449999'))
     expect(item).toBeFalsy()
   })
 
@@ -522,7 +525,92 @@ describe('TuBot agenda — motivo de cancelación + lista "pendientes de reagend
     const cita = await db.cita.findUnique({ where: { id: appt.body.id }, select: { motivoCancelacion: true } })
     expect(cita!.motivoCancelacion).toBeNull()
     const lista = await listaPendientes()
-    const item = lista.body.find((x: { pacienteTelefono: string | null }) => (x.pacienteTelefono ?? '').includes('44440000'))
+    const item = lista.body.items.find((x: { pacienteTelefono: string | null }) => (x.pacienteTelefono ?? '').includes('44440000'))
     expect(item).toBeFalsy()
+  })
+
+  it('una inasistencia (no-show) entra a la lista con origen no_show', async () => {
+    const d5 = addDaysYmd(todayYmd(), 14)
+    const appt = await post('/appointments', { professionalId: doctorId, start: wallClockToUtc(d5, '10:00').toISOString(), end: wallClockToUtc(d5, '10:30').toISOString(), patient: { firstName: 'NoShow', lastName: 'Falta', phone: '+56944441111' } })
+    const r = await request(app).patch(`/api/v1/citas/${appt.body.id}/estado`).set('Authorization', `Bearer ${jwt}`).send({ estado: 'NO_ASISTIO' })
+    expect(r.status).toBe(200)
+    const lista = await listaPendientes()
+    const item = lista.body.items.find((x: { pacienteTelefono: string | null }) => (x.pacienteTelefono ?? '').includes('44441111'))
+    expect(item).toBeTruthy()
+    expect(item.origen).toBe('no_show')
+  })
+
+  it('clasificar como perdido lo saca de pendientes y aparece en resueltos; reabrir lo devuelve', async () => {
+    const d6 = addDaysYmd(todayYmd(), 15)
+    const phone6 = '+56944442222'
+    const appt = await post('/appointments', { professionalId: doctorId, start: wallClockToUtc(d6, '10:00').toISOString(), end: wallClockToUtc(d6, '10:30').toISOString(), patient: { firstName: 'Clasi', lastName: 'Ficar', phone: phone6 } })
+    await post(`/appointments/${appt.body.id}/cancel`, { reason: 'patient_reschedule' })
+    // Aparece como pendiente.
+    let lista = await listaPendientes()
+    const pendiente = lista.body.items.find((x: { pacienteTelefono: string | null; pacienteId: string }) => (x.pacienteTelefono ?? '').includes('44442222'))
+    expect(pendiente).toBeTruthy()
+    const pacienteId = pendiente.pacienteId
+
+    // Clasificar como PERDIDO → sale de pendientes.
+    const res = await request(app).post('/api/v1/citas/pendientes-reagendar/resolver').set('Authorization', `Bearer ${jwt}`).send({ pacienteId, estado: 'PERDIDO', nota: 'No contesta' })
+    expect(res.status).toBe(200)
+    lista = await listaPendientes()
+    expect(lista.body.items.find((x: { pacienteId: string }) => x.pacienteId === pacienteId)).toBeFalsy()
+
+    // Aparece en resueltos con su estado/nota.
+    const resueltos = await request(app).get('/api/v1/citas/pendientes-reagendar/resueltos').set('Authorization', `Bearer ${jwt}`)
+    const resuelto = resueltos.body.items.find((x: { pacienteId: string }) => x.pacienteId === pacienteId)
+    expect(resuelto).toBeTruthy()
+    expect(resuelto.estado).toBe('PERDIDO')
+    expect(resuelto.nota).toBe('No contesta')
+
+    // Reabrir → vuelve a pendientes.
+    const reabrir = await request(app).post('/api/v1/citas/pendientes-reagendar/reabrir').set('Authorization', `Bearer ${jwt}`).send({ pacienteId })
+    expect(reabrir.status).toBe(200)
+    lista = await listaPendientes()
+    expect(lista.body.items.find((x: { pacienteId: string }) => x.pacienteId === pacienteId)).toBeTruthy()
+  })
+
+  it('clasificar como NO_REAGENDA lo saca de pendientes y queda registrado; un estado inválido es 400', async () => {
+    const d7 = addDaysYmd(todayYmd(), 16)
+    const phone7 = '+56944443333'
+    const appt = await post('/appointments', { professionalId: doctorId, start: wallClockToUtc(d7, '10:00').toISOString(), end: wallClockToUtc(d7, '10:30').toISOString(), patient: { firstName: 'NoRe', lastName: 'Agenda', phone: phone7 } })
+    await post(`/appointments/${appt.body.id}/cancel`, { reason: 'patient_reschedule' })
+    let lista = await listaPendientes()
+    const pendiente = lista.body.items.find((x: { pacienteTelefono: string | null; pacienteId: string }) => (x.pacienteTelefono ?? '').includes('44443333'))
+    expect(pendiente).toBeTruthy()
+    const pacienteId = pendiente.pacienteId
+
+    // Un estado fuera del enum (AGENDADO|NO_REAGENDA|PERDIDO) debe rechazarse.
+    const malo = await request(app).post('/api/v1/citas/pendientes-reagendar/resolver').set('Authorization', `Bearer ${jwt}`).send({ pacienteId, estado: 'FANTASIA' })
+    expect(malo.status).toBe(400)
+
+    const res = await request(app).post('/api/v1/citas/pendientes-reagendar/resolver').set('Authorization', `Bearer ${jwt}`).send({ pacienteId, estado: 'NO_REAGENDA' })
+    expect(res.status).toBe(200)
+    lista = await listaPendientes()
+    expect(lista.body.items.find((x: { pacienteId: string }) => x.pacienteId === pacienteId)).toBeFalsy()
+    const resueltos = await request(app).get('/api/v1/citas/pendientes-reagendar/resueltos').set('Authorization', `Bearer ${jwt}`)
+    const resuelto = resueltos.body.items.find((x: { pacienteId: string }) => x.pacienteId === pacienteId)
+    expect(resuelto?.estado).toBe('NO_REAGENDA')
+  })
+
+  it('las listas de gestión exigen el permiso "Gestión de pacientes" (403 sin él, 200 con él)', async () => {
+    const db = tenantClient(A.dbName)
+    // Recepcionista sin permisos: puede loguearse pero NO ve las listas de trabajo.
+    await db.user.create({ data: { name: 'Recep Sin Permiso', role: 'staff', activo: true, username: 'recep_gp', password: await bcrypt.hash(PASSWORD, 10) } })
+    const login = await request(app).post('/api/v1/auth/login').send({ slug: A.slug, username: 'recep_gp', password: PASSWORD })
+    const staffJwt: string = login.body.token
+    expect(staffJwt).toBeTruthy()
+    const sinPermiso = await request(app).get('/api/v1/citas/pendientes-reagendar').set('Authorization', `Bearer ${staffJwt}`)
+    expect(sinPermiso.status).toBe(403)
+    const recallSin = await request(app).get('/api/v1/pacientes/sin-proxima-cita').set('Authorization', `Bearer ${staffJwt}`)
+    expect(recallSin.status).toBe(403)
+    // Pero el LISTADO de pacientes NO depende del permiso: lo ve todo el equipo (aún sin el permiso).
+    const listado = await request(app).get('/api/v1/pacientes').set('Authorization', `Bearer ${staffJwt}`)
+    expect(listado.status).toBe(200)
+    // El permiso se evalúa EN VIVO contra la BD (no desde el JWT): basta activarlo, sin re-login.
+    await db.user.update({ where: { username: 'recep_gp' }, data: { puedeGestionarPacientes: true } })
+    const conPermiso = await request(app).get('/api/v1/citas/pendientes-reagendar').set('Authorization', `Bearer ${staffJwt}`)
+    expect(conPermiso.status).toBe(200)
   })
 })

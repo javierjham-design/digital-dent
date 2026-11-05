@@ -124,6 +124,7 @@ CREATE TABLE "User" (
     "puedeDesbloquearPlanes" BOOLEAN NOT NULL DEFAULT false,
     "puedeGestionarAgenda" BOOLEAN NOT NULL DEFAULT false,
     "puedeVerReportes" BOOLEAN NOT NULL DEFAULT false,
+    "puedeGestionarPacientes" BOOLEAN NOT NULL DEFAULT false,
     "areaDental" BOOLEAN NOT NULL DEFAULT true,
     "areaEstetica" BOOLEAN NOT NULL DEFAULT false,
     "areaMedico" BOOLEAN NOT NULL DEFAULT false,
@@ -173,6 +174,18 @@ CREATE TABLE "Paciente" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "Paciente_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ReagendaResolucion" (
+    "id" TEXT NOT NULL,
+    "pacienteId" TEXT NOT NULL,
+    "estado" TEXT NOT NULL,
+    "nota" TEXT,
+    "resueltoPor" TEXT,
+    "creadoEn" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ReagendaResolucion_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -1031,6 +1044,9 @@ CREATE UNIQUE INDEX "Paciente_numero_key" ON "Paciente"("numero");
 CREATE UNIQUE INDEX "Paciente_rut_key" ON "Paciente"("rut");
 
 -- CreateIndex
+CREATE INDEX "ReagendaResolucion_pacienteId_creadoEn_idx" ON "ReagendaResolucion"("pacienteId", "creadoEn");
+
+-- CreateIndex
 CREATE INDEX "Cita_googleEventId_idx" ON "Cita"("googleEventId");
 
 -- CreateIndex
@@ -1179,6 +1195,9 @@ CREATE INDEX "AsistenteAuditoria_createdAt_idx" ON "AsistenteAuditoria"("created
 
 -- CreateIndex
 CREATE INDEX "AsistenteAuditoria_userId_createdAt_idx" ON "AsistenteAuditoria"("userId", "createdAt");
+
+-- AddForeignKey
+ALTER TABLE "ReagendaResolucion" ADD CONSTRAINT "ReagendaResolucion_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "ComentarioAdministrativo" ADD CONSTRAINT "ComentarioAdministrativo_pacienteId_fkey" FOREIGN KEY ("pacienteId") REFERENCES "Paciente"("id") ON DELETE CASCADE ON UPDATE CASCADE;
