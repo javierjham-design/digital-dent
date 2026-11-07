@@ -11,6 +11,7 @@ import { emitirEventoCita } from '@/lib/tubot-webhooks'
 import { pushCita } from '@/lib/google-sync'
 import { ESTADOS_NO_OCUPAN } from '@shared/constants/cita-estados'
 import { addMinutes, intervalsOverlap } from '@/lib/overlap'
+import { pasosDeGrilla } from '@/lib/agenda-grilla'
 import { lockAgendaDoctor } from '@/lib/agenda-lock'
 import { validarRut, formatRut } from '@shared/utils/rut'
 import { wallClockToUtc, todayYmd, addDaysYmd, weekdayOfYmd, toMin, fromMin, tzDePais } from '@/lib/tz'
@@ -250,7 +251,9 @@ export async function slotsLibres(
   for (let ymd = startYmd; ymd <= toYmd; ymd = addDaysYmd(ymd, 1)) {
     for (const w of ventanasDeHorario(horarios, weekdayOfYmd(ymd))) {
       const wStart = toMin(w.ini), wEnd = toMin(w.fin)
-      for (let m = wStart; m + durationMin <= wEnd; m += durationMin) {
+      // Grilla de bloques de 15 min (ver pasosDeGrilla): el paso NO es la duración, así
+      // los huecos de :15/:45 entre citas aparecen aunque la cita dure 20/30 min.
+      for (const m of pasosDeGrilla(wStart, wEnd, durationMin)) {
         const start = wallClockToUtc(ymd, fromMin(m), tz)
         if (start.getTime() < now.getTime()) continue
         const end = new Date(start.getTime() + durationMin * 60000)
@@ -278,7 +281,9 @@ export async function calcularSlots(db: TenantClient, link: Link, doctorId: stri
     const slots: { inicio: string; hora: string }[] = []
     for (const w of ventanas) {
       const wStart = toMin(w.ini), wEnd = toMin(w.fin)
-      for (let m = wStart; m + link.duracionMin <= wEnd; m += link.duracionMin) {
+      // Misma grilla de 15 min que slotsLibres: el link público ya no sub-reporta horas
+      // por culpa de pasos del tamaño de la duración (ver pasosDeGrilla).
+      for (const m of pasosDeGrilla(wStart, wEnd, link.duracionMin)) {
         const hm = fromMin(m)
         const inicio = wallClockToUtc(ymd, hm, tz)
         if (inicio.getTime() < minInicio.getTime()) continue
