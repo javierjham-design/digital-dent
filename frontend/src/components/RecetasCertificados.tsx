@@ -188,9 +188,24 @@ function VerModal({ doc, clinica, pacienteId, pacienteNombre, pacienteEmail, pue
   }
   function imprimir() {
     const cont = docRef.current; if (!cont) return
+    // Usamos outerHTML (NO innerHTML) para incluir el contenedor `.cl-doc` y su <style>
+    // embebido: así la impresión aplica EXACTAMENTE las mismas reglas que la vista y el PDF
+    // (logo acotado a 52px, tipografía, bordes). Con innerHTML el div `.cl-doc` queda fuera,
+    // los selectores `.cl-doc …` no matchean y el logo sale a tamaño natural (gigante).
     const w = window.open('', '_blank', 'width=820,height=1000'); if (!w) return
-    w.document.write(`<!doctype html><html><head><title>${doc.titulo}</title><meta charset="utf-8"><style>body{font-family:system-ui,Arial,sans-serif;padding:24px;color:#0f172a} h1{font-size:18px} h3{font-size:14px;margin:12px 0 4px} p{margin:4px 0} ul{margin:4px 0 4px 20px} em{font-style:italic}</style></head><body>${cont.innerHTML}</body></html>`)
-    w.document.close(); w.focus(); setTimeout(() => { w.print() }, 300)
+    w.document.write(`<!doctype html><html><head><title>${doc.titulo}</title><meta charset="utf-8"><style>@page{margin:12mm} html,body{margin:0;padding:0;background:#fff}</style></head><body>${cont.outerHTML}</body></html>`)
+    w.document.close(); w.focus()
+    // Esperar a que el logo cargue en la ventana nueva antes de imprimir (si no, a veces
+    // se dispara el diálogo con la imagen a medio cargar). Respaldo por si no resuelve.
+    let impreso = false
+    const imprimirYa = () => { if (impreso) return; impreso = true; try { w.print() } catch { /* ventana cerrada */ } }
+    const imgs = Array.from(w.document.images)
+    if (imgs.length) {
+      let pend = imgs.length
+      const uno = () => { if (--pend <= 0) imprimirYa() }
+      imgs.forEach((im) => { if (im.complete) uno(); else { im.onload = uno; im.onerror = uno } })
+    }
+    setTimeout(imprimirYa, imgs.length ? 2000 : 200)
   }
 
   return (
