@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { TenantClient } from '@/db/tenant'
 import { conTitulo } from '@shared/utils/nombre'
 import { slotsLibres } from '@/services/agenda-online.service'
+import { snapGrid } from '@/lib/agenda-grilla'
 import { buscarLeadParaReserva, dispararEtapaCrmMeta, dispararScheduleMeta } from '@/services/crm.service'
 import { crearCita, editarCita, cambiarEstadoCita } from '@/services/citas.service'
 import { crearPaciente, listarPacientesPaginado, obtenerPaciente, listarComentarios, crearComentario } from '@/services/pacientes.service'
@@ -138,6 +139,9 @@ export async function availability(
   // aparecen como disponibles — con paso 30 esos espacios se perdían.
   const durOverride = Number(q.durationMin)
   if (Number.isFinite(durOverride) && durOverride >= 5 && durOverride <= 240) durationMin = Math.round(durOverride)
+  // Candado de grilla: la duración ofrecida SIEMPRE cae en la grilla de 15 (20→30, 50→60).
+  // Así la cadencia de horas (y la cita que luego se cree) nunca queda fuera de :00/:15/:30/:45.
+  durationMin = snapGrid(durationMin)
 
   const docs = await db.user.findMany({
     where: { role: { in: ROLES_CON_AGENDA }, activo: true, ...(q.professionalId ? { id: q.professionalId } : {}) },
@@ -257,6 +261,9 @@ export async function createAppointment(db: TenantClient, slug: string, input: C
     if (pr?.duracion) dur = pr.duracion
   }
   if (dur <= 0) dur = 30
+  // Candado de grilla de 15: ningún caller del contrato (TuBot incluido) crea una cita de 20/50.
+  // Redondea hacia arriba al bloque (20→30, 50→60); el panel y Cláriva ya trabajan en 15.
+  dur = snapGrid(dur)
 
   const pac = await resolverPaciente(db, input.patient, { actualizar: true })
   const notas = input.notes?.trim() || 'Agendada por TuBot'
@@ -364,7 +371,7 @@ export async function updateAppointment(db: TenantClient, slug: string, id: stri
   const patch: { fecha?: string; duracion?: number; doctorId?: string; notas?: string | null } = {}
   if (changes.start) {
     patch.fecha = new Date(changes.start).toISOString()
-    if (changes.end) patch.duracion = Math.round((new Date(changes.end).getTime() - new Date(changes.start).getTime()) / 60000)
+    if (changes.end) patch.duracion = snapGrid(Math.round((new Date(changes.end).getTime() - new Date(changes.start).getTime()) / 60000))
   }
   if (changes.professionalId) patch.doctorId = changes.professionalId
   if (changes.notes !== undefined) patch.notas = changes.notes

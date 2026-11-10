@@ -19,3 +19,16 @@ export function pasosDeGrilla(wStart: number, wEnd: number, durationMin: number,
   for (let m = wStart; m + durationMin <= wEnd; m += step) out.push(m)
   return out
 }
+
+// Ajusta una duración al múltiplo de la grilla (15 min) REDONDEANDO HACIA ARRIBA, con
+// mínimo un bloque. La clínica trabaja en bloques de 15 y su panel NO deja crear una
+// cita de 20; pero un consumidor del contrato (TuBot) podía mandar una duración fuera de
+// grilla (20, 50…) —sea por `end−start`, por un servicio mal configurado, o al REAGENDAR
+// conservando la duración de una cita vieja ya torcida— y quedaba una cita que termina en
+// :35 y pisa media celda de la grilla. Redondear hacia arriba nunca sub-reserva (jamás deja
+// una cita MÁS corta de lo pedido) y garantiza que toda cita del bot caiga en la grilla:
+// 15→15, 20→30, 30→30, 45→45, 50→60, 0/negativo→15.
+export function snapGrid(durationMin: number, gridMin = GRID_MIN): number {
+  if (!Number.isFinite(durationMin) || durationMin <= 0) return gridMin
+  return Math.max(gridMin, Math.ceil(durationMin / gridMin) * gridMin)
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { pasosDeGrilla, GRID_MIN } from '@/lib/agenda-grilla'
+import { pasosDeGrilla, snapGrid, GRID_MIN } from '@/lib/agenda-grilla'
 
 const fromMin = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 const horas = (ms: number[]) => ms.map(fromMin)
@@ -50,6 +50,40 @@ describe('pasosDeGrilla — grilla de 15 desacoplada de la duración', () => {
         expect(m).toBeGreaterThanOrEqual(585)
         expect(m + dur).toBeLessThanOrEqual(840)
       }
+    }
+  })
+})
+
+// Candado de la DURACIÓN a la grilla de 15 (ninguna cita del bot queda en 20/50).
+describe('snapGrid — la duración de la cita cae en la grilla de 15', () => {
+  it('ya en grilla → no cambia', () => {
+    expect(snapGrid(15)).toBe(15)
+    expect(snapGrid(30)).toBe(30)
+    expect(snapGrid(45)).toBe(45)
+    expect(snapGrid(60)).toBe(60)
+  })
+
+  it('fuera de grilla → redondea HACIA ARRIBA (nunca sub-reserva)', () => {
+    expect(snapGrid(20)).toBe(30) // el bug exacto del caso Andrea
+    expect(snapGrid(50)).toBe(60)
+    expect(snapGrid(16)).toBe(30)
+    expect(snapGrid(31)).toBe(45)
+  })
+
+  it('mínimo un bloque: 0/negativo/NaN/menor a 15 → 15', () => {
+    expect(snapGrid(0)).toBe(15)
+    expect(snapGrid(-5)).toBe(15)
+    expect(snapGrid(Number.NaN)).toBe(15)
+    expect(snapGrid(1)).toBe(15)
+    expect(snapGrid(14)).toBe(15)
+  })
+
+  it('invariante: el resultado SIEMPRE es múltiplo de 15, ≥15 y ≥ la duración pedida', () => {
+    for (const d of [1, 10, 14, 15, 16, 20, 29, 30, 44, 45, 50, 59, 60, 75, 90, 200]) {
+      const r = snapGrid(d)
+      expect(r % GRID_MIN).toBe(0)
+      expect(r).toBeGreaterThanOrEqual(15)
+      expect(r).toBeGreaterThanOrEqual(d)
     }
   })
 })
